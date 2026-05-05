@@ -1,10 +1,10 @@
 import os
 import sys
-from menu import menu_principal
+from gui import main as gui_main
 
 if __name__ == "__main__":
     try:
-        menu_principal()
+        gui_main()
     except KeyboardInterrupt:
         print("\n\nPrograma interrompido pelo usuário.")
         sys.exit(0)

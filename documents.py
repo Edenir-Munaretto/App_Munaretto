@@ -2,6 +2,7 @@ import os
 import shutil
 import webbrowser
 from datetime import datetime
+import backup_local
 
 TEMPLATES_DIR = "templates"
 
@@ -170,8 +171,9 @@ def importar_template_arquivo(caminho_origem):
 
 
 def criar_pasta_documentos():
-    """Cria pasta para armazenar documentos gerados."""
-    os.makedirs("documentos_gerados", exist_ok=True)
+    """Garante que a pasta em Documentos exista."""
+    if not os.path.exists(backup_local.PASTA_GERADOS):
+        os.makedirs(backup_local.PASTA_GERADOS)
 
 
 def gerar_documento_txt(cliente_info, tipo_documento):
@@ -387,8 +389,9 @@ def gerar_documento_pdf(cliente_info, tipo_documento):
 
 
 def abrir_no_navegador(caminho_arquivo):
-    """Abre arquivo HTML no navegador padrão."""
-    if caminho_arquivo.endswith(".html"):
-        webbrowser.open("file://" + os.path.abspath(caminho_arquivo))
+    """Abre arquivo no navegador padrão (funciona para HTML e PDFs)."""
+    caminho_abs = os.path.abspath(caminho_arquivo)
+    if os.path.exists(caminho_abs):
+        webbrowser.open("file://" + caminho_abs)
         return True
     return False
