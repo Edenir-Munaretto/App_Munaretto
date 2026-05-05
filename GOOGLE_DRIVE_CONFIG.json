@@ -1,0 +1,13 @@
+{
+  "_comment": "INSTRUÇÕES PARA CONFIGURAR GOOGLE DRIVE",
+  "passo_1": "Acesse https://console.cloud.google.com/",
+  "passo_2": "Crie um novo projeto (ou selecione um existente)",
+  "passo_3": "Ative a Google Drive API",
+  "passo_4": "Vá para 'Credenciais' no menu esquerdo",
+  "passo_5": "Clique em 'Criar Credenciais' -> 'ID de Cliente OAuth 2.0'",
+  "passo_6": "Selecione 'Aplicativo de desktop'",
+  "passo_7": "Baixe o arquivo JSON gerado",
+  "passo_8": "Renomeie para 'credentials.json' e coloque nesta pasta",
+  "passo_9": "Na primeira execução da opção 7, será aberto seu navegador para autorizar",
+  "passo_10": "Um arquivo 'token.pickle' será criado automaticamente para futuras execuções"
+}

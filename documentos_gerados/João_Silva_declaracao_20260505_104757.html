@@ -1,0 +1,79 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Declaração</title>
+    <style>
+        body {
+            font-family: 'Arial', sans-serif;
+            max-width: 900px;
+            margin: 20px auto;
+            padding: 20px;
+            background-color: #f5f5f5;
+        }
+        .container {
+            background-color: white;
+            padding: 40px;
+            border-radius: 5px;
+            box-shadow: 0 2px 5px rgba(0,0,0,0.1);
+        }
+        h1 {
+            text-align: center;
+            color: #333;
+            margin-bottom: 30px;
+        }
+        .content {
+            line-height: 1.8;
+            color: #555;
+            white-space: pre-wrap;
+            word-wrap: break-word;
+        }
+        .print-button {
+            text-align: center;
+            margin-top: 30px;
+        }
+        button {
+            background-color: #4CAF50;
+            color: white;
+            padding: 10px 30px;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 16px;
+        }
+        button:hover {
+            background-color: #45a049;
+        }
+        @media print {
+            body { background-color: white; }
+            .print-button { display: none; }
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>Declaração</h1>
+        <div class="content">
+DECLARAÇÃO
+
+Eu, João Silva, portador(a) do CPF/CNPJ 12345678901, residente e domiciliado(a) à Rua A, 123, 
+telefone 11999999999, e-mail joao@email.com, por este meio declaro que:
+
+[Inserir motivo da declaração]
+
+Declaro, ainda, que as informações aqui prestadas são verdadeiras e completas, sob as 
+penas da lei.
+
+Assinado em 05/05/2026
+
+_______________________________
+João Silva
+
+        </div>
+        <div class="print-button">
+            <button onclick="window.print()">🖨️ Imprimir</button>
+        </div>
+    </div>
+</body>
+</html>
