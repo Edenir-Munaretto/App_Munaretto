@@ -11,7 +11,8 @@ class AppMunaretto:
     def __init__(self, root):
         self.root = root
         self.root.title("Gerenciador de Contratos - App Munaretto")
-        self.root.geometry("900x700")
+        self.root.geometry("1200x900")  # Janela maior
+        self.root.minsize(1000, 800)  # Tamanho mínimo maior
         self.root.configure(bg="#f0f2f5")
 
         # Estilo moderno
@@ -207,36 +208,39 @@ class AppMunaretto:
         )
         title_label.pack(pady=(0, 20))
 
-        # Frame com scrollbar
-        canvas_frame = ttk.Frame(form_frame, style="TFrame")
-        canvas_frame.pack(fill=tk.BOTH, expand=True)
+        # Card do formulário - GARANTIR EXPANSÃO TOTAL
+        card = tk.Frame(form_frame, bg=self.card_color, relief="flat", bd=1)
+        card.pack(fill=tk.BOTH, expand=True, padx=40, pady=(20, 20))
+        card.configure(highlightbackground="#e0e0e0", highlightthickness=1)
 
-        # Canvas e scrollbar
-        canvas = tk.Canvas(canvas_frame, bg=self.card_color, highlightthickness=1, highlightbackground="#e0e0e0")
-        scrollbar = ttk.Scrollbar(canvas_frame, orient="vertical", command=canvas.yview)
-        scrollable_frame = ttk.Frame(canvas, style="TFrame")
+        # Container principal com scroll se necessário
+        v_scrollbar = ttk.Scrollbar(card, orient="vertical")
+        v_scrollbar.pack(side="right", fill="y")
 
-        scrollable_frame.bind(
-            "<Configure>",
-            lambda e: canvas.configure(scrollregion=canvas.bbox("all"))
+        canvas = tk.Canvas(
+            card,
+            bg=self.card_color,
+            highlightthickness=0,
+            yscrollcommand=v_scrollbar.set
         )
-
-        canvas.create_window((0, 0), window=scrollable_frame, anchor="nw")
-        canvas.configure(yscrollcommand=scrollbar.set)
-
-        # Bind mouse wheel para scroll
-        def _on_mousewheel(event):
-            canvas.yview_scroll(int(-1*(event.delta/120)), "units")
-
-        canvas.bind_all("<MouseWheel>", _on_mousewheel)
-
-        # Posicionar canvas e scrollbar
         canvas.pack(side="left", fill=tk.BOTH, expand=True)
-        scrollbar.pack(side="right", fill="y")
+        v_scrollbar.config(command=canvas.yview)
+
+        main_container = ttk.Frame(canvas, style="TFrame")
+        self.client_form_window = canvas.create_window((0, 0), window=main_container, anchor="nw")
+        self.client_form_canvas = canvas
+
+        def on_frame_configure(event):
+            canvas.configure(scrollregion=canvas.bbox("all"))
+        main_container.bind("<Configure>", on_frame_configure)
+
+        def on_canvas_configure(event):
+            canvas.itemconfig(self.client_form_window, width=event.width)
+        canvas.bind("<Configure>", on_canvas_configure)
 
         # Título dentro do formulário
         title_inner = ttk.Label(
-            scrollable_frame,
+            main_container,
             text="Preencha os dados do cliente",
             font=("Segoe UI", 12),
             background=self.card_color,
@@ -245,7 +249,7 @@ class AppMunaretto:
         title_inner.pack(pady=(20, 15), padx=40)
 
         # Container de 2 colunas
-        columns_frame = ttk.Frame(scrollable_frame, style="TFrame")
+        columns_frame = ttk.Frame(main_container, style="TFrame")
         columns_frame.pack(fill=tk.BOTH, expand=True, padx=40, pady=10)
 
         # Coluna esquerda
@@ -256,17 +260,19 @@ class AppMunaretto:
         right_column = ttk.Frame(columns_frame, style="TFrame")
         right_column.pack(side="right", fill=tk.BOTH, expand=True, padx=(20, 0))
 
-        # Campos do formulário - distribuídos em 2 colunas
+        # Campos do formulário - distribuídos em 2 colunas (4 campos cada)
         left_fields = [
             ("Nome completo:", "nome"),
             ("Endereço:", "endereco"),
-            ("Nota PS:", "nota_ps"),
+            ("Cidade:", "cidade"),
+            ("Valor da Obra:", "valor_da_obra"),
         ]
 
         right_fields = [
             ("CPF/CNPJ:", "cpf_cnpj"),
-            ("Cidade:", "cidade"),
             ("CEP:", "cep"),
+            ("Nota PS:", "nota_ps"),
+            ("Valor de Devolução:", "valor_de_devolucao"),
         ]
 
         self.entries = {}
@@ -274,7 +280,7 @@ class AppMunaretto:
         # Criar campos da coluna esquerda
         for label_text, field_name in left_fields:
             field_frame = ttk.Frame(left_column, style="TFrame")
-            field_frame.pack(fill=tk.X, pady=10)
+            field_frame.pack(fill=tk.X, pady=8)
 
             label = ttk.Label(
                 field_frame,
@@ -282,7 +288,7 @@ class AppMunaretto:
                 font=("Segoe UI", 10, "bold"),
                 background=self.card_color
             )
-            label.pack(anchor="w", pady=(0, 5))
+            label.pack(anchor="w", pady=(0, 3))
 
             entry = ttk.Entry(field_frame, font=("Segoe UI", 10))
             entry.pack(fill=tk.X)
@@ -291,7 +297,7 @@ class AppMunaretto:
         # Criar campos da coluna direita
         for label_text, field_name in right_fields:
             field_frame = ttk.Frame(right_column, style="TFrame")
-            field_frame.pack(fill=tk.X, pady=10)
+            field_frame.pack(fill=tk.X, pady=8)
 
             label = ttk.Label(
                 field_frame,
@@ -299,58 +305,54 @@ class AppMunaretto:
                 font=("Segoe UI", 10, "bold"),
                 background=self.card_color
             )
-            label.pack(anchor="w", pady=(0, 5))
+            label.pack(anchor="w", pady=(0, 3))
 
             entry = ttk.Entry(field_frame, font=("Segoe UI", 10))
             entry.pack(fill=tk.X)
             self.entries[field_name] = entry
 
-        # Campos em linha cheia (abaixo das 2 colunas)
-        full_fields = [
-            ("Valor da Obra:", "valor_da_obra"),
-            ("Valor de Devolução:", "valor_de_devolucao"),
-        ]
+        # SEPARADOR VISUAL ANTES DO BOTÃO
+        separator = ttk.Separator(main_container, orient="horizontal")
+        separator.pack(fill=tk.X, padx=40, pady=(20, 10))
 
-        full_frame = ttk.Frame(scrollable_frame, style="TFrame")
-        full_frame.pack(fill=tk.X, padx=40, pady=10)
+        # TEXTO INDICATIVO
+        save_label = ttk.Label(
+            main_container,
+            text="Clique no botão abaixo para salvar o cliente:",
+            font=("Segoe UI", 11, "bold"),
+            background=self.card_color,
+            foreground=self.primary_color
+        )
+        save_label.pack(pady=(10, 5))
 
-        for label_text, field_name in full_fields:
-            field_frame = ttk.Frame(full_frame, style="TFrame")
-            field_frame.pack(fill=tk.X, pady=10)
-
-            label = ttk.Label(
-                field_frame,
-                text=label_text,
-                font=("Segoe UI", 10, "bold"),
-                background=self.card_color
-            )
-            label.pack(anchor="w", pady=(0, 5))
-
-            entry = ttk.Entry(field_frame, font=("Segoe UI", 10))
-            entry.pack(fill=tk.X)
-            self.entries[field_name] = entry
-
-        # Botão salvar
-        button_frame = ttk.Frame(scrollable_frame, style="TFrame")
-        button_frame.pack(fill=tk.X, padx=40, pady=(30, 30))
+        # Botão salvar - MENOR E MAIS COMPACTO
+        button_frame = ttk.Frame(main_container, style="TFrame")
+        button_frame.pack(fill=tk.X, padx=40, pady=(10, 40))  # Menos espaço extra
 
         save_btn = tk.Button(
             button_frame,
-            text="💾 Salvar Cliente",
+            text="💾 SALVAR CLIENTE",
             command=self.save_client,
-            font=("Segoe UI", 12, "bold"),
+            font=("Segoe UI", 14, "bold"),
             bg=self.primary_color,
             fg="white",
             relief="flat",
             padx=30,
-            pady=15,
-            cursor="hand2"
+            pady=14,
+            cursor="hand2",
+            height=1
         )
-        save_btn.pack(fill=tk.X)
+        save_btn.pack(fill=tk.X, pady=(10, 10))
 
         # Hover effect
         save_btn.bind("<Enter>", lambda e: save_btn.configure(bg=self.adjust_color(self.primary_color, -20)))
         save_btn.bind("<Leave>", lambda e: save_btn.configure(bg=self.primary_color))
+
+        # Garantir visibilidade - foco automático
+        self.root.after(300, lambda: save_btn.focus_set())
+
+        # Rolar para o final do formulário se necessário
+        self.root.after(500, lambda: self.client_form_canvas.yview_moveto(1.0))
 
     def save_client(self):
         """Salva um novo cliente."""
