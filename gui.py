@@ -207,24 +207,74 @@ class AppMunaretto:
         )
         title_label.pack(pady=(0, 20))
 
-        # Card do formulário
-        card = tk.Frame(form_frame, bg=self.card_color, relief="flat", bd=1)
-        card.pack(fill=tk.BOTH, expand=True, padx=40, pady=20)
-        card.configure(highlightbackground="#e0e0e0", highlightthickness=1)
+        # Frame com scrollbar
+        canvas_frame = ttk.Frame(form_frame, style="TFrame")
+        canvas_frame.pack(fill=tk.BOTH, expand=True)
 
-        # Campos do formulário
-        fields = [
+        # Canvas e scrollbar
+        canvas = tk.Canvas(canvas_frame, bg=self.card_color, highlightthickness=1, highlightbackground="#e0e0e0")
+        scrollbar = ttk.Scrollbar(canvas_frame, orient="vertical", command=canvas.yview)
+        scrollable_frame = ttk.Frame(canvas, style="TFrame")
+
+        scrollable_frame.bind(
+            "<Configure>",
+            lambda e: canvas.configure(scrollregion=canvas.bbox("all"))
+        )
+
+        canvas.create_window((0, 0), window=scrollable_frame, anchor="nw")
+        canvas.configure(yscrollcommand=scrollbar.set)
+
+        # Bind mouse wheel para scroll
+        def _on_mousewheel(event):
+            canvas.yview_scroll(int(-1*(event.delta/120)), "units")
+
+        canvas.bind_all("<MouseWheel>", _on_mousewheel)
+
+        # Posicionar canvas e scrollbar
+        canvas.pack(side="left", fill=tk.BOTH, expand=True)
+        scrollbar.pack(side="right", fill="y")
+
+        # Título dentro do formulário
+        title_inner = ttk.Label(
+            scrollable_frame,
+            text="Preencha os dados do cliente",
+            font=("Segoe UI", 12),
+            background=self.card_color,
+            foreground="#666666"
+        )
+        title_inner.pack(pady=(20, 15), padx=40)
+
+        # Container de 2 colunas
+        columns_frame = ttk.Frame(scrollable_frame, style="TFrame")
+        columns_frame.pack(fill=tk.BOTH, expand=True, padx=40, pady=10)
+
+        # Coluna esquerda
+        left_column = ttk.Frame(columns_frame, style="TFrame")
+        left_column.pack(side="left", fill=tk.BOTH, expand=True, padx=(0, 20))
+
+        # Coluna direita
+        right_column = ttk.Frame(columns_frame, style="TFrame")
+        right_column.pack(side="right", fill=tk.BOTH, expand=True, padx=(20, 0))
+
+        # Campos do formulário - distribuídos em 2 colunas
+        left_fields = [
             ("Nome completo:", "nome"),
-            ("CPF/CNPJ:", "cpf_cnpj"),
             ("Endereço:", "endereco"),
-            ("Telefone:", "telefone"),
-            ("E-mail:", "email")
+            ("Nota PS:", "nota_ps"),
+        ]
+
+        right_fields = [
+            ("CPF/CNPJ:", "cpf_cnpj"),
+            ("Cidade:", "cidade"),
+            ("CEP:", "cep"),
         ]
 
         self.entries = {}
-        for label_text, field_name in fields:
-            field_frame = ttk.Frame(card, style="TFrame")
-            field_frame.pack(fill=tk.X, padx=30, pady=5)
+
+        # Criar campos da coluna esquerda
+        for label_text, field_name in left_fields:
+            field_frame = ttk.Frame(left_column, style="TFrame")
+            field_frame.pack(fill=tk.X, pady=10)
 
             label = ttk.Label(
                 field_frame,
@@ -235,12 +285,57 @@ class AppMunaretto:
             label.pack(anchor="w", pady=(0, 5))
 
             entry = ttk.Entry(field_frame, font=("Segoe UI", 10))
-            entry.pack(fill=tk.X, pady=(0, 10))
+            entry.pack(fill=tk.X)
+            self.entries[field_name] = entry
+
+        # Criar campos da coluna direita
+        for label_text, field_name in right_fields:
+            field_frame = ttk.Frame(right_column, style="TFrame")
+            field_frame.pack(fill=tk.X, pady=10)
+
+            label = ttk.Label(
+                field_frame,
+                text=label_text,
+                font=("Segoe UI", 10, "bold"),
+                background=self.card_color
+            )
+            label.pack(anchor="w", pady=(0, 5))
+
+            entry = ttk.Entry(field_frame, font=("Segoe UI", 10))
+            entry.pack(fill=tk.X)
+            self.entries[field_name] = entry
+
+        # Campos em linha cheia (abaixo das 2 colunas)
+        full_fields = [
+            ("Valor da Obra:", "valor_da_obra"),
+            ("Valor de Devolução:", "valor_de_devolucao"),
+        ]
+
+        full_frame = ttk.Frame(scrollable_frame, style="TFrame")
+        full_frame.pack(fill=tk.X, padx=40, pady=10)
+
+        for label_text, field_name in full_fields:
+            field_frame = ttk.Frame(full_frame, style="TFrame")
+            field_frame.pack(fill=tk.X, pady=10)
+
+            label = ttk.Label(
+                field_frame,
+                text=label_text,
+                font=("Segoe UI", 10, "bold"),
+                background=self.card_color
+            )
+            label.pack(anchor="w", pady=(0, 5))
+
+            entry = ttk.Entry(field_frame, font=("Segoe UI", 10))
+            entry.pack(fill=tk.X)
             self.entries[field_name] = entry
 
         # Botão salvar
+        button_frame = ttk.Frame(scrollable_frame, style="TFrame")
+        button_frame.pack(fill=tk.X, padx=40, pady=(30, 30))
+
         save_btn = tk.Button(
-            card,
+            button_frame,
             text="💾 Salvar Cliente",
             command=self.save_client,
             font=("Segoe UI", 12, "bold"),
@@ -251,7 +346,7 @@ class AppMunaretto:
             pady=15,
             cursor="hand2"
         )
-        save_btn.pack(pady=30)
+        save_btn.pack(fill=tk.X)
 
         # Hover effect
         save_btn.bind("<Enter>", lambda e: save_btn.configure(bg=self.adjust_color(self.primary_color, -20)))
@@ -259,10 +354,13 @@ class AppMunaretto:
 
     def save_client(self):
         """Salva um novo cliente."""
+        # Campos obrigatórios
+        required_fields = ['nome', 'cpf_cnpj', 'endereco']
         data = {}
+
         for field, entry in self.entries.items():
             value = entry.get().strip()
-            if not value:
+            if field in required_fields and not value:
                 messagebox.showerror("Erro", f"Campo '{field}' é obrigatório!")
                 return
             data[field] = value
@@ -302,7 +400,7 @@ class AppMunaretto:
 
         self.clients_tree = ttk.Treeview(
             tree_frame,
-            columns=("ID", "Nome", "CPF/CNPJ", "Telefone", "Email"),
+            columns=("ID", "Nome", "CPF/CNPJ", "Cidade", "CEP", "Nota PS"),
             show="headings",
             yscrollcommand=v_scrollbar.set,
             xscrollcommand=h_scrollbar.set
@@ -314,10 +412,11 @@ class AppMunaretto:
         # Configurar colunas
         columns = [
             ("ID", 50),
-            ("Nome", 200),
-            ("CPF/CNPJ", 150),
-            ("Telefone", 120),
-            ("Email", 200)
+            ("Nome", 180),
+            ("CPF/CNPJ", 130),
+            ("Cidade", 120),
+            ("CEP", 100),
+            ("Nota PS", 100)
         ]
 
         for col, width in columns:
@@ -376,7 +475,8 @@ class AppMunaretto:
             # Carregar clientes
             clients = database.listar_clientes()
             for client in clients:
-                self.clients_tree.insert("", tk.END, values=client[:5])
+                # Indices: [0]=id, [1]=nome, [2]=cpf_cnpj, [3]=endereco, [4]=cidade, [5]=cep, [6]=nota_ps
+                self.clients_tree.insert("", tk.END, values=(client[0], client[1], client[2], client[4], client[5], client[6]))
 
     def edit_selected_client(self):
         """Edita o cliente selecionado."""
@@ -386,40 +486,70 @@ class AppMunaretto:
             return
 
         item = self.clients_tree.item(selection[0])
-        client_data = item['values']
+        client_values = item['values']
+        # client_values[0]=id, [1]=nome, [2]=cpf, [3]=nota_ps, [4]=valor_obra, [5]=valor_devolucao
+        client_id = client_values[0]
+        
+        # Buscar dados completos do cliente no banco
+        full_client = database.buscar_cliente_por_id(client_id)
 
         # Criar diálogo de edição
         edit_dialog = tk.Toplevel(self.root)
         edit_dialog.title("Editar Cliente")
-        edit_dialog.geometry("500x400")
+        edit_dialog.geometry("500x600")
         edit_dialog.configure(bg=self.bg_color)
         edit_dialog.transient(self.root)
         edit_dialog.grab_set()
 
-        # Campos de edição
-        fields = ["Nome", "CPF/CNPJ", "Endereço", "Telefone", "E-mail"]
+        # Campos de edição mapeados corretamente
+        # Indices: [0]=id, [1]=nome, [2]=cpf_cnpj, [3]=endereco, [4]=cidade, [5]=cep, [6]=nota_ps, [7]=valor_obra, [8]=valor_devolucao
+        field_configs = [
+            ("Nome", "nome", full_client[1]),
+            ("CPF/CNPJ", "cpf_cnpj", full_client[2]),
+            ("Endereço", "endereco", full_client[3]),
+            ("Cidade", "cidade", full_client[4] if full_client[4] else ""),
+            ("CEP", "cep", full_client[5] if full_client[5] else ""),
+            ("Nota PS", "nota_ps", full_client[6] if full_client[6] else ""),
+            ("Valor da Obra", "valor_da_obra", full_client[7] if full_client[7] else ""),
+            ("Valor de Devolução", "valor_de_devolucao", full_client[8] if full_client[8] else "")
+        ]
         entries = {}
 
         ttk.Label(edit_dialog, text="Editar Cliente", font=("Segoe UI", 16, "bold")).pack(pady=20)
 
-        for i, field in enumerate(fields):
+        for display_name, field_key, value in field_configs:
             frame = ttk.Frame(edit_dialog)
             frame.pack(fill=tk.X, padx=30, pady=5)
 
-            ttk.Label(frame, text=f"{field}:").pack(anchor="w")
+            ttk.Label(frame, text=f"{display_name}:").pack(anchor="w")
             entry = ttk.Entry(frame, font=("Segoe UI", 10))
-            entry.insert(0, client_data[i+1])  # +1 porque ID é primeiro
+            entry.insert(0, str(value))
             entry.pack(fill=tk.X, pady=(0, 10))
-            entries[field.lower().replace(" ", "_")] = entry
+            entries[field_key] = entry
 
         def save_changes():
-            data = {field: entry.get().strip() for field, entry in entries.items()}
-            if database.atualizar_cliente(client_data[0], **data):
-                messagebox.showinfo("Sucesso", "Cliente atualizado!")
-                edit_dialog.destroy()
-                self.load_clients()
-            else:
-                messagebox.showerror("Erro", "Falha ao atualizar cliente!")
+            try:
+                nome = entries["nome"].get().strip()
+                cpf_cnpj = entries["cpf_cnpj"].get().strip()
+                endereco = entries["endereco"].get().strip()
+                cidade = entries["cidade"].get().strip()
+                cep = entries["cep"].get().strip()
+                nota_ps = entries["nota_ps"].get().strip()
+                valor_da_obra = entries["valor_da_obra"].get().strip()
+                valor_de_devolucao = entries["valor_de_devolucao"].get().strip()
+                
+                if not all([nome, cpf_cnpj, endereco]):
+                    messagebox.showerror("Erro", "Nome, CPF/CNPJ e Endereço são obrigatórios!")
+                    return
+                
+                if database.atualizar_cliente(client_id, nome, cpf_cnpj, endereco, cidade, cep, nota_ps, valor_da_obra, valor_de_devolucao):
+                    messagebox.showinfo("Sucesso", "Cliente atualizado!")
+                    edit_dialog.destroy()
+                    self.load_clients()
+                else:
+                    messagebox.showerror("Erro", "Falha ao atualizar cliente!")
+            except Exception as e:
+                messagebox.showerror("Erro", f"Erro ao salvar: {str(e)}")
 
         ttk.Button(edit_dialog, text="Salvar", command=save_changes).pack(pady=20)
 

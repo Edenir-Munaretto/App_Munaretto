@@ -18,8 +18,11 @@ def inicializar_banco():
             nome TEXT NOT NULL,
             cpf_cnpj TEXT NOT NULL UNIQUE,
             endereco TEXT NOT NULL,
-            telefone TEXT NOT NULL,
-            email TEXT NOT NULL,
+            cidade TEXT,
+            cep TEXT,
+            nota_ps TEXT,
+            valor_da_obra TEXT,
+            valor_de_devolucao TEXT,
             data_cadastro TEXT DEFAULT CURRENT_TIMESTAMP,
             ativo INTEGER DEFAULT 1
         )
@@ -44,17 +47,17 @@ def inicializar_banco():
     conn.close()
 
 
-def adicionar_cliente(nome, cpf_cnpj, endereco, telefone, email):
+def adicionar_cliente(nome, cpf_cnpj, endereco, cidade, cep, nota_ps, valor_da_obra, valor_de_devolucao):
     """Adiciona um novo cliente ao banco de dados."""
     try:
         conn = sqlite3.connect(DATABASE_FILE)
         cursor = conn.cursor()
         cursor.execute(
             """
-            INSERT INTO clientes (nome, cpf_cnpj, endereco, telefone, email)
-            VALUES (?, ?, ?, ?, ?)
+            INSERT INTO clientes (nome, cpf_cnpj, endereco, cidade, cep, nota_ps, valor_da_obra, valor_de_devolucao)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
         """,
-            (nome, cpf_cnpj, endereco, telefone, email),
+            (nome, cpf_cnpj, endereco, cidade, cep, nota_ps, valor_da_obra, valor_de_devolucao)
         )
         conn.commit()
         cliente_id = cursor.lastrowid
@@ -84,7 +87,7 @@ def buscar_cliente_por_id(cliente_id):
     return cliente
 
 
-def atualizar_cliente(cliente_id, nome, cpf_cnpj, endereco, telefone, email):
+def atualizar_cliente(cliente_id, nome, cpf_cnpj, endereco, cidade, cep, nota_ps, valor_da_obra, valor_de_devolucao):
     """Atualiza dados de um cliente."""
     try:
         conn = sqlite3.connect(DATABASE_FILE)
@@ -92,10 +95,10 @@ def atualizar_cliente(cliente_id, nome, cpf_cnpj, endereco, telefone, email):
         cursor.execute(
             """
             UPDATE clientes
-            SET nome = ?, cpf_cnpj = ?, endereco = ?, telefone = ?, email = ?
+            SET nome = ?, cpf_cnpj = ?, endereco = ?, cidade = ?, cep = ?, nota_ps = ?, valor_da_obra = ?, valor_de_devolucao = ?
             WHERE id = ?
         """,
-            (nome, cpf_cnpj, endereco, telefone, email, cliente_id),
+            (nome, cpf_cnpj, endereco, cidade, cep, nota_ps, valor_da_obra, valor_de_devolucao, cliente_id)
         )
         conn.commit()
         conn.close()
@@ -157,9 +160,10 @@ def exportar_banco_json():
                 "nome": cliente[1],
                 "cpf_cnpj": cliente[2],
                 "endereco": cliente[3],
-                "telefone": cliente[4],
-                "email": cliente[5],
-                "data_cadastro": cliente[6],
+                "nota_ps": cliente[4],
+                "valor_da_obra": cliente[5],
+                "valor_de_devolucao": cliente[6],
+                "data_cadastro": cliente[7],
             }
         )
     return dados

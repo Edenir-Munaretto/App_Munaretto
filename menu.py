@@ -20,8 +20,9 @@ def menu_cadastro_clientes():
         "nome": entrada_nao_vazia("Nome do cliente: "),
         "cpf_cnpj": entrada_nao_vazia("CPF/CNPJ: "),
         "endereco": entrada_nao_vazia("Endereço: "),
-        "telefone": entrada_nao_vazia("Telefone: "),
-        "email": entrada_nao_vazia("E-mail: ")
+        "nota PS": entrada_nao_vazia("Nota PS: "),
+        "valor da obra": entrada_nao_vazia("Valor da obra: "),
+        "valor devolução": entrada_nao_vazia("Valor de devolução: "),
     }
 
     cliente_id = database.adicionar_cliente(**dados)
@@ -47,9 +48,9 @@ def gerar_documento_menu():
     cliente = database.buscar_cliente_por_id(c_id)
 
     # Seleção de Formato
-    print("\n1. HTML (Navegador)\n2. Word (.docx)\n3. Excel (.xlsx)\n4. PDF (.pdf)\n5. TXT (.txt)")
+    print("\n1. HTML (Navegador)\n2. Word (.docx)\n3. PDF (.pdf)")
     formato_opc = entrada_nao_vazia("Escolha o formato: ")
-    formatos = {"1": "html", "2": "word", "3": "excel", "4": "pdf", "5": "txt"}
+    formatos = {"1": "html", "2": "word", "3": "pdf",}
     formato = formatos.get(formato_opc, "html")
 
     print("⏳ Gerando e salvando em 'Meus Documentos'...")
@@ -66,8 +67,7 @@ def gerar_documento_menu():
             caminho = documents.gerar_documento_word(cliente, "contrato")
         elif formato == "pdf":
             caminho = documents.gerar_documento_pdf(cliente, "contrato")
-        elif formato == "txt":
-            caminho = documents.gerar_documento_txt(cliente, "contrato")
+        
 
         if caminho:
             print(f"✅ Sucesso! Arquivo em: {caminho}")
