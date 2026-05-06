@@ -21,6 +21,8 @@ cliente_id = database.adicionar_cliente(
     nome='João Silva',
     cpf_cnpj='12345678901',
     endereco='Rua A, 123',
+    cidade='São Paulo',
+    cep='01234567',
     nota_ps='NS-001',
     valor_da_obra='5000.00',
     valor_de_devolucao='500.00'
@@ -37,9 +39,11 @@ if clientes:
     print(f"   Nome: {cliente[1]}")
     print(f"   CPF/CNPJ: {cliente[2]}")
     print(f"   Endereço: {cliente[3]}")
-    print(f"   Nota PS: {cliente[4]}")
-    print(f"   Valor da Obra: {cliente[5]}")
-    print(f"   Valor de Devolução: {cliente[6]}")
+    print(f"   Cidade: {cliente[4]}")
+    print(f"   CEP: {cliente[5]}")
+    print(f"   Nota PS: {cliente[6]}")
+    print(f"   Valor da Obra: {cliente[7]}")
+    print(f"   Valor de Devolução: {cliente[8]}")
 
 # 4. Testar atualização
 print("\n4️⃣ Atualizando cliente...")
@@ -48,6 +52,8 @@ sucesso = database.atualizar_cliente(
     nome='João Silva Atualizado',
     cpf_cnpj='12345678901',
     endereco='Rua B, 456',
+    cidade='Rio de Janeiro',
+    cep='20001000',
     nota_ps='NS-002',
     valor_da_obra='6000.00',
     valor_de_devolucao='600.00'
@@ -61,8 +67,10 @@ if clientes:
     cliente = clientes[0]
     print(f"   Nome: {cliente[1]}")
     print(f"   Endereço: {cliente[3]}")
-    print(f"   Nota PS: {cliente[4]}")
-    print(f"   Valor da Obra: {cliente[5]}")
+    print(f"   Cidade: {cliente[4]}")
+    print(f"   CEP: {cliente[5]}")
+    print(f"   Nota PS: {cliente[6]}")
+    print(f"   Valor da Obra: {cliente[7]}")
 
 print("\n" + "=" * 60)
 print("✅ TODAS AS CORREÇÕES ESTÃO FUNCIONANDO!")

@@ -193,36 +193,32 @@ class AppMunaretto:
             text_label.pack()
 
     def show_client_form(self):
-        """Mostra formulário de cadastro de cliente."""
+        """Mostra formulário de cadastro de cliente otimizado."""
         self.clear_content()
 
+        # Container Principal
         form_frame = ttk.Frame(self.content_frame, style="TFrame")
-        form_frame.pack(fill=tk.BOTH, expand=True, padx=20, pady=20)
+        form_frame.pack(fill=tk.BOTH, expand=True, padx=30, pady=20)
 
-        # Título
-        title_label = ttk.Label(
-            form_frame,
-            text="👤 Cadastrar Novo Cliente",
-            font=("Segoe UI", 18, "bold"),
-            foreground=self.primary_color
-        )
-        title_label.pack(pady=(0, 20))
+        # Cabeçalho
+        header_frame = ttk.Frame(form_frame, style="TFrame")
+        header_frame.pack(fill=tk.X, pady=(0, 20))
+    
+        ttk.Label(
+        header_frame,
+        text="👤 Cadastrar Novo Cliente",
+        font=("Segoe UI", 20, "bold"),
+        foreground=self.primary_color
+        ).pack(side="left")
 
-        # Card do formulário - GARANTIR EXPANSÃO TOTAL
-        card = tk.Frame(form_frame, bg=self.card_color, relief="flat", bd=1)
-        card.pack(fill=tk.BOTH, expand=True, padx=40, pady=(20, 20))
-        card.configure(highlightbackground="#e0e0e0", highlightthickness=1)
+        # Card com Scroll
+        card = tk.Frame(form_frame, bg=self.card_color, highlightbackground="#e0e0e0", highlightthickness=1)
+        card.pack(fill=tk.BOTH, expand=True)
 
-        # Container principal com scroll se necessário
         v_scrollbar = ttk.Scrollbar(card, orient="vertical")
         v_scrollbar.pack(side="right", fill="y")
 
-        canvas = tk.Canvas(
-            card,
-            bg=self.card_color,
-            highlightthickness=0,
-            yscrollcommand=v_scrollbar.set
-        )
+        canvas = tk.Canvas(card, bg=self.card_color, highlightthickness=0, yscrollcommand=v_scrollbar.set)
         canvas.pack(side="left", fill=tk.BOTH, expand=True)
         v_scrollbar.config(command=canvas.yview)
 
@@ -230,129 +226,78 @@ class AppMunaretto:
         self.client_form_window = canvas.create_window((0, 0), window=main_container, anchor="nw")
         self.client_form_canvas = canvas
 
-        def on_frame_configure(event):
-            canvas.configure(scrollregion=canvas.bbox("all"))
-        main_container.bind("<Configure>", on_frame_configure)
-
-        def on_canvas_configure(event):
-            canvas.itemconfig(self.client_form_window, width=event.width)
-        canvas.bind("<Configure>", on_canvas_configure)
-
-        # Título dentro do formulário
-        title_inner = ttk.Label(
-            main_container,
-            text="Preencha os dados do cliente",
-            font=("Segoe UI", 12),
-            background=self.card_color,
-            foreground="#666666"
-        )
-        title_inner.pack(pady=(20, 15), padx=40)
-
-        # Container de 2 colunas
-        columns_frame = ttk.Frame(main_container, style="TFrame")
-        columns_frame.pack(fill=tk.BOTH, expand=True, padx=40, pady=10)
-
-        # Coluna esquerda
-        left_column = ttk.Frame(columns_frame, style="TFrame")
-        left_column.pack(side="left", fill=tk.BOTH, expand=True, padx=(0, 20))
-
-        # Coluna direita
-        right_column = ttk.Frame(columns_frame, style="TFrame")
-        right_column.pack(side="right", fill=tk.BOTH, expand=True, padx=(20, 0))
-
-        # Campos do formulário - distribuídos em 2 colunas (4 campos cada)
-        left_fields = [
-            ("Nome completo:", "nome"),
-            ("Endereço:", "endereco"),
-            ("Cidade:", "cidade"),
-            ("Valor da Obra:", "valor_da_obra"),
-        ]
-
-        right_fields = [
-            ("CPF/CNPJ:", "cpf_cnpj"),
-            ("CEP:", "cep"),
-            ("Nota PS:", "nota_ps"),
-            ("Valor de Devolução:", "valor_de_devolucao"),
+        # --- Organização dos Campos ---
+        sections = [
+            ("Informações Principais", [
+                ("Nome completo:", "nome", 0, 0),
+                ("CPF/CNPJ:", "cpf_cnpj", 0, 1),
+                ("Endereço:", "endereco", 1, 0),
+                ("Cidade:", "cidade", 1, 1),
+                ("CEP:", "cep", 2, 0),
+                ("Nota PS:", "nota_ps", 2, 1),
+            ]),
+            ("Financeiro e Obra", [
+                ("Valor da Obra:", "valor_da_obra", 0, 0),
+                ("Valor de Devolução:", "valor_de_devolucao", 0, 1),
+            ])
         ]
 
         self.entries = {}
 
-        # Criar campos da coluna esquerda
-        for label_text, field_name in left_fields:
-            field_frame = ttk.Frame(left_column, style="TFrame")
-            field_frame.pack(fill=tk.X, pady=8)
+        for section_title, fields in sections:
+            # Frame da Seção
+            sec_frame = ttk.Frame(main_container, style="TFrame")
+            sec_frame.pack(fill=tk.X, padx=40, pady=(20, 0))
 
-            label = ttk.Label(
-                field_frame,
-                text=label_text,
-                font=("Segoe UI", 10, "bold"),
-                background=self.card_color
-            )
-            label.pack(anchor="w", pady=(0, 3))
+            ttk.Label(sec_frame, text=section_title, font=("Segoe UI", 12, "bold"),
+                      foreground="#555").pack(anchor="w", pady=(0, 10))
+            
+            # Grid para os campos
+            grid_frame = ttk.Frame(sec_frame, style="TFrame")
+            grid_frame.pack(fill=tk.X)
+            grid_frame.columnconfigure((0, 1), weight=1, uniform="group1")
 
-            entry = ttk.Entry(field_frame, font=("Segoe UI", 10))
-            entry.pack(fill=tk.X)
-            self.entries[field_name] = entry
+            for label_text, field_name, row, col in fields:
+                f_container = ttk.Frame(grid_frame, style="TFrame")
+                f_container.grid(row=row, column=col, padx=(0 if col==0 else 15, 15 if col==0 else 0), pady=8, sticky="ew")
 
-        # Criar campos da coluna direita
-        for label_text, field_name in right_fields:
-            field_frame = ttk.Frame(right_column, style="TFrame")
-            field_frame.pack(fill=tk.X, pady=8)
+                ttk.Label(f_container, text=label_text, font=("Segoe UI", 9, "bold")).pack(anchor="w")
+                
+                entry = ttk.Entry(f_container, font=("Segoe UI", 11))
+                entry.pack(fill=tk.X, ipady=4, pady=(4, 0))
+                self.entries[field_name] = entry
 
-            label = ttk.Label(
-                field_frame,
-                text=label_text,
-                font=("Segoe UI", 10, "bold"),
-                background=self.card_color
-            )
-            label.pack(anchor="w", pady=(0, 3))
+        # --- Rodapé e Botão ---
+        footer_frame = ttk.Frame(main_container, style="TFrame")
+        footer_frame.pack(fill=tk.X, padx=40, pady=40)
 
-            entry = ttk.Entry(field_frame, font=("Segoe UI", 10))
-            entry.pack(fill=tk.X)
-            self.entries[field_name] = entry
-
-        # SEPARADOR VISUAL ANTES DO BOTÃO
-        separator = ttk.Separator(main_container, orient="horizontal")
-        separator.pack(fill=tk.X, padx=40, pady=(20, 10))
-
-        # TEXTO INDICATIVO
-        save_label = ttk.Label(
-            main_container,
-            text="Clique no botão abaixo para salvar o cliente:",
-            font=("Segoe UI", 11, "bold"),
-            background=self.card_color,
-            foreground=self.primary_color
-        )
-        save_label.pack(pady=(10, 5))
-
-        # Botão salvar - MENOR E MAIS COMPACTO
-        button_frame = ttk.Frame(main_container, style="TFrame")
-        button_frame.pack(fill=tk.X, padx=40, pady=(10, 40))  # Menos espaço extra
+        ttk.Separator(footer_frame, orient="horizontal").pack(fill=tk.X, pady=(0, 20))
 
         save_btn = tk.Button(
-            button_frame,
-            text="💾 SALVAR CLIENTE",
+            footer_frame,
+            text="💾 Salvar Cadastro de Cliente",
             command=self.save_client,
-            font=("Segoe UI", 14, "bold"),
+            font=("Segoe UI", 12, "bold"),
             bg=self.primary_color,
             fg="white",
             relief="flat",
-            padx=30,
-            pady=14,
+            height=2,
             cursor="hand2",
-            height=1
+            activebackground=self.adjust_color(self.primary_color, -30),
+            activeforeground="white"
         )
-        save_btn.pack(fill=tk.X, pady=(10, 10))
+        save_btn.pack(fill=tk.X)
 
+        # Bindings de Scroll e Resize
+        main_container.bind("<Configure>", lambda e: canvas.configure(scrollregion=canvas.bbox("all")))
+        canvas.bind("<Configure>", lambda e: canvas.itemconfig(self.client_form_window, width=e.width))
+        
         # Hover effect
         save_btn.bind("<Enter>", lambda e: save_btn.configure(bg=self.adjust_color(self.primary_color, -20)))
         save_btn.bind("<Leave>", lambda e: save_btn.configure(bg=self.primary_color))
 
-        # Garantir visibilidade - foco automático
-        self.root.after(300, lambda: save_btn.focus_set())
-
-        # Rolar para o final do formulário se necessário
-        self.root.after(500, lambda: self.client_form_canvas.yview_moveto(1.0))
+        # Auto-focus inicial no primeiro campo
+        self.root.after(400, lambda: self.entries["nome"].focus_set())
 
     def save_client(self):
         """Salva um novo cliente."""
@@ -489,7 +434,7 @@ class AppMunaretto:
 
         item = self.clients_tree.item(selection[0])
         client_values = item['values']
-        # client_values[0]=id, [1]=nome, [2]=cpf, [3]=nota_ps, [4]=valor_obra, [5]=valor_devolucao
+        # client_values[0]=id
         client_id = client_values[0]
         
         # Buscar dados completos do cliente no banco
@@ -504,7 +449,7 @@ class AppMunaretto:
         edit_dialog.grab_set()
 
         # Campos de edição mapeados corretamente
-        # Indices: [0]=id, [1]=nome, [2]=cpf_cnpj, [3]=endereco, [4]=cidade, [5]=cep, [6]=nota_ps, [7]=valor_obra, [8]=valor_devolucao
+        # Indices: [0]=id, [1]=nome, [2]=cpf_cnpj, [3]=endereco, [4]=cidade, [5]=cep, [6]=nota_ps, [7]=valor_da_obra, [8]=valor_de_devolucao
         field_configs = [
             ("Nome", "nome", full_client[1]),
             ("CPF/CNPJ", "cpf_cnpj", full_client[2]),

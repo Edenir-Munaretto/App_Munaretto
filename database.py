@@ -43,11 +43,13 @@ def inicializar_banco():
     """
     )
 
+
+
     conn.commit()
     conn.close()
 
 
-def adicionar_cliente(nome, cpf_cnpj, endereco, cidade, cep, nota_ps, valor_da_obra, valor_de_devolucao):
+def adicionar_cliente(nome, cpf_cnpj, endereco, cidade=None, cep=None, nota_ps=None, valor_da_obra=None, valor_de_devolucao=None):
     """Adiciona um novo cliente ao banco de dados."""
     try:
         conn = sqlite3.connect(DATABASE_FILE)
@@ -71,7 +73,10 @@ def listar_clientes():
     """Retorna lista de todos os clientes."""
     conn = sqlite3.connect(DATABASE_FILE)
     cursor = conn.cursor()
-    cursor.execute("SELECT * FROM clientes WHERE ativo = 1 ORDER BY nome")
+    cursor.execute(
+        "SELECT id, nome, cpf_cnpj, endereco, cidade, cep, nota_ps, valor_da_obra, valor_de_devolucao, data_cadastro, ativo "
+        "FROM clientes WHERE ativo = 1 ORDER BY nome"
+    )
     clientes = cursor.fetchall()
     conn.close()
     return clientes
@@ -81,13 +86,17 @@ def buscar_cliente_por_id(cliente_id):
     """Busca um cliente específico pelo ID."""
     conn = sqlite3.connect(DATABASE_FILE)
     cursor = conn.cursor()
-    cursor.execute("SELECT * FROM clientes WHERE id = ?", (cliente_id,))
+    cursor.execute(
+        "SELECT id, nome, cpf_cnpj, endereco, cidade, cep, nota_ps, valor_da_obra, valor_de_devolucao, data_cadastro, ativo "
+        "FROM clientes WHERE id = ?",
+        (cliente_id,),
+    )
     cliente = cursor.fetchone()
     conn.close()
     return cliente
 
 
-def atualizar_cliente(cliente_id, nome, cpf_cnpj, endereco, cidade, cep, nota_ps, valor_da_obra, valor_de_devolucao):
+def atualizar_cliente(cliente_id, nome, cpf_cnpj, endereco, cidade=None, cep=None, nota_ps=None, valor_da_obra=None, valor_de_devolucao=None):
     """Atualiza dados de um cliente."""
     try:
         conn = sqlite3.connect(DATABASE_FILE)
@@ -160,10 +169,13 @@ def exportar_banco_json():
                 "nome": cliente[1],
                 "cpf_cnpj": cliente[2],
                 "endereco": cliente[3],
-                "nota_ps": cliente[4],
-                "valor_da_obra": cliente[5],
-                "valor_de_devolucao": cliente[6],
-                "data_cadastro": cliente[7],
+                "cidade": cliente[4],
+                "cep": cliente[5],
+                "nota_ps": cliente[6],
+                "valor_da_obra": cliente[7],
+                "valor_de_devolucao": cliente[8],
+                "data_cadastro": cliente[9],
+                "ativo": cliente[10],
             }
         )
     return dados

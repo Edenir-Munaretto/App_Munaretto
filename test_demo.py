@@ -13,13 +13,13 @@ def criar_dados_teste():
     
     # Limpar clientes anteriores se existirem
     clientes_teste = [
-        ("João Silva", "12345678901", "Rua A, 123", "11999999999", "joao@email.com"),
-        ("Maria Santos", "98765432109", "Rua B, 456", "11988888888", "maria@email.com"),
-        ("Tech Solutions", "12345678901234", "Av. Principal, 789", "1133333333", "contato@tech.com"),
+        ("João Silva", "12345678901", "Rua A, 123", "São Paulo", "01234567"),
+        ("Maria Santos", "98765432109", "Rua B, 456", "Rio de Janeiro", "20001000"),
+        ("Tech Solutions", "12345678901234", "Av. Principal, 789", "Belo Horizonte", "30001000"),
     ]
     
-    for nome, cpf_cnpj, endereco, telefone, email in clientes_teste:
-        cliente_id = database.adicionar_cliente(nome, cpf_cnpj, endereco, telefone, email)
+    for nome, cpf_cnpj, endereco, cidade, cep in clientes_teste:
+        cliente_id = database.adicionar_cliente(nome, cpf_cnpj, endereco, cidade, cep)
         if cliente_id:
             print(f"✅ Cliente criado: {nome} (ID: {cliente_id})")
 

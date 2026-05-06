@@ -2,7 +2,6 @@ import os
 import shutil
 import webbrowser
 from datetime import datetime
-import backup_local
 
 TEMPLATES_DIR = "templates"
 
@@ -15,8 +14,6 @@ TEMPLATES = {
 CONTRATANTE: {nome}
 CPF/CNPJ: {cpf_cnpj}
 Endereço: {endereco}
-Telefone: {telefone}
-E-mail: {email}
 
 CONTRATADO: [Inserir dados do contratado]
 
@@ -56,7 +53,7 @@ Assinatura Contratante                 Assinatura Contratado
         "template": """DECLARAÇÃO
 
 Eu, {nome}, portador(a) do CPF/CNPJ {cpf_cnpj}, residente e domiciliado(a) à {endereco}, 
-telefone {telefone}, e-mail {email}, por este meio declaro que:
+por este meio declaro que:
 
 [Inserir motivo da declaração]
 
@@ -77,8 +74,6 @@ Recebemos de {nome}, portador(a) do CPF/CNPJ {cpf_cnpj}, a quantia de R$ [inseri
 referente a [inserir motivo do pagamento].
 
 Endereço: {endereco}
-Telefone: {telefone}
-E-mail: {email}
 
 Data: {data}
 
@@ -96,8 +91,6 @@ CLIENTE:
 Nome: {nome}
 CPF/CNPJ: {cpf_cnpj}
 Endereço: {endereco}
-Telefone: {telefone}
-E-mail: {email}
 
 PROPOSTA:
 Segue a proposta de serviços/produtos conforme solicitação:
@@ -171,9 +164,9 @@ def importar_template_arquivo(caminho_origem):
 
 
 def criar_pasta_documentos():
-    """Garante que a pasta em Documentos exista."""
-    if not os.path.exists(backup_local.PASTA_GERADOS):
-        os.makedirs(backup_local.PASTA_GERADOS)
+    """Garante que a pasta de documentos gerados exista."""
+    if not os.path.exists("documentos_gerados"):
+        os.makedirs("documentos_gerados")
 
 
 def gerar_documento_txt(cliente_info, tipo_documento):
@@ -191,8 +184,6 @@ def gerar_documento_txt(cliente_info, tipo_documento):
         nome=cliente_info[1],
         cpf_cnpj=cliente_info[2],
         endereco=cliente_info[3],
-        telefone=cliente_info[4],
-        email=cliente_info[5],
         data=data_atual,
     )
 
@@ -220,8 +211,6 @@ def gerar_documento_html(cliente_info, tipo_documento):
         nome=cliente_info[1],
         cpf_cnpj=cliente_info[2],
         endereco=cliente_info[3],
-        telefone=cliente_info[4],
-        email=cliente_info[5],
         data=data_atual,
     )
 
@@ -321,8 +310,6 @@ def gerar_documento_word(cliente_info, tipo_documento):
             nome=cliente_info[1],
             cpf_cnpj=cliente_info[2],
             endereco=cliente_info[3],
-            telefone=cliente_info[4],
-            email=cliente_info[5],
             data=data_atual,
         )
 
@@ -364,8 +351,6 @@ def gerar_documento_pdf(cliente_info, tipo_documento):
             nome=cliente_info[1],
             cpf_cnpj=cliente_info[2],
             endereco=cliente_info[3],
-            telefone=cliente_info[4],
-            email=cliente_info[5],
             data=data_atual,
         )
 
