@@ -5,6 +5,7 @@ from datetime import datetime
 from docxtpl import DocxTemplate
 from fpdf import FPDF  # Certifique-se de que é a fpdf2
 from docx2pdf import convert
+from num2words import num2words
 
 # 1. CONFIGURAÇÕES INICIAIS
 TEMPLATES_DIR = "templates"
@@ -29,6 +30,18 @@ def get_templates():
                 "template": nome_limpo # Mantém compatibilidade com versões antigas
             }
     return templates
+def valor_por_extenso(valor_str):
+    try:
+        
+        limpo = valor_str.replace("R$", "").replace(" ", "").replace(".", "").replace(",", ".")
+        valor_float = float(limpo)
+        
+        # 2. Converte para extenso em português e no formato de moeda
+        extenso = num2words(valor_float, lang='pt_BR', to='currency')
+        return f"({extenso.capitalize()})"
+    except Exception as e:
+        print(f"Erro ao converter extenso: {e}")
+        return ""
 
 # 3. FUNÇÕES DE APOIO
 def criar_contexto_cliente(cliente_info):
@@ -40,7 +53,11 @@ def criar_contexto_cliente(cliente_info):
         "cpf_cnpj": cliente_info[2] if len(cliente_info) > 2 else "",
         "endereco": cliente_info[3] if len(cliente_info) > 3 else "",
         "cidade": cliente_info[4] if len(cliente_info) > 4 else "",
+        "cep": cliente_info[5] if len(cliente_info) > 5 else "",
+        "nota_ps": cliente_info[6] if len(cliente_info) > 6 else "",
+        "valor_de_devolucao": cliente_info[8] if len(cliente_info) > 8 else "0,00",
         "valor_da_obra": cliente_info[7] if len(cliente_info) > 7 else "0,00",
+        "valor_extenso": valor_por_extenso(cliente_info[7]) if len(cliente_info) > 7 else "",
         "data": datetime.now().strftime("%d/%m/%Y")
     }
 
@@ -94,10 +111,17 @@ def gerar_documento_pdf(cliente_info, tipo_documento):
     except Exception as e:
         print(f"Erro na conversão para PDF: {e}")
         return None
+
+def importar_template_arquivo(caminho_origem):
+    """Copia um arquivo docx para a pasta de templates."""
+    try:
+        garantir_pastas()
+        nome_arquivo = os.path.basename(caminho_origem)
+        if not nome_arquivo.lower().endswith(".docx"):
+            return False, "O arquivo deve ser .docx"
         
-        # Abre no navegador após gerar
-        abrir_no_navegador(caminho)
-        return caminho
+        destino = os.path.join(TEMPLATES_DIR, nome_arquivo)
+        shutil.copy2(caminho_origem, destino)
+        return True, f"Template '{nome_arquivo}' importado com sucesso."
     except Exception as e:
-        print(f"Erro PDF: {e}")
-        return None
+        return False, str(e)

@@ -24,8 +24,7 @@ python main.py
 2. **Gere um documento** (opção 5)
    - Escolha o cliente
    - Escolha o tipo de documento
-   - Escolha o formato (HTML, Word, Excel ou TXT)
-   - Para HTML: opção de abrir no navegador
+   - Escolha o formato (Word ou PDF)
 
 3. **Confira o histórico** (opção 6)
    - Veja todos os documentos gerados do cliente
@@ -34,10 +33,8 @@ python main.py
 
 | Formato | Extensão | Uso |
 |---------|----------|-----|
-| HTML | .html | Visualização no navegador + impressão |
 | Word | .docx | Edição profissional em MS Word |
 | PDF | .pdf | Portável, seguro, pronto para compartilhar |
-| Texto | .txt | Simples, portável |
 
 ## Tipos de Documentos
 

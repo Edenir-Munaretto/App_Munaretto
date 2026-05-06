@@ -607,7 +607,10 @@ class AppMunaretto:
 
         ttk.Label(format_frame, text="Formato de Saída:", font=("Segoe UI", 11, "bold")).pack(anchor="w")
         self.format_var = tk.StringVar(value="")
-        formats = [("Word (.docx)", "word"),("PDF (.pdf)", "pdf"), ]
+        formats = [
+            ("Word (.docx)", "word"),
+            ("PDF (.pdf)", "pdf")
+        ]
              
         self.format_combo = ttk.Combobox(format_frame, textvariable=self.format_var, state="readonly")
         self.format_combo['values'] = [f[0] for f in formats]
@@ -651,17 +654,10 @@ class AppMunaretto:
 
         # Gerar documento
         try:
-            if format_code == "html":
-                caminho = documents.gerar_documento_html(client_data, doc_type)
-                if caminho:
-                    if messagebox.askyesno("Sucesso", f"Documento gerado!\n\nAbrir no navegador?"):
-                        documents.abrir_no_navegador(caminho)
-            elif format_code == "word":
+            if format_code == "word":
                 caminho = documents.gerar_documento_word(client_data, doc_type)
             elif format_code == "pdf":
                 caminho = documents.gerar_documento_pdf(client_data, doc_type)
-            elif format_code == "txt":
-                caminho = documents.gerar_documento_txt(client_data, doc_type)
 
             if caminho:
                 database.registrar_documento_gerado(client_data[0], doc_type, format_code, caminho)

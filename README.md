@@ -6,8 +6,7 @@ Um programa completo em Python para gerenciar contratos, declarações e documen
 
 - ✅ **Cadastro de Clientes**: Armazene dados de clientes em banco de dados SQLite
 - ✅ **Múltiplos Templates**: Contrato, Declaração, Recibo, Proposta Comercial
-- ✅ **Geração de Documentos**: Exporte em HTML, Word (.docx), Excel (.xlsx) e TXT
-- ✅ **Visualização no Navegador**: Abra documentos HTML para visualizar e imprimir
+- ✅ **Geração de Documentos**: Exporte em Word (.docx) e PDF (.pdf)
 - ✅ **Histórico**: Rastreie todos os documentos gerados por cliente
 - ✅ **Google Drive**: Sincronize backups com Google Drive automaticamente
 - ✅ **Backup JSON**: Exportação automática dos dados
@@ -77,10 +76,8 @@ python main.py
 
 ## 📤 Formatos de Saída
 
-- **HTML**: Visualize no navegador, pronto para imprimir
 - **Word (.docx)**: Arquivo editável no Microsoft Word
 - **PDF (.pdf)**: Portável, seguro e pronto para compartilhar
-- **TXT**: Arquivo de texto simples
 
 ## 💾 Armazenamento de Dados
 

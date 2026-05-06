@@ -58,12 +58,11 @@ def gerar_documento_menu():
     print("\n--- FORMATO DE SAÍDA ---")
     print("1. Word (.docx)")
     print("2. PDF (.pdf)")
-    print("3. HTML (Navegador)")
     
-    formato_opc = entrada_nao_vazia("Escolha o formato (1, 2 ou 3): ")
+    formato_opc = entrada_nao_vazia("Escolha o formato (1 ou 2): ")
     
     # Mapeamento da escolha
-    formatos = {"1": "word", "2": "pdf", "3": "html"}
+    formatos = {"1": "word", "2": "pdf"}
     formato = formatos.get(formato_opc, "word") # Padrão word se errar
 
     print(f"\n⏳ Gerando {formato.upper()} para o modelo '{tipo_doc}'...")
@@ -75,8 +74,6 @@ def gerar_documento_menu():
             caminho = documents.gerar_documento_word(cliente, tipo_doc)
         elif formato == "pdf":
             caminho = documents.gerar_documento_pdf(cliente, tipo_doc)
-        elif formato == "html":
-            caminho = documents.gerar_documento_html(cliente, tipo_doc)
 
         if caminho:
             print(f"✅ Sucesso! Arquivo salvo em: {caminho}")

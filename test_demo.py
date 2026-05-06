@@ -37,12 +37,6 @@ def gerar_documentos_teste():
     print("\n📄 Gerando documentos de teste...\n")
     
     for tipo in tipos_doc:
-        # HTML
-        caminho_html = documents.gerar_documento_html(cliente, tipo)
-        if caminho_html:
-            print(f"✅ HTML gerado: {caminho_html}")
-            database.registrar_documento_gerado(cliente[0], tipo, "html", caminho_html)
-        
         # Word
         caminho_word = documents.gerar_documento_word(cliente, tipo)
         if caminho_word:
@@ -58,12 +52,6 @@ def gerar_documentos_teste():
             database.registrar_documento_gerado(cliente[0], tipo, "pdf", caminho_pdf)
         else:
             print(f"⚠️  PDF não disponível para {tipo}")
-        
-        # TXT
-        caminho_txt = documents.gerar_documento_txt(cliente, tipo)
-        if caminho_txt:
-            print(f"✅ TXT gerado: {caminho_txt}")
-            database.registrar_documento_gerado(cliente[0], tipo, "txt", caminho_txt)
 
 def exibir_historico():
     """Exibe histórico de documentos gerados."""
