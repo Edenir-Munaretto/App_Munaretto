@@ -6,10 +6,12 @@ from docxtpl import DocxTemplate
 from fpdf import FPDF  # Certifique-se de que é a fpdf2
 from docx2pdf import convert
 from num2words import num2words
+import os
+from pathlib import Path 
 
 # 1. CONFIGURAÇÕES INICIAIS
 TEMPLATES_DIR = "templates"
-OUTPUT_DIR = "documentos_gerados"
+OUTPUT_DIR = str(os.path.join(os.path.expanduser("~"), "Downloads"))
 
 def garantir_pastas():
     """Cria as pastas se não existirem."""
