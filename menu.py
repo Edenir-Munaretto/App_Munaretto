@@ -42,43 +42,56 @@ def gerar_documento_menu():
     if not clientes:
         print("❌ Nenhum cliente cadastrado."); input(); return
 
-    # Seleção de Cliente
-    for c in clientes: print(f"{c[0]} - {c[1]}")
+    # 1. Seleção de Cliente
+    for c in clientes: 
+        print(f"{c[0]} - {c[1]}")
     c_id = int(entrada_nao_vazia("\nID do cliente: "))
     cliente = database.buscar_cliente_por_id(c_id)
 
-    # Seleção de Formato
-    print("\n1. HTML (Navegador)\n2. Word (.docx)\n3. PDF (.pdf)")
-    formato_opc = entrada_nao_vazia("Escolha o formato: ")
-    formatos = {"1": "html", "2": "word", "3": "pdf",}
-    formato = formatos.get(formato_opc, "html")
+    # 2. Seleção do MODELO (Aqui você escolhe se é Contrato, Recibo, etc.)
+    # Isso vai buscar o arquivo .docx com esse nome na pasta templates
+    print("\n--- MODELOS DISPONÍVEIS ---")
+    print("Ex: contrato, recibo, orcamento")
+    tipo_doc = entrada_nao_vazia("Digite o nome do modelo (conforme arquivo na pasta): ").lower()
 
-    print("⏳ Gerando e salvando em 'Meus Documentos'...")
+    # 3. Seleção de FORMATO DE SAÍDA (Aqui aparece a opção que você sentiu falta)
+    print("\n--- FORMATO DE SAÍDA ---")
+    print("1. Word (.docx)")
+    print("2. PDF (.pdf)")
+    print("3. HTML (Navegador)")
     
-        # ... (dentro de gerar_documento_menu, após definir o formato)
-    print("⏳ Gerando e salvando em 'Meus Documentos'...")
+    formato_opc = entrada_nao_vazia("Escolha o formato (1, 2 ou 3): ")
+    
+    # Mapeamento da escolha
+    formatos = {"1": "word", "2": "pdf", "3": "html"}
+    formato = formatos.get(formato_opc, "word") # Padrão word se errar
+
+    print(f"\n⏳ Gerando {formato.upper()} para o modelo '{tipo_doc}'...")
     
     try:
         caminho = None
-        # Chamando a função correta baseada no formato escolhido
-        if formato == "html":
-            caminho = documents.gerar_documento_html(cliente, "contrato") # ou tipo_doc
-        elif formato == "word":
-            caminho = documents.gerar_documento_word(cliente, "contrato")
+        # Chama a função baseada na escolha do usuário acima
+        if formato == "word":
+            caminho = documents.gerar_documento_word(cliente, tipo_doc)
         elif formato == "pdf":
-            caminho = documents.gerar_documento_pdf(cliente, "contrato")
-        
+            caminho = documents.gerar_documento_pdf(cliente, tipo_doc)
+        elif formato == "html":
+            caminho = documents.gerar_documento_html(cliente, tipo_doc)
 
         if caminho:
-            print(f"✅ Sucesso! Arquivo em: {caminho}")
-            if formato == "html":
+            print(f"✅ Sucesso! Arquivo salvo em: {caminho}")
+            # Abre automaticamente no navegador se for PDF ou HTML
+            if formato in ["pdf", "html"]:
                 documents.abrir_no_navegador(caminho)
-            database.registrar_documento_gerado(c_id, "Contrato", formato, caminho)
+            
+            database.registrar_documento_gerado(c_id, tipo_doc.capitalize(), formato, caminho)
         else:
-            print("❌ Falha ao gerar o arquivo.")
+            print("❌ Falha ao gerar o arquivo. Verifique se o template existe.")
             
     except Exception as e:
-        print(f"❌ Erro: {e}")
+        print(f"❌ Erro técnico: {e}")
+    
+    input("\nPressione ENTER para voltar ao menu...")
 
 
 def menu_backup():

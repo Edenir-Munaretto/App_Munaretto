@@ -606,9 +606,9 @@ class AppMunaretto:
         format_frame.pack(fill=tk.X, padx=30, pady=10)
 
         ttk.Label(format_frame, text="Formato de Saída:", font=("Segoe UI", 11, "bold")).pack(anchor="w")
-        self.format_var = tk.StringVar(value="html")
-        formats = [("HTML (Navegador)", "html"), ("Word (.docx)", "word"),
-                  ("PDF (.pdf)", "pdf"), ("Texto (.txt)", "txt")]
+        self.format_var = tk.StringVar(value="")
+        formats = [("Word (.docx)", "word"),("PDF (.pdf)", "pdf"), ]
+             
         self.format_combo = ttk.Combobox(format_frame, textvariable=self.format_var, state="readonly")
         self.format_combo['values'] = [f[0] for f in formats]
         self.format_combo.pack(fill=tk.X, pady=(5, 0))
