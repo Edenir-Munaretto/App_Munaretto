@@ -106,6 +106,9 @@ def gerar_documento_pdf(cliente_info, tipo_documento):
         # 3. Convertemos o Word para PDF (requer Word instalado no PC)
         # Se você estiver no Windows com Word, isso será perfeito
         convert(caminho_word, caminho_pdf)
+        
+        if os.path.exists(caminho_word):
+            os.remove(caminho_word)
 
         # 4. Abre no navegador
         abrir_no_navegador(caminho_pdf)
