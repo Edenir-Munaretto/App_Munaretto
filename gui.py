@@ -337,6 +337,30 @@ class AppMunaretto:
         )
         title_label.pack(pady=(0, 20))
 
+        # Busca de clientes
+        search_frame = ttk.Frame(list_frame, style="TFrame")
+        search_frame.pack(fill=tk.X, pady=(0, 15))
+
+        ttk.Label(search_frame, text="Buscar:", font=("Segoe UI", 11, "bold"), background="#f0f2f5").pack(side=tk.LEFT)
+        self.client_search_var = tk.StringVar()
+        search_entry = ttk.Entry(search_frame, textvariable=self.client_search_var, font=("Segoe UI", 10))
+        search_entry.pack(side=tk.LEFT, fill=tk.X, expand=True, padx=(10, 10))
+        search_entry.bind("<KeyRelease>", lambda e: self.load_clients())
+
+        clear_btn = tk.Button(
+            search_frame,
+            text="✖",
+            command=self.clear_client_search,
+            font=("Segoe UI", 10),
+            bg="#bdc3c7",
+            fg="white",
+            relief="flat",
+            padx=10,
+            pady=6,
+            cursor="hand2"
+        )
+        clear_btn.pack(side=tk.LEFT)
+
         # Treeview para lista de clientes
         tree_frame = ttk.Frame(list_frame, style="TFrame")
         tree_frame.pack(fill=tk.BOTH, expand=True)
@@ -352,6 +376,7 @@ class AppMunaretto:
             yscrollcommand=v_scrollbar.set,
             xscrollcommand=h_scrollbar.set
         )
+        self.clients_tree.bind("<Double-1>", lambda e: self.edit_selected_client())
 
         v_scrollbar.config(command=self.clients_tree.yview)
         h_scrollbar.config(command=self.clients_tree.xview)
@@ -419,11 +444,21 @@ class AppMunaretto:
             for item in self.clients_tree.get_children():
                 self.clients_tree.delete(item)
 
-            # Carregar clientes
+            search_text = self.client_search_var.get().strip().lower() if hasattr(self, 'client_search_var') else ""
             clients = database.listar_clientes()
             for client in clients:
                 # Indices: [0]=id, [1]=nome, [2]=cpf_cnpj, [3]=endereco, [4]=cidade, [5]=cep, [6]=nota_ps
+                if search_text:
+                    combined = f"{client[1]} {client[2]} {client[3]} {client[4]} {client[5]} {client[6]}".lower()
+                    if search_text not in combined:
+                        continue
                 self.clients_tree.insert("", tk.END, values=(client[0], client[1], client[2], client[4], client[5], client[6]))
+
+    def clear_client_search(self):
+        """Limpa o campo de busca e recarrega a lista."""
+        if hasattr(self, 'client_search_var'):
+            self.client_search_var.set("")
+            self.load_clients()
 
     def edit_selected_client(self):
         """Edita o cliente selecionado."""
@@ -816,8 +851,8 @@ class AppMunaretto:
     def import_template(self):
         """Importa um modelo de documento."""
         file_path = filedialog.askopenfilename(
-            title="Selecionar arquivo de modelo",
-            filetypes=[("Arquivos de texto", "*.txt"), ("Todos os arquivos", "*.*")]
+            title="Selecionar arquivo de modelo Word",
+            filetypes=[("Arquivo Word", "*.docx"), ("Todos os arquivos", "*.*")]
         )
 
         if file_path:

@@ -5,114 +5,8 @@ from datetime import datetime
 
 TEMPLATES_DIR = "templates"
 
-# Templates de documentos
-TEMPLATES = {
-    "contrato": {
-        "nome": "Contrato de Prestação de Serviços",
-        "template": """CONTRATO DE PRESTAÇÃO DE SERVIÇOS
-
-CONTRATANTE: {nome}
-CPF/CNPJ: {cpf_cnpj}
-Endereço: {endereco}
-
-CONTRATADO: [Inserir dados do contratado]
-
-OBJETO:
-A CONTRATANTE contrata a CONTRATADA para prestação de serviços de consultoria, conforme descrito a seguir:
-[Descrever detalhes do serviço]
-
-VALOR:
-O valor total dos serviços será de R$ [inserir valor], a ser pago conforme condições acertadas.
-
-PRAZO:
-O prazo para realização dos serviços é de [inserir prazo].
-
-VALIDADE:
-Este contrato vigorará a partir de {data} até a conclusão dos serviços.
-
-CONFIDENCIALIDADE:
-As partes comprometem-se em manter sigilo sobre informações confidenciais compartilhadas.
-
-RESCISÃO:
-Qualquer das partes poderá rescindir este contrato com [inserir prazo] de antecedência.
-
-LOCAL:
-Os serviços serão prestados em: [inserir local]
-
-FORO:
-Fica eleito o foro da comarca de [inserir cidade] para dirimir qualquer dúvida que possa surgir.
-
-Assinado em {data}
-
-_______________________________          _______________________________
-Assinatura Contratante                 Assinatura Contratado
-""",
-    },
-    "declaracao": {
-        "nome": "Declaração",
-        "template": """DECLARAÇÃO
-
-Eu, {nome}, portador(a) do CPF/CNPJ {cpf_cnpj}, residente e domiciliado(a) à {endereco}, 
-por este meio declaro que:
-
-[Inserir motivo da declaração]
-
-Declaro, ainda, que as informações aqui prestadas são verdadeiras e completas, sob as 
-penas da lei.
-
-Assinado em {data}
-
-_______________________________
-{nome}
-""",
-    },
-    "recibo": {
-        "nome": "Recibo",
-        "template": """RECIBO
-
-Recebemos de {nome}, portador(a) do CPF/CNPJ {cpf_cnpj}, a quantia de R$ [inserir valor]
-referente a [inserir motivo do pagamento].
-
-Endereço: {endereco}
-
-Data: {data}
-
-_______________________________
-Recebedor
-""",
-    },
-    "proposta": {
-        "nome": "Proposta Comercial",
-        "template": """PROPOSTA COMERCIAL
-
-PROPONENTE: [Sua Empresa]
-
-CLIENTE:
-Nome: {nome}
-CPF/CNPJ: {cpf_cnpj}
-Endereço: {endereco}
-
-PROPOSTA:
-Segue a proposta de serviços/produtos conforme solicitação:
-
-[Descrever itens e valores]
-
-VALIDADE DA PROPOSTA:
-Esta proposta é válida por 30 dias a contar de {data}.
-
-CONDIÇÕES DE PAGAMENTO:
-[Inserir condições]
-
-PRAZOS DE ENTREGA:
-[Inserir prazos]
-
-Atenciosamente,
-
-_______________________________
-Responsável pela Proposta
-""",
-    },
-}
+# Templates padrão vazios - todos devem ser importados como arquivos .docx
+TEMPLATES = {}
 
 
 def ensure_templates_dir():
@@ -121,19 +15,27 @@ def ensure_templates_dir():
 
 
 def carregar_templates_externos():
-    """Carrega templates salvos em arquivos na pasta de templates."""
+    """Carrega templates em Word (.docx) da pasta templates."""
     ensure_templates_dir()
     templates = {}
-    for nome_arquivo in sorted(os.listdir(TEMPLATES_DIR)):
-        if nome_arquivo.lower().endswith(".txt"):
-            chave = os.path.splitext(nome_arquivo)[0]
-            caminho = os.path.join(TEMPLATES_DIR, nome_arquivo)
-            with open(caminho, "r", encoding="utf-8") as f:
-                conteudo = f.read()
-            templates[chave] = {
-                "nome": f"Modelo: {chave}",
-                "template": conteudo,
-            }
+    try:
+        from docx import Document
+        for nome_arquivo in sorted(os.listdir(TEMPLATES_DIR)):
+            if nome_arquivo.lower().endswith(".docx"):
+                chave = os.path.splitext(nome_arquivo)[0]
+                caminho = os.path.join(TEMPLATES_DIR, nome_arquivo)
+                try:
+                    doc = Document(caminho)
+                    conteudo = "\n".join([paragrafo.text for paragrafo in doc.paragraphs])
+                    templates[chave] = {
+                        "nome": f"Modelo: {chave}",
+                        "template": conteudo,
+                        "docx_path": caminho,
+                    }
+                except Exception as e:
+                    print(f"Erro ao carregar template {nome_arquivo}: {e}")
+    except ImportError:
+        print("python-docx não instalado. Templates Word não carregados.")
     return templates
 
 
@@ -150,17 +52,20 @@ def get_template(tipo_documento):
 
 
 def importar_template_arquivo(caminho_origem):
-    """Importa um arquivo TXT para a pasta de templates."""
+    """Importa um arquivo Word (.docx) para a pasta de templates."""
     ensure_templates_dir()
     if not os.path.exists(caminho_origem):
         return False, "Arquivo não encontrado."
-    if not caminho_origem.lower().endswith(".txt"):
-        return False, "Apenas arquivos .txt são suportados como modelo."
+    if not caminho_origem.lower().endswith(".docx"):
+        return False, "Apenas arquivos .docx (Word) são suportados como modelo."
 
     nome_arquivo = os.path.basename(caminho_origem)
     destino = os.path.join(TEMPLATES_DIR, nome_arquivo)
-    shutil.copyfile(caminho_origem, destino)
-    return True, destino
+    try:
+        shutil.copyfile(caminho_origem, destino)
+        return True, f"Template importado com sucesso: {destino}"
+    except Exception as e:
+        return False, f"Erro ao importar template: {str(e)}"
 
 
 def criar_pasta_documentos():
@@ -294,7 +199,7 @@ def gerar_documento_word(cliente_info, tipo_documento):
     """Gera documento em formato Word (.docx)."""
     try:
         from docx import Document
-        from docx.shared import Pt, Inches
+        from docx.shared import Pt
         from docx.enum.text import WD_ALIGN_PARAGRAPH
 
         criar_pasta_documentos()
@@ -304,25 +209,37 @@ def gerar_documento_word(cliente_info, tipo_documento):
             return None
 
         data_atual = datetime.now().strftime("%d/%m/%Y")
-        template = template_info["template"]
+        template_text = template_info["template"]
 
-        conteudo = template.format(
+        conteudo = template_text.format(
             nome=cliente_info[1],
             cpf_cnpj=cliente_info[2],
             endereco=cliente_info[3],
             data=data_atual,
         )
 
-        doc = Document()
-
-        # Título
-        titulo = doc.add_heading(template_info["nome"], level=1)
-        titulo.alignment = WD_ALIGN_PARAGRAPH.CENTER
-
-        # Conteúdo
-        for paragrafo_texto in conteudo.split("\n"):
-            p = doc.add_paragraph(paragrafo_texto)
-            p.paragraph_format.line_spacing = 1.5
+        # Se há um arquivo .docx como base, usar como template
+        if "docx_path" in template_info and os.path.exists(template_info["docx_path"]):
+            doc = Document(template_info["docx_path"])
+            # Substituir placeholders nos parágrafos existentes
+            for paragrafo in doc.paragraphs:
+                if "{nome}" in paragrafo.text or "{cpf_cnpj}" in paragrafo.text or "{endereco}" in paragrafo.text or "{data}" in paragrafo.text:
+                    paragrafo.text = paragrafo.text.format(
+                        nome=cliente_info[1],
+                        cpf_cnpj=cliente_info[2],
+                        endereco=cliente_info[3],
+                        data=data_atual,
+                    )
+        else:
+            # Criar documento do zero
+            doc = Document()
+            titulo = doc.add_heading(template_info["nome"], level=1)
+            titulo.alignment = WD_ALIGN_PARAGRAPH.CENTER
+            
+            for paragrafo_texto in conteudo.split("\n"):
+                if paragrafo_texto.strip():
+                    p = doc.add_paragraph(paragrafo_texto)
+                    p.paragraph_format.line_spacing = 1.5
 
         nome_arquivo = f"{cliente_info[1].replace(' ', '_')}_{tipo_documento}_{datetime.now().strftime('%Y%m%d_%H%M%S')}.docx"
         caminho = os.path.join("documentos_gerados", nome_arquivo)
