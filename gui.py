@@ -340,8 +340,17 @@ class AppMunaretto:
 
         ttk.Label(search_frame, text="Buscar:", font=("Segoe UI", 11, "bold"), background="#f0f2f5").pack(side=tk.LEFT)
         self.client_search_var = tk.StringVar()
-        search_entry = ttk.Entry(search_frame, textvariable=self.client_search_var, font=("Segoe UI", 10))
-        search_entry.pack(side=tk.LEFT, fill=tk.X, expand=True, padx=(10, 10))
+        search_entry = tk.Entry(
+            search_frame,
+            textvariable=self.client_search_var,
+            font=("Segoe UI", 11),
+            bg="#CED1D4",
+            relief="flat",
+            highlightthickness=1,
+            highlightbackground="#E0E0E0",
+            highlightcolor=self.primary_color
+        )
+        search_entry.pack(side=tk.LEFT, fill=tk.X, expand=True, padx=(10, 10), ipady=4)
         search_entry.bind("<KeyRelease>", lambda e: self.load_clients())
 
         clear_btn = tk.Button(
@@ -501,9 +510,17 @@ class AppMunaretto:
             frame.pack(fill=tk.X, padx=30, pady=5)
 
             ttk.Label(frame, text=f"{display_name}:").pack(anchor="w")
-            entry = ttk.Entry(frame, font=("Segoe UI", 10))
+            entry = tk.Entry(
+                frame,
+                font=("Segoe UI", 11),
+                bg="#CED1D4",
+                relief="flat",
+                highlightthickness=1,
+                highlightbackground="#E0E0E0",
+                highlightcolor=self.primary_color
+            )
             entry.insert(0, str(value))
-            entry.pack(fill=tk.X, pady=(0, 10))
+            entry.pack(fill=tk.X, ipady=4, pady=(0, 10))
             entries[field_key] = entry
 
         def save_changes():
@@ -550,88 +567,129 @@ class AppMunaretto:
         """Mostra gerador de documentos."""
         self.clear_content()
 
-        gen_frame = ttk.Frame(self.content_frame, style="TFrame")
-        gen_frame.pack(fill=tk.BOTH, expand=True, padx=20, pady=20)
+        # --- Configuração de Estilos ---
+        style = ttk.Style()
+        style.configure("White.TFrame", background="white")
 
-        # Título
-        title_label = ttk.Label(
-            gen_frame,
-            text="📄 Gerar Documento",
-            font=("Segoe UI", 18, "bold"),
-            foreground=self.primary_color
-        )
-        title_label.pack(pady=(0, 20))
+        # Container Principal
+        gen_frame = ttk.Frame(self.content_frame)
+        gen_frame.pack(fill=tk.BOTH, expand=True, padx=30, pady=10)
 
-        # Card do gerador
-        card = tk.Frame(gen_frame, bg=self.card_color, relief="flat", bd=1)
-        card.pack(fill=tk.BOTH, expand=True, padx=40, pady=20)
-        card.configure(highlightbackground="#e0e0e0", highlightthickness=1)
+        # Cabeçalho (Título com fundo padrão da app)
+        header_frame = ttk.Frame(gen_frame)
+        header_frame.pack(side=tk.TOP, fill=tk.X, pady=(0, 10))
+        ttk.Label(header_frame, text="📄 Gerar Documento", font=("Segoe UI", 20, "bold"),
+                  foreground=self.primary_color).pack(side="left")
 
-        # Seleção de cliente
-        client_frame = ttk.Frame(card, style="TFrame")
-        client_frame.pack(fill=tk.X, padx=30, pady=10)
+        # --- Rodapé e Botão (Fundo Branco) ---
+        footer_frame = ttk.Frame(gen_frame, style="White.TFrame")
+        footer_frame.pack(side=tk.BOTTOM, fill=tk.X, pady=(10, 0))
 
-        ttk.Label(client_frame, text="Cliente:", font=("Segoe UI", 11, "bold")).pack(anchor="w")
-        self.client_var = tk.StringVar()
-        self.client_combo = ttk.Combobox(client_frame, textvariable=self.client_var, state="readonly")
-        self.client_combo.pack(fill=tk.X, pady=(5, 0))
-
-        # Carregar clientes
-        clients = database.listar_clientes()
-        if not clients:
-            ttk.Label(card, text="❌ Nenhum cliente cadastrado!", foreground=self.accent_color).pack(pady=50)
-            return
-
-        self.client_combo['values'] = [f"{c[0]} - {c[1]}" for c in clients]
-        self.client_data = {f"{c[0]} - {c[1]}": c for c in clients}
-
-        # Seleção de tipo de documento
-        doc_frame = ttk.Frame(card, style="TFrame")
-        doc_frame.pack(fill=tk.X, padx=30, pady=10)
-
-        ttk.Label(doc_frame, text="Tipo de Documento:", font=("Segoe UI", 11, "bold")).pack(anchor="w")
-        self.doc_var = tk.StringVar()
-        self.doc_combo = ttk.Combobox(doc_frame, textvariable=self.doc_var, state="readonly")
-        self.doc_combo.pack(fill=tk.X, pady=(5, 0))
-
-        templates = documents.get_templates()
-        self.doc_combo['values'] = list(templates.keys())
-        self.templates_data = templates
-
-        # Seleção de formato
-        format_frame = ttk.Frame(card, style="TFrame")
-        format_frame.pack(fill=tk.X, padx=30, pady=10)
-
-        ttk.Label(format_frame, text="Formato de Saída:", font=("Segoe UI", 11, "bold")).pack(anchor="w")
-        self.format_var = tk.StringVar(value="")
-        formats = [
-            ("Word (.docx)", "word"),
-            ("PDF (.pdf)", "pdf")
-        ]
-             
-        self.format_combo = ttk.Combobox(format_frame, textvariable=self.format_var, state="readonly")
-        self.format_combo['values'] = [f[0] for f in formats]
-        self.format_combo.pack(fill=tk.X, pady=(5, 0))
-        self.format_map = {f[0]: f[1] for f in formats}
-
-        # Botão gerar
         generate_btn = tk.Button(
-            card,
+            footer_frame,
             text="🚀 Gerar Documento",
             command=self.generate_document,
             font=("Segoe UI", 12, "bold"),
             bg=self.secondary_color,
             fg="white",
             relief="flat",
-            padx=30,
-            pady=15,
-            cursor="hand2"
+            height=2,
+            cursor="hand2",
+            activebackground=self.adjust_color(self.secondary_color, -30),
+            activeforeground="white"
         )
-        generate_btn.pack(pady=30)
+        generate_btn.pack(fill=tk.X)
 
         # Hover effect
         generate_btn.bind("<Enter>", lambda e: generate_btn.configure(bg=self.adjust_color(self.secondary_color, -20)))
         generate_btn.bind("<Leave>", lambda e: generate_btn.configure(bg=self.secondary_color))
+
+        # --- Card do gerador (Fundo Branco) ---
+        card = tk.Frame(gen_frame, bg="white", highlightbackground="#b8b3b3", highlightthickness=1)
+        card.pack(side=tk.TOP, fill=tk.BOTH, expand=True)
+
+        # Seleção de cliente
+        client_frame = ttk.Frame(card, style="White.TFrame")
+        client_frame.pack(fill=tk.X, padx=30, pady=10)
+
+        # Carregar clientes primeiro para verificar se existem
+        self.all_clients_gen = database.listar_clientes()
+        if not self.all_clients_gen:
+            ttk.Label(card, text="❌ Nenhum cliente cadastrado!", foreground=self.accent_color).pack(pady=50)
+            return
+
+        ttk.Label(client_frame, text="🔍 Busca Rápida (Nome ou CPF/CNPJ):", font=("Segoe UI", 11, "bold"), background="white").pack(anchor="w")
+        self.client_search_gen_var = tk.StringVar()
+        search_entry = tk.Entry(
+            client_frame, 
+            textvariable=self.client_search_gen_var, 
+            font=("Segoe UI", 11),
+            bg="#CED1D4",
+            relief="flat",
+            highlightthickness=1,
+            highlightbackground="#E0E0E0",
+            highlightcolor=self.primary_color
+        )
+        search_entry.pack(fill=tk.X, ipady=4, pady=(5, 10))
+        search_entry.bind("<KeyRelease>", lambda e: self.filter_clients_gen())
+
+        ttk.Label(client_frame, text="Selecionar Cliente:", font=("Segoe UI", 11, "bold"), background="white").pack(anchor="w")
+        self.client_var = tk.StringVar()
+        self.client_combo = ttk.Combobox(client_frame, textvariable=self.client_var, state="readonly", font=("Segoe UI", 11))
+        self.client_combo.pack(fill=tk.X, pady=(5, 10))
+
+        self.update_client_combo(self.all_clients_gen)
+
+        # Seleção de tipo de documento
+        doc_frame = ttk.Frame(card, style="White.TFrame")
+        doc_frame.pack(fill=tk.X, padx=30, pady=10)
+
+        ttk.Label(doc_frame, text="Tipo de Documento:", font=("Segoe UI", 11, "bold"), background="white").pack(anchor="w")
+        self.doc_var = tk.StringVar()
+        self.doc_combo = ttk.Combobox(doc_frame, textvariable=self.doc_var, state="readonly", font=("Segoe UI", 11))
+        self.doc_combo.pack(fill=tk.X, pady=(5, 10))
+
+        templates = documents.get_templates()
+        self.doc_combo['values'] = list(templates.keys())
+        self.templates_data = templates
+
+        # Seleção de formato
+        format_frame = ttk.Frame(card, style="White.TFrame")
+        format_frame.pack(fill=tk.X, padx=30, pady=10)
+
+        ttk.Label(format_frame, text="Formato de Saída:", font=("Segoe UI", 11, "bold"), background="white").pack(anchor="w")
+        self.format_var = tk.StringVar(value="")
+        formats = [
+            ("Word (.docx)", "word"),
+            ("PDF (.pdf)", "pdf")
+        ]
+             
+        self.format_combo = ttk.Combobox(format_frame, textvariable=self.format_var, state="readonly", font=("Segoe UI", 11))
+        self.format_combo['values'] = [f[0] for f in formats]
+        self.format_combo.pack(fill=tk.X, pady=(5, 10))
+        self.format_map = {f[0]: f[1] for f in formats}
+
+    def filter_clients_gen(self):
+        """Filtra a lista de clientes no gerador de documentos com base na busca."""
+        search_text = self.client_search_gen_var.get().strip().lower()
+        if not search_text:
+            filtered = self.all_clients_gen
+        else:
+            filtered = [c for c in self.all_clients_gen if search_text in f"{c[1]} {c[2]}".lower()]
+        self.update_client_combo(filtered)
+
+    def update_client_combo(self, clients):
+        """Atualiza os valores e dados do combobox de clientes."""
+        if not clients:
+            self.client_combo['values'] = []
+            self.client_var.set("Nenhum cliente encontrado")
+            self.client_data = {}
+            return
+            
+        values = [f"{c[0]} - {c[1]}" for c in clients]
+        self.client_combo['values'] = values
+        self.client_data = {f"{c[0]} - {c[1]}": c for c in clients}
+        self.client_combo.current(0)
 
     def generate_document(self):
         """Gera o documento selecionado."""
