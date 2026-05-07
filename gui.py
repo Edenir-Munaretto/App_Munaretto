@@ -198,33 +198,41 @@ class AppMunaretto:
 
         # Container Principal
         form_frame = ttk.Frame(self.content_frame, style="TFrame")
-        form_frame.pack(fill=tk.BOTH, expand=True, padx=30, pady=20)
+        form_frame.pack(fill=tk.BOTH, expand=True, padx=30, pady=10)
 
         # Cabeçalho
         header_frame = ttk.Frame(form_frame, style="TFrame")
-        header_frame.pack(fill=tk.X, pady=(0, 20))
-    
-        ttk.Label(
-        header_frame,
-        text="👤 Cadastrar Novo Cliente",
-        font=("Segoe UI", 20, "bold"),
-        foreground=self.primary_color
-        ).pack(side="left")
+        header_frame.pack(side=tk.TOP, fill=tk.X, pady=(0, 10))
 
-        # Card com Scroll
-        card = tk.Frame(form_frame, bg=self.card_color, highlightbackground="#e0e0e0", highlightthickness=1)
-        card.pack(fill=tk.BOTH, expand=True)
+        ttk.Label(header_frame, text="👤 Cadastrar Novo Cliente", font=("Segoe UI", 20, "bold"),
+                  foreground=self.primary_color).pack(side="left")
 
-        v_scrollbar = ttk.Scrollbar(card, orient="vertical")
-        v_scrollbar.pack(side="right", fill="y")
+        # --- Rodapé e Botão (Empacotado primeiro no fundo para garantir visibilidade) ---
+        footer_frame = ttk.Frame(form_frame, style="TFrame")
+        footer_frame.pack(side=tk.BOTTOM, fill=tk.X, pady=(10, 0))
 
-        canvas = tk.Canvas(card, bg=self.card_color, highlightthickness=0, yscrollcommand=v_scrollbar.set)
-        canvas.pack(side="left", fill=tk.BOTH, expand=True)
-        v_scrollbar.config(command=canvas.yview)
+        save_btn = tk.Button(
+            footer_frame,
+            text="💾 Salvar Cadastro de Cliente",
+            command=self.save_client,
+            font=("Segoe UI", 12, "bold"),
+            bg=self.primary_color,
+            fg="white",
+            relief="flat",
+            height=2,
+            cursor="hand2",
+            activebackground=self.adjust_color(self.primary_color, -30),
+            activeforeground="white"
+        )
+        save_btn.pack(fill=tk.X)
 
-        main_container = ttk.Frame(canvas, style="TFrame")
-        self.client_form_window = canvas.create_window((0, 0), window=main_container, anchor="nw")
-        self.client_form_canvas = canvas
+        # Hover effect para o botão
+        save_btn.bind("<Enter>", lambda e: save_btn.configure(bg=self.adjust_color(self.primary_color, -20)))
+        save_btn.bind("<Leave>", lambda e: save_btn.configure(bg=self.primary_color))
+
+        # --- Container dos Campos (Preenche o centro) ---
+        main_container = tk.Frame(form_frame, bg=self.card_color, highlightbackground="#e0e0e0", highlightthickness=1)
+        main_container.pack(side=tk.TOP, fill=tk.BOTH, expand=True)
 
         # --- Organização dos Campos ---
         sections = [
@@ -247,7 +255,7 @@ class AppMunaretto:
         for section_title, fields in sections:
             # Frame da Seção
             sec_frame = ttk.Frame(main_container, style="TFrame")
-            sec_frame.pack(fill=tk.X, padx=40, pady=(20, 0))
+            sec_frame.pack(fill=tk.X, padx=40, pady=(10, 0))
 
             ttk.Label(sec_frame, text=section_title, font=("Segoe UI", 12, "bold"),
                       foreground="#555").pack(anchor="w", pady=(0, 10))
@@ -266,35 +274,6 @@ class AppMunaretto:
                 entry = ttk.Entry(f_container, font=("Segoe UI", 11))
                 entry.pack(fill=tk.X, ipady=4, pady=(4, 0))
                 self.entries[field_name] = entry
-
-        # --- Rodapé e Botão ---
-        footer_frame = ttk.Frame(main_container, style="TFrame")
-        footer_frame.pack(fill=tk.X, padx=40, pady=40)
-
-        ttk.Separator(footer_frame, orient="horizontal").pack(fill=tk.X, pady=(0, 20))
-
-        save_btn = tk.Button(
-            footer_frame,
-            text="💾 Salvar Cadastro de Cliente",
-            command=self.save_client,
-            font=("Segoe UI", 12, "bold"),
-            bg=self.primary_color,
-            fg="white",
-            relief="flat",
-            height=2,
-            cursor="hand2",
-            activebackground=self.adjust_color(self.primary_color, -30),
-            activeforeground="white"
-        )
-        save_btn.pack(fill=tk.X)
-
-        # Bindings de Scroll e Resize
-        main_container.bind("<Configure>", lambda e: canvas.configure(scrollregion=canvas.bbox("all")))
-        canvas.bind("<Configure>", lambda e: canvas.itemconfig(self.client_form_window, width=e.width))
-        
-        # Hover effect
-        save_btn.bind("<Enter>", lambda e: save_btn.configure(bg=self.adjust_color(self.primary_color, -20)))
-        save_btn.bind("<Leave>", lambda e: save_btn.configure(bg=self.primary_color))
 
         # Auto-focus inicial no primeiro campo
         self.root.after(400, lambda: self.entries["nome"].focus_set())
