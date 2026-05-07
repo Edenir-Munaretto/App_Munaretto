@@ -12,7 +12,7 @@ def garantir_pastas():
         os.makedirs(PASTA_BACKUPS)
         print(f"✅ Pastas criadas em: {CAMINHO_DOCUMENTOS}")
 
-def sincronizar_backup_local(arquivo_db="database.db"):
+def sincronizar_backup_local(arquivo_db=r"G:\Meu Drive\BANCO_DE_DADOS\clientes.db"):
     """Faz uma cópia de segurança do banco de dados para a pasta Documentos."""
     try:
         garantir_pastas()

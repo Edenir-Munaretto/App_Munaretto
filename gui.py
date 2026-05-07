@@ -10,6 +10,10 @@ from datetime import datetime
 class AppMunaretto:
     def __init__(self, root):
         self.root = root
+        
+        # Inicializa o banco de dados no novo local (Google Drive) antes de carregar a UI
+        database.inicializar_banco()
+        
         self.root.title("Gerenciador de Contratos - App Munaretto")
         self.root.geometry("1200x900")  # Janela maior
         self.root.minsize(1000, 800)  # Tamanho mínimo maior
@@ -612,13 +616,15 @@ class AppMunaretto:
         client_frame = ttk.Frame(card, style="White.TFrame")
         client_frame.pack(fill=tk.X, padx=30, pady=10)
 
-        # Carregar clientes primeiro para verificar se existem
+        # Carregar clientes
         self.all_clients_gen = database.listar_clientes()
-        if not self.all_clients_gen:
-            ttk.Label(card, text="❌ Nenhum cliente cadastrado!", foreground=self.accent_color).pack(pady=50)
-            return
 
-        ttk.Label(client_frame, text="🔍 Busca Rápida (Nome ou CPF/CNPJ):", font=("Segoe UI", 11, "bold"), background="white").pack(anchor="w")
+        ttk.Label(
+            client_frame, 
+            text="🔍 Busca Rápida (Nome ou CPF/CNPJ):", 
+            font=("Segoe UI", 11, "bold"), 
+            background="white").pack(anchor="w")
+            
         self.client_search_gen_var = tk.StringVar()
         search_entry = tk.Entry(
             client_frame, 
@@ -638,7 +644,10 @@ class AppMunaretto:
         self.client_combo = ttk.Combobox(client_frame, textvariable=self.client_var, state="readonly", font=("Segoe UI", 11))
         self.client_combo.pack(fill=tk.X, pady=(5, 10))
 
-        self.update_client_combo(self.all_clients_gen)
+        if not self.all_clients_gen:
+            self.client_var.set("❌ Nenhum cliente cadastrado no sistema")
+        else:
+            self.update_client_combo(self.all_clients_gen)
 
         # Seleção de tipo de documento
         doc_frame = ttk.Frame(card, style="White.TFrame")

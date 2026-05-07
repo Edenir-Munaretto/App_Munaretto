@@ -13,7 +13,7 @@ def garantir_pastas():
         if not os.path.exists(pasta):
             os.makedirs(pasta)
 
-def realizar_backup_local(arquivo_db="database.db"):
+def realizar_backup_local(arquivo_db=r"G:\Meu Drive\BANCO_DE_DADOS\clientes.db"):
     """Copia o banco de dados para a pasta de Backups em Documentos."""
     try:
         garantir_pastas()

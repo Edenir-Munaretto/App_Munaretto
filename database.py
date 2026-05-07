@@ -3,11 +3,14 @@ import json
 import os
 from datetime import datetime
 
-DATABASE_FILE = "clientes.db"
+DATABASE_FILE = r"G:\Meu Drive\BANCO_DE_DADOS\clientes.db"
 
 
 def inicializar_banco():
     """Cria tabelas do banco se não existirem."""
+    # Garante que a pasta no Google Drive exista
+    os.makedirs(os.path.dirname(DATABASE_FILE), exist_ok=True)
+    
     conn = sqlite3.connect(DATABASE_FILE)
     cursor = conn.cursor()
 
