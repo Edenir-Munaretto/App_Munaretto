@@ -46,6 +46,27 @@ def inicializar_banco():
     """
     )
 
+    cursor.execute(
+        """
+        CREATE TABLE IF NOT EXISTS fluxo_caixa (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            mes_referencia TEXT NOT NULL,
+            rendimento_usina1 REAL,
+            rendimento_usina2 REAL,
+            rendimento_usina3 REAL,
+            despesa_contabilidade REAL,
+            despesa_internet REAL,
+            despesa_lavagem REAL,
+            despesa_manutencao REAL,
+            despesa_imposto REAL,
+            despesa_taxa REAL,
+            despesa_diversas REAL,
+            total_liquido REAL,
+            data_registro TEXT DEFAULT CURRENT_TIMESTAMP
+        )
+    """
+    )
+
 
 
     conn.commit()
@@ -141,6 +162,21 @@ def registrar_documento_gerado(cliente_id, tipo_documento, formato, caminho_arqu
     )
     conn.commit()
     conn.close()
+
+
+def salvar_fluxo_caixa(dados):
+    """Salva o fechamento do fluxo de caixa mensal."""
+    try:
+        conn = sqlite3.connect(DATABASE_FILE)
+        cursor = conn.cursor()
+        query = f"INSERT INTO fluxo_caixa ({', '.join(dados.keys())}) VALUES ({', '.join(['?' for _ in dados])})"
+        cursor.execute(query, list(dados.values()))
+        conn.commit()
+        conn.close()
+        return True
+    except Exception as e:
+        print(f"Erro ao salvar fluxo: {e}")
+        return False
 
 
 def obter_historico_cliente(cliente_id):

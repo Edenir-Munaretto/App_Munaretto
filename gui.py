@@ -5,6 +5,7 @@ import documents
 import google_drive
 import os
 import webbrowser
+import gerador_relatorio
 from datetime import datetime
 
 class AppMunaretto:
@@ -72,7 +73,7 @@ class AppMunaretto:
             ("📋 Listar Clientes", self.show_clients_list, self.primary_color),
             ("📄 Gerar Documento", self.show_document_generator, self.secondary_color),
             ("📚 Histórico", self.show_history, "#f39c12"),
-            ("☁️ Google Drive", self.show_google_drive, "#e74c3c"),
+            ("📊 Gestão Usinas", self.show_fluxo_caixa, "#e74c3c"),
             ("📤 Importar Modelo", self.import_template, "#9b59b6"),
         ]
 
@@ -677,6 +678,197 @@ class AppMunaretto:
         self.format_combo['values'] = [f[0] for f in formats]
         self.format_combo.pack(fill=tk.X, pady=(5, 10))
         self.format_map = {f[0]: f[1] for f in formats}
+
+    def show_fluxo_caixa(self):
+        """Módulo de Gestão de Usinas - Fluxo de Caixa Mensal."""
+        self.clear_content()
+        
+        main_frame = ttk.Frame(self.content_frame)
+        main_frame.pack(fill=tk.BOTH, expand=True, padx=20, pady=10)
+        
+        ttk.Label(main_frame, text="📊 Gestão Usinas - Fluxo de Caixa", font=("Segoe UI", 18, "bold"), 
+                  foreground=self.primary_color).pack(pady=(0, 15))
+
+        container = tk.Frame(main_frame, bg="white", highlightbackground="#e0e0e0", highlightthickness=1)
+        container.pack(fill=tk.BOTH, expand=True, padx=5, pady=5)
+
+        # Mês de Referência
+        ref_frame = ttk.Frame(container, style="White.TFrame")
+        ref_frame.pack(side=tk.TOP, fill=tk.X, padx=20, pady=10)
+        ttk.Label(ref_frame, text="Mês de Referência (ex: Janeiro/2024):", font=("Segoe UI", 10, "bold"), background="white").pack(side=tk.LEFT)
+        self.mes_ref_entry = tk.Entry(ref_frame, font=("Segoe UI", 11), bg="#CED1D4", relief="flat", width=25)
+        self.mes_ref_entry.pack(side=tk.LEFT, padx=10, ipady=3)
+
+        # --- Botões de Ação (Empacotados no fundo primeiro para garantir visibilidade) ---
+        btn_frame = ttk.Frame(container, style="White.TFrame")
+        btn_frame.pack(side=tk.BOTTOM, fill=tk.X, padx=20, pady=10)
+
+        ttk.Label(btn_frame, text="Tipo de Relatório:", font=("Segoe UI", 9), background="white").pack(side=tk.LEFT, padx=(0, 5))
+        self.report_type_var = tk.StringVar(value="Geral")
+        self.report_type_combo = ttk.Combobox(btn_frame, textvariable=self.report_type_var, state="readonly", width=15)
+        self.report_type_combo['values'] = ["Geral", "Demarco", "Marlene", "João B.", "Nei Rigo", "Gilmar T."]
+        self.report_type_combo.pack(side=tk.LEFT, padx=5)
+
+        tk.Button(btn_frame, text="🔄 Calcular Fechamento", command=self.calculate_fluxo, font=("Segoe UI", 10, "bold"), 
+                  bg=self.primary_color, fg="white", relief="flat", padx=15, pady=8, cursor="hand2").pack(side=tk.LEFT, padx=5)
+        
+        tk.Button(btn_frame, text="💾 Salvar Fechamento", command=self.save_fluxo, font=("Segoe UI", 10, "bold"), 
+                  bg=self.secondary_color, fg="white", relief="flat", padx=15, pady=8, cursor="hand2").pack(side=tk.LEFT, padx=5)
+
+        tk.Button(btn_frame, text="📄 Gerar Relatório PDF", command=self.generate_fluxo_report, font=("Segoe UI", 10, "bold"), 
+                  bg="#f39c12", fg="white", relief="flat", padx=15, pady=8, cursor="hand2").pack(side=tk.LEFT, padx=5)
+
+        # --- Resultados e Divisão (Logo acima dos botões no fundo) ---
+        res_frame = tk.Frame(container, bg="#f8f9fa", bd=1, relief="solid")
+        res_frame.pack(side=tk.BOTTOM, fill=tk.X, padx=20, pady=5)
+        
+        self.lbl_total_liquido = ttk.Label(res_frame, text="TOTAL LÍQUIDO: R$ 0,00", font=("Segoe UI", 14, "bold"), foreground=self.secondary_color, background="#f8f9fa")
+        self.lbl_total_liquido.pack(pady=10)
+
+        # Sócios
+        socios_frame = tk.Frame(res_frame, bg="#f8f9fa")
+        socios_frame.pack(fill=tk.X, padx=20, pady=5)
+        
+        self.socio_labels = {}
+        socios_config = [("Demarco (25%)", "s1"), ("Marlene (30%)", "s2"), ("João B.(30%)", "s3"), ("Nei Rigo (10%)", "s4"), ("Gilmar T.(5%)", "s5")]
+        
+        for name, key in socios_config:
+            lbl = ttk.Label(socios_frame, text=f"{name}: R$ 0,00", font=("Segoe UI", 9, "bold"), background="#f8f9fa")
+            lbl.pack(side=tk.LEFT, expand=True)
+            self.socio_labels[key] = lbl
+
+        # Layout de duas colunas para Entradas e Saídas (Ocupa o centro)
+        cols_frame = ttk.Frame(container, style="White.TFrame")
+        cols_frame.pack(side=tk.TOP, fill=tk.BOTH, expand=True, padx=20)
+        cols_frame.columnconfigure(0, weight=1)
+        cols_frame.columnconfigure(1, weight=1)
+
+        # --- Coluna Rendimentos ---
+        rend_lf = tk.LabelFrame(cols_frame, text=" Rendimentos (R$) ", font=("Segoe UI", 10, "bold"), bg="white")
+        rend_lf.grid(row=0, column=0, sticky="nsew", padx=(0, 10), pady=10)
+        
+        self.rend_fields = {
+            "rendimento_usina1": "Rendimento Usina 01:",
+            "rendimento_usina2": "Rendimento Usina 02:",
+            "rendimento_usina3": "Rendimento Usina 03:"
+        }
+        self.rend_entries = {}
+        for i, (key, label) in enumerate(self.rend_fields.items()):
+            ttk.Label(rend_lf, text=label, background="white").grid(row=i, column=0, sticky="w", padx=10, pady=5)
+            entry = tk.Entry(rend_lf, font=("Segoe UI", 11), bg="#CED1D4", relief="flat", width=15)
+            entry.insert(0, "0.00")
+            entry.grid(row=i, column=1, sticky="e", padx=10, pady=5, ipady=3)
+            self.rend_entries[key] = entry
+
+        # --- Coluna Despesas ---
+        desp_lf = tk.LabelFrame(cols_frame, text=" Despesas Operacionais (R$) ", font=("Segoe UI", 10, "bold"), bg="white")
+        desp_lf.grid(row=0, column=1, sticky="nsew", pady=10)
+
+        self.desp_fields = {
+            "despesa_contabilidade": "Contabilidade:",
+            "despesa_internet": "Internet:",
+            "despesa_lavagem": "Lavagem Usinas:",
+            "despesa_manutencao": "Manutenção:",
+            "despesa_imposto": "Impostos:",
+            "despesa_taxa": "Taxas Bancárias:",
+            "despesa_diversas": "Diversas:"
+        }
+        self.desp_entries = {}
+        for i, (key, label) in enumerate(self.desp_fields.items()):
+            ttk.Label(desp_lf, text=label, background="white").grid(row=i, column=0, sticky="w", padx=10, pady=2)
+            entry = tk.Entry(desp_lf, font=("Segoe UI", 11), bg="#CED1D4", relief="flat", width=15)
+            entry.insert(0, "0.00")
+            entry.grid(row=i, column=1, sticky="e", padx=10, pady=2, ipady=3)
+            self.desp_entries[key] = entry
+
+
+    def calculate_fluxo(self):
+        """Calcula totais e divisões."""
+        try:
+            def get_val(entry):
+                v = entry.get().replace(",", ".")
+                return float(v) if v else 0.0
+
+            total_rend = sum(get_val(e) for e in self.rend_entries.values())
+            total_desp = sum(get_val(e) for e in self.desp_entries.values())
+            liquido = total_rend - total_desp
+
+            self.lbl_total_liquido.config(text=f"TOTAL LÍQUIDO: R$ {liquido:,.2f}".replace(",", "X").replace(".", ",").replace("X", "."))
+
+            # Divisão Sócios
+            divisoes = {
+                "s1": liquido * 0.25,
+                "s2": liquido * 0.30,
+                "s3": liquido * 0.30,
+                "s4": liquido * 0.10,
+                "s5": liquido * 0.05
+            }
+
+            for key, val in divisoes.items():
+                label_text = self.socio_labels[key].cget("text").split(":")[0]
+                self.socio_labels[key].config(text=f"{label_text}: R$ {val:,.2f}".replace(",", "X").replace(".", ",").replace("X", "."))
+            
+            return liquido
+        except ValueError:
+            messagebox.showerror("Erro", "Por favor, insira apenas valores numéricos válidos.")
+            return None
+
+    def save_fluxo(self):
+        """Salva os dados no banco de dados."""
+        mes = self.mes_ref_entry.get().strip()
+        if not mes:
+            messagebox.showwarning("Aviso", "Informe o mês de referência.")
+            return
+
+        liquido = self.calculate_fluxo()
+        if liquido is None: return
+
+        dados = {"mes_referencia": mes, "total_liquido": liquido}
+        for k, e in self.rend_entries.items(): dados[k] = float(e.get().replace(",", "."))
+        for k, e in self.desp_entries.items(): dados[k] = float(e.get().replace(",", "."))
+
+        if database.salvar_fluxo_caixa(dados):
+            messagebox.showinfo("Sucesso", f"Fechamento de {mes} salvo com sucesso!")
+        else:
+            messagebox.showerror("Erro", "Erro ao salvar no banco de dados.")
+
+    def generate_fluxo_report(self):
+        """Gera o relatório PDF do fluxo de caixa atual."""
+        mes = self.mes_ref_entry.get().strip()
+        tipo_relatorio = self.report_type_var.get()
+        if not mes:
+            messagebox.showwarning("Aviso", "Informe o mês de referência para o relatório.")
+            return
+
+        liquido_val = self.calculate_fluxo()
+        if liquido_val is None:
+            return
+
+        # Preparar dados para o gerador (Formatando para o padrão R$ 1.234,56)
+        total_liquido_str = f"{liquido_val:,.2f}".replace(",", "X").replace(".", ",").replace("X", ".")
+        
+        dados_usinas = {}
+        for key, label in self.rend_fields.items():
+            val = self.rend_entries[key].get().replace(",", ".")
+            val_f = float(val) if val else 0.0
+            dados_usinas[label.replace(":", "")] = f"{val_f:,.2f}".replace(",", "X").replace(".", ",").replace("X", ".")
+
+        dados_despesas = {}
+        for key, label in self.desp_fields.items():
+            val = self.desp_entries[key].get().replace(",", ".")
+            val_f = float(val) if val else 0.0
+            dados_despesas[label.replace(":", "")] = f"{val_f:,.2f}".replace(",", "X").replace(".", ",").replace("X", ".")
+
+        nome_arquivo = f"Relatorio_Usinas_{mes.replace('/', '_').replace(' ', '_')}.pdf"
+        
+        if tipo_relatorio == "Geral":
+            caminho = gerador_relatorio.gerar_pdf_mensal(mes, dados_usinas, dados_despesas, total_liquido_str, nome_arquivo)
+        else:
+            caminho = gerador_relatorio.gerar_pdf_socio_especifico(tipo_relatorio, mes, dados_usinas, dados_despesas, total_liquido_str)
+            
+        if caminho:
+            messagebox.showinfo("Sucesso", f"Relatório ({tipo_relatorio}) gerado com sucesso!")
+            webbrowser.open(f"file://{os.path.abspath(caminho)}")
 
     def filter_clients_gen(self):
         """Filtra a lista de clientes no gerador de documentos com base na busca."""
