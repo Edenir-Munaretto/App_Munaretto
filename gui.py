@@ -716,7 +716,8 @@ class AppMunaretto:
 
             if caminho:
                 database.registrar_documento_gerado(client_data[0], doc_type, format_code, caminho)
-                messagebox.showinfo("Sucesso", f"Documento gerado com sucesso!\n\nSalvo em: {caminho}")
+                if format_code != "pdf":
+                    messagebox.showinfo("Sucesso", f"Documento gerado com sucesso!\n\nSalvo em: {caminho}")
             else:
                 messagebox.showerror("Erro", f"Falha ao gerar documento em formato {format_code.upper()}!")
 

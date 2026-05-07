@@ -5,6 +5,7 @@ from datetime import datetime
 from docxtpl import DocxTemplate
 from fpdf import FPDF  # Certifique-se de que é a fpdf2
 from docx2pdf import convert
+import tempfile
 from num2words import num2words
 import os
 from pathlib import Path 
@@ -70,7 +71,7 @@ def abrir_no_navegador(caminho_arquivo):
         webbrowser.open(f"file://{abs_path}")
 
 # 4. GERAÇÃO DE WORD
-def gerar_documento_word(cliente_info, tipo_documento):
+def gerar_documento_word(cliente_info, tipo_documento, saida_dir=OUTPUT_DIR):
     try:
         garantir_pastas()
         contexto = criar_contexto_cliente(cliente_info)
@@ -83,7 +84,7 @@ def gerar_documento_word(cliente_info, tipo_documento):
         doc.render(contexto)
 
         nome_arq = f"{str(contexto['nome']).replace(' ', '_')}_{datetime.now().strftime('%H%M%S')}.docx"
-        caminho = os.path.join(OUTPUT_DIR, nome_arq)
+        caminho = os.path.join(saida_dir, nome_arq)
         doc.save(caminho)
         return caminho
     except Exception as e:
@@ -94,8 +95,9 @@ def gerar_documento_word(cliente_info, tipo_documento):
 def gerar_documento_pdf(cliente_info, tipo_documento):
     """Gera um PDF que é a cópia exata do Word preenchido."""
     try:
+        temp_dir = tempfile.gettempdir()
         # 1. Primeiro geramos o Word normalmente
-        caminho_word = gerar_documento_word(cliente_info, tipo_documento)
+        caminho_word = gerar_documento_word(cliente_info, tipo_documento, saida_dir=temp_dir)
         
         if not caminho_word:
             return None
