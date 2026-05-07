@@ -164,7 +164,7 @@ class AppMunaretto:
 
         try:
             client_count = len(database.listar_clientes())
-            doc_count = len(os.listdir("documentos_gerados")) if os.path.exists("documentos_gerados") else 0
+            doc_count = len(os.listdir(documents.OUTPUT_DIR)) if os.path.exists(documents.OUTPUT_DIR) else 0
         except:
             client_count = 0
             doc_count = 0
@@ -840,24 +840,33 @@ class AppMunaretto:
             messagebox.showwarning("Aviso", "Informe o mês de referência para o relatório.")
             return
 
-        liquido_val = self.calculate_fluxo()
-        if liquido_val is None:
-            return
+        # Tenta buscar os dados salvos no banco de dados
+        dados_salvos = database.buscar_dados_fluxo_por_mes(mes)
 
-        # Preparar dados para o gerador (Formatando para o padrão R$ 1.234,56)
-        total_liquido_str = f"{liquido_val:,.2f}".replace(",", "X").replace(".", ",").replace("X", ".")
-        
-        dados_usinas = {}
-        for key, label in self.rend_fields.items():
-            val = self.rend_entries[key].get().replace(",", ".")
-            val_f = float(val) if val else 0.0
-            dados_usinas[label.replace(":", "")] = f"{val_f:,.2f}".replace(",", "X").replace(".", ",").replace("X", ".")
+        if dados_salvos:
+            dados_usinas, dados_despesas, total_liquido_str = dados_salvos
+        else:
+            # Se não encontrar no banco, avisa o usuário e oferece gerar com os dados da tela
+            if messagebox.askyesno("Fechamento não encontrado", 
+                                   f"Não existe um fechamento salvo para '{mes}'.\nDeseja gerar o relatório com os dados que estão atualmente na tela?"):
+                liquido_val = self.calculate_fluxo()
+                if liquido_val is None: return
+                
+                total_liquido_str = f"{liquido_val:,.2f}".replace(",", "X").replace(".", ",").replace("X", ".")
+                
+                dados_usinas = {}
+                for key, label in self.rend_fields.items():
+                    val = self.rend_entries[key].get().replace(",", ".")
+                    val_f = float(val) if val else 0.0
+                    dados_usinas[label.replace(":", "")] = f"{val_f:,.2f}".replace(",", "X").replace(".", ",").replace("X", ".")
 
-        dados_despesas = {}
-        for key, label in self.desp_fields.items():
-            val = self.desp_entries[key].get().replace(",", ".")
-            val_f = float(val) if val else 0.0
-            dados_despesas[label.replace(":", "")] = f"{val_f:,.2f}".replace(",", "X").replace(".", ",").replace("X", ".")
+                dados_despesas = {}
+                for key, label in self.desp_fields.items():
+                    val = self.desp_entries[key].get().replace(",", ".")
+                    val_f = float(val) if val else 0.0
+                    dados_despesas[label.replace(":", "")] = f"{val_f:,.2f}".replace(",", "X").replace(".", ",").replace("X", ".")
+            else:
+                return
 
         nome_arquivo = f"Relatorio_Usinas_{mes.replace('/', '_').replace(' ', '_')}.pdf"
         
@@ -867,7 +876,6 @@ class AppMunaretto:
             caminho = gerador_relatorio.gerar_pdf_socio_especifico(tipo_relatorio, mes, dados_usinas, dados_despesas, total_liquido_str)
             
         if caminho:
-            messagebox.showinfo("Sucesso", f"Relatório ({tipo_relatorio}) gerado com sucesso!")
             webbrowser.open(f"file://{os.path.abspath(caminho)}")
 
     def filter_clients_gen(self):
@@ -1092,7 +1100,7 @@ class AppMunaretto:
             backup_json = database.salvar_backup_json()
             if backup_json:
                 self.status_label.config(text="⏳ Sincronizando com Google Drive...", foreground="#f39c12")
-                if google_drive.sincronizar_backup_drive():
+                if google_drive.sincronizar_backup_local():
                     self.status_label.config(text="✅ Sincronização concluída!", foreground=self.secondary_color)
                 else:
                     self.status_label.config(text="❌ Erro na sincronização. Verifique credenciais.", foreground=self.accent_color)

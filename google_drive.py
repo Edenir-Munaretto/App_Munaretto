@@ -1,6 +1,7 @@
 import os
 import shutil
 from datetime import datetime
+from database import DATABASE_FILE
 
 # Define o caminho para a pasta Documentos do usuário atual
 CAMINHO_DOCUMENTOS = os.path.join(os.path.expanduser("~"), "Documents", "App_Munaretto")
@@ -12,7 +13,7 @@ def garantir_pastas():
         os.makedirs(PASTA_BACKUPS)
         print(f"✅ Pastas criadas em: {CAMINHO_DOCUMENTOS}")
 
-def sincronizar_backup_local(arquivo_db=r"G:\Meu Drive\BANCO_DE_DADOS\clientes.db"):
+def sincronizar_backup_local(arquivo_db=DATABASE_FILE):
     """Faz uma cópia de segurança do banco de dados para a pasta Documentos."""
     try:
         garantir_pastas()

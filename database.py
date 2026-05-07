@@ -229,3 +229,37 @@ def salvar_backup_json():
     with open(arquivo, "w", encoding="utf-8") as f:
         json.dump(dados, f, ensure_ascii=False, indent=2)
     return arquivo
+def buscar_dados_fluxo_por_mes(mes_referencia):
+    conn = sqlite3.connect(DATABASE_FILE) # Use o caminho que configuramos antes
+    conn.row_factory = sqlite3.Row # Permite acessar colunas pelo nome
+    cursor = conn.cursor()
+    
+    cursor.execute("SELECT * FROM fluxo_caixa WHERE mes_referencia = ?", (mes_referencia,))
+    row = cursor.fetchone()
+    conn.close()
+
+    if row:
+        # Formatação auxiliar para padrão brasileiro (1.234,56)
+        fmt = lambda v: f"{v:,.2f}".replace(",", "X").replace(".", ",").replace("X", ".")
+
+        # Organiza os dados exatamente como as labels da interface esperam
+        dados_usinas = {
+            "Rendimento Usina 01": fmt(row['rendimento_usina1']),
+            "Rendimento Usina 02": fmt(row['rendimento_usina2']),
+            "Rendimento Usina 03": fmt(row['rendimento_usina3'])
+        }
+        
+        dados_despesas = {
+            "Contabilidade": fmt(row['despesa_contabilidade']),
+            "Internet": fmt(row['despesa_internet']),
+            "Lavagem Usinas": fmt(row['despesa_lavagem']),
+            "Manutenção": fmt(row['despesa_manutencao']),
+            "Impostos": fmt(row['despesa_imposto']),
+            "Taxas Bancárias": fmt(row['despesa_taxa']),
+            "Diversas": fmt(row['despesa_diversas'])
+        }
+        
+        total_liquido = fmt(row['total_liquido'])
+        
+        return dados_usinas, dados_despesas, total_liquido
+    return None

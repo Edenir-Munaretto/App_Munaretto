@@ -1,3 +1,5 @@
+import os
+import tempfile
 from fpdf import FPDF
 from datetime import datetime
 
@@ -86,8 +88,9 @@ def gerar_pdf_mensal(mes_ref, dados_usinas, dados_despesas, total_liquido, nome_
     }
     pdf.criar_tabela_financeira("DISTRIBUIÇÃO DE LUCROS (TODOS OS SÓCIOS)", socios, (26, 54, 104))
 
-    pdf.output(nome_arquivo)
-    return nome_arquivo
+    caminho_temp = os.path.join(tempfile.gettempdir(), nome_arquivo)
+    pdf.output(caminho_temp)
+    return caminho_temp
 
 def gerar_pdf_socio_especifico(socio_alvo, mes_ref, dados_usinas, dados_despesas, total_liquido):
     pdf = RelatorioSocio()
@@ -150,8 +153,9 @@ def gerar_pdf_socio_especifico(socio_alvo, mes_ref, dados_usinas, dados_despesas
     pdf.cell(50, 15, f" R$ {formatar(valor_socio)}", border=1, fill=True, align='C')
 
     nome_arquivo = f"Relatorio_{socio_alvo}_{mes_ref.replace('/', '-')}.pdf"
-    pdf.output(nome_arquivo)
-    return nome_arquivo
+    caminho_temp = os.path.join(tempfile.gettempdir(), nome_arquivo)
+    pdf.output(caminho_temp)
+    return caminho_temp
 
 # --- EXEMPLO DE ACIONAMENTO ---
 if __name__ == "__main__":
