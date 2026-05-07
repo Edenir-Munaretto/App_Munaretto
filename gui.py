@@ -193,22 +193,27 @@ class AppMunaretto:
             text_label.pack()
 
     def show_client_form(self):
-        """Mostra formulário de cadastro de cliente otimizado."""
+        """Mostra formulário de cadastro de cliente com fundo branco e campos coloridos."""
         self.clear_content()
 
-        # Container Principal
-        form_frame = ttk.Frame(self.content_frame, style="TFrame")
+        # --- Configuração de Estilos ---
+        style = ttk.Style()
+        # Estilo para os frames ficarem com fundo branco
+        style.configure("White.TFrame", background="white")
+
+        # Container Principal (Fundo da página)
+        form_frame = ttk.Frame(self.content_frame)
         form_frame.pack(fill=tk.BOTH, expand=True, padx=30, pady=10)
 
         # Cabeçalho
-        header_frame = ttk.Frame(form_frame, style="TFrame")
+        header_frame = ttk.Frame(form_frame)
         header_frame.pack(side=tk.TOP, fill=tk.X, pady=(0, 10))
 
         ttk.Label(header_frame, text="👤 Cadastrar Novo Cliente", font=("Segoe UI", 20, "bold"),
                   foreground=self.primary_color).pack(side="left")
 
-        # --- Rodapé e Botão (Empacotado primeiro no fundo para garantir visibilidade) ---
-        footer_frame = ttk.Frame(form_frame, style="TFrame")
+        # --- Rodapé e Botão ---
+        footer_frame = ttk.Frame(form_frame, style="White.TFrame")
         footer_frame.pack(side=tk.BOTTOM, fill=tk.X, pady=(10, 0))
 
         save_btn = tk.Button(
@@ -226,12 +231,12 @@ class AppMunaretto:
         )
         save_btn.pack(fill=tk.X)
 
-        # Hover effect para o botão
+        # Hover effect
         save_btn.bind("<Enter>", lambda e: save_btn.configure(bg=self.adjust_color(self.primary_color, -20)))
         save_btn.bind("<Leave>", lambda e: save_btn.configure(bg=self.primary_color))
 
-        # --- Container dos Campos (Preenche o centro) ---
-        main_container = tk.Frame(form_frame, bg=self.card_color, highlightbackground="#e0e0e0", highlightthickness=1)
+        # --- Container dos Campos (Fundo Branco) ---
+        main_container = tk.Frame(form_frame, bg="white", highlightbackground="#b8b3b3", highlightthickness=1)
         main_container.pack(side=tk.TOP, fill=tk.BOTH, expand=True)
 
         # --- Organização dos Campos ---
@@ -253,30 +258,43 @@ class AppMunaretto:
         self.entries = {}
 
         for section_title, fields in sections:
-            # Frame da Seção
-            sec_frame = ttk.Frame(main_container, style="TFrame")
+            # Frame da Seção (Branco)
+            sec_frame = ttk.Frame(main_container, style="White.TFrame")
             sec_frame.pack(fill=tk.X, padx=40, pady=(10, 0))
 
             ttk.Label(sec_frame, text=section_title, font=("Segoe UI", 12, "bold"),
-                      foreground="#555").pack(anchor="w", pady=(0, 10))
+                      foreground="#555", background="white").pack(anchor="w", pady=(0, 10))
             
-            # Grid para os campos
-            grid_frame = ttk.Frame(sec_frame, style="TFrame")
+            # Grid para os campos (Branco)
+            grid_frame = ttk.Frame(sec_frame, style="White.TFrame")
             grid_frame.pack(fill=tk.X)
             grid_frame.columnconfigure((0, 1), weight=1, uniform="group1")
 
             for label_text, field_name, row, col in fields:
-                f_container = ttk.Frame(grid_frame, style="TFrame")
+                # Container do Campo (Branco)
+                f_container = ttk.Frame(grid_frame, style="White.TFrame")
                 f_container.grid(row=row, column=col, padx=(0 if col==0 else 15, 15 if col==0 else 0), pady=8, sticky="ew")
 
-                ttk.Label(f_container, text=label_text, font=("Segoe UI", 9, "bold")).pack(anchor="w")
+                ttk.Label(f_container, text=label_text, font=("Segoe UI", 9, "bold"), 
+                          background="white").pack(anchor="w")
                 
-                entry = ttk.Entry(f_container, font=("Segoe UI", 11))
+                # Usando tk.Entry para garantir a aplicação da cor de fundo (bg)
+                # Isso contorna restrições de temas nativos do Windows no ttk.Entry
+                entry = tk.Entry(
+                    f_container,
+                    font=("Segoe UI", 11),
+                    bg="#CED1D4",         # Cor de fundo definida (Cinza claro para melhor leitura)
+                    relief="flat",        # Visual plano e moderno
+                    highlightthickness=1,  # Borda fina
+                    highlightbackground="#E0E0E0", # Cor da borda em estado normal
+                    highlightcolor=self.primary_color # Cor da borda quando focado
+                )
                 entry.pack(fill=tk.X, ipady=4, pady=(4, 0))
                 self.entries[field_name] = entry
 
-        # Auto-focus inicial no primeiro campo
+        # Auto-focus inicial
         self.root.after(400, lambda: self.entries["nome"].focus_set())
+
 
     def save_client(self):
         """Salva um novo cliente."""
