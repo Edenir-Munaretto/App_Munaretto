@@ -72,7 +72,7 @@ class AppMunaretto:
             ("👤 Cadastrar Cliente", self.show_client_form, self.primary_color),
             ("📋 Listar Clientes", self.show_clients_list, self.primary_color),
             ("📄 Gerar Documento", self.show_document_generator, self.secondary_color),
-            ("📚 Histórico", self.show_history, "#f39c12"),
+            ("🌴 Gestão Férias", self.show_history, "#f39c12"),
             ("📊 Gestão Usinas", self.show_fluxo_caixa, "#e74c3c"),
             ("📤 Importar Modelo", self.import_template, "#9b59b6"),
         ]
@@ -775,10 +775,12 @@ class AppMunaretto:
         }
         self.desp_entries = {}
         for i, (key, label) in enumerate(self.desp_fields.items()):
-            ttk.Label(desp_lf, text=label, background="white").grid(row=i, column=0, sticky="w", padx=10, pady=2)
-            entry = tk.Entry(desp_lf, font=("Segoe UI", 11), bg="#CED1D4", relief="flat", width=15)
+            row = i // 2
+            col = (i % 2) * 2
+            ttk.Label(desp_lf, text=label, background="white").grid(row=row, column=col, sticky="w", padx=(10, 2), pady=2)
+            entry = tk.Entry(desp_lf, font=("Segoe UI", 11), bg="#CED1D4", relief="flat", width=12)
             entry.insert(0, "0.00")
-            entry.grid(row=i, column=1, sticky="e", padx=10, pady=2, ipady=3)
+            entry.grid(row=row, column=col+1, sticky="e", padx=(2, 10), pady=2, ipady=3)
             self.desp_entries[key] = entry
 
 
@@ -934,97 +936,163 @@ class AppMunaretto:
             messagebox.showerror("Erro", f"Erro inesperado: {str(e)}")
 
     def show_history(self):
-        """Mostra histórico de documentos."""
+        """Módulo de Gestão de Férias (Substitui o antigo Histórico)."""
         self.clear_content()
 
-        hist_frame = ttk.Frame(self.content_frame, style="TFrame")
-        hist_frame.pack(fill=tk.BOTH, expand=True, padx=20, pady=20)
+        main_frame = ttk.Frame(self.content_frame)
+        main_frame.pack(fill=tk.BOTH, expand=True, padx=20, pady=10)
+        
+        ttk.Label(main_frame, text="🌴 Gestão de Férias Colaboradores", font=("Segoe UI", 18, "bold"), 
+                  foreground="#f39c12").pack(pady=(0, 15))
 
-        # Título
-        title_label = ttk.Label(
-            hist_frame,
-            text="📚 Histórico de Documentos",
-            font=("Segoe UI", 18, "bold"),
-            foreground=self.primary_color
+        container = tk.Frame(main_frame, bg="white", highlightbackground="#e0e0e0", highlightthickness=1)
+        container.pack(fill=tk.BOTH, expand=True)
+
+        # --- Formulário de Cadastro ---
+        form_lf = tk.LabelFrame(container, text=" Cadastrar Novas Férias ", font=("Segoe UI", 10, "bold"), bg="white")
+        form_lf.pack(fill=tk.X, padx=20, pady=10)
+
+        fields = [("Nome Colaborador:", "nome"), ("Início :", "inicio"), 
+                  ("Dias Abono (Máx 10):", "abono"), ("Data Limite :", "limite")]
+        self.ferias_entries = {}
+        
+        for i, (label, key) in enumerate(fields):
+            ttk.Label(form_lf, text=label, background="white", font=("Segoe UI", 9, "bold")).grid(row=0, column=i*2, padx=(10, 2), pady=10)
+            
+            # Largura maior para o campo nome (35) e estilo padronizado com fundo cinza
+            w = 35 if key == "nome" else 15
+            entry = tk.Entry(
+                form_lf, 
+                font=("Segoe UI", 10), 
+                width=w,
+                bg="#CED1D4",
+                relief="flat",
+                highlightthickness=1,
+                highlightbackground="#E0E0E0",
+                highlightcolor=self.primary_color
+            )
+            entry.grid(row=0, column=i*2+1, padx=(0, 10), pady=10, ipady=3)
+            self.ferias_entries[key] = entry
+
+        btn_save = tk.Button(form_lf, text="💾 Salvar", command=self.save_vacation, bg=self.primary_color, 
+                             fg="white", relief="flat", padx=10)
+        btn_save.grid(row=0, column=8, padx=10)
+
+        # --- Botões de Relatório ---
+        rel_frame = ttk.Frame(container, style="White.TFrame")
+        rel_frame.pack(fill=tk.X, padx=20, pady=5)
+
+        tk.Button(rel_frame, text="📅 Previsão Próximo Mês", command=self.view_next_month_vacation, 
+                  bg=self.secondary_color, fg="white", relief="flat", padx=15, pady=5).pack(side=tk.LEFT, padx=5)
+        
+        self.search_colab_var = tk.StringVar()
+        search_entry = tk.Entry(
+            rel_frame, 
+            textvariable=self.search_colab_var, 
+            width=30,
+            bg="#CED1D4",
+            relief="flat",
+            highlightthickness=1,
+            highlightbackground="#E0E0E0",
+            highlightcolor=self.primary_color
         )
-        title_label.pack(pady=(0, 20))
+        search_entry.pack(side=tk.LEFT, padx=(20, 5), ipady=3)
+        tk.Button(rel_frame, text="🔍 Buscar Histórico", command=self.view_colab_history, 
+                  bg="#34495e", fg="white", relief="flat", padx=15, pady=5).pack(side=tk.LEFT)
 
-        # Seleção de cliente
-        client_frame = ttk.Frame(hist_frame, style="TFrame")
-        client_frame.pack(fill=tk.X, pady=(0, 20))
+        # --- Tabela de Exibição ---
+        self.ferias_tree = ttk.Treeview(container, columns=("Nome", "Início", "Goso", "Abono", "Retorno", "Limite"), show="headings")
+        for col in ("Nome", "Início", "Goso", "Abono", "Retorno", "Limite"):
+            self.ferias_tree.heading(col, text=col)
+            self.ferias_tree.column(col, width=100)
+        self.ferias_tree.pack(fill=tk.BOTH, expand=True, padx=20, pady=10)
+        
+        # Verificar Alertas ao carregar
+        self.check_vacation_alerts()
 
-        ttk.Label(client_frame, text="Selecionar Cliente:", font=("Segoe UI", 11, "bold")).pack(anchor="w")
-        self.hist_client_var = tk.StringVar()
-        self.hist_client_combo = ttk.Combobox(client_frame, textvariable=self.hist_client_var, state="readonly")
-        self.hist_client_combo.pack(fill=tk.X, pady=(5, 0))
-        self.hist_client_combo.bind("<<ComboboxSelected>>", self.load_client_history)
+    def save_vacation(self):
+        nome = self.ferias_entries['nome'].get().strip()
+        inicio_input = self.ferias_entries['inicio'].get().strip()
+        limite_input = self.ferias_entries['limite'].get().strip()
+        
+        try:
+            abono = int(self.ferias_entries['abono'].get().strip() or 0)
+            
+            if abono > 10:
+                messagebox.showerror("Erro", "O abono não pode ser superior a 10 dias.")
+                return
+            
+            # Converter data de início de DD/MM/AAAA para YYYY-MM-DD para o banco de dados
+            try:
+                data_inicio_obj = datetime.strptime(inicio_input, "%d/%m/%Y")
+                data_inicio_db = data_inicio_obj.strftime("%Y-%m-%d")
+            except ValueError:
+                messagebox.showerror("Erro", "Formato da Data de Início inválido. Use DD/MM/AAAA.")
+                return
 
-        # Carregar clientes
-        clients = database.listar_clientes()
-        if not clients:
-            ttk.Label(hist_frame, text="❌ Nenhum cliente cadastrado!", foreground=self.accent_color).pack(pady=50)
-            return
+            # Converter data limite de DD/MM/AAAA para YYYY-MM-DD para o banco de dados, se fornecida
+            data_limite_db = ""
+            if limite_input:
+                try:
+                    data_limite_obj = datetime.strptime(limite_input, "%d/%m/%Y")
+                    data_limite_db = data_limite_obj.strftime("%Y-%m-%d")
+                except ValueError:
+                    messagebox.showerror("Erro", "Formato da Data Limite inválido. Use DD/MM/AAAA.")
+                    return
+            
+            if database.adicionar_ferias(nome, data_inicio_db, abono, data_limite_db):
+                messagebox.showinfo("Sucesso", f"Férias de {nome} cadastradas!")
+                for entry in self.ferias_entries.values():
+                    entry.delete(0, tk.END) # Limpa os campos após o sucesso
+                self.view_colab_history()
+            else:
+                messagebox.showerror("Erro", "Falha ao salvar. Verifique os dados e tente novamente.")
+        except ValueError:
+            messagebox.showerror("Erro", "Dias de abono deve ser um número inteiro.")
+        except Exception as e:
+            messagebox.showerror("Erro", f"Ocorreu um erro inesperado: {e}")
 
-        self.hist_client_combo['values'] = [f"{c[0]} - {c[1]}" for c in clients]
-        self.hist_client_data = {f"{c[0]} - {c[1]}": c for c in clients}
+    def format_date_br(self, date_str):
+        try:
+            return datetime.strptime(date_str, "%Y-%m-%d").strftime("%d/%m/%Y")
+        except: return date_str
 
-        # Treeview para histórico
-        tree_frame = ttk.Frame(hist_frame, style="TFrame")
-        tree_frame.pack(fill=tk.BOTH, expand=True)
+    def view_next_month_vacation(self):
+        for i in self.ferias_tree.get_children(): self.ferias_tree.delete(i)
+        records = database.listar_ferias_proximo_mes()
+        for r in records:
+            self.ferias_tree.insert("", "end", values=(r['nome'], self.format_date_br(r['data_inicio']), 
+                                    r['dias_gozo'], r['dias_abono'], self.format_date_br(r['data_retorno']), 
+                                    self.format_date_br(r['data_limite'])))
 
-        v_scrollbar = ttk.Scrollbar(tree_frame, orient="vertical")
-        h_scrollbar = ttk.Scrollbar(tree_frame, orient="horizontal")
+    def view_colab_history(self):
+        nome = self.search_colab_var.get().strip()
+        for i in self.ferias_tree.get_children(): self.ferias_tree.delete(i)
+        records = database.buscar_ferias_por_colaborador(nome)
+        for r in records:
+            self.ferias_tree.insert("", "end", values=(r['nome'], self.format_date_br(r['data_inicio']), 
+                                    r['dias_gozo'], r['dias_abono'], self.format_date_br(r['data_retorno']), 
+                                    self.format_date_br(r['data_limite'])))
 
-        self.history_tree = ttk.Treeview(
-            tree_frame,
-            columns=("Tipo", "Formato", "Data", "Arquivo"),
-            show="headings",
-            yscrollcommand=v_scrollbar.set,
-            xscrollcommand=h_scrollbar.set
-        )
-
-        v_scrollbar.config(command=self.history_tree.yview)
-        h_scrollbar.config(command=self.history_tree.xview)
-
-        # Configurar colunas
-        columns = [
-            ("Tipo", 150),
-            ("Formato", 100),
-            ("Data", 150),
-            ("Arquivo", 300)
-        ]
-
-        for col, width in columns:
-            self.history_tree.heading(col, text=col)
-            self.history_tree.column(col, width=width)
-
-        # Posicionar widgets
-        self.history_tree.grid(row=0, column=0, sticky="nsew")
-        v_scrollbar.grid(row=0, column=1, sticky="ns")
-        h_scrollbar.grid(row=1, column=0, sticky="ew")
-
-        tree_frame.grid_rowconfigure(0, weight=1)
-        tree_frame.grid_columnconfigure(0, weight=1)
-
-    def load_client_history(self, event=None):
-        """Carrega histórico do cliente selecionado."""
-        client_selection = self.hist_client_var.get()
-        if not client_selection:
-            return
-
-        client_data = self.hist_client_data[client_selection]
-        client_id = client_data[0]
-
-        # Limpar treeview
-        for item in self.history_tree.get_children():
-            self.history_tree.delete(item)
-
-        # Carregar histórico
-        history = database.obter_historico_cliente(client_id)
-        for doc in history:
-            tipo, formato, caminho, data = doc
-            nome_arquivo = os.path.basename(caminho)
-            self.history_tree.insert("", tk.END, values=(tipo, formato, data, nome_arquivo))
+    def check_vacation_alerts(self):
+        """Verifica alertas de data limite (30, 15, 10 dias)."""
+        dados = database.obter_alertas_ferias()
+        hoje = datetime.now()
+        alertas = []
+        
+        for r in dados:
+            try:
+                dt_limite = datetime.strptime(r['data_limite'], "%Y-%m-%d")
+                dias_restantes = (dt_limite - hoje).days
+                
+                if dias_restantes in [30, 15, 10]:
+                    alertas.append(f"⚠️ {r['nome']}: Faltam {dias_restantes} dias para o limite ({self.format_date_br(r['data_limite'])}).")
+                elif 0 <= dias_restantes < 10:
+                    alertas.append(f"🚨 URGENTE: {r['nome']} deve sair até {self.format_date_br(r['data_limite'])}!")
+            except: continue
+            
+        if alertas:
+            messagebox.showwarning("Aviso de Prazos de Férias", "\n".join(alertas))
 
     def show_google_drive(self):
         """Mostra opções do Google Drive."""

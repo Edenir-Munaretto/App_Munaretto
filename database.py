@@ -1,7 +1,8 @@
 import sqlite3
 import json
 import os
-from datetime import datetime
+from datetime import datetime, timedelta
+from typing import List, Tuple, Dict, Optional, Any
 
 DATABASE_FILE = r"G:\Meu Drive\BANCO_DE_DADOS\clientes.db"
 
@@ -62,6 +63,21 @@ def inicializar_banco():
             despesa_taxa REAL,
             despesa_diversas REAL,
             total_liquido REAL,
+            data_registro TEXT DEFAULT CURRENT_TIMESTAMP
+        )
+    """
+    )
+    
+    cursor.execute(
+        """
+        CREATE TABLE IF NOT EXISTS gestao_ferias (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            nome TEXT NOT NULL,
+            data_inicio TEXT NOT NULL,
+            dias_abono INTEGER NOT NULL,
+            dias_gozo INTEGER NOT NULL,
+            data_retorno TEXT NOT NULL,
+            data_limite TEXT NOT NULL,
             data_registro TEXT DEFAULT CURRENT_TIMESTAMP
         )
     """
@@ -263,3 +279,75 @@ def buscar_dados_fluxo_por_mes(mes_referencia):
         
         return dados_usinas, dados_despesas, total_liquido
     return None
+
+def adicionar_ferias(nome: str, data_inicio_str: str, dias_abono: int, data_limite_str: str) -> bool:
+    """Calcula e salva as férias de um colaborador."""
+    try:
+        if dias_abono > 10:
+            return False
+
+        dt_inicio = datetime.strptime(data_inicio_str, "%Y-%m-%d")
+        dias_gozo = 30 - dias_abono
+        dt_retorno = dt_inicio + timedelta(days=dias_gozo)
+        
+        # Se a data limite não for informada, calcula 1 ano após o início por padrão
+        if not data_limite_str:
+            dt_limite = dt_inicio + timedelta(days=365)
+            data_limite_str = dt_limite.strftime("%Y-%m-%d")
+
+        conn = sqlite3.connect(DATABASE_FILE)
+        cursor = conn.cursor()
+        cursor.execute(
+            """
+            INSERT INTO gestao_ferias (nome, data_inicio, dias_abono, dias_gozo, data_retorno, data_limite)
+            VALUES (?, ?, ?, ?, ?, ?)
+            """,
+            (nome, data_inicio_str, dias_abono, dias_gozo, dt_retorno.strftime("%Y-%m-%d"), data_limite_str)
+        )
+        conn.commit()
+        conn.close()
+        return True
+    except Exception as e:
+        print(f"Erro ao salvar férias: {e}")
+        return False
+
+def listar_ferias_proximo_mes() -> List[sqlite3.Row]:
+    """Retorna colaboradores com férias no mês seguinte."""
+    conn = sqlite3.connect(DATABASE_FILE)
+    conn.row_factory = sqlite3.Row
+    cursor = conn.cursor()
+    
+    hoje = datetime.now()
+    primeiro_dia_prox_mes = (hoje.replace(day=1) + timedelta(days=32)).replace(day=1)
+    ultimo_dia_prox_mes = (primeiro_dia_prox_mes + timedelta(days=32)).replace(day=1) - timedelta(days=1)
+    
+    cursor.execute(
+        "SELECT * FROM gestao_ferias WHERE data_inicio BETWEEN ? AND ?",
+        (primeiro_dia_prox_mes.strftime("%Y-%m-%d"), ultimo_dia_prox_mes.strftime("%Y-%m-%d"))
+    )
+    rows = cursor.fetchall()
+    conn.close()
+    return rows
+
+def obter_alertas_ferias() -> List[Dict[str, Any]]:
+    """Retorna dados de colaboradores próximos à data limite."""
+    conn = sqlite3.connect(DATABASE_FILE)
+    conn.row_factory = sqlite3.Row
+    cursor = conn.cursor()
+    cursor.execute("SELECT nome, data_limite FROM gestao_ferias")
+    dados = [dict(row) for row in cursor.fetchall()]
+    conn.close()
+    return dados
+
+def buscar_ferias_por_colaborador(nome: str) -> List[sqlite3.Row]:
+    """Busca o histórico de férias de um colaborador específico."""
+    conn = sqlite3.connect(DATABASE_FILE)
+    conn.row_factory = sqlite3.Row
+    cursor = conn.cursor()
+    cursor.execute(
+        "SELECT * FROM gestao_ferias WHERE nome LIKE ? ORDER BY data_inicio DESC",
+        (f"%{nome}%",)
+    )
+    rows = cursor.fetchall()
+    conn.close()
+    return rows

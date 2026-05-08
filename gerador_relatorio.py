@@ -11,7 +11,7 @@ class RelatorioSocio(FPDF):
         self.set_text_color(255, 255, 255)
         self.cell(0, 15, "RELATÓRIO DE FECHAMENTO MENSAL", ln=True, align='C')
         self.set_font("Arial", 'B', 12)
-        self.cell(0, 5, f"Usina Solar Munaretto", ln=True, align='C')
+        self.cell(0, 5, f"Usinas Solar - Ouro Energia", ln=True, align='C')
         self.ln(20)
 
     def footer(self):
