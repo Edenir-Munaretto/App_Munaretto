@@ -1001,8 +1001,8 @@ class AppMunaretto:
                   bg="#34495e", fg="white", relief="flat", padx=15, pady=5).pack(side=tk.LEFT)
 
         # --- Tabela de Exibição ---
-        self.ferias_tree = ttk.Treeview(container, columns=("Nome", "Início", "Goso", "Abono", "Retorno", "Limite"), show="headings")
-        for col in ("Nome", "Início", "Goso", "Abono", "Retorno", "Limite"):
+        self.ferias_tree = ttk.Treeview(container, columns=("Nome", "Início", "Goso", "Abono", "Retorno", "Limite", "Status"), show="headings")
+        for col in ("Nome", "Início", "Goso", "Abono", "Retorno", "Limite", "Status"):
             self.ferias_tree.heading(col, text=col)
             self.ferias_tree.column(col, width=100)
         self.ferias_tree.pack(fill=tk.BOTH, expand=True, padx=20, pady=10)
@@ -1057,22 +1057,40 @@ class AppMunaretto:
             return datetime.strptime(date_str, "%Y-%m-%d").strftime("%d/%m/%Y")
         except: return date_str
 
+    def calculate_current_status(self, data_inicio_db, data_retorno_db):
+        """Calcula o status em tempo real baseado na data atual."""
+        try:
+            hoje = datetime.now().date()
+            inicio = datetime.strptime(data_inicio_db, "%Y-%m-%d").date()
+            retorno = datetime.strptime(data_retorno_db, "%Y-%m-%d").date()
+
+            if hoje < inicio:
+                return "📅 Agendado"
+            elif inicio <= hoje < retorno:
+                return "🌴 Em Férias"
+            else:
+                return "✅ Concluído"
+        except:
+            return "Indefinido"
+
     def view_next_month_vacation(self):
         for i in self.ferias_tree.get_children(): self.ferias_tree.delete(i)
         records = database.listar_ferias_proximo_mes()
         for r in records:
+            status = self.calculate_current_status(r['data_inicio'], r['data_retorno'])
             self.ferias_tree.insert("", "end", values=(r['nome'], self.format_date_br(r['data_inicio']), 
                                     r['dias_gozo'], r['dias_abono'], self.format_date_br(r['data_retorno']), 
-                                    self.format_date_br(r['data_limite'])))
+                                    self.format_date_br(r['data_limite']), status))
 
     def view_colab_history(self):
         nome = self.search_colab_var.get().strip()
         for i in self.ferias_tree.get_children(): self.ferias_tree.delete(i)
         records = database.buscar_ferias_por_colaborador(nome)
         for r in records:
+            status = self.calculate_current_status(r['data_inicio'], r['data_retorno'])
             self.ferias_tree.insert("", "end", values=(r['nome'], self.format_date_br(r['data_inicio']), 
                                     r['dias_gozo'], r['dias_abono'], self.format_date_br(r['data_retorno']), 
-                                    self.format_date_br(r['data_limite'])))
+                                    self.format_date_br(r['data_limite']), status))
 
     def check_vacation_alerts(self):
         """Verifica alertas de data limite (30, 15, 10 dias)."""

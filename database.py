@@ -78,6 +78,7 @@ def inicializar_banco():
             dias_gozo INTEGER NOT NULL,
             data_retorno TEXT NOT NULL,
             data_limite TEXT NOT NULL,
+            status TEXT DEFAULT 'Agendado',
             data_registro TEXT DEFAULT CURRENT_TIMESTAMP
         )
     """
@@ -299,10 +300,10 @@ def adicionar_ferias(nome: str, data_inicio_str: str, dias_abono: int, data_limi
         cursor = conn.cursor()
         cursor.execute(
             """
-            INSERT INTO gestao_ferias (nome, data_inicio, dias_abono, dias_gozo, data_retorno, data_limite)
-            VALUES (?, ?, ?, ?, ?, ?)
+            INSERT INTO gestao_ferias (nome, data_inicio, dias_abono, dias_gozo, data_retorno, data_limite, status)
+            VALUES (?, ?, ?, ?, ?, ?, ?)
             """,
-            (nome, data_inicio_str, dias_abono, dias_gozo, dt_retorno.strftime("%Y-%m-%d"), data_limite_str)
+            (nome, data_inicio_str, dias_abono, dias_gozo, dt_retorno.strftime("%Y-%m-%d"), data_limite_str, "Agendado")
         )
         conn.commit()
         conn.close()
@@ -351,3 +352,16 @@ def buscar_ferias_por_colaborador(nome: str) -> List[sqlite3.Row]:
     rows = cursor.fetchall()
     conn.close()
     return rows
+
+def atualizar_status_ferias(ferias_id: int, novo_status: str) -> bool:
+    """Atualiza o status de um registro de férias (ex: 'Gozadas', 'Cancelado')."""
+    try:
+        conn = sqlite3.connect(DATABASE_FILE)
+        cursor = conn.cursor()
+        cursor.execute("UPDATE gestao_ferias SET status = ? WHERE id = ?", (novo_status, ferias_id))
+        conn.commit()
+        conn.close()
+        return True
+    except Exception as e:
+        print(f"Erro ao atualizar status: {e}")
+        return False
