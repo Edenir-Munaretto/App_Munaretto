@@ -281,15 +281,16 @@ def buscar_dados_fluxo_por_mes(mes_referencia):
         return dados_usinas, dados_despesas, total_liquido
     return None
 
-def adicionar_ferias(nome: str, data_inicio_str: str, dias_abono: int, data_limite_str: str) -> bool:
+def adicionar_ferias(nome: str, data_inicio_str: str, dias_abono: int, data_limite_str: str) -> Tuple[bool, str]:
     """Calcula e salva as férias de um colaborador."""
     try:
         if dias_abono > 10:
-            return False
+            return False, "O abono pecuniário não pode ser superior a 10 dias."
 
         dt_inicio = datetime.strptime(data_inicio_str, "%Y-%m-%d")
         dias_gozo = 30 - dias_abono
         dt_retorno = dt_inicio + timedelta(days=dias_gozo)
+        data_retorno_str = dt_retorno.strftime("%Y-%m-%d")
         
         # Se a data limite não for informada, calcula 1 ano após o início por padrão
         if not data_limite_str:
@@ -303,13 +304,25 @@ def adicionar_ferias(nome: str, data_inicio_str: str, dias_abono: int, data_limi
             INSERT INTO gestao_ferias (nome, data_inicio, dias_abono, dias_gozo, data_retorno, data_limite, status)
             VALUES (?, ?, ?, ?, ?, ?, ?)
             """,
-            (nome, data_inicio_str, dias_abono, dias_gozo, dt_retorno.strftime("%Y-%m-%d"), data_limite_str, "Agendado")
+            (nome, data_inicio_str, dias_abono, dias_gozo, data_retorno_str, data_limite_str, "Agendado")
         )
+        conn.commit()
+        conn.close()
+        return True, "Férias agendadas com sucesso."
+    except Exception as e:
+        return False, f"Erro ao salvar férias: {e}"
+
+def deletar_ferias(ferias_id: int) -> bool:
+    """Remove um registro de férias do banco de dados."""
+    try:
+        conn = sqlite3.connect(DATABASE_FILE)
+        cursor = conn.cursor()
+        cursor.execute("DELETE FROM gestao_ferias WHERE id = ?", (ferias_id,))
         conn.commit()
         conn.close()
         return True
     except Exception as e:
-        print(f"Erro ao salvar férias: {e}")
+        print(f"Erro ao deletar férias: {e}")
         return False
 
 def listar_ferias_proximo_mes() -> List[sqlite3.Row]:

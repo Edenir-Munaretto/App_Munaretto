@@ -1002,10 +1002,32 @@ class AppMunaretto:
 
         # --- Tabela de Exibição ---
         self.ferias_tree = ttk.Treeview(container, columns=("Nome", "Início", "Goso", "Abono", "Retorno", "Limite", "Status"), show="headings")
-        for col in ("Nome", "Início", "Goso", "Abono", "Retorno", "Limite", "Status"):
+        self.ferias_tree = ttk.Treeview(container, columns=("ID", "Nome", "Início", "Gozo", "Abono", "Retorno", "Limite", "Status"), show="headings")
+        cols = [("ID", 40), ("Nome", 150), ("Início", 100), ("Gozo", 60), ("Abono", 60), ("Retorno", 100), ("Limite", 100), ("Status", 100)]
+        for col, width in cols:
             self.ferias_tree.heading(col, text=col)
-            self.ferias_tree.column(col, width=100)
+            self.ferias_tree.column(col, width=width)
         self.ferias_tree.pack(fill=tk.BOTH, expand=True, padx=20, pady=10)
+
+        tk.Button(rel_frame, text="🗑️ Excluir Selecionado", command=self.delete_vacation, 
+                  bg=self.accent_color, fg="white", relief="flat", padx=15, pady=5).pack(side=tk.LEFT, padx=5)
+
+    def delete_vacation(self):
+        selection = self.ferias_tree.selection()
+        if not selection:
+            messagebox.showwarning("Aviso", "Selecione um registro para excluir.")
+            return
+        
+        item = self.ferias_tree.item(selection[0])
+        ferias_id = item['values'][0]
+        nome = item['values'][1]
+
+        if messagebox.askyesno("Confirmar", f"Deseja realmente excluir o registro de férias de {nome}?"):
+            if database.deletar_ferias(ferias_id):
+                messagebox.showinfo("Sucesso", "Registro removido.")
+                self.view_colab_history()
+            else:
+                messagebox.showerror("Erro", "Não foi possível excluir o registro.")
         
         # Verificar Alertas ao carregar
         self.check_vacation_alerts()
@@ -1017,11 +1039,7 @@ class AppMunaretto:
         
         try:
             abono = int(self.ferias_entries['abono'].get().strip() or 0)
-            
-            if abono > 10:
-                messagebox.showerror("Erro", "O abono não pode ser superior a 10 dias.")
-                return
-            
+
             # Converter data de início de DD/MM/AAAA para YYYY-MM-DD para o banco de dados
             try:
                 data_inicio_obj = datetime.strptime(inicio_input, "%d/%m/%Y")
@@ -1040,13 +1058,14 @@ class AppMunaretto:
                     messagebox.showerror("Erro", "Formato da Data Limite inválido. Use DD/MM/AAAA.")
                     return
             
-            if database.adicionar_ferias(nome, data_inicio_db, abono, data_limite_db):
-                messagebox.showinfo("Sucesso", f"Férias de {nome} cadastradas!")
+            sucesso, mensagem = database.adicionar_ferias(nome, data_inicio_db, abono, data_limite_db)
+            if sucesso:
+                messagebox.showinfo("Sucesso", mensagem)
                 for entry in self.ferias_entries.values():
                     entry.delete(0, tk.END) # Limpa os campos após o sucesso
                 self.view_colab_history()
             else:
-                messagebox.showerror("Erro", "Falha ao salvar. Verifique os dados e tente novamente.")
+                messagebox.showerror("Erro", mensagem)
         except ValueError:
             messagebox.showerror("Erro", "Dias de abono deve ser um número inteiro.")
         except Exception as e:
@@ -1078,7 +1097,7 @@ class AppMunaretto:
         records = database.listar_ferias_proximo_mes()
         for r in records:
             status = self.calculate_current_status(r['data_inicio'], r['data_retorno'])
-            self.ferias_tree.insert("", "end", values=(r['nome'], self.format_date_br(r['data_inicio']), 
+            self.ferias_tree.insert("", "end", values=(r['id'], r['nome'], self.format_date_br(r['data_inicio']), 
                                     r['dias_gozo'], r['dias_abono'], self.format_date_br(r['data_retorno']), 
                                     self.format_date_br(r['data_limite']), status))
 
@@ -1088,7 +1107,7 @@ class AppMunaretto:
         records = database.buscar_ferias_por_colaborador(nome)
         for r in records:
             status = self.calculate_current_status(r['data_inicio'], r['data_retorno'])
-            self.ferias_tree.insert("", "end", values=(r['nome'], self.format_date_br(r['data_inicio']), 
+            self.ferias_tree.insert("", "end", values=(r['id'], r['nome'], self.format_date_br(r['data_inicio']), 
                                     r['dias_gozo'], r['dias_abono'], self.format_date_br(r['data_retorno']), 
                                     self.format_date_br(r['data_limite']), status))
 
@@ -1103,10 +1122,10 @@ class AppMunaretto:
                 dt_limite = datetime.strptime(r['data_limite'], "%Y-%m-%d")
                 dias_restantes = (dt_limite - hoje).days
                 
-                if dias_restantes in [30, 15, 10]:
+                if 10 < dias_restantes <= 30:
                     alertas.append(f"⚠️ {r['nome']}: Faltam {dias_restantes} dias para o limite ({self.format_date_br(r['data_limite'])}).")
-                elif 0 <= dias_restantes < 10:
-                    alertas.append(f"🚨 URGENTE: {r['nome']} deve sair até {self.format_date_br(r['data_limite'])}!")
+                elif 0 <= dias_restantes <= 10:
+                    alertas.append(f"🚨 URGENTE: {r['nome']} precisa gozar férias até {self.format_date_br(r['data_limite'])}!")
             except: continue
             
         if alertas:
