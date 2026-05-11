@@ -682,15 +682,30 @@ class AppMunaretto:
     def show_fluxo_caixa(self):
         """Módulo de Gestão de Usinas - Fluxo de Caixa Mensal."""
         self.clear_content()
+        self.current_fluxo_id = None # ID do lançamento sendo editado
         
         main_frame = ttk.Frame(self.content_frame)
         main_frame.pack(fill=tk.BOTH, expand=True, padx=20, pady=10)
         
-        ttk.Label(main_frame, text="📊 Gestão Usinas - Fluxo de Caixa", font=("Segoe UI", 18, "bold"), 
-                  foreground=self.primary_color).pack(pady=(0, 15))
+        header_fluxo = ttk.Frame(main_frame)
+        header_fluxo.pack(fill=tk.X, pady=(0, 15))
 
-        container = tk.Frame(main_frame, bg="white", highlightbackground="#e0e0e0", highlightthickness=1)
-        container.pack(fill=tk.BOTH, expand=True, padx=5, pady=5)
+        ttk.Label(header_fluxo, text="📊 Gestão Usinas - Fluxo de Caixa", font=("Segoe UI", 18, "bold"), 
+                  foreground=self.primary_color).pack(side=tk.LEFT)
+        
+        tk.Button(header_fluxo, text="➕ Novo Lançamento", command=self.clear_fluxo_fields, font=("Segoe UI", 9, "bold"),
+                  bg=self.primary_color, fg="white", relief="flat", padx=10).pack(side=tk.RIGHT)
+
+        # Layout de duas colunas: Esquerda (Formulário) e Direita (Lista de Histórico)
+        paned = ttk.PanedWindow(main_frame, orient=tk.HORIZONTAL)
+        paned.pack(fill=tk.BOTH, expand=True)
+
+        # --- LADO ESQUERDO: Formulário ---
+        left_container = ttk.Frame(paned)
+        paned.add(left_container, weight=3)
+
+        container = tk.Frame(left_container, bg="white", highlightbackground="#e0e0e0", highlightthickness=1)
+        container.pack(fill=tk.BOTH, expand=True, padx=(0, 10))
 
         # Mês de Referência
         ref_frame = ttk.Frame(container, style="White.TFrame")
@@ -715,7 +730,10 @@ class AppMunaretto:
         tk.Button(btn_frame, text="💾 Salvar Fechamento", command=self.save_fluxo, font=("Segoe UI", 10, "bold"), 
                   bg=self.secondary_color, fg="white", relief="flat", padx=15, pady=8, cursor="hand2").pack(side=tk.LEFT, padx=5)
 
-        tk.Button(btn_frame, text="📄 Gerar Relatório PDF", command=self.generate_fluxo_report, font=("Segoe UI", 10, "bold"), 
+        tk.Button(btn_frame, text="🗑️ Excluir", command=self.delete_fluxo, font=("Segoe UI", 10, "bold"), 
+                  bg=self.accent_color, fg="white", relief="flat", padx=15, pady=8, cursor="hand2").pack(side=tk.LEFT, padx=5)
+
+        tk.Button(btn_frame, text="� Gerar Relatório PDF", command=self.generate_fluxo_report, font=("Segoe UI", 10, "bold"), 
                   bg="#f39c12", fg="white", relief="flat", padx=15, pady=8, cursor="hand2").pack(side=tk.LEFT, padx=5)
 
         # --- Resultados e Divisão (Logo acima dos botões no fundo) ---
@@ -783,6 +801,40 @@ class AppMunaretto:
             entry.grid(row=row, column=col+1, sticky="e", padx=(2, 10), pady=2, ipady=3)
             self.desp_entries[key] = entry
 
+        # --- LADO DIREITO: Histórico ---
+        right_container = ttk.Frame(paned)
+        paned.add(right_container, weight=1)
+        
+        ttk.Label(right_container, text="Histórico de Meses", font=("Segoe UI", 10, "bold")).pack(anchor="w", pady=(0, 5))
+        
+        self.fluxos_tree = ttk.Treeview(right_container, columns=("Mes", "Total"), show="headings", height=15)
+        self.fluxos_tree.heading("Mes", text="Mês")
+        self.fluxos_tree.heading("Total", text="Total Líquido")
+        self.fluxos_tree.column("Mes", width=120)
+        self.fluxos_tree.column("Total", width=100, anchor="e")
+        self.fluxos_tree.pack(fill=tk.BOTH, expand=True)
+        self.fluxos_tree.bind("<<TreeviewSelect>>", self.load_selected_fluxo)
+
+        self.refresh_fluxos_list()
+
+    def refresh_fluxos_list(self):
+        """Atualiza a lista de meses salvos na interface."""
+        for item in self.fluxos_tree.get_children():
+            self.fluxos_tree.delete(item)
+        
+        for f in database.listar_fluxos_caixa():
+            total_fmt = f"R$ {f[2]:,.2f}".replace(",", "X").replace(".", ",").replace("X", ".")
+            self.fluxos_tree.insert("", tk.END, values=(f[1], total_fmt), tags=(str(f[0]),))
+
+    def clear_fluxo_fields(self):
+        """Limpa todos os campos para um novo lançamento."""
+        self.current_fluxo_id = None
+        self.mes_ref_entry.delete(0, tk.END)
+        for e in list(self.rend_entries.values()) + list(self.desp_entries.values()):
+            e.delete(0, tk.END)
+            e.insert(0, "0.00")
+        self.calculate_fluxo()
+
 
     def calculate_fluxo(self):
         """Calcula totais e divisões."""
@@ -815,6 +867,38 @@ class AppMunaretto:
             messagebox.showerror("Erro", "Por favor, insira apenas valores numéricos válidos.")
             return None
 
+    def load_selected_fluxo(self, event):
+        """Carrega os dados do fluxo selecionado na lista para os campos de edição."""
+        selection = self.fluxos_tree.selection()
+        if not selection: return
+        
+        self.current_fluxo_id = int(self.fluxos_tree.item(selection[0])['tags'][0])
+        dados = database.buscar_fluxo_por_id(self.current_fluxo_id)
+        
+        if dados:
+            self.mes_ref_entry.delete(0, tk.END)
+            self.mes_ref_entry.insert(0, dados['mes_referencia'])
+            
+            for key in self.rend_entries:
+                self.rend_entries[key].delete(0, tk.END)
+                self.rend_entries[key].insert(0, str(dados[key]))
+                
+            for key in self.desp_entries:
+                self.desp_entries[key].delete(0, tk.END)
+                self.desp_entries[key].insert(0, str(dados[key]))
+            
+            self.calculate_fluxo()
+
+    def delete_fluxo(self):
+        if not self.current_fluxo_id:
+            messagebox.showwarning("Aviso", "Selecione um lançamento na lista para excluir.")
+            return
+        if messagebox.askyesno("Confirmar", "Deseja excluir permanentemente este lançamento?"):
+            if database.deletar_fluxo_caixa(self.current_fluxo_id):
+                messagebox.showinfo("Sucesso", "Lançamento excluído.")
+                self.clear_fluxo_fields()
+                self.refresh_fluxos_list()
+
     def save_fluxo(self):
         """Salva os dados no banco de dados."""
         mes = self.mes_ref_entry.get().strip()
@@ -829,8 +913,14 @@ class AppMunaretto:
         for k, e in self.rend_entries.items(): dados[k] = float(e.get().replace(",", "."))
         for k, e in self.desp_entries.items(): dados[k] = float(e.get().replace(",", "."))
 
-        if database.salvar_fluxo_caixa(dados):
-            messagebox.showinfo("Sucesso", f"Fechamento de {mes} salvo com sucesso!")
+        if self.current_fluxo_id:
+            sucesso = database.atualizar_fluxo_caixa(self.current_fluxo_id, dados)
+        else:
+            sucesso = database.salvar_fluxo_caixa(dados)
+
+        if sucesso:
+            messagebox.showinfo("Sucesso", "Dados salvos com sucesso!")
+            self.refresh_fluxos_list()
         else:
             messagebox.showerror("Erro", "Erro ao salvar no banco de dados.")
 

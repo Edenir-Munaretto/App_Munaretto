@@ -246,6 +246,54 @@ def salvar_backup_json():
     with open(arquivo, "w", encoding="utf-8") as f:
         json.dump(dados, f, ensure_ascii=False, indent=2)
     return arquivo
+
+def listar_fluxos_caixa():
+    """Retorna a lista resumida de todos os fluxos de caixa."""
+    conn = sqlite3.connect(DATABASE_FILE)
+    cursor = conn.cursor()
+    cursor.execute("SELECT id, mes_referencia, total_liquido FROM fluxo_caixa ORDER BY data_registro DESC")
+    fluxos = cursor.fetchall()
+    conn.close()
+    return fluxos
+
+def buscar_fluxo_por_id(fluxo_id):
+    """Busca os dados brutos de um fluxo pelo ID para edição."""
+    conn = sqlite3.connect(DATABASE_FILE)
+    conn.row_factory = sqlite3.Row
+    cursor = conn.cursor()
+    cursor.execute("SELECT * FROM fluxo_caixa WHERE id = ?", (fluxo_id,))
+    row = cursor.fetchone()
+    conn.close()
+    return row
+
+def atualizar_fluxo_caixa(fluxo_id, dados):
+    """Atualiza um registro de fluxo de caixa existente."""
+    try:
+        conn = sqlite3.connect(DATABASE_FILE)
+        cursor = conn.cursor()
+        sets = ", ".join([f"{k} = ?" for k in dados.keys()])
+        query = f"UPDATE fluxo_caixa SET {sets} WHERE id = ?"
+        cursor.execute(query, list(dados.values()) + [fluxo_id])
+        conn.commit()
+        conn.close()
+        return True
+    except Exception as e:
+        print(f"Erro ao atualizar fluxo: {e}")
+        return False
+
+def deletar_fluxo_caixa(fluxo_id):
+    """Remove um registro de fluxo de caixa."""
+    try:
+        conn = sqlite3.connect(DATABASE_FILE)
+        cursor = conn.cursor()
+        cursor.execute("DELETE FROM fluxo_caixa WHERE id = ?", (fluxo_id,))
+        conn.commit()
+        conn.close()
+        return True
+    except Exception as e:
+        print(f"Erro ao deletar fluxo: {e}")
+        return False
+
 def buscar_dados_fluxo_por_mes(mes_referencia):
     conn = sqlite3.connect(DATABASE_FILE) # Use o caminho que configuramos antes
     conn.row_factory = sqlite3.Row # Permite acessar colunas pelo nome

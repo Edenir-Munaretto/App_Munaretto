@@ -1,7 +1,7 @@
 import os
 import shutil
 import webbrowser
-from datetime import datetime
+from datetime import datetime, timedelta
 from docxtpl import DocxTemplate
 from fpdf import FPDF  # Certifique-se de que é a fpdf2
 from docx2pdf import convert
@@ -50,6 +50,9 @@ def valor_por_extenso(valor_str):
 def criar_contexto_cliente(cliente_info):
     """Mapeia os dados do banco de dados para o documento."""
     # Se o cliente_info vier do banco como uma tupla/lista
+    hoje = datetime.now()
+    data_60_dias = hoje + timedelta(days=60)
+    
     return {
         "id": cliente_info[0] if len(cliente_info) > 0 else "",
         "nome": cliente_info[1] if len(cliente_info) > 1 else "",
@@ -61,7 +64,8 @@ def criar_contexto_cliente(cliente_info):
         "valor_de_devolucao": cliente_info[8] if len(cliente_info) > 8 else "0,00",
         "valor_da_obra": cliente_info[7] if len(cliente_info) > 7 else "0,00",
         "valor_extenso": valor_por_extenso(cliente_info[7]) if len(cliente_info) > 7 else "",
-        "data": datetime.now().strftime("%d/%m/%Y")
+        "data": hoje.strftime("%d/%m/%Y"),
+        "data_fim": data_60_dias.strftime("%d/%m/%Y")
     }
 
 def abrir_no_navegador(caminho_arquivo):
