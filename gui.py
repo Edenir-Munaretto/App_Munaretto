@@ -683,6 +683,7 @@ class AppMunaretto:
         """Módulo de Gestão de Usinas - Fluxo de Caixa Mensal."""
         self.clear_content()
         self.current_fluxo_id = None # ID do lançamento sendo editado
+        self.current_mes = None      # Nome do mês sendo editado
         
         main_frame = ttk.Frame(self.content_frame)
         main_frame.pack(fill=tk.BOTH, expand=True, padx=20, pady=10)
@@ -693,6 +694,9 @@ class AppMunaretto:
         ttk.Label(header_fluxo, text="📊 Gestão Usinas - Fluxo de Caixa", font=("Segoe UI", 18, "bold"), 
                   foreground=self.primary_color).pack(side=tk.LEFT)
         
+        self.lbl_mes_atual = ttk.Label(header_fluxo, text="Selecione um mês ao lado", font=("Segoe UI", 12, "italic"), foreground="#666")
+        self.lbl_mes_atual.pack(side=tk.LEFT, padx=20)
+
         tk.Button(header_fluxo, text="➕ Novo Lançamento", command=self.clear_fluxo_fields, font=("Segoe UI", 9, "bold"),
                   bg=self.primary_color, fg="white", relief="flat", padx=10).pack(side=tk.RIGHT)
 
@@ -706,13 +710,6 @@ class AppMunaretto:
 
         container = tk.Frame(left_container, bg="white", highlightbackground="#e0e0e0", highlightthickness=1)
         container.pack(fill=tk.BOTH, expand=True, padx=(0, 10))
-
-        # Mês de Referência
-        ref_frame = ttk.Frame(container, style="White.TFrame")
-        ref_frame.pack(side=tk.TOP, fill=tk.X, padx=20, pady=10)
-        ttk.Label(ref_frame, text="Mês de Referência (ex: Janeiro/2024):", font=("Segoe UI", 10, "bold"), background="white").pack(side=tk.LEFT)
-        self.mes_ref_entry = tk.Entry(ref_frame, font=("Segoe UI", 11), bg="#CED1D4", relief="flat", width=25)
-        self.mes_ref_entry.pack(side=tk.LEFT, padx=10, ipady=3)
 
         # --- Botões de Ação (Empacotados no fundo primeiro para garantir visibilidade) ---
         btn_frame = ttk.Frame(container, style="White.TFrame")
@@ -775,6 +772,8 @@ class AppMunaretto:
             ttk.Label(rend_lf, text=label, background="white").grid(row=i, column=0, sticky="w", padx=10, pady=5)
             entry = tk.Entry(rend_lf, font=("Segoe UI", 11), bg="#CED1D4", relief="flat", width=15)
             entry.insert(0, "0.00")
+            entry.bind("<FocusIn>", self.on_entry_focus_in)
+            entry.bind("<FocusOut>", self.on_entry_focus_out)
             entry.grid(row=i, column=1, sticky="e", padx=10, pady=5, ipady=3)
             self.rend_entries[key] = entry
 
@@ -798,6 +797,8 @@ class AppMunaretto:
             ttk.Label(desp_lf, text=label, background="white").grid(row=row, column=col, sticky="w", padx=(10, 2), pady=2)
             entry = tk.Entry(desp_lf, font=("Segoe UI", 11), bg="#CED1D4", relief="flat", width=12)
             entry.insert(0, "0.00")
+            entry.bind("<FocusIn>", self.on_entry_focus_in)
+            entry.bind("<FocusOut>", self.on_entry_focus_out)
             entry.grid(row=row, column=col+1, sticky="e", padx=(2, 10), pady=2, ipady=3)
             self.desp_entries[key] = entry
 
@@ -828,19 +829,35 @@ class AppMunaretto:
 
     def clear_fluxo_fields(self):
         """Limpa todos os campos para um novo lançamento."""
+        novo_mes = simpledialog.askstring("Novo Lançamento", "Informe o Mês de Referência (ex: Janeiro/2024):")
+        if not novo_mes:
+            return # Cancela se o usuário não digitar nada ou fechar a janela
+            
         self.current_fluxo_id = None
-        self.mes_ref_entry.delete(0, tk.END)
+        self.current_mes = novo_mes
+        self.lbl_mes_atual.config(text=f"Editando: {novo_mes}", font=("Segoe UI", 12, "bold"), foreground=self.primary_color)
+        
         for e in list(self.rend_entries.values()) + list(self.desp_entries.values()):
             e.delete(0, tk.END)
             e.insert(0, "0.00")
         self.calculate_fluxo()
 
 
+    def on_entry_focus_in(self, event):
+        """Limpa o campo se ele contiver o valor padrão '0.00'."""
+        if event.widget.get() == "0.00":
+            event.widget.delete(0, tk.END)
+
+    def on_entry_focus_out(self, event):
+        """Recoloca '0.00' se o campo estiver vazio ao perder o foco."""
+        if not event.widget.get().strip():
+            event.widget.insert(0, "0.00")
+
     def calculate_fluxo(self):
         """Calcula totais e divisões."""
         try:
             def get_val(entry):
-                v = entry.get().replace(",", ".")
+                v = entry.get().replace(",", ".").strip()
                 return float(v) if v else 0.0
 
             total_rend = sum(get_val(e) for e in self.rend_entries.values())
@@ -876,8 +893,8 @@ class AppMunaretto:
         dados = database.buscar_fluxo_por_id(self.current_fluxo_id)
         
         if dados:
-            self.mes_ref_entry.delete(0, tk.END)
-            self.mes_ref_entry.insert(0, dados['mes_referencia'])
+            self.current_mes = dados['mes_referencia']
+            self.lbl_mes_atual.config(text=f"Editando: {self.current_mes}", font=("Segoe UI", 12, "bold"), foreground=self.primary_color)
             
             for key in self.rend_entries:
                 self.rend_entries[key].delete(0, tk.END)
@@ -896,12 +913,14 @@ class AppMunaretto:
         if messagebox.askyesno("Confirmar", "Deseja excluir permanentemente este lançamento?"):
             if database.deletar_fluxo_caixa(self.current_fluxo_id):
                 messagebox.showinfo("Sucesso", "Lançamento excluído.")
-                self.clear_fluxo_fields()
+                self.current_fluxo_id = None
+                self.current_mes = None
+                self.lbl_mes_atual.config(text="Selecione um mês ao lado", font=("Segoe UI", 12, "italic"), foreground="#666")
                 self.refresh_fluxos_list()
 
     def save_fluxo(self):
         """Salva os dados no banco de dados."""
-        mes = self.mes_ref_entry.get().strip()
+        mes = self.current_mes
         if not mes:
             messagebox.showwarning("Aviso", "Informe o mês de referência.")
             return
@@ -909,9 +928,13 @@ class AppMunaretto:
         liquido = self.calculate_fluxo()
         if liquido is None: return
 
+        def get_val(entry):
+            v = entry.get().replace(",", ".").strip()
+            return float(v) if v else 0.0
+
         dados = {"mes_referencia": mes, "total_liquido": liquido}
-        for k, e in self.rend_entries.items(): dados[k] = float(e.get().replace(",", "."))
-        for k, e in self.desp_entries.items(): dados[k] = float(e.get().replace(",", "."))
+        for k, e in self.rend_entries.items(): dados[k] = get_val(e)
+        for k, e in self.desp_entries.items(): dados[k] = get_val(e)
 
         if self.current_fluxo_id:
             sucesso = database.atualizar_fluxo_caixa(self.current_fluxo_id, dados)
@@ -926,7 +949,7 @@ class AppMunaretto:
 
     def generate_fluxo_report(self):
         """Gera o relatório PDF do fluxo de caixa atual."""
-        mes = self.mes_ref_entry.get().strip()
+        mes = self.current_mes
         tipo_relatorio = self.report_type_var.get()
         if not mes:
             messagebox.showwarning("Aviso", "Informe o mês de referência para o relatório.")
