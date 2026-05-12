@@ -4,13 +4,19 @@ import os
 from datetime import datetime, timedelta
 from typing import List, Tuple, Dict, Optional, Any
 
-DATABASE_FILE = r"G:\Meu Drive\BANCO_DE_DADOS\clientes.db"
+# Tenta usar o Google Drive se disponível, caso contrário usa uma pasta local nos Documentos
+GD_PATH = r"G:\Meu Drive\BANCO_DE_DADOS\clientes.db"
+DEFAULT_LOCAL_PATH = os.path.join(os.path.expanduser("~"), "Documents", "App_Munaretto", "clientes.db")
 
+DATABASE_FILE = GD_PATH if os.path.exists(os.path.dirname(GD_PATH)) else DEFAULT_LOCAL_PATH
 
 def inicializar_banco():
     """Cria tabelas do banco se não existirem."""
-    # Garante que a pasta no Google Drive exista
-    os.makedirs(os.path.dirname(DATABASE_FILE), exist_ok=True)
+    try:
+        # Garante que a pasta do banco de dados exista
+        os.makedirs(os.path.dirname(DATABASE_FILE), exist_ok=True)
+    except Exception as e:
+        print(f"Aviso: Não foi possível criar a pasta do banco: {e}")
     
     conn = sqlite3.connect(DATABASE_FILE)
     cursor = conn.cursor()

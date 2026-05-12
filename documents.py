@@ -4,11 +4,12 @@ import webbrowser
 from datetime import datetime, timedelta
 from docxtpl import DocxTemplate
 from fpdf import FPDF  # Certifique-se de que é a fpdf2
-from docx2pdf import convert
 import tempfile
 from num2words import num2words
 import os
 from pathlib import Path 
+import pythoncom
+import win32com.client
 
 # 1. CONFIGURAÇÕES INICIAIS
 TEMPLATES_DIR = "templates"
@@ -24,6 +25,8 @@ def get_templates():
     """Retorna os modelos disponíveis para a lista de seleção da interface."""
     garantir_pastas()
     templates = {}
+    if not os.path.exists(TEMPLATES_DIR):
+        return templates
     for arquivo in sorted(os.listdir(TEMPLATES_DIR)):
         if arquivo.lower().endswith(".docx"):
             nome_limpo = os.path.splitext(arquivo)[0]
@@ -62,6 +65,7 @@ def criar_contexto_cliente(cliente_info):
         "cep": cliente_info[5] if len(cliente_info) > 5 else "",
         "nota_ps": cliente_info[6] if len(cliente_info) > 6 else "",
         "valor_de_devolucao": cliente_info[8] if len(cliente_info) > 8 else "0,00",
+        "valor_devolucao_extenso": valor_por_extenso(cliente_info[8]) if len(cliente_info) > 8 else "",
         "valor_da_obra": cliente_info[7] if len(cliente_info) > 7 else "0,00",
         "valor_extenso": valor_por_extenso(cliente_info[7]) if len(cliente_info) > 7 else "",
         "data": hoje.strftime("%d/%m/%Y"),
@@ -99,6 +103,9 @@ def gerar_documento_word(cliente_info, tipo_documento, saida_dir=OUTPUT_DIR):
 def gerar_documento_pdf(cliente_info, tipo_documento):
     """Gera um PDF que é a cópia exata do Word preenchido."""
     try:
+        # Inicializa o COM para a thread atual (obrigatório para executáveis)
+        pythoncom.CoInitialize()
+        
         temp_dir = tempfile.gettempdir()
         # 1. Primeiro geramos o Word normalmente
         caminho_word = gerar_documento_word(cliente_info, tipo_documento, saida_dir=temp_dir)
@@ -106,12 +113,20 @@ def gerar_documento_pdf(cliente_info, tipo_documento):
         if not caminho_word:
             return None
 
-        # 2. Definimos o nome do PDF (mudando apenas a extensão)
+        # 2. Caminhos absolutos são fundamentais para automação COM
+        caminho_word = os.path.abspath(caminho_word)
         caminho_pdf = caminho_word.replace(".docx", ".pdf")
 
-        # 3. Convertemos o Word para PDF (requer Word instalado no PC)
-        # Se você estiver no Windows com Word, isso será perfeito
-        convert(caminho_word, caminho_pdf)
+        # 3. Conversão direta via Word Application (sem docx2pdf)
+        word = win32com.client.Dispatch("Word.Application")
+        word.Visible = False
+        try:
+            doc = word.Documents.Open(caminho_word)
+            # 17 é o código para o formato PDF no Word
+            doc.SaveAs(caminho_pdf, FileFormat=17)
+            doc.Close()
+        finally:
+            word.Quit()
         
         if os.path.exists(caminho_word):
             os.remove(caminho_word)
