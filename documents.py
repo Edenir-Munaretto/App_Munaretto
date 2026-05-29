@@ -91,7 +91,10 @@ def gerar_documento_word(cliente_info, tipo_documento, saida_dir=OUTPUT_DIR):
         doc = DocxTemplate(template_path)
         doc.render(contexto)
 
-        nome_arq = f"{str(contexto['nome']).replace(' ', '_')}_{datetime.now().strftime('%H%M%S')}.docx"
+        # Sanitiza o nome e limita a 50 caracteres para evitar erros de caminho muito longo (Windows MAX_PATH)
+        nome_limpo = "".join([c for c in str(contexto['nome']) if c.isalnum() or c in (' ', '_')]).strip()
+        nome_curto = nome_limpo[:50].replace(' ', '_')
+        nome_arq = f"{nome_curto}_{datetime.now().strftime('%H%M%S')}.docx"
         caminho = os.path.join(saida_dir, nome_arq)
         doc.save(caminho)
         return caminho

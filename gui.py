@@ -787,7 +787,7 @@ class AppMunaretto:
             "despesa_lavagem": "Lavagem Usinas:",
             "despesa_manutencao": "Manutenção:",
             "despesa_imposto": "Impostos:",
-            "despesa_taxa": "Taxas Bancárias:",
+            "despesa_taxa": "Seguro:",
             "despesa_diversas": "Diversas:"
         }
         self.desp_entries = {}
@@ -1114,7 +1114,6 @@ class AppMunaretto:
                   bg="#34495e", fg="white", relief="flat", padx=15, pady=5).pack(side=tk.LEFT)
 
         # --- Tabela de Exibição ---
-        self.ferias_tree = ttk.Treeview(container, columns=("Nome", "Início", "Goso", "Abono", "Retorno", "Limite", "Status"), show="headings")
         self.ferias_tree = ttk.Treeview(container, columns=("ID", "Nome", "Início", "Gozo", "Abono", "Retorno", "Limite", "Status"), show="headings")
         cols = [("ID", 40), ("Nome", 150), ("Início", 100), ("Gozo", 60), ("Abono", 60), ("Retorno", 100), ("Limite", 100), ("Status", 100)]
         for col, width in cols:

@@ -89,7 +89,13 @@ def inicializar_banco():
         )
     """
     )
-
+    
+    # Migração: Garante que a coluna 'status' exista para bancos de dados criados em versões anteriores
+    cursor.execute("PRAGMA table_info(gestao_ferias)")
+    colunas = [info[1] for info in cursor.fetchall()]
+    if colunas and "status" not in colunas:
+        cursor.execute("ALTER TABLE gestao_ferias ADD COLUMN status TEXT DEFAULT 'Agendado'")
+    
 
 
     conn.commit()
@@ -326,7 +332,7 @@ def buscar_dados_fluxo_por_mes(mes_referencia):
             "Lavagem Usinas": fmt(row['despesa_lavagem']),
             "Manutenção": fmt(row['despesa_manutencao']),
             "Impostos": fmt(row['despesa_imposto']),
-            "Taxas Bancárias": fmt(row['despesa_taxa']),
+            "Seguro": fmt(row['despesa_taxa']),
             "Diversas": fmt(row['despesa_diversas'])
         }
         
