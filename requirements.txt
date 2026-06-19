@@ -4,3 +4,4 @@ num2words
 pypiwin32
 docxcompose
 pyinstaller
+openpyxl

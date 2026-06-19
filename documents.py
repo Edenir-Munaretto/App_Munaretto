@@ -10,6 +10,8 @@ import os
 from pathlib import Path 
 import pythoncom
 import win32com.client
+from openpyxl import load_workbook
+from openpyxl.styles import Font, PatternFill, Alignment
 
 # 1. CONFIGURAÇÕES INICIAIS
 TEMPLATES_DIR = "templates"
@@ -152,5 +154,84 @@ def importar_template_arquivo(caminho_origem):
         destino = os.path.join(TEMPLATES_DIR, nome_arquivo)
         shutil.copy2(caminho_origem, destino)
         return True, f"Template '{nome_arquivo}' importado com sucesso."
+    except Exception as e:
+        return False, str(e)
+
+# 6. FUNÇÕES PARA EXCEL
+def get_templates_excel():
+    """Retorna os templates Excel disponíveis para a lista de seleção da interface."""
+    garantir_pastas()
+    templates = {}
+    if not os.path.exists(TEMPLATES_DIR):
+        return templates
+    for arquivo in sorted(os.listdir(TEMPLATES_DIR)):
+        if arquivo.lower().endswith(".xlsx"):
+            nome_limpo = os.path.splitext(arquivo)[0]
+            templates[nome_limpo] = {
+                "nome": nome_limpo.replace("_", " ").title(),
+                "xlsx_path": os.path.join(TEMPLATES_DIR, arquivo),
+                "template": nome_limpo
+            }
+    return templates
+
+def preenchercel_excel(cliente_info, tipo_documento, saida_dir=OUTPUT_DIR):
+    """Preenche um template Excel com os dados do cliente."""
+    try:
+        garantir_pastas()
+        contexto = criar_contexto_cliente(cliente_info)
+        template_path = os.path.join(TEMPLATES_DIR, f"{tipo_documento}.xlsx")
+        
+        if not os.path.exists(template_path):
+            return None, f"Template Excel '{tipo_documento}' não encontrado"
+
+        # Carrega a planilha
+        wb = load_workbook(template_path)
+        ws = wb.active
+
+        # Percorre todas as células da planilha e substitui {{chave}} pelos valores
+        for row in ws.iter_rows():
+            for cell in row:
+                if cell.value and isinstance(cell.value, str):
+                    # Substitui placeholders no formato {{chave}}
+                    valor_original = cell.value
+                    for chave, valor in contexto.items():
+                        placeholder = f"{{{{{chave}}}}}"
+                        if placeholder in valor_original:
+                            cell.value = valor_original.replace(placeholder, str(valor))
+                            valor_original = cell.value
+
+        # Sanitiza o nome do arquivo
+        nome_limpo = "".join([c for c in str(contexto['nome']) if c.isalnum() or c in (' ', '_')]).strip()
+        nome_curto = nome_limpo[:50].replace(' ', '_')
+        nome_arq = f"{nome_curto}_{datetime.now().strftime('%H%M%S')}.xlsx"
+        caminho = os.path.join(saida_dir, nome_arq)
+        
+        wb.save(caminho)
+        return caminho, "Excel gerado com sucesso"
+    except Exception as e:
+        print(f"Erro ao gerar Excel: {e}")
+        return None, f"Erro: {str(e)}"
+
+def gerar_documento_excel(cliente_info, tipo_documento):
+    """Gera um documento Excel e o abre automaticamente."""
+    try:
+        caminho, mensagem = preenchercel_excel(cliente_info, tipo_documento)
+        if caminho:
+            abrir_no_navegador(caminho)
+        return caminho, mensagem
+    except Exception as e:
+        return None, f"Erro: {str(e)}"
+
+def importar_template_excel(caminho_origem):
+    """Copia um arquivo xlsx para a pasta de templates."""
+    try:
+        garantir_pastas()
+        nome_arquivo = os.path.basename(caminho_origem)
+        if not nome_arquivo.lower().endswith(".xlsx"):
+            return False, "O arquivo deve ser .xlsx"
+        
+        destino = os.path.join(TEMPLATES_DIR, nome_arquivo)
+        shutil.copy2(caminho_origem, destino)
+        return True, f"Template Excel '{nome_arquivo}' importado com sucesso."
     except Exception as e:
         return False, str(e)

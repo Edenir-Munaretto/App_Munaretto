@@ -6,6 +6,7 @@ import google_drive
 import os
 import webbrowser
 import gerador_relatorio
+from gui_vacations import VacationsView
 from datetime import datetime
 
 class AppMunaretto:
@@ -659,25 +660,41 @@ class AppMunaretto:
         self.doc_combo = ttk.Combobox(doc_frame, textvariable=self.doc_var, state="readonly", font=("Segoe UI", 11))
         self.doc_combo.pack(fill=tk.X, pady=(5, 10))
 
-        templates = documents.get_templates()
-        self.doc_combo['values'] = list(templates.keys())
-        self.templates_data = templates
+        # Combina templates Word e Excel
+        templates_word = documents.get_templates()
+        templates_excel = documents.get_templates_excel()
+        
+        # Cria lista combinada com prefixo para diferenciar
+        all_templates = {}
+        for name, data in templates_word.items():
+            all_templates[f"[WORD] {name}"] = {**data, "tipo": "word"}
+        for name, data in templates_excel.items():
+            all_templates[f"[EXCEL] {name}"] = {**data, "tipo": "excel"}
+        
+        self.doc_combo['values'] = list(all_templates.keys())
+        self.templates_data = all_templates
 
-        # Seleção de formato
+        # Seleção de formato (apenas para Word)
         format_frame = ttk.Frame(card, style="White.TFrame")
         format_frame.pack(fill=tk.X, padx=30, pady=10)
 
         ttk.Label(format_frame, text="Formato de Saída:", font=("Segoe UI", 11, "bold"), background="white").pack(anchor="w")
         self.format_var = tk.StringVar(value="")
+        self.format_info_label = ttk.Label(format_frame, text="", font=("Segoe UI", 9), background="white", foreground="#666")
+        self.format_info_label.pack(anchor="w", pady=(0, 5))
+        
         formats = [
             ("Word (.docx)", "word"),
-            ("PDF (.pdf)", "pdf")
+            ("PDF (.pdf)", "pdf"),
+            ("Excel (.xlsx)", "excel")
         ]
              
         self.format_combo = ttk.Combobox(format_frame, textvariable=self.format_var, state="readonly", font=("Segoe UI", 11))
         self.format_combo['values'] = [f[0] for f in formats]
         self.format_combo.pack(fill=tk.X, pady=(5, 10))
+        self.format_combo.bind("<<ComboboxSelected>>", self.update_format_info)
         self.format_map = {f[0]: f[1] for f in formats}
+        self.doc_combo.bind("<<ComboboxSelected>>", self.update_format_info)
 
     def show_fluxo_caixa(self):
         """Módulo de Gestão de Usinas - Fluxo de Caixa Mensal."""
@@ -1018,111 +1035,77 @@ class AppMunaretto:
     def generate_document(self):
         """Gera o documento selecionado."""
         client_selection = self.client_var.get()
-        doc_type = self.doc_var.get()
+        doc_display = self.doc_var.get()
         format_display = self.format_var.get()
 
         if not client_selection:
             messagebox.showerror("Erro", "Selecione um cliente!")
             return
-        if not doc_type:
+        if not doc_display:
             messagebox.showerror("Erro", "Selecione um tipo de documento!")
             return
 
         client_data = self.client_data[client_selection]
-        format_code = self.format_map[format_display]
+        
+        # Extrai o nome do template sem o prefixo [WORD] ou [EXCEL]
+        if doc_display.startswith("[WORD]"):
+            doc_type = doc_display.replace("[WORD] ", "").strip()
+            template_type = "word"
+        elif doc_display.startswith("[EXCEL]"):
+            doc_type = doc_display.replace("[EXCEL] ", "").strip()
+            template_type = "excel"
+        else:
+            doc_type = doc_display
+            template_type = "word"
 
         # Gerar documento
         try:
-            if format_code == "word":
-                caminho = documents.gerar_documento_word(client_data, doc_type)
-            elif format_code == "pdf":
-                caminho = documents.gerar_documento_pdf(client_data, doc_type)
-
-            if caminho:
-                database.registrar_documento_gerado(client_data[0], doc_type, format_code, caminho)
-                if format_code != "pdf":
-                    messagebox.showinfo("Sucesso", f"Documento gerado com sucesso!\n\nSalvo em: {caminho}")
+            if template_type == "excel":
+                # Para Excel, o formato é sempre xlsx
+                caminho, mensagem = documents.gerar_documento_excel(client_data, doc_type)
+                if caminho:
+                    database.registrar_documento_gerado(client_data[0], doc_type, "excel", caminho)
+                    messagebox.showinfo("Sucesso", f"Planilha Excel gerada com sucesso!\n\nSalvo em: {caminho}")
+                else:
+                    messagebox.showerror("Erro", f"Falha ao gerar planilha Excel: {mensagem}")
             else:
-                messagebox.showerror("Erro", f"Falha ao gerar documento em formato {format_code.upper()}!")
+                # Para Word, pode ser word ou pdf
+                if not format_display:
+                    messagebox.showerror("Erro", "Selecione um formato de saída!")
+                    return
+                
+                format_code = self.format_map[format_display]
+                if format_code == "word":
+                    caminho = documents.gerar_documento_word(client_data, doc_type)
+                elif format_code == "pdf":
+                    caminho = documents.gerar_documento_pdf(client_data, doc_type)
+
+                if caminho:
+                    database.registrar_documento_gerado(client_data[0], doc_type, format_code, caminho)
+                    if format_code != "pdf":
+                        messagebox.showinfo("Sucesso", f"Documento gerado com sucesso!\n\nSalvo em: {caminho}")
+                else:
+                    messagebox.showerror("Erro", f"Falha ao gerar documento em formato {format_display}!")
 
         except Exception as e:
             messagebox.showerror("Erro", f"Erro inesperado: {str(e)}")
 
+    def update_format_info(self, event=None):
+        """Atualiza as informações de formato disponíveis baseado no template selecionado."""
+        doc_display = self.doc_var.get()
+        
+        if doc_display.startswith("[EXCEL]"):
+            self.format_info_label.config(text="✓ Formato automático: Excel (.xlsx)")
+            self.format_combo.set("")
+            self.format_combo.config(state="disabled")
+        else:
+            self.format_info_label.config(text="Selecione o formato de saída desejado")
+            self.format_combo.config(state="readonly")
+
     def show_history(self):
-        """Módulo de Gestão de Férias (Substitui o antigo Histórico)."""
-        self.clear_content()
-
-        main_frame = ttk.Frame(self.content_frame)
-        main_frame.pack(fill=tk.BOTH, expand=True, padx=20, pady=10)
-        
-        ttk.Label(main_frame, text="🌴 Gestão de Férias Colaboradores", font=("Segoe UI", 18, "bold"), 
-                  foreground="#f39c12").pack(pady=(0, 15))
-
-        container = tk.Frame(main_frame, bg="white", highlightbackground="#e0e0e0", highlightthickness=1)
-        container.pack(fill=tk.BOTH, expand=True)
-
-        # --- Formulário de Cadastro ---
-        form_lf = tk.LabelFrame(container, text=" Cadastrar Novas Férias ", font=("Segoe UI", 10, "bold"), bg="white")
-        form_lf.pack(fill=tk.X, padx=20, pady=10)
-
-        fields = [("Nome Colaborador:", "nome"), ("Início :", "inicio"), 
-                  ("Dias Abono (Máx 10):", "abono"), ("Data Limite :", "limite")]
-        self.ferias_entries = {}
-        
-        for i, (label, key) in enumerate(fields):
-            ttk.Label(form_lf, text=label, background="white", font=("Segoe UI", 9, "bold")).grid(row=0, column=i*2, padx=(10, 2), pady=10)
-            
-            # Largura maior para o campo nome (35) e estilo padronizado com fundo cinza
-            w = 35 if key == "nome" else 15
-            entry = tk.Entry(
-                form_lf, 
-                font=("Segoe UI", 10), 
-                width=w,
-                bg="#CED1D4",
-                relief="flat",
-                highlightthickness=1,
-                highlightbackground="#E0E0E0",
-                highlightcolor=self.primary_color
-            )
-            entry.grid(row=0, column=i*2+1, padx=(0, 10), pady=10, ipady=3)
-            self.ferias_entries[key] = entry
-
-        btn_save = tk.Button(form_lf, text="💾 Salvar", command=self.save_vacation, bg=self.primary_color, 
-                             fg="white", relief="flat", padx=10)
-        btn_save.grid(row=0, column=8, padx=10)
-
-        # --- Botões de Relatório ---
-        rel_frame = ttk.Frame(container, style="White.TFrame")
-        rel_frame.pack(fill=tk.X, padx=20, pady=5)
-
-        tk.Button(rel_frame, text="📅 Previsão Próximo Mês", command=self.view_next_month_vacation, 
-                  bg=self.secondary_color, fg="white", relief="flat", padx=15, pady=5).pack(side=tk.LEFT, padx=5)
-        
-        self.search_colab_var = tk.StringVar()
-        search_entry = tk.Entry(
-            rel_frame, 
-            textvariable=self.search_colab_var, 
-            width=30,
-            bg="#CED1D4",
-            relief="flat",
-            highlightthickness=1,
-            highlightbackground="#E0E0E0",
-            highlightcolor=self.primary_color
-        )
-        search_entry.pack(side=tk.LEFT, padx=(20, 5), ipady=3)
-        tk.Button(rel_frame, text="🔍 Buscar Histórico", command=self.view_colab_history, 
-                  bg="#34495e", fg="white", relief="flat", padx=15, pady=5).pack(side=tk.LEFT)
-
-        # --- Tabela de Exibição ---
-        self.ferias_tree = ttk.Treeview(container, columns=("ID", "Nome", "Início", "Gozo", "Abono", "Retorno", "Limite", "Status"), show="headings")
-        cols = [("ID", 40), ("Nome", 150), ("Início", 100), ("Gozo", 60), ("Abono", 60), ("Retorno", 100), ("Limite", 100), ("Status", 100)]
-        for col, width in cols:
-            self.ferias_tree.heading(col, text=col)
-            self.ferias_tree.column(col, width=width)
-        self.ferias_tree.pack(fill=tk.BOTH, expand=True, padx=20, pady=10)
-
-        tk.Button(rel_frame, text="🗑️ Excluir Selecionado", command=self.delete_vacation, 
-                  bg=self.accent_color, fg="white", relief="flat", padx=15, pady=5).pack(side=tk.LEFT, padx=5)
+        # Delega a view de férias para o módulo refatorado
+        self.vacations_view = VacationsView(self)
+        self.vacations_view.show()
 
     def delete_vacation(self):
         selection = self.ferias_tree.selection()
@@ -1327,14 +1310,21 @@ class AppMunaretto:
             self.status_label.config(text=f"❌ Erro: {str(e)}", foreground=self.accent_color)
 
     def import_template(self):
-        """Importa um modelo de documento."""
+        """Importa um modelo de documento (Word ou Excel)."""
         file_path = filedialog.askopenfilename(
-            title="Selecionar arquivo de modelo Word",
-            filetypes=[("Arquivo Word", "*.docx"), ("Todos os arquivos", "*.*")]
+            title="Selecionar arquivo de modelo",
+            filetypes=[("Arquivo Word", "*.docx"), ("Arquivo Excel", "*.xlsx"), ("Todos os arquivos", "*.*")]
         )
 
         if file_path:
-            sucesso, resultado = documents.importar_template_arquivo(file_path)
+            # Determina o tipo de arquivo
+            if file_path.lower().endswith(".docx"):
+                sucesso, resultado = documents.importar_template_arquivo(file_path)
+            elif file_path.lower().endswith(".xlsx"):
+                sucesso, resultado = documents.importar_template_excel(file_path)
+            else:
+                sucesso, resultado = False, "Formato de arquivo não suportado. Use .docx ou .xlsx"
+            
             if sucesso:
                 messagebox.showinfo("Sucesso", f"Modelo importado com sucesso!\n\n{resultado}")
             else:

@@ -9,13 +9,18 @@ except ImportError:
     sys.exit(1)
 
 from gui import main as gui_main
+from logging_config import setup_logging
+import database
+
+logger = setup_logging()
 
 if __name__ == "__main__":
     try:
+        database.inicializar_banco()
         gui_main()
     except KeyboardInterrupt:
-        print("\n\nPrograma interrompido pelo usuário.")
+        logger.info("Programa interrompido pelo usuário.")
         sys.exit(0)
     except Exception as e:
-        print(f"Erro inesperado: {e}")
+        logger.exception("Erro inesperado na aplicação")
         sys.exit(1)
