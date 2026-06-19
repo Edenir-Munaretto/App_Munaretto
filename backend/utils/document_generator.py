@@ -1,0 +1,150 @@
+import os
+import shutil
+import subprocess
+import tempfile
+from datetime import datetime, timedelta
+from num2words import num2words
+from docxtpl import DocxTemplate
+from openpyxl import load_workbook
+
+TEMPLATES_DIR = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "templates")
+
+def garantir_pastas():
+    os.makedirs(TEMPLATES_DIR, exist_ok=True)
+
+def valor_por_extenso(valor_str):
+    if not valor_str:
+        return ""
+    try:
+        limpo = valor_str.replace("R$", "").replace(" ", "").replace(".", "").replace(",", ".")
+        valor_float = float(limpo)
+        extenso = num2words(valor_float, lang='pt_BR', to='currency')
+        return f"({extenso.capitalize()})"
+    except Exception as e:
+        print(f"Erro ao converter extenso: {e}")
+        return ""
+
+def criar_contexto_cliente(cliente: dict) -> dict:
+    hoje = datetime.now()
+    data_60_dias = hoje + timedelta(days=60)
+    
+    valor_obra = cliente.get("valor_da_obra") or "0,00"
+    valor_devolucao = cliente.get("valor_de_devolucao") or "0,00"
+    
+    return {
+        "id": cliente.get("id", ""),
+        "nome": cliente.get("nome", ""),
+        "cpf_cnpj": cliente.get("cpf_cnpj", ""),
+        "endereco": cliente.get("endereco", ""),
+        "cidade": cliente.get("cidade", ""),
+        "cep": cliente.get("cep", ""),
+        "nota_ps": cliente.get("nota_ps", ""),
+        "valor_de_devolucao": valor_devolucao,
+        "valor_devolucao_extenso": valor_por_extenso(valor_devolucao),
+        "valor_da_obra": valor_obra,
+        "valor_extenso": valor_por_extenso(valor_obra),
+        "data": hoje.strftime("%d/%m/%Y"),
+        "data_fim": data_60_dias.strftime("%d/%m/%Y")
+    }
+
+def convert_docx_to_pdf(docx_path: str, out_dir: str) -> str:
+    """Converte arquivo DOCX para PDF usando LibreOffice Headless ou Word COM (Windows)."""
+    # 1. Procura por libreoffice no PATH (Linux / Mac / Windows configurado)
+    libreoffice_bin = shutil.which("libreoffice") or shutil.which("soffice")
+    
+    # 2. Tenta caminhos padrão no Windows se não estiver no PATH
+    if not libreoffice_bin and os.name == 'nt':
+        windows_paths = [
+            r"C:\Program Files\LibreOffice\program\soffice.exe",
+            r"C:\Program Files (x86)\LibreOffice\program\soffice.exe"
+        ]
+        for path in windows_paths:
+            if os.path.exists(path):
+                libreoffice_bin = path
+                break
+                
+    if libreoffice_bin:
+        print(f"Convertendo DOCX para PDF usando LibreOffice em: {libreoffice_bin}")
+        result = subprocess.run([
+            libreoffice_bin,
+            "--headless",
+            "--convert-to",
+            "pdf",
+            "--outdir",
+            out_dir,
+            docx_path
+        ], stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+        
+        if result.returncode == 0:
+            pdf_name = os.path.splitext(os.path.basename(docx_path))[0] + ".pdf"
+            return os.path.join(out_dir, pdf_name)
+        else:
+            print(f"Erro no LibreOffice CLI: {result.stderr.decode('utf-8', errors='ignore')}")
+            
+    # 3. Fallback: Automação COM do Word (Apenas Windows)
+    if os.name == 'nt':
+        try:
+            import pythoncom
+            import win32com.client
+            pythoncom.CoInitialize()
+            word = win32com.client.Dispatch("Word.Application")
+            word.Visible = False
+            try:
+                abs_docx = os.path.abspath(docx_path)
+                pdf_path = os.path.join(out_dir, os.path.splitext(os.path.basename(docx_path))[0] + ".pdf")
+                doc = word.Documents.Open(abs_docx)
+                doc.SaveAs(pdf_path, FileFormat=17) # 17 = PDF
+                doc.Close()
+                return pdf_path
+            finally:
+                word.Quit()
+        except Exception as e:
+            print(f"Erro no fallback do Word COM: {e}")
+            
+    return None
+
+def preencher_word(cliente: dict, template_name: str, out_dir: str) -> str:
+    garantir_pastas()
+    contexto = criar_contexto_cliente(cliente)
+    template_path = os.path.join(TEMPLATES_DIR, f"{template_name}.docx")
+    
+    if not os.path.exists(template_path):
+        return None
+        
+    doc = DocxTemplate(template_path)
+    doc.render(contexto)
+    
+    nome_limpo = "".join([c for c in str(contexto['nome']) if c.isalnum() or c in (' ', '_')]).strip()
+    nome_curto = nome_limpo[:50].replace(' ', '_')
+    nome_arq = f"{nome_curto}_{datetime.now().strftime('%H%M%S')}.docx"
+    caminho = os.path.join(out_dir, nome_arq)
+    doc.save(caminho)
+    return caminho
+
+def preencher_excel(cliente: dict, template_name: str, out_dir: str) -> str:
+    garantir_pastas()
+    contexto = criar_contexto_cliente(cliente)
+    template_path = os.path.join(TEMPLATES_DIR, f"{template_name}.xlsx")
+    
+    if not os.path.exists(template_path):
+        return None
+        
+    wb = load_workbook(template_path)
+    ws = wb.active
+    
+    for row in ws.iter_rows():
+        for cell in row:
+            if cell.value and isinstance(cell.value, str):
+                valor_original = cell.value
+                for chave, valor in contexto.items():
+                    placeholder = f"{{{{{chave}}}}}"
+                    if placeholder in valor_original:
+                        cell.value = valor_original.replace(placeholder, str(valor))
+                        valor_original = cell.value
+                        
+    nome_limpo = "".join([c for c in str(contexto['nome']) if c.isalnum() or c in (' ', '_')]).strip()
+    nome_curto = nome_limpo[:50].replace(' ', '_')
+    nome_arq = f"{nome_curto}_{datetime.now().strftime('%H%M%S')}.xlsx"
+    caminho = os.path.join(out_dir, nome_arq)
+    wb.save(caminho)
+    return caminho

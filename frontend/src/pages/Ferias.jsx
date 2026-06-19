@@ -1,0 +1,414 @@
+import React, { useState, useEffect } from 'react';
+import { Calendar, Search, Trash2, ShieldAlert, Plus, Check, X, AlertTriangle } from 'lucide-react';
+import { API_URL } from '../App';
+
+function Ferias({ fetchAlerts }) {
+  const [records, setRecords] = useState([]);
+  const [busca, setBusca] = useState('');
+  const [proximoMes, setProximoMes] = useState(false);
+  const [loading, setLoading] = useState(true);
+  const [toast, setToast] = useState(null);
+
+  // Agendamento Form State
+  const [formData, setFormData] = useState({
+    nome: '',
+    data_inicio: '',
+    dias_abono: 0,
+    data_limite: '',
+    departamento: '',
+    saldo_anterior: 0,
+    dias_utilizados: 0
+  });
+
+  useEffect(() => {
+    fetchRecords();
+  }, [busca, proximoMes]);
+
+  const showToast = (message, type = 'success') => {
+    setToast({ message, type });
+    setTimeout(() => setToast(null), 4000);
+  };
+
+  const fetchRecords = async () => {
+    try {
+      setLoading(true);
+      let queryParams = [];
+      if (busca) queryParams.push(`busca=${encodeURIComponent(busca)}`);
+      if (proximoMes) queryParams.push(`proximo_mes=true`);
+      
+      const queryStr = queryParams.length > 0 ? `?${queryParams.join('&')}` : '';
+      const res = await fetch(`${API_URL}/ferias/${queryStr}`);
+      if (res.ok) {
+        const data = await res.json();
+        setRecords(data);
+      }
+    } catch (err) {
+      console.error(err);
+      showToast('Erro ao buscar registros de férias.', 'error');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleInputChange = (e) => {
+    const { name, value } = e.target;
+    setFormData(prev => ({ 
+      ...prev, 
+      [name]: name === 'dias_abono' || name === 'saldo_anterior' || name === 'dias_utilizados' 
+        ? parseInt(value) || 0 
+        : value 
+    }));
+  };
+
+  const handleAddVacation = async (e) => {
+    e.preventDefault();
+    if (!formData.nome || !formData.data_inicio) {
+      showToast('Nome do colaborador e Data de Início são obrigatórios.', 'error');
+      return;
+    }
+
+    try {
+      const res = await fetch(`${API_URL}/ferias/`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(formData)
+      });
+
+      const resData = await res.json();
+      
+      if (res.ok) {
+        showToast('Férias agendadas com sucesso!');
+        setFormData({
+          nome: '',
+          data_inicio: '',
+          dias_abono: 0,
+          data_limite: '',
+          departamento: '',
+          saldo_anterior: 0,
+          dias_utilizados: 0
+        });
+        fetchRecords();
+        fetchAlerts(); // Atualiza a contagem de alertas no header
+      } else {
+        showToast(resData.detail || 'Erro ao agendar férias.', 'error');
+      }
+    } catch (err) {
+      console.error(err);
+      showToast('Erro ao agendar férias.', 'error');
+    }
+  };
+
+  const handleDelete = async (id, nome) => {
+    if (!window.confirm(`Deseja realmente deletar o agendamento de férias de "${nome}"?`)) return;
+
+    try {
+      const res = await fetch(`${API_URL}/ferias/${id}`, { method: 'DELETE' });
+      if (res.ok) {
+        showToast('Agendamento excluído com sucesso.');
+        fetchRecords();
+        fetchAlerts();
+      } else {
+        showToast('Erro ao excluir agendamento.', 'error');
+      }
+    } catch (err) {
+      console.error(err);
+      showToast('Erro de conexão ao excluir agendamento.', 'error');
+    }
+  };
+
+  const handleStatusChange = async (id, novoStatus) => {
+    try {
+      const res = await fetch(`${API_URL}/ferias/${id}/status?status=${novoStatus}`, { method: 'PATCH' });
+      if (res.ok) {
+        showToast(`Status atualizado para ${novoStatus}.`);
+        fetchRecords();
+        fetchAlerts();
+      } else {
+        showToast('Erro ao atualizar status.', 'error');
+      }
+    } catch (err) {
+      console.error(err);
+      showToast('Erro de conexão ao atualizar status.', 'error');
+    }
+  };
+
+  const formatDateBR = (isoStr) => {
+    if (!isoStr) return '-';
+    try {
+      const parts = isoStr.split('-');
+      return `${parts[2]}/${parts[1]}/${parts[0]}`;
+    } catch {
+      return isoStr;
+    }
+  };
+
+  return (
+    <div className="space-y-6 relative">
+      
+      {/* Toast Notification */}
+      {toast && (
+        <div className={`fixed top-4 right-4 z-50 p-4 rounded-xl shadow-xl flex items-center gap-3 border text-sm max-w-sm animate-in slide-in-from-top-4 duration-300 ${
+          toast.type === 'error' 
+            ? 'bg-rose-50 border-rose-200 text-rose-800' 
+            : 'bg-emerald-50 border-emerald-200 text-emerald-800'
+        }`}>
+          <div className={`p-1 rounded-full ${toast.type === 'error' ? 'bg-rose-100 text-rose-600' : 'bg-emerald-100 text-emerald-600'}`}>
+            {toast.type === 'error' ? <AlertTriangle size={16} /> : <Check size={16} />}
+          </div>
+          <p className="font-semibold">{toast.message}</p>
+        </div>
+      )}
+
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+        
+        {/* Left Column: Form to Book Vacation */}
+        <div className="bg-white p-6 rounded-2xl border border-slate-100 shadow-sm space-y-6 lg:col-span-1 h-fit">
+          <div className="border-b border-slate-100 pb-2">
+            <h3 className="font-bold text-slate-800 flex items-center gap-2">
+              <Calendar className="text-amber-500" />
+              Agendar Férias
+            </h3>
+          </div>
+
+          <form onSubmit={handleAddVacation} className="space-y-4">
+            
+            {/* Nome Colaborador */}
+            <div>
+              <label className="block text-xs font-bold text-slate-700 mb-1.5">Nome do Colaborador *</label>
+              <input
+                type="text"
+                name="nome"
+                value={formData.nome}
+                onChange={handleInputChange}
+                required
+                placeholder="Ex: João da Silva"
+                className="w-full px-3.5 py-2 border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-primary-500/20 focus:border-primary-500 text-sm"
+              />
+            </div>
+
+            {/* Departamento */}
+            <div>
+              <label className="block text-xs font-bold text-slate-700 mb-1.5">Departamento</label>
+              <input
+                type="text"
+                name="departamento"
+                value={formData.departamento}
+                onChange={handleInputChange}
+                placeholder="Ex: Comercial"
+                className="w-full px-3.5 py-2 border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-primary-500/20 focus:border-primary-500 text-sm"
+              />
+            </div>
+
+            {/* Data Início */}
+            <div>
+              <label className="block text-xs font-bold text-slate-700 mb-1.5">Data de Início *</label>
+              <input
+                type="date"
+                name="data_inicio"
+                value={formData.data_inicio}
+                onChange={handleInputChange}
+                required
+                className="w-full px-3.5 py-2 border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-primary-500/20 focus:border-primary-500 text-sm"
+              />
+            </div>
+
+            {/* Dias Abono */}
+            <div>
+              <label className="block text-xs font-bold text-slate-700 mb-1.5">Dias Abono Pecuniário (Máx 10)</label>
+              <input
+                type="number"
+                name="dias_abono"
+                min="0"
+                max="10"
+                value={formData.dias_abono}
+                onChange={handleInputChange}
+                className="w-full px-3.5 py-2 border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-primary-500/20 focus:border-primary-500 text-sm"
+              />
+              <span className="text-[10px] text-slate-400 mt-1 block">
+                Os dias de gozo serão calculados como (30 - abono).
+              </span>
+            </div>
+
+            {/* Data Limite */}
+            <div>
+              <label className="block text-xs font-bold text-slate-700 mb-1.5">Data Limite de Gozo (Opcional)</label>
+              <input
+                type="date"
+                name="data_limite"
+                value={formData.data_limite}
+                onChange={handleInputChange}
+                className="w-full px-3.5 py-2 border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-primary-500/20 focus:border-primary-500 text-sm"
+              />
+              <span className="text-[10px] text-slate-400 mt-1 block">
+                Padrão: 1 ano após a data de início.
+              </span>
+            </div>
+
+            {/* Submit */}
+            <button
+              type="submit"
+              className="w-full py-2.5 bg-primary-600 text-white font-semibold text-sm rounded-xl hover:bg-primary-700 transition-all shadow-md shadow-primary-900/10 cursor-pointer"
+            >
+              Salvar Agendamento
+            </button>
+          </form>
+        </div>
+
+        {/* Right Column: Search filters + Table */}
+        <div className="lg:col-span-2 space-y-4 flex flex-col">
+          
+          {/* Filters card */}
+          <div className="bg-white p-4 rounded-2xl border border-slate-100 shadow-sm flex flex-col sm:flex-row gap-4 items-center justify-between">
+            
+            {/* Search Input */}
+            <div className="relative w-full sm:w-72">
+              <span className="absolute inset-y-0 left-0 flex items-center pl-3 text-slate-400">
+                <Search size={16} />
+              </span>
+              <input
+                type="text"
+                placeholder="Buscar por colaborador..."
+                value={busca}
+                onChange={(e) => setBusca(e.target.value)}
+                className="w-full pl-9 pr-4 py-2 rounded-xl border border-slate-200 bg-slate-50 focus:bg-white focus:outline-none focus:ring-2 focus:ring-primary-500/20 focus:border-primary-500 transition-all text-sm"
+              />
+            </div>
+
+            {/* Filter buttons */}
+            <div className="flex gap-2 w-full sm:w-auto">
+              <button
+                onClick={() => setProximoMes(false)}
+                className={`flex-1 sm:flex-initial px-4 py-2 rounded-xl text-xs font-bold border transition-all ${
+                  !proximoMes 
+                    ? 'bg-slate-900 border-slate-900 text-white shadow-sm' 
+                    : 'bg-white border-slate-200 text-slate-600 hover:bg-slate-50'
+                }`}
+              >
+                Todos
+              </button>
+              <button
+                onClick={() => setProximoMes(true)}
+                className={`flex-1 sm:flex-initial px-4 py-2 rounded-xl text-xs font-bold border transition-all ${
+                  proximoMes 
+                    ? 'bg-slate-900 border-slate-900 text-white shadow-sm' 
+                    : 'bg-white border-slate-200 text-slate-600 hover:bg-slate-50'
+                }`}
+              >
+                Previsão Próximo Mês
+              </button>
+            </div>
+
+          </div>
+
+          {/* Table Container */}
+          <div className="bg-white rounded-2xl border border-slate-100 shadow-sm overflow-hidden flex-1">
+            <div className="overflow-x-auto">
+              <table className="w-full text-left border-collapse text-sm">
+                <thead>
+                  <tr className="bg-slate-50 border-b border-slate-100 text-slate-400 font-bold text-xs uppercase tracking-wider">
+                    <th className="px-5 py-4">Colaborador</th>
+                    <th className="px-5 py-4">Período</th>
+                    <th className="px-5 py-4 text-center">Dias (Gozo/Abono)</th>
+                    <th className="px-5 py-4">Retorno Trabalho</th>
+                    <th className="px-5 py-4">Limite de Gozo</th>
+                    <th className="px-5 py-4">Status</th>
+                    <th className="px-5 py-4 text-center">Ações</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-100 text-slate-700">
+                  {loading ? (
+                    <tr>
+                      <td colSpan="7" className="text-center py-12 text-slate-400">
+                        <div className="flex flex-col items-center justify-center gap-3">
+                          <div className="w-8 h-8 border-4 border-primary-500 border-t-transparent rounded-full animate-spin" />
+                          <p className="text-xs">Carregando férias...</p>
+                        </div>
+                      </td>
+                    </tr>
+                  ) : records.length === 0 ? (
+                    <tr>
+                      <td colSpan="7" className="text-center py-16 text-slate-400">
+                        <span className="text-3xl">🌴</span>
+                        <p className="font-semibold mt-2">Nenhum registro de férias encontrado.</p>
+                        <p className="text-xs mt-1">Configure o agendamento no formulário lateral.</p>
+                      </td>
+                    </tr>
+                  ) : (
+                    records.map((r) => (
+                      <tr key={r.id} className="hover:bg-slate-50/50 transition-colors">
+                        <td className="px-5 py-4">
+                          <p className="font-bold text-slate-900">{r.nome}</p>
+                          <p className="text-[10px] text-slate-400">{r.departamento || 'Sem setor'}</p>
+                        </td>
+                        <td className="px-5 py-4 text-xs font-medium">
+                          {formatDateBR(r.data_inicio)}
+                        </td>
+                        <td className="px-5 py-4 text-center text-xs font-semibold">
+                          <span className="text-slate-800">{r.dias_gozo}d</span>
+                          {r.dias_abono > 0 && <span className="text-amber-600 font-bold ml-1">+{r.dias_abono}a</span>}
+                        </td>
+                        <td className="px-5 py-4 font-bold text-slate-900 text-xs">
+                          {formatDateBR(r.data_retorno)}
+                        </td>
+                        <td className="px-5 py-4 text-xs text-slate-500">
+                          {formatDateBR(r.data_limite)}
+                        </td>
+                        <td className="px-5 py-4">
+                          <span className={`text-[10px] font-extrabold px-2.5 py-1 rounded-full uppercase tracking-wider ${
+                            r.status === 'Em Férias' 
+                              ? 'bg-amber-100 text-amber-800 animate-pulse' 
+                              : r.status === 'Concluído' || r.status === 'Gozadas'
+                              ? 'bg-emerald-100 text-emerald-800'
+                              : r.status === 'Cancelado'
+                              ? 'bg-slate-100 text-slate-500'
+                              : 'bg-blue-100 text-blue-800'
+                          }`}>
+                            {r.status}
+                          </span>
+                        </td>
+                        <td className="px-5 py-4">
+                          <div className="flex justify-center items-center gap-1.5">
+                            {r.status === 'Agendado' && (
+                              <>
+                                <button
+                                  onClick={() => handleStatusChange(r.id, 'Gozadas')}
+                                  className="px-2 py-1 text-[10px] font-bold bg-emerald-50 hover:bg-emerald-100 text-emerald-700 border border-emerald-200 rounded transition-colors"
+                                  title="Marcar como Gozadas"
+                                >
+                                  Concluir
+                                </button>
+                                <button
+                                  onClick={() => handleStatusChange(r.id, 'Cancelado')}
+                                  className="px-2 py-1 text-[10px] font-bold bg-slate-50 hover:bg-slate-100 text-slate-500 border border-slate-200 rounded transition-colors"
+                                  title="Marcar como Cancelado"
+                                >
+                                  Cancelar
+                                </button>
+                              </>
+                            )}
+                            <button
+                              onClick={() => handleDelete(r.id, r.nome)}
+                              className="p-1.5 rounded bg-slate-50 hover:bg-rose-50 text-slate-400 hover:text-rose-700 border border-slate-100 transition-colors"
+                              title="Deletar"
+                            >
+                              <Trash2 size={13} />
+                            </button>
+                          </div>
+                        </td>
+                      </tr>
+                    ))
+                  )}
+                </tbody>
+              </table>
+            </div>
+          </div>
+
+        </div>
+
+      </div>
+
+    </div>
+  );
+}
+
+export default Ferias;
