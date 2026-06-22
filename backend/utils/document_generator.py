@@ -114,9 +114,9 @@ def preencher_word(cliente: dict, template_name: str, out_dir: str) -> str:
     doc = DocxTemplate(template_path)
     doc.render(contexto)
     
-    nome_limpo = "".join([c for c in str(contexto['nome']) if c.isalnum() or c in (' ', '_')]).strip()
-    nome_curto = nome_limpo[:50].replace(' ', '_')
-    nome_arq = f"{nome_curto}_{datetime.now().strftime('%H%M%S')}.docx"
+    nome_cliente = "".join([c for c in str(contexto['nome']) if c.isalnum() or c in (' ', '-', '_', '.')]).strip()
+    nome_template = "".join([c for c in str(template_name) if c.isalnum() or c in (' ', '-', '_', '.')]).strip()
+    nome_arq = f"{nome_template} - {nome_cliente}.docx"
     caminho = os.path.join(out_dir, nome_arq)
     doc.save(caminho)
     return caminho
@@ -142,9 +142,9 @@ def preencher_excel(cliente: dict, template_name: str, out_dir: str) -> str:
                         cell.value = valor_original.replace(placeholder, str(valor))
                         valor_original = cell.value
                         
-    nome_limpo = "".join([c for c in str(contexto['nome']) if c.isalnum() or c in (' ', '_')]).strip()
-    nome_curto = nome_limpo[:50].replace(' ', '_')
-    nome_arq = f"{nome_curto}_{datetime.now().strftime('%H%M%S')}.xlsx"
+    nome_cliente = "".join([c for c in str(contexto['nome']) if c.isalnum() or c in (' ', '-', '_', '.')]).strip()
+    nome_template = "".join([c for c in str(template_name) if c.isalnum() or c in (' ', '-', '_', '.')]).strip()
+    nome_arq = f"{nome_template} - {nome_cliente}.xlsx"
     caminho = os.path.join(out_dir, nome_arq)
     wb.save(caminho)
     return caminho
