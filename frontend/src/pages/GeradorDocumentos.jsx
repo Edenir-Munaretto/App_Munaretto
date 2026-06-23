@@ -163,6 +163,9 @@ function GeradorDocumentos() {
             if (rfc5987) {
               value = rfc5987[1];
             }
+            // Remove prefix variants like utf-8'' or malformed utf-81
+            value = value.replace(/^utf-8(?:''|['"])?/i, '');
+            value = value.replace(/^utf-81(?:''|['"])?/i, '');
             try {
               value = decodeURIComponent(value);
             } catch (error) {
@@ -173,6 +176,11 @@ function GeradorDocumentos() {
             const matches = filenameRegex.exec(disposition);
             if (matches != null && matches[1]) {
               filename = matches[1].replace(/['"]/g, '');
+              try {
+                filename = decodeURIComponent(filename);
+              } catch (error) {
+                // keep original filename if not percent-encoded
+              }
             }
           }
         }
