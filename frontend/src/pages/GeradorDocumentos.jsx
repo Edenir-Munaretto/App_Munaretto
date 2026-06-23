@@ -146,8 +146,11 @@ function GeradorDocumentos() {
         const a = document.createElement('a');
         a.href = url;
         
+        const selectedClient = clientes.find(c => c.id === selectedClienteId);
+        const clientName = selectedClient ? selectedClient.nome : '';
+        let filename = `${selectedTemplate} - ${clientName || 'gerado'}.${formato === 'word' ? 'docx' : formato === 'excel' ? 'xlsx' : 'pdf'}`;
+        
         // Pega nome do arquivo do Header Content-Disposition se existir
-        let filename = `${selectedTemplate}_gerado.${formato === 'word' ? 'docx' : formato === 'excel' ? 'xlsx' : 'pdf'}`;
         const disposition = res.headers.get('content-disposition');
         if (disposition && disposition.indexOf('attachment') !== -1) {
           const filenameRegex = /filename[^;=\n]*=((['"]).*?\2|[^;\n]*)/;
