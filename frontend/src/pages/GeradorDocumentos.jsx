@@ -153,13 +153,30 @@ function GeradorDocumentos() {
         // Pega nome do arquivo do Header Content-Disposition se existir
         const disposition = res.headers.get('content-disposition');
         if (disposition && disposition.indexOf('attachment') !== -1) {
-          const filenameRegex = /filename[^;=\n]*=((['"]).*?\2|[^;\n]*)/;
-          const matches = filenameRegex.exec(disposition);
-          if (matches != null && matches[1]) { 
-            filename = matches[1].replace(/['"]/g, '');
+          const filenameStarRegex = /filename\*\s*=\s*([^;]+)/i;
+          const filenameRegex = /filename[^;=\n]*=((['"]).*?\2|[^;\n]*)/i;
+
+          const filenameStarMatch = filenameStarRegex.exec(disposition);
+          if (filenameStarMatch && filenameStarMatch[1]) {
+            let value = filenameStarMatch[1].trim().replace(/['"]/g, '');
+            const rfc5987 = value.match(/^[^']*'[^']*'(.*)$/);
+            if (rfc5987) {
+              value = rfc5987[1];
+            }
+            try {
+              value = decodeURIComponent(value);
+            } catch (error) {
+              console.warn('Falha ao decodificar filename*:', error);
+            }
+            filename = value;
+          } else {
+            const matches = filenameRegex.exec(disposition);
+            if (matches != null && matches[1]) {
+              filename = matches[1].replace(/['"]/g, '');
+            }
           }
         }
-        
+
         a.download = filename;
         document.body.appendChild(a);
         a.click();
