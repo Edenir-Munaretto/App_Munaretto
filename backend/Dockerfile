@@ -10,8 +10,12 @@ RUN apt-get update && \
     apt-get install -y --no-install-recommends \
     libreoffice-writer \
     libreoffice-java-common \
-    fonts-dejavu \
+    fonts-dejavu-core \
+    fonts-dejavu-extra \
     fonts-liberation \
+    fonts-liberation2 \
+    fonts-croscore \
+    fontconfig \
     && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app
