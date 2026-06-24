@@ -8,11 +8,15 @@ ENV PYTHONUNBUFFERED=1
 ENV PYTHONPATH=/app/backend
 
 # Instala o LibreOffice headless e fontes essenciais para conversão de PDF
-RUN apt-get update && \
+ENV DEBIAN_FRONTEND=noninteractive
+RUN echo "ttf-mscorefonts-installer msttcorefonts/accepted-mscorefonts-eula select true" | debconf-set-selections && \
+    apt-get update && \
     apt-get install -y --no-install-recommends \
-    libreoffice-writer \
-    fonts-dejavu \
-    fonts-liberation \
+      libreoffice-writer \
+      fonts-dejavu \
+      fonts-liberation \
+      fontconfig \
+      ttf-mscorefonts-installer \
     && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app
