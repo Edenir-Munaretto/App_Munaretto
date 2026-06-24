@@ -7,16 +7,14 @@ ENV PYTHONUNBUFFERED=1
 # Define o PYTHONPATH para que os módulos do backend sejam encontrados
 ENV PYTHONPATH=/app/backend
 
-# Instala o LibreOffice headless e fontes essenciais para conversão de PDF
+# Instala o LibreOffice e fontes essenciais para conversão de PDF
 ENV DEBIAN_FRONTEND=noninteractive
-RUN echo "ttf-mscorefonts-installer msttcorefonts/accepted-mscorefonts-eula select true" | debconf-set-selections && \
-    apt-get update && \
+RUN apt-get update && \
     apt-get install -y --no-install-recommends \
       libreoffice-writer \
       fonts-dejavu \
       fonts-liberation \
       fontconfig \
-      ttf-mscorefonts-installer \
     && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app
