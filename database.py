@@ -406,10 +406,10 @@ def adicionar_ferias(
         if not dt_inicio:
             return False, "Data de início inválida. Use YYYY-MM-DD."
 
-        # Calcula dias de gozo considerando dias úteis
+        # Calcula dias de gozo em dias corridos
         total_padrao = 30
         dias_gozo = total_padrao - int(dias_abono)
-        dt_retorno_date = formatting.add_business_days(dt_inicio.date(), dias_gozo)
+        dt_retorno_date = dt_inicio.date() + timedelta(days=dias_gozo)
         data_retorno_str = dt_retorno_date.strftime("%Y-%m-%d")
 
         # Se a data limite não for informada, calcula 1 ano após o início por padrão
