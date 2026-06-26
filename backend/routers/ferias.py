@@ -102,9 +102,9 @@ def agendar_ferias(ferias: FeriasCreate, db = Depends(get_supabase)):
         except ValueError:
             raise HTTPException(status_code=400, detail="Data de início com formato inválido. Use YYYY-MM-DD.")
 
-        # 2. Calcula dias de gozo e retorno
+        # 2. Calcula dias de gozo e retorno (dias corridos)
         dias_gozo = 30 - ferias.dias_abono
-        dt_retorno = add_business_days(dt_inicio, dias_gozo)
+        dt_retorno = dt_inicio + timedelta(days=dias_gozo)
         data_retorno_str = dt_retorno.strftime("%Y-%m-%d")
 
         # 3. Calcula data limite se não fornecida (1 ano após data de início)
