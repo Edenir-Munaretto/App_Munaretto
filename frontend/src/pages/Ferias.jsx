@@ -14,6 +14,7 @@ function Ferias({ fetchAlerts }) {
     nome: '',
     data_inicio: '',
     dias_abono: 0,
+    dias_gozo: '',
     data_limite: '',
     departamento: '',
     saldo_anterior: 0,
@@ -56,6 +57,8 @@ function Ferias({ fetchAlerts }) {
       ...prev, 
       [name]: name === 'dias_abono' || name === 'saldo_anterior' || name === 'dias_utilizados' 
         ? parseInt(value) || 0 
+        : name === 'dias_gozo'
+        ? value === '' ? '' : parseInt(value) || ''
         : value 
     }));
   };
@@ -68,10 +71,14 @@ function Ferias({ fetchAlerts }) {
     }
 
     try {
+      const payload = { ...formData };
+      if (payload.dias_gozo === '') {
+        delete payload.dias_gozo;
+      }
       const res = await fetch(`${API_URL}/ferias/`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(formData)
+        body: JSON.stringify(payload)
       });
 
       const resData = await res.json();
@@ -82,6 +89,7 @@ function Ferias({ fetchAlerts }) {
           nome: '',
           data_inicio: '',
           dias_abono: 0,
+          dias_gozo: '',
           data_limite: '',
           departamento: '',
           saldo_anterior: 0,
@@ -224,8 +232,23 @@ function Ferias({ fetchAlerts }) {
                 onChange={handleInputChange}
                 className="w-full px-3.5 py-2 border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-primary-500/20 focus:border-primary-500 text-sm"
               />
+            </div>
+
+            {/* Dias Gozo */}
+            <div>
+              <label className="block text-xs font-bold text-slate-700 mb-1.5">Dias de Gozo</label>
+              <input
+                type="number"
+                name="dias_gozo"
+                min="1"
+                max="30"
+                value={formData.dias_gozo}
+                onChange={handleInputChange}
+                placeholder="Auto (30 - abono)"
+                className="w-full px-3.5 py-2 border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-primary-500/20 focus:border-primary-500 text-sm"
+              />
               <span className="text-[10px] text-slate-400 mt-1 block">
-                Os dias de gozo serão calculados como (30 - abono).
+                Deixe em branco para calcular automaticamente (30 - abono).
               </span>
             </div>
 

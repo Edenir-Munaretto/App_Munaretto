@@ -25,7 +25,7 @@ class VacationsView:
         form_lf = tk.LabelFrame(container, text=" Cadastrar Novas Férias ", font=("Segoe UI", 10, "bold"), bg="white")
         form_lf.pack(fill=tk.X, padx=20, pady=10)
 
-        fields = [("Nome Colaborador:", "nome"), ("Início :", "inicio"), ("Dias Abono (Máx 10):", "abono"), ("Data Limite :", "limite")]
+        fields = [("Nome Colaborador:", "nome"), ("Início :", "inicio"), ("Dias Abono (Máx 10):", "abono"), ("Dias Gozo:", "dias_gozo"), ("Data Limite :", "limite")]
         self.ferias_entries = {}
         for i, (label, key) in enumerate(fields):
             ttk.Label(form_lf, text=label, background="white", font=("Segoe UI", 9, "bold")).grid(row=0, column=i*2, padx=(10,2), pady=10)
@@ -78,8 +78,10 @@ class VacationsView:
         nome = self.ferias_entries['nome'].get().strip()
         inicio_input = self.ferias_entries['inicio'].get().strip()
         limite_input = self.ferias_entries['limite'].get().strip()
+        dias_gozo_input = self.ferias_entries['dias_gozo'].get().strip()
         try:
             abono = int(self.ferias_entries['abono'].get().strip() or 0)
+            dias_gozo = int(dias_gozo_input) if dias_gozo_input else None
             try:
                 data_inicio_obj = datetime.strptime(inicio_input, "%d/%m/%Y")
                 data_inicio_db = data_inicio_obj.strftime("%Y-%m-%d")
@@ -94,16 +96,15 @@ class VacationsView:
                 except ValueError:
                     messagebox.showerror("Erro", "Formato da Data Limite inválido. Use DD/MM/AAAA.")
                     return
-            sucesso, mensagem = database.adicionar_ferias(nome, data_inicio_db, abono, data_limite_db)
+            sucesso, mensagem = database.adicionar_ferias(nome, data_inicio_db, abono, data_limite_db, dias_gozo)
             if sucesso:
                 messagebox.showinfo("Sucesso", mensagem)
                 for entry in self.ferias_entries.values():
                     entry.delete(0, tk.END)
-                self.view_colab_history()
             else:
                 messagebox.showerror("Erro", mensagem)
         except ValueError:
-            messagebox.showerror("Erro", "Dias de abono deve ser um número inteiro.")
+            messagebox.showerror("Erro", "Dias de abono e dias de gozo devem ser números inteiros.")
         except Exception as e:
             messagebox.showerror("Erro", f"Ocorreu um erro inesperado: {e}")
 

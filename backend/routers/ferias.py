@@ -10,6 +10,7 @@ class FeriasCreate(BaseModel):
     nome: str = Field(..., description="Nome do colaborador")
     data_inicio: str = Field(..., description="Data de início no formato YYYY-MM-DD")
     dias_abono: int = Field(0, ge=0, le=10, description="Dias de abono pecuniário (máximo 10)")
+    dias_gozo: Optional[int] = Field(None, ge=1, le=30, description="Dias de gozo (opcional - padrão: 30 - abono)")
     data_limite: Optional[str] = Field(None, description="Data limite para gozo no formato YYYY-MM-DD")
     departamento: Optional[str] = None
     saldo_anterior: Optional[int] = 0
@@ -103,7 +104,10 @@ def agendar_ferias(ferias: FeriasCreate, db = Depends(get_supabase)):
             raise HTTPException(status_code=400, detail="Data de início com formato inválido. Use YYYY-MM-DD.")
 
         # 2. Calcula dias de gozo e retorno (dias corridos)
-        dias_gozo = 30 - ferias.dias_abono
+        if ferias.dias_gozo is not None:
+            dias_gozo = ferias.dias_gozo
+        else:
+            dias_gozo = 30 - ferias.dias_abono
         dt_retorno = dt_inicio + timedelta(days=dias_gozo)
         data_retorno_str = dt_retorno.strftime("%Y-%m-%d")
 

@@ -391,6 +391,7 @@ def adicionar_ferias(
     data_inicio_str: str,
     dias_abono: int,
     data_limite_str: str,
+    dias_gozo: int = None,
     departamento: str = None,
     saldo_anterior: int = 0,
     dias_utilizados: int = 0,
@@ -407,9 +408,12 @@ def adicionar_ferias(
             return False, "Data de início inválida. Use YYYY-MM-DD."
 
         # Calcula dias de gozo em dias corridos
-        total_padrao = 30
-        dias_gozo = total_padrao - int(dias_abono)
-        dt_retorno_date = dt_inicio.date() + timedelta(days=dias_gozo)
+        if dias_gozo is not None:
+            total_gozo = int(dias_gozo)
+        else:
+            total_padrao = 30
+            total_gozo = total_padrao - int(dias_abono)
+        dt_retorno_date = dt_inicio.date() + timedelta(days=total_gozo)
         data_retorno_str = dt_retorno_date.strftime("%Y-%m-%d")
 
         # Se a data limite não for informada, calcula 1 ano após o início por padrão
@@ -436,7 +440,7 @@ def adicionar_ferias(
 
             cursor.execute(
                 "INSERT INTO gestao_ferias (nome, data_inicio, dias_abono, dias_gozo, data_retorno, data_limite, departamento, saldo_anterior, dias_utilizados, motivo_cancelamento, status) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
-                (nome, data_inicio_str, dias_abono, dias_gozo, data_retorno_str, data_limite_str, departamento, saldo_anterior, dias_utilizados, motivo_cancelamento, "Agendado"),
+                (nome, data_inicio_str, dias_abono, total_gozo, data_retorno_str, data_limite_str, departamento, saldo_anterior, dias_utilizados, motivo_cancelamento, "Agendado"),
             )
         return True, "Férias agendadas com sucesso."
     except Exception as e:
