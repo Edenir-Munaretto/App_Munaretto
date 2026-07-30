@@ -136,9 +136,15 @@ function Comprovantes() {
       }
     }
 
+    // Sanitiza o payload enviando null ao invés de strings vazias para o Supabase
+    const dataSanitizada = {};
+    Object.keys(formData).forEach(key => {
+      dataSanitizada[key] = formData[key] === "" ? null : formData[key];
+    });
+
     const payload = {
       tipo_documento: tipoDocumento,
-      ...formData
+      ...dataSanitizada
     };
 
     try {
