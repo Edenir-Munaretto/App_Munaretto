@@ -79,3 +79,26 @@ CREATE TRIGGER trg_update_ferias_updated_at
     BEFORE UPDATE ON gestao_ferias
     FOR EACH ROW
     EXECUTE FUNCTION update_updated_at_column();
+
+-- TABELA: comprovantes
+CREATE TABLE IF NOT EXISTS comprovantes (
+    id SERIAL PRIMARY KEY,
+    tipo_documento VARCHAR(100) NOT NULL,
+    numero_nf VARCHAR(100),
+    data_emissao DATE,
+    nome VARCHAR(255),
+    cnpj VARCHAR(50),
+    local_servico VARCHAR(255),
+    valor_total NUMERIC(12, 2) DEFAULT 0.00,
+    base_calculo NUMERIC(12, 2) DEFAULT 0.00,
+    valor_inss NUMERIC(12, 2) DEFAULT 0.00,
+    valor_iss NUMERIC(12, 2) DEFAULT 0.00,
+    valor_liquido NUMERIC(12, 2) DEFAULT 0.00,
+    data_pagamento DATE,
+    data_vencimento DATE,
+    descricao TEXT,
+    forma_pagamento VARCHAR(50),
+    valor_pago NUMERIC(12, 2) DEFAULT 0.00,
+    valor_juros NUMERIC(12, 2) DEFAULT 0.00,
+    data_registro TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+);

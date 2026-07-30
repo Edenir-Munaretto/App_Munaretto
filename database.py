@@ -102,6 +102,32 @@ def inicializar_banco():
         )
     """
     )
+
+    cursor.execute(
+        """
+        CREATE TABLE IF NOT EXISTS comprovantes (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            tipo_documento TEXT NOT NULL,
+            numero_nf TEXT,
+            data_emissao TEXT,
+            nome TEXT,
+            cnpj TEXT,
+            local_servico TEXT,
+            valor_total REAL DEFAULT 0.0,
+            base_calculo REAL DEFAULT 0.0,
+            valor_inss REAL DEFAULT 0.0,
+            valor_iss REAL DEFAULT 0.0,
+            valor_liquido REAL DEFAULT 0.0,
+            data_pagamento TEXT,
+            data_vencimento TEXT,
+            descricao TEXT,
+            forma_pagamento TEXT,
+            valor_pago REAL DEFAULT 0.0,
+            valor_juros REAL DEFAULT 0.0,
+            data_registro TEXT DEFAULT CURRENT_TIMESTAMP
+        )
+    """
+    )
     
     # Migração: Garante que a coluna 'status' exista para bancos de dados criados em versões anteriores
     cursor.execute("PRAGMA table_info(gestao_ferias)")

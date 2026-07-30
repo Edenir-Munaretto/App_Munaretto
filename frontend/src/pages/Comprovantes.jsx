@@ -1,0 +1,700 @@
+import React, { useState, useEffect } from 'react';
+import { FileText, Plus, Trash2, Edit2, Search, X, Check, AlertTriangle, DollarSign, Calendar, Printer } from 'lucide-react';
+import { API_URL } from '../App';
+
+function Comprovantes() {
+  const [comprovantes, setComprovantes] = useState([]);
+  const [busca, setBusca] = useState('');
+  const [dataInicio, setDataInicio] = useState('');
+  const [dataFim, setDataFim] = useState('');
+  const [loading, setLoading] = useState(true);
+  const [toast, setToast] = useState(null);
+
+  // Modal State
+  const [showModal, setShowModal] = useState(false);
+  const [editingId, setEditingId] = useState(null);
+  
+  // Form State
+  const [tipoDocumento, setTipoDocumento] = useState('Nota Fiscal');
+  const [formData, setFormData] = useState({
+    numero_nf: '',
+    data_emissao: '',
+    nome: '',
+    cnpj: '',
+    local_servico: '',
+    valor_total: 0,
+    base_calculo: 0,
+    valor_inss: 0,
+    valor_iss: 0,
+    valor_liquido: 0,
+    data_pagamento: '',
+    data_vencimento: '',
+    descricao: '',
+    forma_pagamento: 'boleto', // 'boleto', 'dda', 'pix'
+    valor_pago: 0,
+    valor_juros: 0
+  });
+
+  useEffect(() => {
+    fetchComprovantes();
+  }, []);
+
+  const showToast = (message, type = 'success') => {
+    setToast({ message, type });
+    setTimeout(() => setToast(null), 4000);
+  };
+
+  const fetchComprovantes = async () => {
+    try {
+      setLoading(true);
+      const res = await fetch(`${API_URL}/comprovantes/`);
+      if (res.ok) {
+        const data = await res.json();
+        setComprovantes(data);
+      }
+    } catch (err) {
+      console.error(err);
+      showToast('Erro ao buscar comprovantes.', 'error');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const openAddModal = () => {
+    setEditingId(null);
+    setTipoDocumento('Nota Fiscal');
+    setFormData({
+      numero_nf: '',
+      data_emissao: '',
+      nome: '',
+      cnpj: '',
+      local_servico: '',
+      valor_total: 0,
+      base_calculo: 0,
+      valor_inss: 0,
+      valor_iss: 0,
+      valor_liquido: 0,
+      data_pagamento: '',
+      data_vencimento: '',
+      descricao: '',
+      forma_pagamento: 'boleto',
+      valor_pago: 0,
+      valor_juros: 0
+    });
+    setShowModal(true);
+  };
+
+  const openEditModal = (c) => {
+    setEditingId(c.id);
+    setTipoDocumento(c.tipo_documento);
+    setFormData({
+      numero_nf: c.numero_nf || '',
+      data_emissao: c.data_emissao || '',
+      nome: c.nome || '',
+      cnpj: c.cnpj || '',
+      local_servico: c.local_servico || '',
+      valor_total: c.valor_total || 0,
+      base_calculo: c.base_calculo || 0,
+      valor_inss: c.valor_inss || 0,
+      valor_iss: c.valor_iss || 0,
+      valor_liquido: c.valor_liquido || 0,
+      data_pagamento: c.data_pagamento || '',
+      data_vencimento: c.data_vencimento || '',
+      descricao: c.descricao || '',
+      forma_pagamento: c.forma_pagamento || 'boleto',
+      valor_pago: c.valor_pago || 0,
+      valor_juros: c.valor_juros || 0
+    });
+    setShowModal(true);
+  };
+
+  const handleInputChange = (e) => {
+    const { name, value } = e.target;
+    const numericFields = [
+      'valor_total', 'base_calculo', 'valor_inss', 'valor_iss', 'valor_liquido',
+      'valor_pago', 'valor_juros'
+    ];
+    setFormData(prev => ({
+      ...prev,
+      [name]: numericFields.includes(name) ? parseFloat(value) || 0 : value
+    }));
+  };
+
+  const handleSubmit = async (e) => {
+    e.preventDefault();
+
+    // Validações básicas baseadas no tipo
+    if (tipoDocumento === 'Nota Fiscal') {
+      if (!formData.nome || !formData.cnpj || !formData.data_emissao) {
+        showToast('Nome, CNPJ e Data de Emissão são obrigatórios para Nota Fiscal.', 'error');
+        return;
+      }
+    } else {
+      if (!formData.data_pagamento || !formData.descricao || !formData.valor_pago) {
+        showToast('Data de Pagamento, Descrição e Valor Pago são obrigatórios.', 'error');
+        return;
+      }
+    }
+
+    const payload = {
+      tipo_documento: tipoDocumento,
+      ...formData
+    };
+
+    try {
+      const method = editingId ? 'PUT' : 'POST';
+      const url = editingId ? `${API_URL}/comprovantes/${editingId}` : `${API_URL}/comprovantes/`;
+
+      const res = await fetch(url, {
+        method,
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload)
+      });
+
+      if (res.ok) {
+        showToast(editingId ? 'Lançamento atualizado!' : 'Lançamento cadastrado com sucesso!');
+        setShowModal(false);
+        fetchComprovantes();
+      } else {
+        const errorData = await res.json();
+        showToast(errorData.detail || 'Erro ao salvar comprovante.', 'error');
+      }
+    } catch (err) {
+      console.error(err);
+      showToast('Erro de conexão ao salvar comprovante.', 'error');
+    }
+  };
+
+  const handleDelete = async (id) => {
+    if (!window.confirm('Tem certeza que deseja excluir este lançamento?')) return;
+
+    try {
+      const res = await fetch(`${API_URL}/comprovantes/${id}`, { method: 'DELETE' });
+      if (res.ok) {
+        showToast('Lançamento excluído com sucesso.');
+        fetchComprovantes();
+      } else {
+        showToast('Erro ao excluir lançamento.', 'error');
+      }
+    } catch (err) {
+      console.error(err);
+      showToast('Erro de rede ao excluir lançamento.', 'error');
+    }
+  };
+
+  const formatCurrency = (value) => {
+    return new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(value);
+  };
+
+  const formatDate = (dateStr) => {
+    if (!dateStr) return '-';
+    const parts = dateStr.split('-');
+    if (parts.length === 3) {
+      return `${parts[2]}/${parts[1]}/${parts[0]}`;
+    }
+    return dateStr;
+  };
+
+  // Filtragem local
+  const filteredComprovantes = comprovantes.filter(c => {
+    const searchLower = busca.toLowerCase();
+    const typeMatch = c.tipo_documento.toLowerCase().includes(searchLower);
+    const nameMatch = (c.nome || '').toLowerCase().includes(searchLower);
+    const descMatch = (c.descricao || '').toLowerCase().includes(searchLower);
+    const nfMatch = (c.numero_nf || '').toLowerCase().includes(searchLower);
+    const textMatch = typeMatch || nameMatch || descMatch || nfMatch;
+
+    if (!textMatch) return false;
+
+    // Filtragem por período
+    const itemDate = c.tipo_documento === 'Nota Fiscal' ? c.data_emissao : c.data_pagamento;
+    if (dataInicio && itemDate && itemDate < dataInicio) return false;
+    if (dataFim && itemDate && itemDate > dataFim) return false;
+
+    return true;
+  });
+
+  return (
+    <div className="space-y-6">
+      
+      {/* Estilos para impressão */}
+      <style dangerouslySetInnerHTML={{__html: `
+        @media print {
+          body {
+            background-color: white !important;
+            color: black !important;
+          }
+          aside, header, button, input, select, .print\\:hidden, .no-print {
+            display: none !important;
+          }
+          main {
+            padding: 0 !important;
+            margin: 0 !important;
+          }
+          .flex-1.overflow-y-auto {
+            overflow: visible !important;
+            height: auto !important;
+          }
+          .print-full-width {
+            width: 100% !important;
+            max-width: 100% !important;
+            border: none !important;
+            box-shadow: none !important;
+          }
+          table {
+            width: 100% !important;
+            border-collapse: collapse !important;
+          }
+          th, td {
+            border: 1px solid #e2e8f0 !important;
+            padding: 8px 12px !important;
+          }
+        }
+      `}} />
+
+      {/* Toast */}
+      {toast && (
+        <div className={`fixed top-4 right-4 z-50 p-4 rounded-xl shadow-xl flex items-center gap-3 border text-sm max-w-sm animate-in slide-in-from-top-4 duration-300 ${
+          toast.type === 'error' 
+            ? 'bg-rose-50 border-rose-200 text-rose-800' 
+            : 'bg-emerald-50 border-emerald-200 text-emerald-800'
+        }`}>
+          <div className={`p-1 rounded-full ${toast.type === 'error' ? 'bg-rose-100 text-rose-600' : 'bg-emerald-100 text-emerald-600'}`}>
+            {toast.type === 'error' ? <AlertTriangle size={16} /> : <Check size={16} />}
+          </div>
+          <p className="font-semibold">{toast.message}</p>
+        </div>
+      )}
+
+      {/* Cabeçalho exclusivo para Impressão */}
+      <div className="hidden print:block mb-6 border-b border-slate-300 pb-4">
+        <h2 className="text-2xl font-bold text-slate-800 uppercase tracking-wide">Relatório de Contabilidade</h2>
+        <p className="text-xs text-slate-500 mt-1">
+          Gerado em: {new Date().toLocaleDateString('pt-BR')} 
+          {busca && ` | Busca: "${busca}"`}
+          {(dataInicio || dataFim) && ` | Período: ${formatDate(dataInicio) || 'Início'} até ${formatDate(dataFim) || 'Fim'}`}
+        </p>
+      </div>
+
+      {/* Header Actions (Filtros e Botões) */}
+      <div className="flex flex-col gap-4 bg-white p-5 rounded-2xl border border-slate-100 shadow-sm print:hidden">
+        <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
+          <div className="relative flex-1 w-full max-w-md">
+            <Search className="absolute left-3.5 top-3 text-slate-400" size={18} />
+            <input
+              type="text"
+              placeholder="Pesquise por tipo, nome, descrição ou NF..."
+              value={busca}
+              onChange={(e) => setBusca(e.target.value)}
+              className="w-full pl-10 pr-4 py-2.5 border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-primary-500/20 focus:border-primary-500 text-sm font-medium"
+            />
+          </div>
+          <div className="flex flex-wrap items-center gap-3 w-full md:w-auto">
+            <button
+              onClick={() => window.print()}
+              className="flex items-center justify-center gap-2 px-4 py-2.5 bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold text-sm rounded-xl transition-all border border-slate-200 cursor-pointer w-full sm:w-auto"
+            >
+              <Printer size={16} />
+              Imprimir
+            </button>
+            <button
+              onClick={openAddModal}
+              className="flex items-center justify-center gap-2 px-4 py-2.5 bg-primary-600 hover:bg-primary-700 text-white font-bold text-sm rounded-xl transition-all shadow-md shadow-primary-900/10 cursor-pointer w-full sm:w-auto"
+            >
+              <Plus size={16} />
+              Novo Lançamento
+            </button>
+          </div>
+        </div>
+
+        {/* Linha de Filtro por Período */}
+        <div className="flex flex-wrap items-center gap-4 pt-3.5 border-t border-slate-100">
+          <span className="text-xs font-bold text-slate-500 uppercase tracking-wider">Filtrar Período:</span>
+          <div className="flex items-center gap-2">
+            <label className="text-xs font-medium text-slate-500">De:</label>
+            <input
+              type="date"
+              value={dataInicio}
+              onChange={(e) => setDataInicio(e.target.value)}
+              className="px-3 py-1.5 border border-slate-200 rounded-xl text-xs font-semibold focus:outline-none focus:ring-2 focus:ring-primary-500/20 focus:border-primary-500"
+            />
+          </div>
+          <div className="flex items-center gap-2">
+            <label className="text-xs font-medium text-slate-500">Até:</label>
+            <input
+              type="date"
+              value={dataFim}
+              onChange={(e) => setDataFim(e.target.value)}
+              className="px-3 py-1.5 border border-slate-200 rounded-xl text-xs font-semibold focus:outline-none focus:ring-2 focus:ring-primary-500/20 focus:border-primary-500"
+            />
+          </div>
+          {(dataInicio || dataFim) && (
+            <button
+              onClick={() => {
+                setDataInicio('');
+                setDataFim('');
+              }}
+              className="text-xs font-bold text-primary-600 hover:text-primary-700 hover:underline cursor-pointer"
+            >
+              Limpar Período
+            </button>
+          )}
+        </div>
+      </div>
+
+      {/* Table List */}
+      <div className="bg-white rounded-2xl border border-slate-100 shadow-sm overflow-hidden">
+        <div className="overflow-x-auto">
+          <table className="w-full text-left border-collapse">
+            <thead>
+              <tr className="bg-slate-50 border-b border-slate-100 text-xs font-bold text-slate-500 uppercase">
+                <th className="py-4 px-6">Tipo</th>
+                <th className="py-4 px-6">Identificação / Nome</th>
+                <th className="py-4 px-6">Número NF</th>
+                <th className="py-4 px-6">Data</th>
+                <th className="py-4 px-6">Valor</th>
+                <th className="py-4 px-6 text-right print:hidden">Ações</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-slate-50 text-sm font-medium text-slate-700">
+              {loading ? (
+                <tr>
+                  <td colSpan="6" className="py-8 text-center text-slate-400">
+                    Carregando lançamentos...
+                  </td>
+                </tr>
+              ) : filteredComprovantes.length === 0 ? (
+                <tr>
+                  <td colSpan="6" className="py-8 text-center text-slate-400">
+                    Nenhum comprovante encontrado.
+                  </td>
+                </tr>
+              ) : (
+                filteredComprovantes.map((c) => {
+                  const isNF = c.tipo_documento === 'Nota Fiscal';
+                  const badgeColor = 
+                    c.tipo_documento === 'Nota Fiscal' ? 'bg-blue-50 text-blue-700 border-blue-100' :
+                    c.tipo_documento === 'Boleto' ? 'bg-amber-50 text-amber-700 border-amber-100' :
+                    c.tipo_documento === 'Pix' ? 'bg-teal-50 text-teal-700 border-teal-100' :
+                    c.tipo_documento === 'Aluguel' ? 'bg-purple-50 text-purple-700 border-purple-100' :
+                    'bg-slate-50 text-slate-700 border-slate-100';
+
+                  return (
+                    <tr key={c.id} className="hover:bg-slate-50/50 transition-colors">
+                      <td className="py-4 px-6">
+                        <span className={`px-2.5 py-1 text-xs font-bold rounded-full border ${badgeColor}`}>
+                          {c.tipo_documento}
+                        </span>
+                      </td>
+                      <td className="py-4 px-6">
+                        {isNF ? (
+                          <div>
+                            <p className="font-bold text-slate-800">{c.nome}</p>
+                            <p className="text-xs text-slate-400 font-mono">{c.cnpj}</p>
+                          </div>
+                        ) : (
+                          <div>
+                            <p className="font-bold text-slate-800">{c.descricao}</p>
+                            <p className="text-xs text-slate-400 capitalize">Forma: {c.forma_pagamento}</p>
+                          </div>
+                        )}
+                      </td>
+                      <td className="py-4 px-6 font-mono text-xs text-slate-500">
+                        {c.numero_nf || '-'}
+                      </td>
+                      <td className="py-4 px-6">
+                        {isNF ? (
+                          <div className="flex items-center gap-1.5 text-xs text-slate-500">
+                            <Calendar size={14} />
+                            <span>{formatDate(c.data_emissao)} (Emissão)</span>
+                          </div>
+                        ) : (
+                          <div className="flex flex-col gap-0.5 text-xs text-slate-500">
+                            <span>Pag: {formatDate(c.data_pagamento)}</span>
+                            <span>Venc: {formatDate(c.data_vencimento)}</span>
+                          </div>
+                        )}
+                      </td>
+                      <td className="py-4 px-6 font-bold text-slate-850">
+                        {isNF ? formatCurrency(c.valor_total) : formatCurrency(c.valor_pago)}
+                      </td>
+                      <td className="py-4 px-6 text-right print:hidden">
+                        <div className="flex items-center justify-end gap-2">
+                          <button
+                            onClick={() => openEditModal(c)}
+                            className="p-1.5 text-slate-400 hover:text-primary-600 rounded-lg hover:bg-slate-100 transition-all cursor-pointer"
+                          >
+                            <Edit2 size={16} />
+                          </button>
+                          <button
+                            onClick={() => handleDelete(c.id)}
+                            className="p-1.5 text-slate-400 hover:text-rose-600 rounded-lg hover:bg-slate-100 transition-all cursor-pointer"
+                          >
+                            <Trash2 size={16} />
+                          </button>
+                        </div>
+                      </td>
+                    </tr>
+                  );
+                })
+              )}
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      {/* Modal Lançamento */}
+      {showModal && (
+        <div className="fixed inset-0 bg-slate-900/40 backdrop-blur-sm flex items-center justify-center z-50 p-4 overflow-y-auto">
+          <div className="bg-white rounded-2xl shadow-2xl max-w-2xl w-full border border-slate-100 overflow-hidden animate-in fade-in zoom-in duration-200 my-8">
+            <div className="bg-slate-900 text-white p-5 flex items-center justify-between">
+              <h3 className="font-bold text-base flex items-center gap-2">
+                <FileText className="text-primary-400" />
+                {editingId ? 'Editar Lançamento' : 'Novo Lançamento'}
+              </h3>
+              <button 
+                onClick={() => setShowModal(false)}
+                className="text-slate-400 hover:text-white text-xl font-bold p-1 cursor-pointer"
+              >
+                <X size={20} />
+              </button>
+            </div>
+
+            <form onSubmit={handleSubmit} className="p-6 space-y-6">
+              
+              {/* Seleção do Tipo */}
+              <div className="space-y-1.5">
+                <label className="block text-xs font-bold text-slate-700 uppercase tracking-wider">Tipo do Documento *</label>
+                <select
+                  value={tipoDocumento}
+                  disabled={!!editingId}
+                  onChange={(e) => setTipoDocumento(e.target.value)}
+                  className="w-full px-3.5 py-2.5 border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-primary-500/20 focus:border-primary-500 text-sm font-semibold"
+                >
+                  <option value="Nota Fiscal">Nota Fiscal</option>
+                  <option value="Boleto">Boleto</option>
+                  <option value="Pix">Pix</option>
+                  <option value="Diversas">Diversas</option>
+                  <option value="Aluguel">Aluguel</option>
+                </select>
+              </div>
+
+              {/* Formulário Dinâmico: Nota Fiscal */}
+              {tipoDocumento === 'Nota Fiscal' ? (
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                  <div className="space-y-1.5">
+                    <label className="block text-xs font-bold text-slate-750">Número NF</label>
+                    <input
+                      type="text"
+                      name="numero_nf"
+                      value={formData.numero_nf}
+                      onChange={handleInputChange}
+                      className="w-full px-3.5 py-2 border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-primary-500/20 focus:border-primary-500 text-sm font-semibold"
+                    />
+                  </div>
+                  <div className="space-y-1.5">
+                    <label className="block text-xs font-bold text-slate-750">Data Emissão *</label>
+                    <input
+                      type="date"
+                      name="data_emissao"
+                      value={formData.data_emissao}
+                      onChange={handleInputChange}
+                      className="w-full px-3.5 py-2 border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-primary-500/20 focus:border-primary-500 text-sm font-semibold"
+                    />
+                  </div>
+                  <div className="space-y-1.5 sm:col-span-2">
+                    <label className="block text-xs font-bold text-slate-750">Nome *</label>
+                    <input
+                      type="text"
+                      name="nome"
+                      value={formData.nome}
+                      onChange={handleInputChange}
+                      className="w-full px-3.5 py-2 border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-primary-500/20 focus:border-primary-500 text-sm font-semibold"
+                    />
+                  </div>
+                  <div className="space-y-1.5">
+                    <label className="block text-xs font-bold text-slate-750">CNPJ *</label>
+                    <input
+                      type="text"
+                      name="cnpj"
+                      value={formData.cnpj}
+                      onChange={handleInputChange}
+                      placeholder="00.000.000/0000-00"
+                      className="w-full px-3.5 py-2 border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-primary-500/20 focus:border-primary-500 text-sm font-semibold"
+                    />
+                  </div>
+                  <div className="space-y-1.5">
+                    <label className="block text-xs font-bold text-slate-750">Local do Serviço</label>
+                    <input
+                      type="text"
+                      name="local_servico"
+                      value={formData.local_servico}
+                      onChange={handleInputChange}
+                      className="w-full px-3.5 py-2 border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-primary-500/20 focus:border-primary-500 text-sm font-semibold"
+                    />
+                  </div>
+                  <div className="space-y-1.5">
+                    <label className="block text-xs font-bold text-slate-750">Valor Total</label>
+                    <input
+                      type="number"
+                      step="0.01"
+                      name="valor_total"
+                      value={formData.valor_total}
+                      onChange={handleInputChange}
+                      className="w-full px-3.5 py-2 border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-primary-500/20 focus:border-primary-500 text-sm font-semibold"
+                    />
+                  </div>
+                  <div className="space-y-1.5">
+                    <label className="block text-xs font-bold text-slate-750">Base de Cálculo</label>
+                    <input
+                      type="number"
+                      step="0.01"
+                      name="base_calculo"
+                      value={formData.base_calculo}
+                      onChange={handleInputChange}
+                      className="w-full px-3.5 py-2 border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-primary-500/20 focus:border-primary-500 text-sm font-semibold"
+                    />
+                  </div>
+                  <div className="space-y-1.5">
+                    <label className="block text-xs font-bold text-slate-750">Valor INSS</label>
+                    <input
+                      type="number"
+                      step="0.01"
+                      name="valor_inss"
+                      value={formData.valor_inss}
+                      onChange={handleInputChange}
+                      className="w-full px-3.5 py-2 border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-primary-500/20 focus:border-primary-500 text-sm font-semibold"
+                    />
+                  </div>
+                  <div className="space-y-1.5">
+                    <label className="block text-xs font-bold text-slate-750">Valor ISS</label>
+                    <input
+                      type="number"
+                      step="0.01"
+                      name="valor_iss"
+                      value={formData.valor_iss}
+                      onChange={handleInputChange}
+                      className="w-full px-3.5 py-2 border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-primary-500/20 focus:border-primary-500 text-sm font-semibold"
+                    />
+                  </div>
+                  <div className="space-y-1.5 sm:col-span-2">
+                    <label className="block text-xs font-bold text-slate-750">Valor Líquido</label>
+                    <input
+                      type="number"
+                      step="0.01"
+                      name="valor_liquido"
+                      value={formData.valor_liquido}
+                      onChange={handleInputChange}
+                      className="w-full px-3.5 py-2 border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-primary-500/20 focus:border-primary-500 text-sm font-semibold font-bold text-primary-700 bg-primary-50/20"
+                    />
+                  </div>
+                </div>
+              ) : (
+                /* Outros tipos */
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                  <div className="space-y-1.5">
+                    <label className="block text-xs font-bold text-slate-755">Data de Pagamento *</label>
+                    <input
+                      type="date"
+                      name="data_pagamento"
+                      value={formData.data_pagamento}
+                      onChange={handleInputChange}
+                      className="w-full px-3.5 py-2 border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-primary-500/20 focus:border-primary-500 text-sm font-semibold"
+                    />
+                  </div>
+                  <div className="space-y-1.5">
+                    <label className="block text-xs font-bold text-slate-755">Data de Vencimento</label>
+                    <input
+                      type="date"
+                      name="data_vencimento"
+                      value={formData.data_vencimento}
+                      onChange={handleInputChange}
+                      className="w-full px-3.5 py-2 border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-primary-500/20 focus:border-primary-500 text-sm font-semibold"
+                    />
+                  </div>
+                  <div className="space-y-1.5 sm:col-span-2">
+                    <label className="block text-xs font-bold text-slate-755">Descrição *</label>
+                    <input
+                      type="text"
+                      name="descricao"
+                      value={formData.descricao}
+                      onChange={handleInputChange}
+                      placeholder="Ex: Mensalidade de internet da usina 1"
+                      className="w-full px-3.5 py-2 border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-primary-500/20 focus:border-primary-500 text-sm font-semibold"
+                    />
+                  </div>
+                  <div className="space-y-1.5">
+                    <label className="block text-xs font-bold text-slate-755">Forma de Pagamento</label>
+                    <select
+                      name="forma_pagamento"
+                      value={formData.forma_pagamento}
+                      onChange={handleInputChange}
+                      className="w-full px-3.5 py-2.5 border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-primary-500/20 focus:border-primary-500 text-sm font-semibold"
+                    >
+                      <option value="boleto">Boleto</option>
+                      <option value="dda">DDA</option>
+                      <option value="pix">Pix</option>
+                    </select>
+                  </div>
+                  <div className="space-y-1.5">
+                    <label className="block text-xs font-bold text-slate-755">Número da NF (Opcional)</label>
+                    <input
+                      type="text"
+                      name="numero_nf"
+                      value={formData.numero_nf}
+                      onChange={handleInputChange}
+                      className="w-full px-3.5 py-2 border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-primary-500/20 focus:border-primary-500 text-sm font-semibold"
+                    />
+                  </div>
+                  <div className="space-y-1.5">
+                    <label className="block text-xs font-bold text-slate-755">Valor Pago *</label>
+                    <input
+                      type="number"
+                      step="0.01"
+                      name="valor_pago"
+                      value={formData.valor_pago}
+                      onChange={handleInputChange}
+                      className="w-full px-3.5 py-2 border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-primary-500/20 focus:border-primary-500 text-sm font-bold text-primary-750"
+                    />
+                  </div>
+                  <div className="space-y-1.5">
+                    <label className="block text-xs font-bold text-slate-755">Valor Juros</label>
+                    <input
+                      type="number"
+                      step="0.01"
+                      name="valor_juros"
+                      value={formData.valor_juros}
+                      onChange={handleInputChange}
+                      className="w-full px-3.5 py-2 border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-primary-500/20 focus:border-primary-500 text-sm font-semibold"
+                    />
+                  </div>
+                </div>
+              )}
+
+              {/* Botões do Modal */}
+              <div className="flex justify-end gap-3 pt-4 border-t border-slate-100">
+                <button
+                  type="button"
+                  onClick={() => setShowModal(false)}
+                  className="px-4 py-2 border border-slate-200 text-slate-600 font-bold text-xs rounded-xl hover:bg-slate-50 transition-all cursor-pointer"
+                >
+                  Cancelar
+                </button>
+                <button
+                  type="submit"
+                  className="px-5 py-2 bg-primary-600 hover:bg-primary-700 text-white font-bold text-xs rounded-xl transition-all shadow-md shadow-primary-900/10 cursor-pointer"
+                >
+                  {editingId ? 'Atualizar Lançamento' : 'Salvar Lançamento'}
+                </button>
+              </div>
+
+            </form>
+          </div>
+        </div>
+      )}
+
+    </div>
+  );
+}
+
+export default Comprovantes;

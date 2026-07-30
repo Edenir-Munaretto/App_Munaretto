@@ -11,7 +11,8 @@ import {
   Moon, 
   LogOut, 
   User as UserIcon,
-  ShieldAlert
+  ShieldAlert,
+  Receipt
 } from 'lucide-react';
 
 // Importando as páginas
@@ -20,6 +21,7 @@ import Clientes from './pages/Clientes';
 import Ferias from './pages/Ferias';
 import FluxoCaixa from './pages/FluxoCaixa';
 import GeradorDocumentos from './pages/GeradorDocumentos';
+import Comprovantes from './pages/Comprovantes';
 
 export const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:8000/api';
 
@@ -54,6 +56,7 @@ function App() {
     { id: 'ferias', label: 'Gestão Férias', icon: Palmtree, component: Ferias },
     { id: 'fluxo', label: 'Gestão Usinas', icon: LineChart, component: FluxoCaixa },
     { id: 'documentos', label: 'Documentos', icon: FileText, component: GeradorDocumentos },
+    { id: 'comprovantes', label: 'Contabilidade', icon: Receipt, component: Comprovantes },
   ];
 
   const ActiveComponent = tabs.find(t => t.id === activeTab)?.component || Dashboard;
