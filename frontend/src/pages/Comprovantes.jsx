@@ -7,6 +7,7 @@ function Comprovantes() {
   const [busca, setBusca] = useState('');
   const [dataInicio, setDataInicio] = useState('');
   const [dataFim, setDataFim] = useState('');
+  const [tipoFiltro, setTipoFiltro] = useState('');
   const [loading, setLoading] = useState(true);
   const [toast, setToast] = useState(null);
 
@@ -212,6 +213,9 @@ function Comprovantes() {
 
     if (!textMatch) return false;
 
+    // Filtro por tipo
+    if (tipoFiltro && c.tipo_documento !== tipoFiltro) return false;
+
     // Filtragem por período
     const itemDate = c.tipo_documento === 'Nota Fiscal' ? c.data_emissao : c.data_pagamento;
     if (dataInicio && itemDate && itemDate < dataInicio) return false;
@@ -278,6 +282,7 @@ function Comprovantes() {
         <p className="text-xs text-slate-500 mt-1">
           Gerado em: {new Date().toLocaleDateString('pt-BR')} 
           {busca && ` | Busca: "${busca}"`}
+          {tipoFiltro && ` | Tipo: ${tipoFiltro}`}
           {(dataInicio || dataFim) && ` | Período: ${formatDate(dataInicio) || 'Início'} até ${formatDate(dataFim) || 'Fim'}`}
         </p>
       </div>
@@ -314,8 +319,21 @@ function Comprovantes() {
         </div>
 
         {/* Linha de Filtro por Período */}
-        <div className="flex flex-wrap items-center gap-4 pt-3.5 border-t border-slate-100">
-          <span className="text-xs font-bold text-slate-500 uppercase tracking-wider">Filtrar Período:</span>
+          <div className="flex flex-wrap items-center gap-4 pt-3.5 border-t border-slate-100">
+            <span className="text-xs font-bold text-slate-500 uppercase tracking-wider">Filtrar Tipo:</span>
+            <select
+              value={tipoFiltro}
+              onChange={(e) => setTipoFiltro(e.target.value)}
+              className="px-3 py-1.5 border border-slate-200 rounded-xl text-xs font-semibold focus:outline-none focus:ring-2 focus:ring-primary-500/20 focus:border-primary-500"
+            >
+              <option value="">Todos</option>
+              <option value="Nota Fiscal">Nota Fiscal</option>
+              <option value="Boleto">Boleto</option>
+              <option value="Pix">Pix</option>
+              <option value="Diversas">Diversas</option>
+              <option value="Aluguel">Aluguel</option>
+            </select>
+            <span className="text-xs font-bold text-slate-500 uppercase tracking-wider">Filtrar Período:</span>
           <div className="flex items-center gap-2">
             <label className="text-xs font-medium text-slate-500">De:</label>
             <input
@@ -344,7 +362,11 @@ function Comprovantes() {
             >
               Limpar Período
             </button>
-             {/* Listagem de Itens em formato de Cartões Condicionais (Card Layout) */}
+          )}
+          </div>
+        </div>
+
+      {/* Listagem de Itens */}
       <div className="space-y-4 print-full-width">
         {loading ? (
           <div className="bg-white p-8 text-center text-slate-400 rounded-2xl border border-slate-100 shadow-sm">
