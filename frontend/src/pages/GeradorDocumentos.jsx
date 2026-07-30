@@ -233,10 +233,10 @@ function GeradorDocumentos() {
         </div>
       )}
 
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+      <div className="max-w-4xl mx-auto">
         
         {/* Left Form: Client selection and document generator config */}
-        <div className="bg-white p-6 rounded-2xl border border-slate-100 shadow-sm lg:col-span-2 space-y-6">
+        <div className="bg-white p-6 rounded-2xl border border-slate-100 shadow-sm space-y-6">
           <div className="border-b border-slate-100 pb-3 flex justify-between items-center">
             <h3 className="font-bold text-slate-800 flex items-center gap-2">
               <FileText className="text-primary-500" />
@@ -283,7 +283,7 @@ function GeradorDocumentos() {
             <div className="space-y-2">
               <label className="block text-xs font-bold text-slate-700">2. Selecione o Modelo de Template *</label>
               
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 max-h-60 overflow-y-auto p-1">
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3 p-1">
                 
                 {/* Word Templates (.docx) */}
                 {templates.word.map((temp) => (
@@ -394,44 +394,6 @@ function GeradorDocumentos() {
 
           </form>
 
-        </div>
-
-        {/* Right Side: Upload new template files */}
-        <div className="bg-white p-6 rounded-2xl border border-slate-100 shadow-sm space-y-4 h-fit">
-          <h3 className="font-bold text-slate-800 flex items-center gap-2 border-b border-slate-100 pb-2.5">
-            <Upload className="text-amber-500" />
-            Importar Modelo
-          </h3>
-          <p className="text-xs text-slate-500 leading-relaxed">
-            Envie novos modelos de contratos ou planilhas de preenchimento. Coloque os marcadores <code className="bg-slate-100 px-1 rounded text-primary-700 font-mono font-bold">{"{{placeholder}}"}</code> nos arquivos para preenchimento automático.
-          </p>
-
-          <input
-            type="file"
-            ref={fileInputRef}
-            onChange={handleFileChange}
-            accept=".docx,.xlsx"
-            className="hidden"
-          />
-
-          <button
-            onClick={handleUploadClick}
-            disabled={uploading}
-            className="w-full flex flex-col items-center justify-center border-2 border-dashed border-slate-350 hover:border-primary-500 rounded-2xl py-8 px-4 bg-slate-50 hover:bg-primary-50/10 text-slate-600 hover:text-primary-700 transition-all cursor-pointer gap-2 disabled:bg-slate-200 disabled:cursor-not-allowed"
-          >
-            {uploading ? (
-              <>
-                <RefreshCw size={24} className="animate-spin text-primary-500" />
-                <span className="text-xs font-bold mt-1">Carregando arquivo...</span>
-              </>
-            ) : (
-              <>
-                <Upload size={28} className="text-slate-400" />
-                <span className="text-xs font-bold">Clique para importar</span>
-                <span className="text-[10px] text-slate-400">Apenas arquivos Word (.docx) ou Excel (.xlsx)</span>
-              </>
-            )}
-          </button>
         </div>
 
       </div>
