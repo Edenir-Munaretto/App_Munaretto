@@ -59,6 +59,10 @@ def criar_comprovante(comprovante: ComprovanteCreate, db = Depends(get_supabase)
     """Cria um novo lançamento de comprovante."""
     try:
         payload = comprovante.model_dump()
+        # Higieniza strings vazias para None, evitando erros em campos opcionais e do tipo data
+        for key, value in list(payload.items()):
+            if value == "":
+                payload[key] = None
         response = db.table("comprovantes").insert(payload).execute()
         if not response.data:
             raise HTTPException(status_code=500, detail="Falha ao salvar comprovante.")
@@ -75,6 +79,10 @@ def atualizar_comprovante(comprovante_id: int, comprovante: ComprovanteCreate, d
             raise HTTPException(status_code=404, detail="Comprovante não encontrado.")
 
         payload = comprovante.model_dump()
+        # Higieniza strings vazias para None, evitando erros em campos opcionais e do tipo data
+        for key, value in list(payload.items()):
+            if value == "":
+                payload[key] = None
         response = db.table("comprovantes").update(payload).eq("id", comprovante_id).execute()
         if not response.data:
             raise HTTPException(status_code=500, detail="Falha ao atualizar comprovante.")
