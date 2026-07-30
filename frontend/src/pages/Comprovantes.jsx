@@ -344,129 +344,135 @@ function Comprovantes() {
             >
               Limpar Período
             </button>
-          )}
-        </div>
-      </div>
+             {/* Listagem de Itens em formato de Cartões Condicionais (Card Layout) */}
+      <div className="space-y-4 print-full-width">
+        {loading ? (
+          <div className="bg-white p-8 text-center text-slate-400 rounded-2xl border border-slate-100 shadow-sm">
+            Carregando lançamentos...
+          </div>
+        ) : filteredComprovantes.length === 0 ? (
+          <div className="bg-white p-8 text-center text-slate-400 rounded-2xl border border-slate-100 shadow-sm">
+            Nenhum comprovante encontrado.
+          </div>
+        ) : (
+          filteredComprovantes.map((c) => {
+            const isNF = c.tipo_documento === 'Nota Fiscal';
+            
+            const borderLeftColor = 
+              c.tipo_documento === 'Nota Fiscal' ? 'border-l-blue-500' :
+              c.tipo_documento === 'Boleto' ? 'border-l-amber-500' :
+              c.tipo_documento === 'Pix' ? 'border-l-teal-500' :
+              c.tipo_documento === 'Aluguel' ? 'border-l-purple-500' :
+              'border-l-slate-400';
 
-      {/* Table List */}
-      <div className="bg-white rounded-2xl border border-slate-100 shadow-sm overflow-hidden print-full-width">
-        <div className="overflow-x-auto">
-          <table className="w-full text-left border-collapse">
-            <thead>
-              <tr className="bg-slate-50 border-b border-slate-200 text-[10px] font-bold text-slate-500 uppercase">
-                <th className="py-3 px-2">Tipo</th>
-                <th className="py-3 px-2">Nome/Descrição</th>
-                <th className="py-3 px-2">CNPJ</th>
-                <th className="py-3 px-2">Local Serv.</th>
-                <th className="py-3 px-2">Nº NF</th>
-                <th className="py-3 px-2">Dt Emiss.</th>
-                <th className="py-3 px-2">Dt Venc.</th>
-                <th className="py-3 px-2">Dt Pag.</th>
-                <th className="py-3 px-2">Forma</th>
-                <th className="py-3 px-2 text-right">Vl Total/Pago</th>
-                <th className="py-3 px-2 text-right">Base Calc.</th>
-                <th className="py-3 px-2 text-right">INSS</th>
-                <th className="py-3 px-2 text-right">ISS</th>
-                <th className="py-3 px-2 text-right">Juros</th>
-                <th className="py-3 px-2 text-right font-bold text-slate-700">Vl Líquido</th>
-                <th className="py-3 px-2 text-right print:hidden">Ações</th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-slate-100 text-sm font-medium text-slate-700">
-              {loading ? (
-                <tr>
-                  <td colSpan="16" className="py-8 text-center text-slate-400">
-                    Carregando lançamentos...
-                  </td>
-                </tr>
-              ) : filteredComprovantes.length === 0 ? (
-                <tr>
-                  <td colSpan="16" className="py-8 text-center text-slate-400">
-                    Nenhum comprovante encontrado.
-                  </td>
-                </tr>
-              ) : (
-                filteredComprovantes.map((c) => {
-                  const isNF = c.tipo_documento === 'Nota Fiscal';
-                  const badgeColor = 
-                    c.tipo_documento === 'Nota Fiscal' ? 'bg-blue-50 text-blue-700 border-blue-100' :
-                    c.tipo_documento === 'Boleto' ? 'bg-amber-50 text-amber-700 border-amber-100' :
-                    c.tipo_documento === 'Pix' ? 'bg-teal-50 text-teal-700 border-teal-100' :
-                    c.tipo_documento === 'Aluguel' ? 'bg-purple-50 text-purple-700 border-purple-100' :
-                    'bg-slate-50 text-slate-700 border-slate-100';
+            const badgeColor = 
+              c.tipo_documento === 'Nota Fiscal' ? 'bg-blue-50 text-blue-700 border-blue-100' :
+              c.tipo_documento === 'Boleto' ? 'bg-amber-50 text-amber-700 border-amber-100' :
+              c.tipo_documento === 'Pix' ? 'bg-teal-50 text-teal-700 border-teal-100' :
+              c.tipo_documento === 'Aluguel' ? 'bg-purple-50 text-purple-700 border-purple-100' :
+              'bg-slate-50 text-slate-700 border-slate-100';
 
-                  return (
-                    <tr key={c.id} className="hover:bg-slate-50/50 transition-colors text-[11px]">
-                      <td className="py-2.5 px-2">
-                        <span className={`px-1.5 py-0.5 text-[9px] font-bold rounded-full border ${badgeColor}`}>
-                          {c.tipo_documento}
-                        </span>
-                      </td>
-                      <td className="py-2.5 px-2 max-w-[120px] truncate font-semibold text-slate-800" title={isNF ? c.nome : c.descricao}>
-                        {isNF ? c.nome : c.descricao}
-                      </td>
-                      <td className="py-2.5 px-2 font-mono text-[10px] text-slate-500">
-                        {isNF ? (c.cnpj || '-') : '-'}
-                      </td>
-                      <td className="py-2.5 px-2 text-slate-650 truncate max-w-[100px]" title={isNF ? (c.local_servico || '') : ''}>
-                        {isNF ? (c.local_servico || '-') : '-'}
-                      </td>
-                      <td className="py-2.5 px-2 font-mono text-slate-550">
-                        {c.numero_nf || '-'}
-                      </td>
-                      <td className="py-2.5 px-2 text-slate-500">
-                        {isNF ? formatDate(c.data_emissao) : '-'}
-                      </td>
-                      <td className="py-2.5 px-2 text-slate-500">
-                        {!isNF ? formatDate(c.data_vencimento) : '-'}
-                      </td>
-                      <td className="py-2.5 px-2 text-slate-500">
-                        {!isNF ? formatDate(c.data_pagamento) : '-'}
-                      </td>
-                      <td className="py-2.5 px-2 capitalize text-slate-600">
-                        {!isNF ? (c.forma_pagamento || '-') : '-'}
-                      </td>
-                      <td className="py-2.5 px-2 text-right font-semibold text-slate-800">
-                        {isNF ? formatCurrency(c.valor_total) : formatCurrency(c.valor_pago)}
-                      </td>
-                      <td className="py-2.5 px-2 text-right text-slate-600">
-                        {isNF ? formatCurrency(c.base_calculo) : '-'}
-                      </td>
-                      <td className="py-2.5 px-2 text-right text-rose-600">
-                        {isNF ? formatCurrency(c.valor_inss) : '-'}
-                      </td>
-                      <td className="py-2.5 px-2 text-right text-rose-600">
-                        {isNF ? formatCurrency(c.valor_iss) : '-'}
-                      </td>
-                      <td className="py-2.5 px-2 text-right text-amber-600">
-                        {!isNF ? formatCurrency(c.valor_juros) : '-'}
-                      </td>
-                      <td className="py-2.5 px-2 text-right font-bold text-slate-900">
-                        {isNF ? formatCurrency(c.valor_liquido) : formatCurrency(c.valor_pago)}
-                      </td>
-                      <td className="py-2.5 px-2 text-right print:hidden">
-                        <div className="flex items-center justify-end gap-1">
-                          <button
-                            onClick={() => openEditModal(c)}
-                            className="p-1 text-slate-400 hover:text-primary-600 rounded hover:bg-slate-100 transition-all cursor-pointer"
-                          >
-                            <Edit2 size={13} />
-                          </button>
-                          <button
-                            onClick={() => handleDelete(c.id)}
-                            className="p-1 text-slate-400 hover:text-rose-600 rounded hover:bg-slate-100 transition-all cursor-pointer"
-                          >
-                            <Trash2 size={13} />
-                          </button>
-                        </div>
-                      </td>
-                    </tr>
-                  );
-                })
-              )}
-            </tbody>
-          </table>
-        </div>
+            return (
+              <div 
+                key={c.id} 
+                className={`bg-white p-4 rounded-2xl border border-slate-100 ${borderLeftColor} border-l-4 shadow-sm hover:shadow transition-all space-y-3 print:border print:border-slate-300 print:shadow-none print:break-inside-avoid print:p-3`}
+              >
+                {/* Cabeçalho do Cartão */}
+                <div className="flex justify-between items-start gap-4">
+                  <div className="flex flex-wrap items-center gap-2">
+                    <span className={`px-2 py-0.5 text-[9px] font-bold rounded-full border ${badgeColor}`}>
+                      {c.tipo_documento}
+                    </span>
+                    <h4 className="font-bold text-slate-800 text-sm">
+                      {isNF ? c.nome : c.descricao}
+                    </h4>
+                    {c.numero_nf && (
+                      <span className="text-xs text-slate-400 font-mono">
+                        (NF: {c.numero_nf})
+                      </span>
+                    )}
+                  </div>
+                  <div className="flex gap-1 print:hidden">
+                    <button
+                      onClick={() => openEditModal(c)}
+                      className="p-1 text-slate-400 hover:text-primary-600 rounded hover:bg-slate-50 transition-all cursor-pointer"
+                    >
+                      <Edit2 size={14} />
+                    </button>
+                    <button
+                      onClick={() => handleDelete(c.id)}
+                      className="p-1 text-slate-400 hover:text-rose-600 rounded hover:bg-slate-50 transition-all cursor-pointer"
+                    >
+                      <Trash2 size={14} />
+                    </button>
+                  </div>
+                </div>
+
+                {/* Grid de Campos Específicos para o Tipo: Nota Fiscal */}
+                {isNF ? (
+                  <div className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-8 gap-x-4 gap-y-2 text-xs pt-2 border-t border-slate-50">
+                    <div>
+                      <span className="block text-[9px] text-slate-400 font-bold uppercase tracking-wider">CNPJ</span>
+                      <span className="font-semibold font-mono text-slate-750">{c.cnpj || '-'}</span>
+                    </div>
+                    <div>
+                      <span className="block text-[9px] text-slate-400 font-bold uppercase tracking-wider">Data Emissão</span>
+                      <span className="font-semibold text-slate-750">{formatDate(c.data_emissao)}</span>
+                    </div>
+                    <div className="sm:col-span-2">
+                      <span className="block text-[9px] text-slate-400 font-bold uppercase tracking-wider">Local do Serviço</span>
+                      <span className="font-semibold text-slate-700 truncate block" title={c.local_servico || ''}>
+                        {c.local_servico || '-'}
+                      </span>
+                    </div>
+                    <div>
+                      <span className="block text-[9px] text-slate-400 font-bold uppercase tracking-wider">Valor Total</span>
+                      <span className="font-bold text-slate-750">{formatCurrency(c.valor_total)}</span>
+                    </div>
+                    <div>
+                      <span className="block text-[9px] text-slate-400 font-bold uppercase tracking-wider">Base Cálculo</span>
+                      <span className="font-semibold text-slate-700">{formatCurrency(c.base_calculo)}</span>
+                    </div>
+                    <div>
+                      <span className="block text-[9px] text-slate-400 font-bold uppercase tracking-wider">INSS / ISS</span>
+                      <span className="font-semibold text-slate-700">
+                        {formatCurrency(c.valor_inss)} / {formatCurrency(c.valor_iss)}
+                      </span>
+                    </div>
+                    <div className="bg-primary-50/20 px-2 py-0.5 rounded border border-primary-50 print:bg-transparent print:border-none print:px-0">
+                      <span className="block text-[9px] text-primary-600 font-bold uppercase tracking-wider print:text-slate-400">Valor Líquido</span>
+                      <span className="font-extrabold text-primary-750 print:text-black">{formatCurrency(c.valor_liquido)}</span>
+                    </div>
+                  </div>
+                ) : (
+                  /* Grid de Campos Específicos para os Outros Tipos */
+                  <div className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-6 gap-x-4 gap-y-2 text-xs pt-2 border-t border-slate-50">
+                    <div>
+                      <span className="block text-[9px] text-slate-400 font-bold uppercase tracking-wider">Vencimento</span>
+                      <span className="font-semibold text-slate-750">{formatDate(c.data_vencimento)}</span>
+                    </div>
+                    <div>
+                      <span className="block text-[9px] text-slate-400 font-bold uppercase tracking-wider">Pagamento</span>
+                      <span className="font-semibold text-slate-750">{formatDate(c.data_pagamento)}</span>
+                    </div>
+                    <div>
+                      <span className="block text-[9px] text-slate-400 font-bold uppercase tracking-wider">Forma Pagamento</span>
+                      <span className="font-semibold capitalize text-slate-750">{c.forma_pagamento || '-'}</span>
+                    </div>
+                    <div>
+                      <span className="block text-[9px] text-slate-400 font-bold uppercase tracking-wider">Valor Pago</span>
+                      <span className="font-bold text-slate-750">{formatCurrency(c.valor_pago)}</span>
+                    </div>
+                    <div>
+                      <span className="block text-[9px] text-slate-400 font-bold uppercase tracking-wider">Valor Juros</span>
+                      <span className="font-semibold text-amber-600">{formatCurrency(c.valor_juros)}</span>
+                    </div>
+                  </div>
+                )}
+              </div>
+            );
+          })
+        )}
       </div>
 
       {/* Modal Lançamento */}
