@@ -12,7 +12,8 @@ function Recebimentos() {
   // Modal State
   const [showModal, setShowModal] = useState(false);
   const [editingId, setEditingId] = useState(null);
-  const [clienteSelecionadoId, setClienteSelecionadoId] = useState('');
+  const [buscaCliente, setBuscaCliente] = useState('');
+  const [sugestoesAbertas, setSugestoesAbertas] = useState(false);
   const [formData, setFormData] = useState({
     nome_cliente: '',
     data_inicio: '',
@@ -71,23 +72,25 @@ function Recebimentos() {
   const pagCliente = () =>
     (parseFloat(formData.valor_da_obra) || 0) - (parseFloat(formData.valor_de_devolucao) || 0);
 
-  const handleClienteSelect = (e) => {
-    const id = e.target.value;
-    setClienteSelecionadoId(id);
-    const cliente = clientes.find(c => String(c.id) === String(id));
-    if (cliente) {
-      setFormData(prev => ({
-        ...prev,
-        nome_cliente: cliente.nome || '',
-        valor_da_obra: parseCurrencyBR(cliente.valor_da_obra),
-        valor_de_devolucao: parseCurrencyBR(cliente.valor_de_devolucao)
-      }));
-    }
+  const sugestoesClientes = buscaCliente.trim()
+    ? clientes.filter(c => c.nome.toLowerCase().includes(buscaCliente.toLowerCase())).slice(0, 8)
+    : [];
+
+  const selecionarCliente = (cliente) => {
+    setBuscaCliente(cliente.nome);
+    setSugestoesAbertas(false);
+    setFormData(prev => ({
+      ...prev,
+      nome_cliente: cliente.nome || '',
+      valor_da_obra: parseCurrencyBR(cliente.valor_da_obra),
+      valor_de_devolucao: parseCurrencyBR(cliente.valor_de_devolucao)
+    }));
   };
 
   const openAddModal = () => {
     setEditingId(null);
-    setClienteSelecionadoId('');
+    setBuscaCliente('');
+    setSugestoesAbertas(false);
     setFormData({
       nome_cliente: '',
       data_inicio: '',
@@ -102,6 +105,8 @@ function Recebimentos() {
 
   const openEditModal = (r) => {
     setEditingId(r.id);
+    setBuscaCliente(r.nome_cliente || '');
+    setSugestoesAbertas(false);
     setFormData({
       nome_cliente: r.nome_cliente || '',
       data_inicio: r.data_inicio || '',
@@ -111,8 +116,6 @@ function Recebimentos() {
       emissao_nf: r.emissao_nf || '',
       cessao: r.cessao || 'nao'
     });
-    const match = clientes.find(c => c.nome === r.nome_cliente);
-    setClienteSelecionadoId(match ? String(match.id) : '');
     setShowModal(true);
   };
 
@@ -396,20 +399,46 @@ function Recebimentos() {
 
             <form onSubmit={handleSubmit} className="p-6 space-y-6">
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                <div className="col-span-1 md:col-span-2">
+                <div className="col-span-1 md:col-span-2 relative">
                   <label className="block text-xs font-bold text-slate-700 mb-1.5">Cliente Cadastrado (pré-preenchimento)</label>
-                  <select
-                    value={clienteSelecionadoId}
-                    onChange={handleClienteSelect}
-                    className="w-full px-3.5 py-2.5 border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-primary-500/20 focus:border-primary-500 text-sm font-semibold bg-white"
-                  >
-                    <option value="">Selecione um cliente cadastrado...</option>
-                    {clientes.map((c) => (
-                      <option key={c.id} value={c.id}>{c.nome}</option>
-                    ))}
-                  </select>
+                  <input
+                    type="text"
+                    value={buscaCliente}
+                    onChange={(e) => {
+                      setBuscaCliente(e.target.value);
+                      setSugestoesAbertas(true);
+                    }}
+                    onFocus={() => setSugestoesAbertas(true)}
+                    onBlur={() => setTimeout(() => setSugestoesAbertas(false), 150)}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter' && sugestoesClientes.length > 0) {
+                        e.preventDefault();
+                        selecionarCliente(sugestoesClientes[0]);
+                      }
+                    }}
+                    placeholder="Digite o nome do cliente..."
+                    className="w-full px-3.5 py-2.5 border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-primary-500/20 focus:border-primary-500 text-sm font-semibold"
+                  />
+                  {sugestoesAbertas && sugestoesClientes.length > 0 && (
+                    <div className="absolute z-20 mt-1 w-full bg-white border border-slate-200 rounded-xl shadow-lg max-h-56 overflow-y-auto">
+                      {sugestoesClientes.map((c) => (
+                        <button
+                          type="button"
+                          key={c.id}
+                          onMouseDown={(e) => {
+                            e.preventDefault();
+                            selecionarCliente(c);
+                          }}
+                          className="w-full text-left px-3.5 py-2.5 text-sm hover:bg-primary-50 cursor-pointer border-b border-slate-50 last:border-b-0"
+                        >
+                          <span className="font-semibold text-slate-700">{c.nome}</span>
+                          <span className="block text-[10px] text-slate-400">{c.cpf_cnpj}</span>
+                        </button>
+                      ))}
+                    </div>
+                  )}
                   <p className="text-[10px] text-slate-400 mt-1">
-                    Ao selecionar, o nome, valor da obra e valor de devolução são preenchidos automaticamente.
+                    Digite o nome e selecione a sugestão para preencher nome, valor da obra e valor de devolução automaticamente.
                   </p>
                 </div>
 
