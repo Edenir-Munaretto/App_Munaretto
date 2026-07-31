@@ -84,7 +84,8 @@ function Recebimentos() {
       ...prev,
       nome_cliente: cliente.nome || '',
       valor_da_obra: parseCurrencyBR(cliente.valor_da_obra),
-      valor_de_devolucao: parseCurrencyBR(cliente.valor_de_devolucao)
+      valor_de_devolucao: parseCurrencyBR(cliente.valor_de_devolucao),
+      nota_ps: cliente.nota_ps || ''
     }));
   };
 
