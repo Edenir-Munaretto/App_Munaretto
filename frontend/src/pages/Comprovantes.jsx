@@ -510,12 +510,16 @@ function Comprovantes() {
 
       {/* Totais das Notas Fiscais */}
       {notasFiscaisFiltradas.length > 0 && (
-        <div className="bg-white p-5 rounded-2xl border border-slate-100 shadow-sm print-full-width print:break-inside-avoid">
+        <div className="bg-white p-5 rounded-2xl border border-slate-100 shadow-sm print-full-width print:break-inside-avoid print:p-3">
           <div className="flex items-center justify-between border-b border-slate-100 pb-2.5 mb-3">
             <h3 className="font-bold text-slate-800 text-sm uppercase tracking-wider">Totais Notas Fiscais</h3>
             <span className="text-xs text-slate-400 font-semibold">{notasFiscaisFiltradas.length} nota(s)</span>
           </div>
-          <div className="grid grid-cols-2 sm:grid-cols-4 gap-x-4 gap-y-3 text-xs">
+          <div className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-8 gap-x-4 gap-y-2 text-xs">
+            <div className="hidden lg:block"></div>
+            <div className="hidden lg:block"></div>
+            <div className="hidden lg:block"></div>
+            <div className="hidden lg:block"></div>
             <div>
               <span className="block text-[9px] text-slate-400 font-bold uppercase tracking-wider">Base de Cálculo</span>
               <span className="font-bold text-slate-750">{formatCurrency(totaisNF.base_calculo)}</span>
