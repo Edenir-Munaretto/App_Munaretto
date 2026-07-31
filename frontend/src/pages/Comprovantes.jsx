@@ -234,11 +234,14 @@ function Comprovantes() {
   }), { base_calculo: 0, valor_inss: 0, valor_iss: 0, valor_liquido: 0, valor_pago: 0, valor_juros: 0 }) : null;
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-6 print:space-y-2">
       
       {/* Estilos para impressão */}
       <style dangerouslySetInnerHTML={{__html: `
         @media print {
+          @page {
+            margin: 8mm;
+          }
           body {
             background-color: white !important;
             color: black !important;
@@ -287,9 +290,9 @@ function Comprovantes() {
       )}
 
       {/* Cabeçalho exclusivo para Impressão */}
-      <div className="hidden print:block mb-6 border-b border-slate-300 pb-4">
-        <h2 className="text-2xl font-bold text-slate-800 uppercase tracking-wide">Relatório de Contabilidade</h2>
-        <p className="text-xs text-slate-500 mt-1">
+      <div className="hidden print:block mb-6 border-b border-slate-300 pb-4 print:mb-2 print:pb-2">
+        <h2 className="text-2xl font-bold text-slate-800 uppercase tracking-wide print:text-lg">Relatório de Contabilidade</h2>
+        <p className="text-xs text-slate-500 mt-1 print:mt-0.5">
           Gerado em: {new Date().toLocaleDateString('pt-BR')} 
           {busca && ` | Busca: "${busca}"`}
           {tipoFiltro && ` | Tipo: ${tipoFiltro}`}
@@ -377,7 +380,7 @@ function Comprovantes() {
         </div>
 
       {/* Listagem de Itens */}
-      <div className="space-y-4 print-full-width">
+      <div className="space-y-4 print-full-width print:space-y-1">
         {loading ? (
           <div className="bg-white p-8 text-center text-slate-400 rounded-2xl border border-slate-100 shadow-sm">
             Carregando lançamentos...
@@ -407,7 +410,7 @@ function Comprovantes() {
             return (
               <div 
                 key={c.id} 
-                className={`bg-white p-4 rounded-2xl border border-slate-100 ${borderLeftColor} border-l-4 shadow-sm hover:shadow transition-all space-y-3 print:border print:border-slate-300 print:shadow-none print:break-inside-avoid print:p-3`}
+                className={`bg-white p-4 rounded-2xl border border-slate-100 ${borderLeftColor} border-l-4 shadow-sm hover:shadow transition-all space-y-3 print:border print:border-slate-300 print:shadow-none print:break-inside-avoid print:p-2 print:space-y-1.5`}
               >
                 {/* Cabeçalho do Cartão */}
                 <div className="flex justify-between items-start gap-4">
@@ -415,7 +418,7 @@ function Comprovantes() {
                     <span className={`px-2 py-0.5 text-[9px] font-bold rounded-full border ${badgeColor}`}>
                       {c.tipo_documento}
                     </span>
-                    <h4 className="font-bold text-slate-800 text-sm">
+                    <h4 className="font-bold text-slate-800 text-sm print:text-xs print:leading-tight">
                       {isNF ? c.nome : c.descricao}
                     </h4>
                     {c.numero_nf && (
@@ -442,7 +445,7 @@ function Comprovantes() {
 
                 {/* Grid de Campos Específicos para o Tipo: Nota Fiscal */}
                 {isNF ? (
-                  <div className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-8 gap-x-4 gap-y-2 text-xs pt-2 border-t border-slate-50">
+                  <div className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-8 gap-x-4 gap-y-2 text-xs pt-2 border-t border-slate-50 print:gap-y-0.5 print:pt-1 print:text-[10px]">
                     <div>
                       <span className="block text-[9px] text-slate-400 font-bold uppercase tracking-wider">CNPJ</span>
                       <span className="font-semibold font-mono text-slate-750">{c.cnpj || '-'}</span>
@@ -480,7 +483,7 @@ function Comprovantes() {
                   </div>
                 ) : (
                   /* Grid de Campos Específicos para os Outros Tipos */
-                  <div className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-6 gap-x-4 gap-y-2 text-xs pt-2 border-t border-slate-50">
+                  <div className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-6 gap-x-4 gap-y-2 text-xs pt-2 border-t border-slate-50 print:gap-y-0.5 print:pt-1 print:text-[10px]">
                     <div>
                       <span className="block text-[9px] text-slate-400 font-bold uppercase tracking-wider">Vencimento</span>
                       <span className="font-semibold text-slate-750">{formatDate(c.data_vencimento)}</span>
