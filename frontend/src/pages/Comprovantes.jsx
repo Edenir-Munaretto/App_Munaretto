@@ -223,14 +223,15 @@ function Comprovantes() {
     return true;
   });
 
-  // Totais das Notas Fiscais filtradas
-  const notasFiscaisFiltradas = filteredComprovantes.filter(c => c.tipo_documento === 'Nota Fiscal');
-  const totaisNF = notasFiscaisFiltradas.reduce((acc, c) => ({
+  // Totais do tipo filtrado (somente quando um tipo específico está selecionado)
+  const totaisTipo = tipoFiltro ? filteredComprovantes.reduce((acc, c) => ({
     base_calculo: acc.base_calculo + (c.base_calculo || 0),
     valor_inss: acc.valor_inss + (c.valor_inss || 0),
     valor_iss: acc.valor_iss + (c.valor_iss || 0),
     valor_liquido: acc.valor_liquido + (c.valor_liquido || 0),
-  }), { base_calculo: 0, valor_inss: 0, valor_iss: 0, valor_liquido: 0 });
+    valor_pago: acc.valor_pago + (c.valor_pago || 0),
+    valor_juros: acc.valor_juros + (c.valor_juros || 0),
+  }), { base_calculo: 0, valor_inss: 0, valor_iss: 0, valor_liquido: 0, valor_pago: 0, valor_juros: 0 }) : null;
 
   return (
     <div className="space-y-6">
@@ -508,35 +509,52 @@ function Comprovantes() {
         )}
       </div>
 
-      {/* Totais das Notas Fiscais */}
-      {notasFiscaisFiltradas.length > 0 && (
+      {/* Totais do Tipo Filtrado */}
+      {totaisTipo && filteredComprovantes.length > 0 && (
         <div className="bg-white p-5 rounded-2xl border border-slate-100 shadow-sm print-full-width print:break-inside-avoid print:p-3">
           <div className="flex items-center justify-between border-b border-slate-100 pb-2.5 mb-3">
-            <h3 className="font-bold text-slate-800 text-sm uppercase tracking-wider">Totais Notas Fiscais</h3>
-            <span className="text-xs text-slate-400 font-semibold">{notasFiscaisFiltradas.length} nota(s)</span>
+            <h3 className="font-bold text-slate-800 text-sm uppercase tracking-wider">Totais {tipoFiltro}</h3>
+            <span className="text-xs text-slate-400 font-semibold">{filteredComprovantes.length} registro(s)</span>
           </div>
-          <div className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-8 gap-x-4 gap-y-2 text-xs">
-            <div className="hidden lg:block"></div>
-            <div className="hidden lg:block"></div>
-            <div className="hidden lg:block"></div>
-            <div className="hidden lg:block"></div>
-            <div>
-              <span className="block text-[9px] text-slate-400 font-bold uppercase tracking-wider">Base de Cálculo</span>
-              <span className="font-bold text-slate-750">{formatCurrency(totaisNF.base_calculo)}</span>
+          {tipoFiltro === 'Nota Fiscal' ? (
+            <div className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-8 gap-x-4 gap-y-2 text-xs">
+              <div className="hidden lg:block"></div>
+              <div className="hidden lg:block"></div>
+              <div className="hidden lg:block"></div>
+              <div className="hidden lg:block"></div>
+              <div>
+                <span className="block text-[9px] text-slate-400 font-bold uppercase tracking-wider">Base de Cálculo</span>
+                <span className="font-bold text-slate-750">{formatCurrency(totaisTipo.base_calculo)}</span>
+              </div>
+              <div>
+                <span className="block text-[9px] text-slate-400 font-bold uppercase tracking-wider">Total INSS</span>
+                <span className="font-bold text-slate-750">{formatCurrency(totaisTipo.valor_inss)}</span>
+              </div>
+              <div>
+                <span className="block text-[9px] text-slate-400 font-bold uppercase tracking-wider">Total ISS</span>
+                <span className="font-bold text-slate-750">{formatCurrency(totaisTipo.valor_iss)}</span>
+              </div>
+              <div className="bg-primary-50/20 px-2 py-0.5 rounded border border-primary-50 print:bg-transparent print:border-none print:px-0">
+                <span className="block text-[9px] text-primary-600 font-bold uppercase tracking-wider print:text-slate-400">Valor Líquido</span>
+                <span className="font-extrabold text-primary-750 print:text-black">{formatCurrency(totaisTipo.valor_liquido)}</span>
+              </div>
             </div>
-            <div>
-              <span className="block text-[9px] text-slate-400 font-bold uppercase tracking-wider">Total INSS</span>
-              <span className="font-bold text-slate-750">{formatCurrency(totaisNF.valor_inss)}</span>
+          ) : (
+            <div className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-6 gap-x-4 gap-y-2 text-xs">
+              <div className="hidden lg:block"></div>
+              <div className="hidden lg:block"></div>
+              <div className="hidden lg:block"></div>
+              <div>
+                <span className="block text-[9px] text-slate-400 font-bold uppercase tracking-wider">Total Valor Pago</span>
+                <span className="font-bold text-slate-750">{formatCurrency(totaisTipo.valor_pago)}</span>
+              </div>
+              <div>
+                <span className="block text-[9px] text-slate-400 font-bold uppercase tracking-wider">Total Valor Juros</span>
+                <span className="font-semibold text-amber-600">{formatCurrency(totaisTipo.valor_juros)}</span>
+              </div>
+              <div className="hidden lg:block"></div>
             </div>
-            <div>
-              <span className="block text-[9px] text-slate-400 font-bold uppercase tracking-wider">Total ISS</span>
-              <span className="font-bold text-slate-750">{formatCurrency(totaisNF.valor_iss)}</span>
-            </div>
-            <div className="bg-primary-50/20 px-2 py-0.5 rounded border border-primary-50 print:bg-transparent print:border-none print:px-0">
-              <span className="block text-[9px] text-primary-600 font-bold uppercase tracking-wider print:text-slate-400">Valor Líquido</span>
-              <span className="font-extrabold text-primary-750 print:text-black">{formatCurrency(totaisNF.valor_liquido)}</span>
-            </div>
-          </div>
+          )}
         </div>
       )}
 
@@ -565,7 +583,18 @@ function Comprovantes() {
                 <select
                   value={tipoDocumento}
                   disabled={!!editingId}
-                  onChange={(e) => setTipoDocumento(e.target.value)}
+                  onChange={(e) => {
+                    const tipo = e.target.value;
+                    setTipoDocumento(tipo);
+                    const formaPorTipo = {
+                      'Nota Fiscal': 'boleto',
+                      'Boleto': 'boleto',
+                      'Pix': 'pix',
+                      'Diversas': 'boleto',
+                      'Aluguel': 'boleto',
+                    };
+                    setFormData(prev => ({ ...prev, forma_pagamento: formaPorTipo[tipo] || 'boleto' }));
+                  }}
                   className="w-full px-3.5 py-2.5 border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-primary-500/20 focus:border-primary-500 text-sm font-semibold"
                 >
                   <option value="Nota Fiscal">Nota Fiscal</option>
