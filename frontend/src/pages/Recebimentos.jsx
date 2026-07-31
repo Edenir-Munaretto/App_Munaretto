@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Search, Plus, Edit2, Trash2, X, Check, AlertTriangle, Printer } from 'lucide-react';
+import { Search, Plus, Edit2, Trash2, X, Check, AlertTriangle, Printer, FileCheck2, FileX2 } from 'lucide-react';
 import { API_URL } from '../App';
 
 function Recebimentos() {
@@ -205,6 +205,15 @@ function Recebimentos() {
     return nameMatch || cessaoMatch;
   });
 
+  const totalComNF = recebimentos
+    .filter(r => r.emissao_nf)
+    .reduce((s, r) => s + (parseFloat(r.valor_da_obra) || 0), 0);
+  const totalSemNF = recebimentos
+    .filter(r => !r.emissao_nf)
+    .reduce((s, r) => s + (parseFloat(r.valor_da_obra) || 0), 0);
+  const qtdComNF = recebimentos.filter(r => r.emissao_nf).length;
+  const qtdSemNF = recebimentos.filter(r => !r.emissao_nf).length;
+
   return (
     <div className="space-y-6">
       
@@ -297,6 +306,30 @@ function Recebimentos() {
             <Plus size={18} />
             Novo Recebimento
           </button>
+        </div>
+      </div>
+
+      {/* Resumo Emissão NF */}
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 print-full-width">
+        <div className="bg-white p-5 rounded-2xl border border-slate-100 shadow-sm flex items-center gap-4">
+          <div className="w-12 h-12 rounded-xl bg-emerald-50 border border-emerald-100 flex items-center justify-center text-emerald-600 shrink-0">
+            <FileCheck2 size={24} />
+          </div>
+          <div>
+            <span className="block text-[10px] text-slate-400 font-bold uppercase tracking-wider">Clientes com Emissão NF</span>
+            <span className="block text-xl font-extrabold text-emerald-700">{formatCurrency(totalComNF)}</span>
+            <span className="block text-xs text-slate-400 font-semibold">{qtdComNF} cliente(s)</span>
+          </div>
+        </div>
+        <div className="bg-white p-5 rounded-2xl border border-slate-100 shadow-sm flex items-center gap-4">
+          <div className="w-12 h-12 rounded-xl bg-amber-50 border border-amber-100 flex items-center justify-center text-amber-600 shrink-0">
+            <FileX2 size={24} />
+          </div>
+          <div>
+            <span className="block text-[10px] text-slate-400 font-bold uppercase tracking-wider">Clientes sem Emissão NF</span>
+            <span className="block text-xl font-extrabold text-amber-700">{formatCurrency(totalSemNF)}</span>
+            <span className="block text-xs text-slate-400 font-semibold">{qtdSemNF} cliente(s)</span>
+          </div>
         </div>
       </div>
 
