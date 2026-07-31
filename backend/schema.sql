@@ -119,3 +119,14 @@ CREATE TABLE IF NOT EXISTS controle_recebimentos (
 
 -- Para tabelas já existentes, adicione a coluna com:
 -- ALTER TABLE controle_recebimentos ADD COLUMN IF NOT EXISTS nota_ps VARCHAR(100);
+
+-- TABELA: usuarios
+CREATE TABLE IF NOT EXISTS usuarios (
+    id SERIAL PRIMARY KEY,
+    nome VARCHAR(255) NOT NULL,
+    email VARCHAR(255) NOT NULL UNIQUE,
+    senha TEXT NOT NULL,
+    permissoes JSONB DEFAULT '[]'::jsonb,
+    ativo BOOLEAN DEFAULT TRUE,
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+);

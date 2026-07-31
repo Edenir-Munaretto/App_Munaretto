@@ -1,0 +1,10 @@
+export const MODULOS = [
+  { id: 'dashboard', label: 'Dashboard' },
+  { id: 'clientes', label: 'Clientes' },
+  { id: 'ferias', label: 'Gestão Férias' },
+  { id: 'fluxo', label: 'Gestão Usinas' },
+  { id: 'documentos', label: 'Documentos' },
+  { id: 'comprovantes', label: 'Contabilidade' },
+  { id: 'recebimentos', label: 'Controle Recebimentos' },
+  { id: 'configuracoes', label: 'Configurações' },
+];

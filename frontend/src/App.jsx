@@ -13,7 +13,8 @@ import {
   User as UserIcon,
   ShieldAlert,
   Receipt,
-  Banknote
+  Banknote,
+  Settings
 } from 'lucide-react';
 
 // Importando as páginas
@@ -24,14 +25,46 @@ import FluxoCaixa from './pages/FluxoCaixa';
 import GeradorDocumentos from './pages/GeradorDocumentos';
 import Comprovantes from './pages/Comprovantes';
 import Recebimentos from './pages/Recebimentos';
+import Configuracoes from './pages/Configuracoes';
+import Login from './pages/Login';
+import { MODULOS } from './modules';
 
 export const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:8000/api';
+
+const ICONES = {
+  dashboard: LayoutDashboard,
+  clientes: Users,
+  ferias: Palmtree,
+  fluxo: LineChart,
+  documentos: FileText,
+  comprovantes: Receipt,
+  recebimentos: Banknote,
+  configuracoes: Settings,
+};
+
+const COMPONENTES = {
+  dashboard: Dashboard,
+  clientes: Clientes,
+  ferias: Ferias,
+  fluxo: FluxoCaixa,
+  documentos: GeradorDocumentos,
+  comprovantes: Comprovantes,
+  recebimentos: Recebimentos,
+  configuracoes: Configuracoes,
+};
 
 function App() {
   const [activeTab, setActiveTab] = useState('dashboard');
   const [sidebarOpen, setSidebarOpen] = useState(true);
   const [alerts, setAlerts] = useState([]);
   const [showAlertModal, setShowAlertModal] = useState(false);
+  const [usuario, setUsuario] = useState(() => {
+    try {
+      return JSON.parse(localStorage.getItem('munaretto_usuario') || 'null');
+    } catch {
+      return null;
+    }
+  });
 
   // Busca alertas de férias ao carregar
   useEffect(() => {
@@ -52,17 +85,32 @@ function App() {
     }
   };
 
-  const tabs = [
-    { id: 'dashboard', label: 'Dashboard', icon: LayoutDashboard, component: Dashboard },
-    { id: 'clientes', label: 'Clientes', icon: Users, component: Clientes },
-    { id: 'ferias', label: 'Gestão Férias', icon: Palmtree, component: Ferias },
-    { id: 'fluxo', label: 'Gestão Usinas', icon: LineChart, component: FluxoCaixa },
-    { id: 'documentos', label: 'Documentos', icon: FileText, component: GeradorDocumentos },
-    { id: 'comprovantes', label: 'Contabilidade', icon: Receipt, component: Comprovantes },
-    { id: 'recebimentos', label: 'Controle Recebimentos', icon: Banknote, component: Recebimentos },
-  ];
+  const handleLogin = (user) => {
+    localStorage.setItem('munaretto_usuario', JSON.stringify(user));
+    setUsuario(user);
+    setActiveTab('dashboard');
+  };
 
-  const ActiveComponent = tabs.find(t => t.id === activeTab)?.component || Dashboard;
+  const handleLogout = () => {
+    localStorage.removeItem('munaretto_usuario');
+    setUsuario(null);
+    setActiveTab('dashboard');
+  };
+
+  const tabs = MODULOS
+    .filter(m => (usuario?.permissoes || []).includes(m.id))
+    .map(m => ({
+      id: m.id,
+      label: m.label,
+      icon: ICONES[m.id] || FileText,
+      component: COMPONENTES[m.id] || Dashboard
+    }));
+
+  const ActiveComponent = tabs.find(t => t.id === activeTab)?.component || (tabs[0]?.component || Dashboard);
+
+  if (!usuario) {
+    return <Login onLogin={handleLogin} />;
+  }
 
   return (
     <div className="flex h-screen bg-slate-50 overflow-hidden">
@@ -154,22 +202,33 @@ function App() {
 
             <div className="h-8 w-[1px] bg-slate-200" />
 
-            {/* Perfil Simples */}
+            {/* Perfil + Logout */}
             <div className="flex items-center gap-3">
               <div className="w-9 h-9 rounded-full bg-slate-100 flex items-center justify-center text-slate-600 border border-slate-200">
                 <UserIcon size={18} />
               </div>
               <div className="hidden md:block">
-                <p className="text-sm font-semibold text-slate-700">Administrador</p>
-                <p className="text-xs text-slate-400">Escritório Munaretto</p>
+                <p className="text-sm font-semibold text-slate-700">{usuario?.nome || 'Usuário'}</p>
+                <p className="text-xs text-slate-400">{usuario?.email || 'Escritório Munaretto'}</p>
               </div>
+              <button
+                onClick={handleLogout}
+                title="Sair"
+                className="p-2 rounded-lg hover:bg-rose-50 text-slate-500 hover:text-rose-600 transition-all cursor-pointer"
+              >
+                <LogOut size={18} />
+              </button>
             </div>
           </div>
         </header>
 
         {/* VIEW CONTAINER */}
         <div className="flex-1 overflow-y-auto p-6">
-          <ActiveComponent alerts={alerts} fetchAlerts={fetchAlerts} />
+          <ActiveComponent
+            alerts={alerts}
+            fetchAlerts={fetchAlerts}
+            usuarioAtual={usuario}
+          />
         </div>
       </main>
 
