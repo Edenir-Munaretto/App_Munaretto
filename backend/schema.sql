@@ -102,3 +102,16 @@ CREATE TABLE IF NOT EXISTS comprovantes (
     valor_juros NUMERIC(12, 2) DEFAULT 0.00,
     data_registro TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
 );
+
+-- TABELA: controle_recebimentos
+CREATE TABLE IF NOT EXISTS controle_recebimentos (
+    id SERIAL PRIMARY KEY,
+    nome_cliente VARCHAR(255) NOT NULL,
+    data_inicio DATE,
+    valor_da_obra NUMERIC(12, 2) DEFAULT 0.00,
+    valor_de_devolucao NUMERIC(12, 2) DEFAULT 0.00,
+    pag_cliente NUMERIC(12, 2) DEFAULT 0.00,
+    emissao_nf DATE,
+    cessao VARCHAR(10) DEFAULT 'nao',
+    data_registro TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+);

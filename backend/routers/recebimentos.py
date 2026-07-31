@@ -1,0 +1,92 @@
+from fastapi import APIRouter, HTTPException, Depends
+from pydantic import BaseModel, Field
+from typing import List, Optional
+from supabase_client import get_supabase
+
+router = APIRouter()
+
+class RecebimentoCreate(BaseModel):
+    nome_cliente: str = Field(..., description="Nome do cliente")
+    data_inicio: Optional[str] = None
+    valor_da_obra: Optional[float] = 0.0
+    valor_de_devolucao: Optional[float] = 0.0
+    pag_cliente: Optional[float] = 0.0
+    emissao_nf: Optional[str] = None
+    cessao: Optional[str] = "nao"
+
+class RecebimentoResponse(RecebimentoCreate):
+    id: int
+    data_registro: str
+
+@router.get("/", response_model=List[RecebimentoResponse])
+def listar_recebimentos(db = Depends(get_supabase)):
+    """Lista todos os recebimentos registrados."""
+    try:
+        response = db.table("controle_recebimentos").select("*").order("data_inicio", desc=True).execute()
+        return response.data
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Erro ao buscar recebimentos: {str(e)}")
+
+@router.get("/{recebimento_id}", response_model=RecebimentoResponse)
+def buscar_recebimento(recebimento_id: int, db = Depends(get_supabase)):
+    """Busca um recebimento específico pelo ID."""
+    try:
+        response = db.table("controle_recebimentos").select("*").eq("id", recebimento_id).execute()
+        if not response.data:
+            raise HTTPException(status_code=404, detail="Recebimento não encontrado.")
+        return response.data[0]
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Erro ao buscar recebimento: {str(e)}")
+
+@router.post("/", response_model=RecebimentoResponse, status_code=201)
+def criar_recebimento(recebimento: RecebimentoCreate, db = Depends(get_supabase)):
+    """Cria um novo registro de recebimento."""
+    try:
+        payload = recebimento.model_dump()
+        for key, value in list(payload.items()):
+            if value == "":
+                payload[key] = None
+        response = db.table("controle_recebimentos").insert(payload).execute()
+        if not response.data:
+            raise HTTPException(status_code=500, detail="Falha ao salvar recebimento.")
+        return response.data[0]
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Erro ao criar recebimento: {str(e)}")
+
+@router.put("/{recebimento_id}", response_model=RecebimentoResponse)
+def atualizar_recebimento(recebimento_id: int, recebimento: RecebimentoCreate, db = Depends(get_supabase)):
+    """Atualiza um recebimento existente."""
+    try:
+        check = db.table("controle_recebimentos").select("id").eq("id", recebimento_id).execute()
+        if not check.data:
+            raise HTTPException(status_code=404, detail="Recebimento não encontrado.")
+
+        payload = recebimento.model_dump()
+        for key, value in list(payload.items()):
+            if value == "":
+                payload[key] = None
+        response = db.table("controle_recebimentos").update(payload).eq("id", recebimento_id).execute()
+        if not response.data:
+            raise HTTPException(status_code=500, detail="Falha ao atualizar recebimento.")
+        return response.data[0]
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Erro ao atualizar recebimento: {str(e)}")
+
+@router.delete("/{recebimento_id}")
+def excluir_recebimento(recebimento_id: int, db = Depends(get_supabase)):
+    """Exclui um recebimento do sistema."""
+    try:
+        check = db.table("controle_recebimentos").select("id").eq("id", recebimento_id).execute()
+        if not check.data:
+            raise HTTPException(status_code=404, detail="Recebimento não encontrado.")
+
+        db.table("controle_recebimentos").delete().eq("id", recebimento_id).execute()
+        return {"status": "success", "message": "Recebimento excluído com sucesso."}
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Erro ao excluir recebimento: {str(e)}")

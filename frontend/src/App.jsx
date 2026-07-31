@@ -12,7 +12,8 @@ import {
   LogOut, 
   User as UserIcon,
   ShieldAlert,
-  Receipt
+  Receipt,
+  Banknote
 } from 'lucide-react';
 
 // Importando as páginas
@@ -22,6 +23,7 @@ import Ferias from './pages/Ferias';
 import FluxoCaixa from './pages/FluxoCaixa';
 import GeradorDocumentos from './pages/GeradorDocumentos';
 import Comprovantes from './pages/Comprovantes';
+import Recebimentos from './pages/Recebimentos';
 
 export const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:8000/api';
 
@@ -57,6 +59,7 @@ function App() {
     { id: 'fluxo', label: 'Gestão Usinas', icon: LineChart, component: FluxoCaixa },
     { id: 'documentos', label: 'Documentos', icon: FileText, component: GeradorDocumentos },
     { id: 'comprovantes', label: 'Contabilidade', icon: Receipt, component: Comprovantes },
+    { id: 'recebimentos', label: 'Controle Recebimentos', icon: Banknote, component: Recebimentos },
   ];
 
   const ActiveComponent = tabs.find(t => t.id === activeTab)?.component || Dashboard;
