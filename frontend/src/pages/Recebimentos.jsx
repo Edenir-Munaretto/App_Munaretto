@@ -21,6 +21,7 @@ function Recebimentos() {
     valor_de_devolucao: 0,
     pag_cliente: 0,
     emissao_nf: '',
+    nota_ps: '',
     cessao: 'nao'
   });
 
@@ -98,6 +99,7 @@ function Recebimentos() {
       valor_de_devolucao: 0,
       pag_cliente: 0,
       emissao_nf: '',
+      nota_ps: '',
       cessao: 'nao'
     });
     setShowModal(true);
@@ -114,6 +116,7 @@ function Recebimentos() {
       valor_de_devolucao: r.valor_de_devolucao || 0,
       pag_cliente: r.pag_cliente || 0,
       emissao_nf: r.emissao_nf || '',
+      nota_ps: r.nota_ps || '',
       cessao: r.cessao || 'nao'
     });
     setShowModal(true);
@@ -345,6 +348,7 @@ function Recebimentos() {
                 <th className="px-6 py-4">Valor Devolução</th>
                 <th className="px-6 py-4">Pag. Cliente</th>
                 <th className="px-6 py-4">Emissão NF</th>
+                <th className="px-6 py-4">Nota PS</th>
                 <th className="px-6 py-4 text-center">Cessão</th>
                 <th className="px-6 py-4 text-center print:hidden">Ações</th>
               </tr>
@@ -352,7 +356,7 @@ function Recebimentos() {
             <tbody className="divide-y divide-slate-100 text-slate-700">
               {loading ? (
                 <tr>
-                  <td colSpan="8" className="text-center py-12 text-slate-400">
+                  <td colSpan="9" className="text-center py-12 text-slate-400">
                     <div className="flex flex-col items-center justify-center gap-3">
                       <div className="w-8 h-8 border-4 border-primary-500 border-t-transparent rounded-full animate-spin" />
                       <p className="text-xs">Carregando recebimentos...</p>
@@ -361,7 +365,7 @@ function Recebimentos() {
                 </tr>
               ) : filteredRecebimentos.length === 0 ? (
                 <tr>
-                  <td colSpan="8" className="text-center py-16 text-slate-400">
+                  <td colSpan="9" className="text-center py-16 text-slate-400">
                     <span className="text-3xl">💰</span>
                     <p className="font-semibold mt-2">Nenhum recebimento encontrado.</p>
                     <p className="text-xs mt-1">Cadastre um novo recebimento no botão acima.</p>
@@ -378,6 +382,7 @@ function Recebimentos() {
                       <td className="px-6 py-4 text-amber-600 font-semibold">{formatCurrency(r.valor_de_devolucao)}</td>
                       <td className="px-6 py-4 text-emerald-600 font-bold">{formatCurrency(pag)}</td>
                       <td className="px-6 py-4">{formatDate(r.emissao_nf)}</td>
+                      <td className="px-6 py-4">{r.nota_ps || '-'}</td>
                       <td className="px-6 py-4 text-center">
                         <span className={`inline-block px-2.5 py-1 rounded-full text-[10px] font-bold border ${
                           r.cessao === 'sim' 
@@ -506,6 +511,18 @@ function Recebimentos() {
                     name="emissao_nf"
                     value={formData.emissao_nf}
                     onChange={handleInputChange}
+                    className="w-full px-3.5 py-2 border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-primary-500/20 focus:border-primary-500 text-sm"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-xs font-bold text-slate-700 mb-1.5">Nota PS</label>
+                  <input
+                    type="text"
+                    name="nota_ps"
+                    value={formData.nota_ps}
+                    onChange={handleInputChange}
+                    placeholder="Nota fiscal ou de serviço"
                     className="w-full px-3.5 py-2 border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-primary-500/20 focus:border-primary-500 text-sm"
                   />
                 </div>

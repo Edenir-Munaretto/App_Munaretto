@@ -12,6 +12,7 @@ class RecebimentoCreate(BaseModel):
     valor_de_devolucao: Optional[float] = 0.0
     pag_cliente: Optional[float] = 0.0
     emissao_nf: Optional[str] = None
+    nota_ps: Optional[str] = None
     cessao: Optional[str] = "nao"
 
 class RecebimentoResponse(RecebimentoCreate):

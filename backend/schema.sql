@@ -112,6 +112,10 @@ CREATE TABLE IF NOT EXISTS controle_recebimentos (
     valor_de_devolucao NUMERIC(12, 2) DEFAULT 0.00,
     pag_cliente NUMERIC(12, 2) DEFAULT 0.00,
     emissao_nf DATE,
+    nota_ps VARCHAR(100),
     cessao VARCHAR(10) DEFAULT 'nao',
     data_registro TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
 );
+
+-- Para tabelas já existentes, adicione a coluna com:
+-- ALTER TABLE controle_recebimentos ADD COLUMN IF NOT EXISTS nota_ps VARCHAR(100);
