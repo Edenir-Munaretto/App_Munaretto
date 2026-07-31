@@ -223,6 +223,15 @@ function Comprovantes() {
     return true;
   });
 
+  // Totais das Notas Fiscais filtradas
+  const notasFiscaisFiltradas = filteredComprovantes.filter(c => c.tipo_documento === 'Nota Fiscal');
+  const totaisNF = notasFiscaisFiltradas.reduce((acc, c) => ({
+    base_calculo: acc.base_calculo + (c.base_calculo || 0),
+    valor_inss: acc.valor_inss + (c.valor_inss || 0),
+    valor_iss: acc.valor_iss + (c.valor_iss || 0),
+    valor_liquido: acc.valor_liquido + (c.valor_liquido || 0),
+  }), { base_calculo: 0, valor_inss: 0, valor_iss: 0, valor_liquido: 0 });
+
   return (
     <div className="space-y-6">
       
@@ -498,6 +507,34 @@ function Comprovantes() {
           })
         )}
       </div>
+
+      {/* Totais das Notas Fiscais */}
+      {notasFiscaisFiltradas.length > 0 && (
+        <div className="bg-white p-5 rounded-2xl border border-slate-100 shadow-sm print-full-width print:break-inside-avoid">
+          <div className="flex items-center justify-between border-b border-slate-100 pb-2.5 mb-3">
+            <h3 className="font-bold text-slate-800 text-sm uppercase tracking-wider">Totais Notas Fiscais</h3>
+            <span className="text-xs text-slate-400 font-semibold">{notasFiscaisFiltradas.length} nota(s)</span>
+          </div>
+          <div className="grid grid-cols-2 sm:grid-cols-4 gap-x-4 gap-y-3 text-xs">
+            <div>
+              <span className="block text-[9px] text-slate-400 font-bold uppercase tracking-wider">Base de Cálculo</span>
+              <span className="font-bold text-slate-750">{formatCurrency(totaisNF.base_calculo)}</span>
+            </div>
+            <div>
+              <span className="block text-[9px] text-slate-400 font-bold uppercase tracking-wider">Total INSS</span>
+              <span className="font-bold text-slate-750">{formatCurrency(totaisNF.valor_inss)}</span>
+            </div>
+            <div>
+              <span className="block text-[9px] text-slate-400 font-bold uppercase tracking-wider">Total ISS</span>
+              <span className="font-bold text-slate-750">{formatCurrency(totaisNF.valor_iss)}</span>
+            </div>
+            <div className="bg-primary-50/20 px-2 py-0.5 rounded border border-primary-50 print:bg-transparent print:border-none print:px-0">
+              <span className="block text-[9px] text-primary-600 font-bold uppercase tracking-wider print:text-slate-400">Valor Líquido</span>
+              <span className="font-extrabold text-primary-750 print:text-black">{formatCurrency(totaisNF.valor_liquido)}</span>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Modal Lançamento */}
       {showModal && (
