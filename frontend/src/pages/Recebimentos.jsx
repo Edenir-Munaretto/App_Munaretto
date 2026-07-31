@@ -205,8 +205,8 @@ function Recebimentos() {
   const filteredRecebimentos = recebimentos.filter(r => {
     const searchLower = busca.toLowerCase();
     const nameMatch = (r.nome_cliente || '').toLowerCase().includes(searchLower);
-    const cessaoMatch = (r.cessao || '').toLowerCase().includes(searchLower);
-    return nameMatch || cessaoMatch;
+    const notaPsMatch = (r.nota_ps || '').toLowerCase().includes(searchLower);
+    return nameMatch || notaPsMatch;
   });
 
   const totalComNF = recebimentos
@@ -289,7 +289,7 @@ function Recebimentos() {
           <Search className="absolute left-3.5 top-3 text-slate-400" size={18} />
           <input
             type="text"
-            placeholder="Buscar por nome do cliente ou cessão..."
+            placeholder="Buscar por nome do cliente ou nota PS..."
             value={busca}
             onChange={(e) => setBusca(e.target.value)}
             className="w-full pl-10 pr-4 py-2.5 rounded-xl border border-slate-200 bg-slate-50 focus:bg-white focus:outline-none focus:ring-2 focus:ring-primary-500/20 focus:border-primary-500 transition-all text-sm"
