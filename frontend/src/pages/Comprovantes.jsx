@@ -441,7 +441,7 @@ function Comprovantes() {
                       <span className="block text-[9px] text-slate-400 font-bold uppercase tracking-wider">Data Emissão</span>
                       <span className="font-semibold text-slate-750">{formatDate(c.data_emissao)}</span>
                     </div>
-                    <div className="sm:col-span-2">
+                    <div>
                       <span className="block text-[9px] text-slate-400 font-bold uppercase tracking-wider">Local do Serviço</span>
                       <span className="font-semibold text-slate-700 truncate block" title={c.local_servico || ''}>
                         {c.local_servico || '-'}
@@ -456,10 +456,12 @@ function Comprovantes() {
                       <span className="font-semibold text-slate-700">{formatCurrency(c.base_calculo)}</span>
                     </div>
                     <div>
-                      <span className="block text-[9px] text-slate-400 font-bold uppercase tracking-wider">INSS / ISS</span>
-                      <span className="font-semibold text-slate-700">
-                        {formatCurrency(c.valor_inss)} / {formatCurrency(c.valor_iss)}
-                      </span>
+                      <span className="block text-[9px] text-slate-400 font-bold uppercase tracking-wider">INSS</span>
+                      <span className="font-semibold text-slate-700">{formatCurrency(c.valor_inss)}</span>
+                    </div>
+                    <div>
+                      <span className="block text-[9px] text-slate-400 font-bold uppercase tracking-wider">ISS</span>
+                      <span className="font-semibold text-slate-700">{formatCurrency(c.valor_iss)}</span>
                     </div>
                     <div className="bg-primary-50/20 px-2 py-0.5 rounded border border-primary-50 print:bg-transparent print:border-none print:px-0">
                       <span className="block text-[9px] text-primary-600 font-bold uppercase tracking-wider print:text-slate-400">Valor Líquido</span>
