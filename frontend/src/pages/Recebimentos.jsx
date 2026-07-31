@@ -4,6 +4,7 @@ import { API_URL } from '../App';
 
 function Recebimentos() {
   const [recebimentos, setRecebimentos] = useState([]);
+  const [clientes, setClientes] = useState([]);
   const [busca, setBusca] = useState('');
   const [loading, setLoading] = useState(true);
   const [toast, setToast] = useState(null);
@@ -11,6 +12,7 @@ function Recebimentos() {
   // Modal State
   const [showModal, setShowModal] = useState(false);
   const [editingId, setEditingId] = useState(null);
+  const [clienteSelecionadoId, setClienteSelecionadoId] = useState('');
   const [formData, setFormData] = useState({
     nome_cliente: '',
     data_inicio: '',
@@ -23,6 +25,7 @@ function Recebimentos() {
 
   useEffect(() => {
     fetchRecebimentos();
+    fetchClientes();
   }, []);
 
   const showToast = (message, type = 'success') => {
@@ -46,11 +49,45 @@ function Recebimentos() {
     }
   };
 
+  const fetchClientes = async () => {
+    try {
+      const res = await fetch(`${API_URL}/clientes/`);
+      if (res.ok) {
+        setClientes(await res.json());
+      }
+    } catch (err) {
+      console.error('Erro ao buscar clientes:', err);
+    }
+  };
+
+  const parseCurrencyBR = (value) => {
+    if (value === null || value === undefined) return 0;
+    if (typeof value === 'number') return value;
+    const cleaned = String(value).replace(/[R$\s]/g, '').replace(/\./g, '').replace(',', '.');
+    const num = parseFloat(cleaned);
+    return isNaN(num) ? 0 : num;
+  };
+
   const pagCliente = () =>
     (parseFloat(formData.valor_da_obra) || 0) - (parseFloat(formData.valor_de_devolucao) || 0);
 
+  const handleClienteSelect = (e) => {
+    const id = e.target.value;
+    setClienteSelecionadoId(id);
+    const cliente = clientes.find(c => String(c.id) === String(id));
+    if (cliente) {
+      setFormData(prev => ({
+        ...prev,
+        nome_cliente: cliente.nome || '',
+        valor_da_obra: parseCurrencyBR(cliente.valor_da_obra),
+        valor_de_devolucao: parseCurrencyBR(cliente.valor_de_devolucao)
+      }));
+    }
+  };
+
   const openAddModal = () => {
     setEditingId(null);
+    setClienteSelecionadoId('');
     setFormData({
       nome_cliente: '',
       data_inicio: '',
@@ -74,6 +111,8 @@ function Recebimentos() {
       emissao_nf: r.emissao_nf || '',
       cessao: r.cessao || 'nao'
     });
+    const match = clientes.find(c => c.nome === r.nome_cliente);
+    setClienteSelecionadoId(match ? String(match.id) : '');
     setShowModal(true);
   };
 
@@ -357,6 +396,23 @@ function Recebimentos() {
 
             <form onSubmit={handleSubmit} className="p-6 space-y-6">
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div className="col-span-1 md:col-span-2">
+                  <label className="block text-xs font-bold text-slate-700 mb-1.5">Cliente Cadastrado (pré-preenchimento)</label>
+                  <select
+                    value={clienteSelecionadoId}
+                    onChange={handleClienteSelect}
+                    className="w-full px-3.5 py-2.5 border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-primary-500/20 focus:border-primary-500 text-sm font-semibold bg-white"
+                  >
+                    <option value="">Selecione um cliente cadastrado...</option>
+                    {clientes.map((c) => (
+                      <option key={c.id} value={c.id}>{c.nome}</option>
+                    ))}
+                  </select>
+                  <p className="text-[10px] text-slate-400 mt-1">
+                    Ao selecionar, o nome, valor da obra e valor de devolução são preenchidos automaticamente.
+                  </p>
+                </div>
+
                 <div className="col-span-1 md:col-span-2">
                   <label className="block text-xs font-bold text-slate-700 mb-1.5">Nome do Cliente *</label>
                   <input
