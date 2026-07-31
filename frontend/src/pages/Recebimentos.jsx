@@ -6,6 +6,10 @@ function Recebimentos() {
   const [recebimentos, setRecebimentos] = useState([]);
   const [clientes, setClientes] = useState([]);
   const [busca, setBusca] = useState('');
+  const [filtroNF, setFiltroNF] = useState('');
+  const [filtroCessao, setFiltroCessao] = useState('');
+  const [dataInicio, setDataInicio] = useState('');
+  const [dataFim, setDataFim] = useState('');
   const [loading, setLoading] = useState(true);
   const [toast, setToast] = useState(null);
 
@@ -206,7 +210,20 @@ function Recebimentos() {
     const searchLower = busca.toLowerCase();
     const nameMatch = (r.nome_cliente || '').toLowerCase().includes(searchLower);
     const notaPsMatch = (r.nota_ps || '').toLowerCase().includes(searchLower);
-    return nameMatch || notaPsMatch;
+    if (!(nameMatch || notaPsMatch)) return false;
+
+    // Filtro por Emissão NF
+    if (filtroNF === 'com' && !r.emissao_nf) return false;
+    if (filtroNF === 'sem' && r.emissao_nf) return false;
+
+    // Filtro por Cessão
+    if (filtroCessao === 'com' && r.cessao !== 'sim') return false;
+    if (filtroCessao === 'sem' && r.cessao === 'sim') return false;
+
+    // Filtro por Período de Início
+    if (dataInicio && r.data_inicio && r.data_inicio < dataInicio) return false;
+    if (dataFim && r.data_inicio && r.data_inicio > dataFim) return false;
+    return true;
   });
 
   const totalComNF = recebimentos
@@ -311,6 +328,65 @@ function Recebimentos() {
             Novo Recebimento
           </button>
         </div>
+      </div>
+
+      {/* Linha de Filtros */}
+      <div className="flex flex-wrap items-center gap-4 bg-white p-4 rounded-2xl border border-slate-100 shadow-sm print:hidden">
+        <span className="text-xs font-bold text-slate-500 uppercase tracking-wider">Filtrar:</span>
+
+        <select
+          value={filtroNF}
+          onChange={(e) => setFiltroNF(e.target.value)}
+          className="px-3 py-1.5 border border-slate-200 rounded-xl text-xs font-semibold focus:outline-none focus:ring-2 focus:ring-primary-500/20 focus:border-primary-500"
+        >
+          <option value="">NF: Todos</option>
+          <option value="com">Com Emissão NF</option>
+          <option value="sem">Sem Emissão NF</option>
+        </select>
+
+        <select
+          value={filtroCessao}
+          onChange={(e) => setFiltroCessao(e.target.value)}
+          className="px-3 py-1.5 border border-slate-200 rounded-xl text-xs font-semibold focus:outline-none focus:ring-2 focus:ring-primary-500/20 focus:border-primary-500"
+        >
+          <option value="">Cessão: Todos</option>
+          <option value="com">Com Cessão</option>
+          <option value="sem">Sem Cessão</option>
+        </select>
+
+        <span className="text-xs font-bold text-slate-500 uppercase tracking-wider">Período Início:</span>
+        <div className="flex items-center gap-2">
+          <label className="text-xs font-medium text-slate-500">De:</label>
+          <input
+            type="date"
+            value={dataInicio}
+            onChange={(e) => setDataInicio(e.target.value)}
+            className="px-3 py-1.5 border border-slate-200 rounded-xl text-xs font-semibold focus:outline-none focus:ring-2 focus:ring-primary-500/20 focus:border-primary-500"
+          />
+        </div>
+        <div className="flex items-center gap-2">
+          <label className="text-xs font-medium text-slate-500">Até:</label>
+          <input
+            type="date"
+            value={dataFim}
+            onChange={(e) => setDataFim(e.target.value)}
+            className="px-3 py-1.5 border border-slate-200 rounded-xl text-xs font-semibold focus:outline-none focus:ring-2 focus:ring-primary-500/20 focus:border-primary-500"
+          />
+        </div>
+
+        {(filtroNF || filtroCessao || dataInicio || dataFim) && (
+          <button
+            onClick={() => {
+              setFiltroNF('');
+              setFiltroCessao('');
+              setDataInicio('');
+              setDataFim('');
+            }}
+            className="text-xs font-bold text-primary-600 hover:text-primary-700 hover:underline cursor-pointer"
+          >
+            Limpar Filtros
+          </button>
+        )}
       </div>
 
       {/* Resumo Emissão NF */}
