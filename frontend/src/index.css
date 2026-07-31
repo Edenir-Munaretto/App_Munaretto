@@ -12,6 +12,28 @@
   }
 }
 
+/* Realce sutil dos campos de formulário */
+@layer components {
+  input, select, textarea {
+    border-color: #cbd5e1 !important;
+    transition: border-color 0.15s ease, box-shadow 0.15s ease, background-color 0.15s ease;
+  }
+
+  input:not(:disabled):not([readonly]):hover,
+  select:not(:disabled):hover,
+  textarea:not(:disabled):hover {
+    border-color: #94a3b8 !important;
+  }
+
+  input:not([readonly]):focus,
+  select:focus,
+  textarea:focus {
+    border-color: #0e90e9 !important;
+    box-shadow: 0 0 0 3px rgba(14, 144, 233, 0.15) !important;
+    outline: none !important;
+  }
+}
+
 /* Custom scrollbars for a cleaner UI */
 ::-webkit-scrollbar {
   width: 6px;
