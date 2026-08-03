@@ -256,6 +256,13 @@ function Comprovantes() {
           .flex-1.overflow-y-auto {
             overflow: visible !important;
             height: auto !important;
+            max-height: none !important;
+          }
+          .flex.h-screen.overflow-hidden,
+          main {
+            overflow: visible !important;
+            height: auto !important;
+            min-height: 0 !important;
           }
           .print-full-width {
             width: 100% !important;
