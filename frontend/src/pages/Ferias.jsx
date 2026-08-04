@@ -397,17 +397,17 @@ function Ferias({ fetchAlerts, fetchNotifications, usuarioAtual }) {
           <div className="flex flex-col sm:flex-row gap-2 sm:gap-3">
             <button
               onClick={() => setTab('programados')}
-              className={`flex-1 flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl text-xs font-bold border transition-all ${
+              className={`flex-1 flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl text-xs font-bold border-2 transition-all ${
                 tab === 'programados'
-                  ? 'bg-violet-600 border-violet-600 text-white shadow-md shadow-violet-900/10'
-                  : 'bg-white border-slate-200 text-slate-600 hover:bg-slate-50'
+                  ? 'bg-violet-600 border-violet-700 text-white shadow-lg shadow-violet-900/20 ring-2 ring-violet-300'
+                  : 'bg-violet-50 border-violet-300 text-violet-700 hover:bg-violet-100 hover:border-violet-400'
               }`}
             >
               <Clock size={14} />
               Programados
               {programados.length > 0 && (
                 <span className={`px-1.5 py-0.5 rounded-full text-[10px] font-extrabold ${
-                  tab === 'programados' ? 'bg-white/20 text-white' : 'bg-violet-100 text-violet-700'
+                  tab === 'programados' ? 'bg-white/20 text-white' : 'bg-violet-600 text-white'
                 }`}>
                   {programados.length}
                 </span>
