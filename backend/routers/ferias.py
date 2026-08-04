@@ -2,7 +2,10 @@ from fastapi import APIRouter, HTTPException, Query, Depends
 from pydantic import BaseModel, Field
 from datetime import datetime, date, timedelta
 from typing import List, Optional
+import logging
 from supabase_client import get_supabase
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter()
 
@@ -16,6 +19,7 @@ class FeriasCreate(BaseModel):
     saldo_anterior: Optional[int] = 0
     dias_utilizados: Optional[int] = 0
     motivo_cancelamento: Optional[str] = None
+    criado_por: Optional[str] = None
 
 class FeriasResponse(BaseModel):
     id: int
@@ -44,8 +48,8 @@ def add_business_days(start_date: date, business_days: int) -> date:
     return current
 
 def calculate_current_status(data_inicio_str: str, data_retorno_str: str, status_atual: str) -> str:
-    if status_atual == "Cancelado":
-        return "Cancelado"
+    if status_atual in ("Cancelado", "Programado"):
+        return status_atual
     try:
         hoje = datetime.now().date()
         inicio = datetime.strptime(data_inicio_str, "%Y-%m-%d").date()
@@ -64,14 +68,18 @@ def calculate_current_status(data_inicio_str: str, data_retorno_str: str, status
 def listar_ferias(
     busca: Optional[str] = Query(None, description="Nome do colaborador para buscar"),
     proximo_mes: Optional[bool] = Query(False, description="Filtrar apenas férias do próximo mês"),
+    status: Optional[str] = Query(None, description="Filtrar por status exato (ex: Programado, Agendado)"),
     db = Depends(get_supabase)
 ):
-    """Lista o histórico de férias. Permite busca por nome e filtro para férias no próximo mês."""
+    """Lista o histórico de férias. Permite busca por nome, filtro por status e férias no próximo mês."""
     try:
         query = db.table("gestao_ferias").select("*")
         
         if busca:
             query = query.ilike("nome", f"%{busca}%")
+            
+        if status:
+            query = query.eq("status", status)
             
         if proximo_mes:
             hoje = datetime.now()
@@ -140,13 +148,36 @@ def agendar_ferias(ferias: FeriasCreate, db = Depends(get_supabase)):
         payload["dias_gozo"] = dias_gozo
         payload["data_retorno"] = data_retorno_str
         payload["data_limite"] = data_limite_str
-        payload["status"] = "Agendado"
+        payload["status"] = "Programado"
 
         response = db.table("gestao_ferias").insert(payload).execute()
         if not response.data:
             raise HTTPException(status_code=500, detail="Erro ao salvar registro de férias.")
 
-        return response.data[0]
+        registro = response.data[0]
+
+        # 6. Notifica os responsáveis pela confirmação de agendamento
+        try:
+            data_inicio_br = dt_inicio.strftime("%d/%m/%Y")
+            quem_lancou = ferias.criado_por or "um usuário"
+            destinatarios = db.table("usuarios").select("email, permissoes").eq("ativo", True).execute()
+            for u in destinatarios.data:
+                if "ferias" in (u.get("permissoes") or []):
+                    db.table("notificacoes").insert({
+                        "tipo": "ferias",
+                        "titulo": "Nova programação de férias",
+                        "mensagem": (
+                            f"Uma nova programação de férias foi lançada por {quem_lancou} "
+                            f"para {ferias.nome} (início {data_inicio_br}). Aguarda confirmação de agendamento."
+                        ),
+                        "destinatario": u["email"],
+                        "ferias_id": registro["id"],
+                        "criada_por": quem_lancou,
+                    }).execute()
+        except Exception as e:
+            logger.warning(f"Não foi possível gerar notificações de férias: {e}")
+
+        return registro
     except HTTPException:
         raise
     except Exception as e:
@@ -178,7 +209,7 @@ def excluir_ferias(ferias_id: int, db = Depends(get_supabase)):
 def obter_alertas(db = Depends(get_supabase)):
     """Retorna alertas de prazos de gozo de férias próximos do limite."""
     try:
-        response = db.table("gestao_ferias").select("nome, data_limite, status").neq("status", "Cancelado").neq("status", "Concluído").execute()
+        response = db.table("gestao_ferias").select("nome, data_limite, status").neq("status", "Cancelado").neq("status", "Concluído").neq("status", "Programado").execute()
         hoje = datetime.now().date()
         
         alertas = []

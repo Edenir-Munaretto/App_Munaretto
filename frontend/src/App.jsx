@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { 
   LayoutDashboard, 
   Users, 
@@ -6,6 +6,7 @@ import {
   LineChart, 
   FileText, 
   Bell, 
+  BellRing, 
   Menu, 
   Sun, 
   Moon, 
@@ -58,6 +59,8 @@ function App() {
   const [sidebarOpen, setSidebarOpen] = useState(true);
   const [alerts, setAlerts] = useState([]);
   const [showAlertModal, setShowAlertModal] = useState(false);
+  const [notificacoes, setNotificacoes] = useState([]);
+  const [showNotifPanel, setShowNotifPanel] = useState(false);
   const [usuario, setUsuario] = useState(() => {
     try {
       return JSON.parse(localStorage.getItem('munaretto_usuario') || 'null');
@@ -84,6 +87,69 @@ function App() {
       console.error('Erro ao buscar alertas:', err);
     }
   };
+
+  const fetchNotifications = useCallback(async () => {
+    if (!usuario?.email) return;
+    try {
+      const res = await fetch(`${API_URL}/notificacoes/?destinatario=${encodeURIComponent(usuario.email)}`);
+      if (res.ok) {
+        const data = await res.json();
+        setNotificacoes(data);
+      }
+    } catch (err) {
+      console.error('Erro ao buscar notificações:', err);
+    }
+  }, [usuario?.email]);
+
+  // Busca notificações do usuário logado ao carregar e periodicamente
+  useEffect(() => {
+    if (!usuario) return;
+    fetchNotifications();
+    const interval = setInterval(fetchNotifications, 60000); // 1 minuto
+    return () => clearInterval(interval);
+  }, [usuario, fetchNotifications]);
+
+  const marcarNotifLida = async (id) => {
+    try {
+      await fetch(`${API_URL}/notificacoes/${id}/lida`, { method: 'PATCH' });
+      fetchNotifications();
+    } catch (err) {
+      console.error('Erro ao marcar notificação como lida:', err);
+    }
+  };
+
+  const marcarTodasNotifLidas = async () => {
+    if (!usuario?.email) return;
+    try {
+      await fetch(`${API_URL}/notificacoes/marcar-todas-lidas?destinatario=${encodeURIComponent(usuario.email)}`, { method: 'POST' });
+      fetchNotifications();
+    } catch (err) {
+      console.error('Erro ao marcar notificações como lidas:', err);
+    }
+  };
+
+  const abrirNotificacao = (n) => {
+    marcarNotifLida(n.id);
+    setShowNotifPanel(false);
+    if (n.tipo === 'ferias' && n.ferias_id) {
+      setActiveTab('ferias');
+    }
+  };
+
+  const formatDateBR = (isoStr) => {
+    if (!isoStr) return '';
+    try {
+      const d = new Date(isoStr);
+      return d.toLocaleDateString('pt-BR', {
+        day: '2-digit', month: '2-digit', year: 'numeric',
+        hour: '2-digit', minute: '2-digit'
+      });
+    } catch {
+      return isoStr;
+    }
+  };
+
+  const notificacoesNaoLidas = notificacoes.filter(n => !n.lida).length;
 
   const handleLogin = (user) => {
     localStorage.setItem('munaretto_usuario', JSON.stringify(user));
@@ -185,6 +251,73 @@ function App() {
 
           <div className="flex items-center gap-4">
             
+            {/* Notificações */}
+            <div className="relative">
+              <button 
+                onClick={() => setShowNotifPanel(!showNotifPanel)} 
+                className="p-2 rounded-full hover:bg-slate-100 text-slate-600 relative transition-all"
+                title="Notificações"
+              >
+                <BellRing size={20} />
+                {notificacoesNaoLidas > 0 && (
+                  <span className="absolute top-1 right-1 w-4 h-4 bg-primary-600 text-white text-[9px] font-bold rounded-full flex items-center justify-center animate-pulse">
+                    {notificacoesNaoLidas}
+                  </span>
+                )}
+              </button>
+
+              {showNotifPanel && (
+                <div className="absolute right-0 top-12 w-96 bg-white rounded-2xl shadow-2xl border border-slate-100 z-50 overflow-hidden animate-in slide-in-from-top-2 duration-200">
+                  <div className="bg-slate-900 text-white px-4 py-3 flex items-center justify-between">
+                    <div className="flex items-center gap-2">
+                      <BellRing size={16} className="text-primary-400" />
+                      <h3 className="font-bold text-sm">Notificações</h3>
+                    </div>
+                    {notificacoesNaoLidas > 0 && (
+                      <button 
+                        onClick={marcarTodasNotifLidas}
+                        className="text-[11px] font-semibold text-primary-300 hover:text-white transition-colors"
+                      >
+                        Marcar todas como lidas
+                      </button>
+                    )}
+                  </div>
+
+                  <div className="max-h-80 overflow-y-auto divide-y divide-slate-100">
+                    {notificacoes.length === 0 ? (
+                      <p className="text-center text-slate-400 text-sm py-10">🔔 Nenhuma notificação.</p>
+                    ) : (
+                      notificacoes.map((n) => (
+                        <button
+                          key={n.id}
+                          onClick={() => abrirNotificacao(n)}
+                          className={`w-full text-left px-4 py-3 flex gap-3 transition-colors ${
+                            n.lida ? 'bg-white hover:bg-slate-50' : 'bg-primary-50/60 hover:bg-primary-50'
+                          }`}
+                        >
+                          <span className={`mt-1.5 w-2 h-2 rounded-full flex-shrink-0 ${n.lida ? 'bg-slate-200' : 'bg-primary-500'}`} />
+                          <span className="flex-1 min-w-0">
+                            <span className="block text-xs font-bold text-slate-800">{n.titulo}</span>
+                            <span className="block text-xs text-slate-600 mt-0.5">{n.mensagem}</span>
+                            <span className="block text-[10px] text-slate-400 mt-1">{formatDateBR(n.created_at)}</span>
+                          </span>
+                          {n.tipo === 'ferias' && (
+                            <span className="text-lg">🌴</span>
+                          )}
+                        </button>
+                      ))
+                    )}
+                  </div>
+
+                  <div className="bg-slate-50 px-4 py-2 border-t border-slate-100">
+                    <p className="text-[10px] text-slate-400 text-center">
+                      Clique para abrir e marcar como lida
+                    </p>
+                  </div>
+                </div>
+              )}
+            </div>
+
             {/* Alertas Bell */}
             <div className="relative">
               <button 
@@ -227,6 +360,7 @@ function App() {
           <ActiveComponent
             alerts={alerts}
             fetchAlerts={fetchAlerts}
+            fetchNotifications={fetchNotifications}
             usuarioAtual={usuario}
           />
         </div>

@@ -1,13 +1,17 @@
-import React, { useState, useEffect } from 'react';
-import { Calendar, Search, Trash2, ShieldAlert, Plus, Check, X, AlertTriangle } from 'lucide-react';
+import React, { useState, useEffect, useMemo } from 'react';
+import { Calendar, Search, Trash2, ShieldAlert, Plus, Check, X, AlertTriangle, Clock } from 'lucide-react';
 import { API_URL } from '../App';
 
-function Ferias({ fetchAlerts }) {
+function Ferias({ fetchAlerts, fetchNotifications, usuarioAtual }) {
   const [records, setRecords] = useState([]);
   const [busca, setBusca] = useState('');
   const [proximoMes, setProximoMes] = useState(false);
+  const [tab, setTab] = useState('confirmados');
   const [loading, setLoading] = useState(true);
   const [toast, setToast] = useState(null);
+
+  const programados = useMemo(() => records.filter(r => r.status === 'Programado'), [records]);
+  const confirmados = useMemo(() => records.filter(r => r.status !== 'Programado'), [records]);
 
   // Agendamento Form State
   const [formData, setFormData] = useState({
@@ -71,7 +75,7 @@ function Ferias({ fetchAlerts }) {
     }
 
     try {
-      const payload = { ...formData };
+      const payload = { ...formData, criado_por: usuarioAtual?.nome || 'Usuário' };
       if (payload.dias_gozo === '') {
         delete payload.dias_gozo;
       }
@@ -84,7 +88,8 @@ function Ferias({ fetchAlerts }) {
       const resData = await res.json();
       
       if (res.ok) {
-        showToast('Férias agendadas com sucesso!');
+        showToast('Férias programadas! Aguardando confirmação do agendamento.');
+        setTab('programados');
         setFormData({
           nome: '',
           data_inicio: '',
@@ -97,6 +102,7 @@ function Ferias({ fetchAlerts }) {
         });
         fetchRecords();
         fetchAlerts(); // Atualiza a contagem de alertas no header
+        if (fetchNotifications) fetchNotifications(); // Atualiza notificações no header
       } else {
         showToast(resData.detail || 'Erro ao agendar férias.', 'error');
       }
@@ -140,6 +146,12 @@ function Ferias({ fetchAlerts }) {
     }
   };
 
+  const handleConfirm = async (r) => {
+    if (!window.confirm(`Confirmar o agendamento de férias de "${r.nome}" (início ${formatDateBR(r.data_inicio)})?`)) return;
+    await handleStatusChange(r.id, 'Agendado');
+    setTab('confirmados');
+  };
+
   const formatDateBR = (isoStr) => {
     if (!isoStr) return '-';
     try {
@@ -149,6 +161,8 @@ function Ferias({ fetchAlerts }) {
       return isoStr;
     }
   };
+
+  const activeRecords = tab === 'programados' ? programados : confirmados;
 
   return (
     <div className="space-y-6 relative">
@@ -174,7 +188,7 @@ function Ferias({ fetchAlerts }) {
           <div className="border-b border-slate-100 pb-2">
             <h3 className="font-bold text-slate-800 flex items-center gap-2">
               <Calendar className="text-amber-500" />
-              Agendar Férias
+              Programar Férias
             </h3>
           </div>
 
@@ -272,7 +286,7 @@ function Ferias({ fetchAlerts }) {
               type="submit"
               className="w-full py-2.5 bg-primary-600 text-white font-semibold text-sm rounded-xl hover:bg-primary-700 transition-all shadow-md shadow-primary-900/10 cursor-pointer"
             >
-              Salvar Agendamento
+              Salvar para Confirmação
             </button>
           </form>
         </div>
@@ -323,6 +337,46 @@ function Ferias({ fetchAlerts }) {
 
           </div>
 
+          {/* Status tabs */}
+          <div className="flex flex-col sm:flex-row gap-2 sm:gap-3">
+            <button
+              onClick={() => setTab('programados')}
+              className={`flex-1 flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl text-xs font-bold border transition-all ${
+                tab === 'programados'
+                  ? 'bg-violet-600 border-violet-600 text-white shadow-md shadow-violet-900/10'
+                  : 'bg-white border-slate-200 text-slate-600 hover:bg-slate-50'
+              }`}
+            >
+              <Clock size={14} />
+              Programados
+              {programados.length > 0 && (
+                <span className={`px-1.5 py-0.5 rounded-full text-[10px] font-extrabold ${
+                  tab === 'programados' ? 'bg-white/20 text-white' : 'bg-violet-100 text-violet-700'
+                }`}>
+                  {programados.length}
+                </span>
+              )}
+            </button>
+            <button
+              onClick={() => setTab('confirmados')}
+              className={`flex-1 flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl text-xs font-bold border transition-all ${
+                tab === 'confirmados'
+                  ? 'bg-slate-900 border-slate-900 text-white shadow-sm'
+                  : 'bg-white border-slate-200 text-slate-600 hover:bg-slate-50'
+              }`}
+            >
+              <Check size={14} />
+              Confirmados
+              {confirmados.length > 0 && (
+                <span className={`px-1.5 py-0.5 rounded-full text-[10px] font-extrabold ${
+                  tab === 'confirmados' ? 'bg-white/20 text-white' : 'bg-slate-200 text-slate-700'
+                }`}>
+                  {confirmados.length}
+                </span>
+              )}
+            </button>
+          </div>
+
           {/* Table Container */}
           <div className="bg-white rounded-2xl border border-slate-100 shadow-sm overflow-hidden flex-1">
             <div className="overflow-x-auto">
@@ -348,16 +402,24 @@ function Ferias({ fetchAlerts }) {
                         </div>
                       </td>
                     </tr>
-                  ) : records.length === 0 ? (
+                  ) : activeRecords.length === 0 ? (
                     <tr>
                       <td colSpan="7" className="text-center py-16 text-slate-400">
-                        <span className="text-3xl">🌴</span>
-                        <p className="font-semibold mt-2">Nenhum registro de férias encontrado.</p>
-                        <p className="text-xs mt-1">Configure o agendamento no formulário lateral.</p>
+                        <span className="text-3xl">{tab === 'programados' ? '🕐' : '🌴'}</span>
+                        <p className="font-semibold mt-2">
+                          {tab === 'programados'
+                            ? 'Nenhuma férias aguardando confirmação.'
+                            : 'Nenhum registro de férias confirmado.'}
+                        </p>
+                        <p className="text-xs mt-1">
+                          {tab === 'programados'
+                            ? 'As férias programadas aparecerão aqui até serem confirmadas.'
+                            : 'Confirme um agendamento na aba "Programados" para movê-lo para cá.'}
+                        </p>
                       </td>
                     </tr>
                   ) : (
-                    records.map((r) => (
+                    activeRecords.map((r) => (
                       <tr key={r.id} className="hover:bg-slate-50/50 transition-colors">
                         <td className="px-5 py-4">
                           <p className="font-bold text-slate-900">{r.nome}</p>
@@ -378,7 +440,9 @@ function Ferias({ fetchAlerts }) {
                         </td>
                         <td className="px-5 py-4">
                           <span className={`text-[10px] font-extrabold px-2.5 py-1 rounded-full uppercase tracking-wider ${
-                            r.status === 'Em Férias' 
+                            r.status === 'Programado'
+                              ? 'bg-violet-100 text-violet-700'
+                              : r.status === 'Em Férias' 
                               ? 'bg-amber-100 text-amber-800 animate-pulse' 
                               : r.status === 'Concluído' || r.status === 'Gozadas'
                               ? 'bg-emerald-100 text-emerald-800'
@@ -386,11 +450,29 @@ function Ferias({ fetchAlerts }) {
                               ? 'bg-slate-100 text-slate-500'
                               : 'bg-blue-100 text-blue-800'
                           }`}>
-                            {r.status}
+                            {r.status === 'Programado' ? 'Aguardando confirmação' : r.status}
                           </span>
                         </td>
                         <td className="px-5 py-4">
                           <div className="flex justify-center items-center gap-1.5">
+                            {r.status === 'Programado' && (
+                              <>
+                                <button
+                                  onClick={() => handleConfirm(r)}
+                                  className="px-2 py-1 text-[10px] font-bold bg-emerald-50 hover:bg-emerald-100 text-emerald-700 border border-emerald-200 rounded transition-colors"
+                                  title="Confirmar agendamento (mover para a aba principal)"
+                                >
+                                  <span className="flex items-center gap-1"><Check size={11} /> Confirmar</span>
+                                </button>
+                                <button
+                                  onClick={() => handleStatusChange(r.id, 'Cancelado')}
+                                  className="px-2 py-1 text-[10px] font-bold bg-slate-50 hover:bg-slate-100 text-slate-500 border border-slate-200 rounded transition-colors"
+                                  title="Cancelar esta programação"
+                                >
+                                  Cancelar
+                                </button>
+                              </>
+                            )}
                             {r.status === 'Agendado' && (
                               <>
                                 <button

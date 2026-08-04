@@ -130,3 +130,19 @@ CREATE TABLE IF NOT EXISTS usuarios (
     ativo BOOLEAN DEFAULT TRUE,
     created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
 );
+
+-- TABELA: notificacoes
+CREATE TABLE IF NOT EXISTS notificacoes (
+    id SERIAL PRIMARY KEY,
+    tipo VARCHAR(50) DEFAULT 'ferias',
+    titulo VARCHAR(255) NOT NULL,
+    mensagem TEXT NOT NULL,
+    destinatario VARCHAR(255), -- e-mail do usuário que deve visualizar/confirmar
+    ferias_id INTEGER,
+    lida BOOLEAN DEFAULT FALSE,
+    criada_por VARCHAR(255),
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE INDEX IF NOT EXISTS idx_notificacoes_destinatario ON notificacoes (destinatario);
+CREATE INDEX IF NOT EXISTS idx_notificacoes_lida ON notificacoes (lida);
