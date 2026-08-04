@@ -22,7 +22,6 @@ function Ferias({ fetchAlerts, fetchNotifications, usuarioAtual }) {
     dias_abono: 0,
     dias_gozo: '',
     data_limite: '',
-    departamento: '',
     saldo_anterior: 0,
     dias_utilizados: 0
   });
@@ -127,7 +126,6 @@ function Ferias({ fetchAlerts, fetchNotifications, usuarioAtual }) {
           dias_abono: 0,
           dias_gozo: '',
           data_limite: '',
-          departamento: '',
           saldo_anterior: 0,
           dias_utilizados: 0
         });
@@ -262,19 +260,6 @@ function Ferias({ fetchAlerts, fetchNotifications, usuarioAtual }) {
               <span className="text-[10px] text-slate-400 mt-1 block">
                 Digite ou selecione um funcionário cadastrado na aba Funcionários.
               </span>
-            </div>
-
-            {/* Departamento */}
-            <div>
-              <label className="block text-xs font-bold text-slate-700 mb-1.5">Departamento</label>
-              <input
-                type="text"
-                name="departamento"
-                value={formData.departamento}
-                onChange={handleInputChange}
-                placeholder="Ex: Comercial"
-                className="w-full px-3.5 py-2 border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-primary-500/20 focus:border-primary-500 text-sm"
-              />
             </div>
 
             {/* Data Início */}
@@ -479,7 +464,6 @@ function Ferias({ fetchAlerts, fetchNotifications, usuarioAtual }) {
                       <tr key={r.id} className="hover:bg-slate-50/50 transition-colors">
                         <td className="px-3 py-3 md:px-5 md:py-4">
                           <p className="font-bold text-slate-900">{r.nome}</p>
-                          <p className="text-[10px] text-slate-400">{r.departamento || 'Sem setor'}</p>
                         </td>
                         <td className="px-3 py-3 md:px-5 md:py-4 text-xs font-medium">
                           {formatDateBR(r.data_inicio)}
