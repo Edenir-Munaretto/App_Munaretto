@@ -145,6 +145,7 @@ def agendar_ferias(ferias: FeriasCreate, db = Depends(get_supabase)):
 
         # 5. Salva no banco de dados
         payload = ferias.model_dump()
+        payload.pop("criado_por", None)
         payload["dias_gozo"] = dias_gozo
         payload["data_retorno"] = data_retorno_str
         payload["data_limite"] = data_limite_str
