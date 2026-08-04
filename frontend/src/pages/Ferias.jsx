@@ -418,134 +418,140 @@ function Ferias({ fetchAlerts, fetchNotifications, usuarioAtual }) {
             </button>
           </div>
 
-          {/* Table Container */}
-          <div className="bg-white rounded-2xl border border-slate-100 shadow-sm overflow-hidden flex-1">
-            <div className="overflow-x-auto">
-              <table className="w-full text-left border-collapse text-sm">
-                <thead>
-                  <tr className="bg-slate-50 border-b border-slate-100 text-slate-400 font-bold text-xs uppercase tracking-wider">
-                    <th className="px-3 py-3 md:px-5 md:py-4">Colaborador</th>
-                    <th className="px-3 py-3 md:px-5 md:py-4">Período</th>
-                    <th className="px-3 py-3 md:px-5 md:py-4 text-center">Dias (Gozo/Abono)</th>
-                    <th className="px-3 py-3 md:px-5 md:py-4">Retorno Trabalho</th>
-                    <th className="px-3 py-3 md:px-5 md:py-4">Limite de Gozo</th>
-                    <th className="px-3 py-3 md:px-5 md:py-4">Status</th>
-                    <th className="px-3 py-3 md:px-5 md:py-4 text-center">Ações</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-slate-100 text-slate-700">
-                  {loading ? (
-                    <tr>
-                      <td colSpan="7" className="text-center py-12 text-slate-400">
-                        <div className="flex flex-col items-center justify-center gap-3">
-                          <div className="w-8 h-8 border-4 border-primary-500 border-t-transparent rounded-full animate-spin" />
-                          <p className="text-xs">Carregando férias...</p>
-                        </div>
-                      </td>
-                    </tr>
-                  ) : activeRecords.length === 0 ? (
-                    <tr>
-                      <td colSpan="7" className="text-center py-16 text-slate-400">
-                        <span className="text-3xl">{tab === 'programados' ? '🕐' : '🌴'}</span>
-                        <p className="font-semibold mt-2">
-                          {tab === 'programados'
-                            ? 'Nenhuma férias aguardando confirmação.'
-                            : 'Nenhum registro de férias confirmado.'}
-                        </p>
-                        <p className="text-xs mt-1">
-                          {tab === 'programados'
-                            ? 'As férias programadas aparecerão aqui até serem confirmadas.'
-                            : 'Confirme um agendamento na aba "Programados" para movê-lo para cá.'}
-                        </p>
-                      </td>
-                    </tr>
-                  ) : (
-                    activeRecords.map((r) => (
-                      <tr key={r.id} className="hover:bg-slate-50/50 transition-colors">
-                        <td className="px-3 py-3 md:px-5 md:py-4">
-                          <p className="font-bold text-slate-900">{r.nome}</p>
-                        </td>
-                        <td className="px-3 py-3 md:px-5 md:py-4 text-xs font-medium">
-                          {formatDateBR(r.data_inicio)}
-                        </td>
-                        <td className="px-3 py-3 md:px-5 md:py-4 text-center text-xs font-semibold">
-                          <span className="text-slate-800">{r.dias_gozo}d</span>
+          {/* Cards Container */}
+          <div className="flex-1 space-y-3">
+            {loading ? (
+              <div className="bg-white rounded-2xl border border-slate-100 shadow-sm p-10 flex flex-col items-center justify-center text-slate-400 gap-3">
+                <div className="w-8 h-8 border-4 border-primary-500 border-t-transparent rounded-full animate-spin" />
+                <p className="text-xs">Carregando férias...</p>
+              </div>
+            ) : activeRecords.length === 0 ? (
+              <div className="bg-white rounded-2xl border border-slate-100 shadow-sm p-10 text-center text-slate-400">
+                <span className="text-3xl">{tab === 'programados' ? '🕐' : '🌴'}</span>
+                <p className="font-semibold mt-2">
+                  {tab === 'programados'
+                    ? 'Nenhuma férias aguardando confirmação.'
+                    : 'Nenhum registro de férias confirmado.'}
+                </p>
+                <p className="text-xs mt-1">
+                  {tab === 'programados'
+                    ? 'As férias programadas aparecerão aqui até serem confirmadas.'
+                    : 'Confirme um agendamento na aba "Programados" para movê-lo para cá.'}
+                </p>
+              </div>
+            ) : (
+              <div className="space-y-3">
+                {activeRecords.map((r) => (
+                  <div
+                    key={r.id}
+                    className="bg-white rounded-xl shadow-md border border-slate-200 flex items-stretch overflow-hidden transition-all hover:shadow-lg"
+                  >
+                    {/* Barra lateral colorida por status */}
+                    <div className={`w-1.5 shrink-0 ${
+                      r.status === 'Programado'
+                        ? 'bg-violet-500'
+                        : r.status === 'Em Férias'
+                        ? 'bg-amber-500'
+                        : r.status === 'Concluído' || r.status === 'Gozadas'
+                        ? 'bg-emerald-500'
+                        : r.status === 'Cancelado'
+                        ? 'bg-slate-400'
+                        : 'bg-blue-500'
+                    }`} />
+
+                    <div className="flex-1 flex flex-col md:flex-row md:items-center gap-3 px-4 py-3">
+                      {/* Nome + status */}
+                      <div className="min-w-0 md:w-60 shrink-0">
+                        <p className="font-bold text-slate-900 truncate">{r.nome}</p>
+                      <span className={`inline-block mt-1.5 text-[10px] font-extrabold px-2.5 py-1 rounded-full uppercase tracking-wider ${
+                        r.status === 'Programado'
+                          ? 'bg-violet-100 text-violet-700'
+                          : r.status === 'Em Férias'
+                          ? 'bg-amber-100 text-amber-800 animate-pulse'
+                          : r.status === 'Concluído' || r.status === 'Gozadas'
+                          ? 'bg-emerald-100 text-emerald-800'
+                          : r.status === 'Cancelado'
+                          ? 'bg-slate-100 text-slate-500'
+                          : 'bg-blue-100 text-blue-800'
+                      }`}>
+                        {r.status === 'Programado' ? 'Aguardando confirmação' : r.status}
+                      </span>
+                    </div>
+
+                    {/* Detalhes em colunas (rótulo em cima, valor embaixo) */}
+                    <div className="flex-1 grid grid-cols-2 sm:grid-cols-4 gap-x-4 gap-y-2 text-xs">
+                      <div>
+                        <p className="text-[10px] text-slate-400 font-bold uppercase tracking-wider">Início</p>
+                        <p className="mt-0.5 font-bold text-slate-800">{formatDateBR(r.data_inicio)}</p>
+                      </div>
+                      <div>
+                        <p className="text-[10px] text-slate-400 font-bold uppercase tracking-wider">Dias</p>
+                        <p className="mt-0.5 font-bold text-slate-800">
+                          {r.dias_gozo}d
                           {r.dias_abono > 0 && <span className="text-amber-600 font-bold ml-1">+{r.dias_abono}a</span>}
-                        </td>
-                        <td className="px-3 py-3 md:px-5 md:py-4 font-bold text-slate-900 text-xs">
-                          {formatDateBR(r.data_retorno)}
-                        </td>
-                        <td className="px-3 py-3 md:px-5 md:py-4 text-xs text-slate-500">
-                          {formatDateBR(r.data_limite)}
-                        </td>
-                        <td className="px-3 py-3 md:px-5 md:py-4">
-                          <span className={`text-[10px] font-extrabold px-2.5 py-1 rounded-full uppercase tracking-wider ${
-                            r.status === 'Programado'
-                              ? 'bg-violet-100 text-violet-700'
-                              : r.status === 'Em Férias' 
-                              ? 'bg-amber-100 text-amber-800 animate-pulse' 
-                              : r.status === 'Concluído' || r.status === 'Gozadas'
-                              ? 'bg-emerald-100 text-emerald-800'
-                              : r.status === 'Cancelado'
-                              ? 'bg-slate-100 text-slate-500'
-                              : 'bg-blue-100 text-blue-800'
-                          }`}>
-                            {r.status === 'Programado' ? 'Aguardando confirmação' : r.status}
-                          </span>
-                        </td>
-                        <td className="px-3 py-3 md:px-5 md:py-4">
-                          <div className="flex justify-center items-center gap-1.5">
-                            {r.status === 'Programado' && (
-                              <>
-                                <button
-                                  onClick={() => handleConfirm(r)}
-                                  className="px-2 py-1 text-[10px] font-bold bg-emerald-50 hover:bg-emerald-100 text-emerald-700 border border-emerald-200 rounded transition-colors"
-                                  title="Confirmar agendamento (mover para a aba principal)"
-                                >
-                                  <span className="flex items-center gap-1"><Check size={11} /> Confirmar</span>
-                                </button>
-                                <button
-                                  onClick={() => handleStatusChange(r.id, 'Cancelado')}
-                                  className="px-2 py-1 text-[10px] font-bold bg-slate-50 hover:bg-slate-100 text-slate-500 border border-slate-200 rounded transition-colors"
-                                  title="Cancelar esta programação"
-                                >
-                                  Cancelar
-                                </button>
-                              </>
-                            )}
-                            {r.status === 'Agendado' && (
-                              <>
-                                <button
-                                  onClick={() => handleStatusChange(r.id, 'Gozadas')}
-                                  className="px-2 py-1 text-[10px] font-bold bg-emerald-50 hover:bg-emerald-100 text-emerald-700 border border-emerald-200 rounded transition-colors"
-                                  title="Marcar como Gozadas"
-                                >
-                                  Concluir
-                                </button>
-                                <button
-                                  onClick={() => handleStatusChange(r.id, 'Cancelado')}
-                                  className="px-2 py-1 text-[10px] font-bold bg-slate-50 hover:bg-slate-100 text-slate-500 border border-slate-200 rounded transition-colors"
-                                  title="Marcar como Cancelado"
-                                >
-                                  Cancelar
-                                </button>
-                              </>
-                            )}
-                            <button
-                              onClick={() => handleDelete(r.id, r.nome)}
-                              className="p-1.5 rounded bg-slate-50 hover:bg-rose-50 text-slate-400 hover:text-rose-700 border border-slate-100 transition-colors"
-                              title="Deletar"
-                            >
-                              <Trash2 size={13} />
-                            </button>
-                          </div>
-                        </td>
-                      </tr>
-                    ))
-                  )}
-                </tbody>
-              </table>
-            </div>
+                        </p>
+                      </div>
+                      <div>
+                        <p className="text-[10px] text-slate-400 font-bold uppercase tracking-wider">Retorno</p>
+                        <p className="mt-0.5 font-bold text-slate-900">{formatDateBR(r.data_retorno)}</p>
+                      </div>
+                      <div>
+                        <p className="text-[10px] text-slate-400 font-bold uppercase tracking-wider">Limite</p>
+                        <p className="mt-0.5 text-slate-600">{formatDateBR(r.data_limite)}</p>
+                      </div>
+                    </div>
+
+                    {/* Ações */}
+                    <div className="flex items-center gap-1.5 shrink-0 md:ml-2">
+                      {r.status === 'Programado' && (
+                        <>
+                          <button
+                            onClick={() => handleConfirm(r)}
+                            className="flex items-center gap-1 px-2.5 py-1.5 text-[10px] font-bold bg-emerald-50 hover:bg-emerald-100 text-emerald-700 border border-emerald-200 rounded-lg transition-colors"
+                            title="Confirmar agendamento (mover para a aba principal)"
+                          >
+                            <Check size={11} /> Confirmar
+                          </button>
+                          <button
+                            onClick={() => handleStatusChange(r.id, 'Cancelado')}
+                            className="px-2.5 py-1.5 text-[10px] font-bold bg-slate-50 hover:bg-slate-100 text-slate-500 border border-slate-200 rounded-lg transition-colors"
+                            title="Cancelar esta programação"
+                          >
+                            Cancelar
+                          </button>
+                        </>
+                      )}
+                      {r.status === 'Agendado' && (
+                        <>
+                          <button
+                            onClick={() => handleStatusChange(r.id, 'Gozadas')}
+                            className="flex items-center gap-1 px-2.5 py-1.5 text-[10px] font-bold bg-emerald-50 hover:bg-emerald-100 text-emerald-700 border border-emerald-200 rounded-lg transition-colors"
+                            title="Marcar como Gozadas"
+                          >
+                            <Check size={11} /> Concluir
+                          </button>
+                          <button
+                            onClick={() => handleStatusChange(r.id, 'Cancelado')}
+                            className="px-2.5 py-1.5 text-[10px] font-bold bg-slate-50 hover:bg-slate-100 text-slate-500 border border-slate-200 rounded-lg transition-colors"
+                            title="Marcar como Cancelado"
+                          >
+                            Cancelar
+                          </button>
+                        </>
+                      )}
+                      <button
+                        onClick={() => handleDelete(r.id, r.nome)}
+                        className="p-1.5 rounded bg-slate-50 hover:bg-rose-50 text-slate-400 hover:text-rose-700 border border-slate-100 transition-colors"
+                        title="Deletar"
+                      >
+                        <Trash2 size={13} />
+                      </button>
+                    </div>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
           </div>
 
         </div>
