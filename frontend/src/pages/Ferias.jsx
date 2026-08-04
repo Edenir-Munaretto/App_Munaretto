@@ -9,6 +9,7 @@ function Ferias({ fetchAlerts, fetchNotifications, usuarioAtual }) {
   const [tab, setTab] = useState('confirmados');
   const [loading, setLoading] = useState(true);
   const [toast, setToast] = useState(null);
+  const [funcionarios, setFuncionarios] = useState([]);
 
   const programados = useMemo(() => records.filter(r => r.status === 'Programado'), [records]);
   const confirmados = useMemo(() => records.filter(r => r.status !== 'Programado'), [records]);
@@ -28,6 +29,21 @@ function Ferias({ fetchAlerts, fetchNotifications, usuarioAtual }) {
   useEffect(() => {
     fetchRecords();
   }, [busca, proximoMes]);
+
+  useEffect(() => {
+    const fetchFuncionarios = async () => {
+      try {
+        const res = await fetch(`${API_URL}/funcionarios/`);
+        if (res.ok) {
+          const data = await res.json();
+          setFuncionarios(data);
+        }
+      } catch (err) {
+        console.error('Erro ao buscar funcionários:', err);
+      }
+    };
+    fetchFuncionarios();
+  }, []);
 
   const showToast = (message, type = 'success') => {
     setToast({ message, type });
@@ -203,9 +219,18 @@ function Ferias({ fetchAlerts, fetchNotifications, usuarioAtual }) {
                 value={formData.nome}
                 onChange={handleInputChange}
                 required
+                list="funcionarios-list"
                 placeholder="Ex: João da Silva"
                 className="w-full px-3.5 py-2 border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-primary-500/20 focus:border-primary-500 text-sm"
               />
+              <datalist id="funcionarios-list">
+                {funcionarios.map((f) => (
+                  <option key={f.id} value={f.nome}>{f.nome} - {f.cpf}</option>
+                ))}
+              </datalist>
+              <span className="text-[10px] text-slate-400 mt-1 block">
+                Digite ou selecione um funcionário cadastrado na aba Funcionários.
+              </span>
             </div>
 
             {/* Departamento */}

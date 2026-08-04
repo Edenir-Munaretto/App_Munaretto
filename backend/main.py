@@ -1,7 +1,7 @@
 import uvicorn
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
-from routers import clientes, ferias, fluxo_caixa, documentos, comprovantes, recebimentos, usuarios, notificacoes
+from routers import clientes, ferias, fluxo_caixa, documentos, comprovantes, recebimentos, usuarios, notificacoes, funcionarios
 
 app = FastAPI(
     title="App Munaretto Web API",
@@ -28,6 +28,7 @@ app.include_router(comprovantes.router, prefix="/api/comprovantes", tags=["Compr
 app.include_router(recebimentos.router, prefix="/api/recebimentos", tags=["Controle de Recebimentos"])
 app.include_router(usuarios.router, prefix="/api/usuarios", tags=["Configurações / Usuários"])
 app.include_router(notificacoes.router, prefix="/api/notificacoes", tags=["Notificações"])
+app.include_router(funcionarios.router, prefix="/api/funcionarios", tags=["Funcionários"])
 
 @app.get("/health", tags=["Geral"])
 def health_check():

@@ -146,3 +146,12 @@ CREATE TABLE IF NOT EXISTS notificacoes (
 
 CREATE INDEX IF NOT EXISTS idx_notificacoes_destinatario ON notificacoes (destinatario);
 CREATE INDEX IF NOT EXISTS idx_notificacoes_lida ON notificacoes (lida);
+
+-- TABELA: funcionarios
+CREATE TABLE IF NOT EXISTS funcionarios (
+    id SERIAL PRIMARY KEY,
+    nome VARCHAR(255) NOT NULL,
+    cpf VARCHAR(50) NOT NULL UNIQUE,
+    ativo BOOLEAN DEFAULT TRUE,
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+);
