@@ -439,13 +439,13 @@ function Ferias({ fetchAlerts, fetchNotifications, usuarioAtual }) {
               <table className="w-full text-left border-collapse text-sm">
                 <thead>
                   <tr className="bg-slate-50 border-b border-slate-100 text-slate-400 font-bold text-xs uppercase tracking-wider">
-                    <th className="px-5 py-4">Colaborador</th>
-                    <th className="px-5 py-4">Período</th>
-                    <th className="px-5 py-4 text-center">Dias (Gozo/Abono)</th>
-                    <th className="px-5 py-4">Retorno Trabalho</th>
-                    <th className="px-5 py-4">Limite de Gozo</th>
-                    <th className="px-5 py-4">Status</th>
-                    <th className="px-5 py-4 text-center">Ações</th>
+                    <th className="px-3 py-3 md:px-5 md:py-4">Colaborador</th>
+                    <th className="px-3 py-3 md:px-5 md:py-4">Período</th>
+                    <th className="px-3 py-3 md:px-5 md:py-4 text-center">Dias (Gozo/Abono)</th>
+                    <th className="px-3 py-3 md:px-5 md:py-4">Retorno Trabalho</th>
+                    <th className="px-3 py-3 md:px-5 md:py-4">Limite de Gozo</th>
+                    <th className="px-3 py-3 md:px-5 md:py-4">Status</th>
+                    <th className="px-3 py-3 md:px-5 md:py-4 text-center">Ações</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-100 text-slate-700">
@@ -477,24 +477,24 @@ function Ferias({ fetchAlerts, fetchNotifications, usuarioAtual }) {
                   ) : (
                     activeRecords.map((r) => (
                       <tr key={r.id} className="hover:bg-slate-50/50 transition-colors">
-                        <td className="px-5 py-4">
+                        <td className="px-3 py-3 md:px-5 md:py-4">
                           <p className="font-bold text-slate-900">{r.nome}</p>
                           <p className="text-[10px] text-slate-400">{r.departamento || 'Sem setor'}</p>
                         </td>
-                        <td className="px-5 py-4 text-xs font-medium">
+                        <td className="px-3 py-3 md:px-5 md:py-4 text-xs font-medium">
                           {formatDateBR(r.data_inicio)}
                         </td>
-                        <td className="px-5 py-4 text-center text-xs font-semibold">
+                        <td className="px-3 py-3 md:px-5 md:py-4 text-center text-xs font-semibold">
                           <span className="text-slate-800">{r.dias_gozo}d</span>
                           {r.dias_abono > 0 && <span className="text-amber-600 font-bold ml-1">+{r.dias_abono}a</span>}
                         </td>
-                        <td className="px-5 py-4 font-bold text-slate-900 text-xs">
+                        <td className="px-3 py-3 md:px-5 md:py-4 font-bold text-slate-900 text-xs">
                           {formatDateBR(r.data_retorno)}
                         </td>
-                        <td className="px-5 py-4 text-xs text-slate-500">
+                        <td className="px-3 py-3 md:px-5 md:py-4 text-xs text-slate-500">
                           {formatDateBR(r.data_limite)}
                         </td>
-                        <td className="px-5 py-4">
+                        <td className="px-3 py-3 md:px-5 md:py-4">
                           <span className={`text-[10px] font-extrabold px-2.5 py-1 rounded-full uppercase tracking-wider ${
                             r.status === 'Programado'
                               ? 'bg-violet-100 text-violet-700'
@@ -509,7 +509,7 @@ function Ferias({ fetchAlerts, fetchNotifications, usuarioAtual }) {
                             {r.status === 'Programado' ? 'Aguardando confirmação' : r.status}
                           </span>
                         </td>
-                        <td className="px-5 py-4">
+                        <td className="px-3 py-3 md:px-5 md:py-4">
                           <div className="flex justify-center items-center gap-1.5">
                             {r.status === 'Programado' && (
                               <>

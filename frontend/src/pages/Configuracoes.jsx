@@ -200,11 +200,11 @@ function Configuracoes({ usuarioAtual }) {
           <table className="w-full text-left border-collapse text-sm">
             <thead>
               <tr className="bg-slate-50 border-b border-slate-100 text-slate-400 font-bold text-xs uppercase tracking-wider">
-                <th className="px-6 py-4">Nome</th>
-                <th className="px-6 py-4">E-mail</th>
-                <th className="px-6 py-4">Módulos</th>
-                <th className="px-6 py-4 text-center">Status</th>
-                <th className="px-6 py-4 text-center">Ações</th>
+                <th className="px-3 py-3 md:px-6 md:py-4">Nome</th>
+                <th className="px-3 py-3 md:px-6 md:py-4">E-mail</th>
+                <th className="px-3 py-3 md:px-6 md:py-4">Módulos</th>
+                <th className="px-3 py-3 md:px-6 md:py-4 text-center">Status</th>
+                <th className="px-3 py-3 md:px-6 md:py-4 text-center">Ações</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-100 text-slate-700">
@@ -228,14 +228,14 @@ function Configuracoes({ usuarioAtual }) {
               ) : (
                 filteredUsuarios.map((u) => (
                   <tr key={u.id} className="hover:bg-slate-50/50 transition-colors">
-                    <td className="px-6 py-4 font-bold text-slate-900">
+                    <td className="px-3 py-3 md:px-6 md:py-4 font-bold text-slate-900">
                       {u.nome}
                       {usuarioAtual && usuarioAtual.id === u.id && (
                         <span className="ml-2 text-[9px] font-bold text-primary-600 bg-primary-50 border border-primary-100 rounded-full px-2 py-0.5">VOCÊ</span>
                       )}
                     </td>
-                    <td className="px-6 py-4 text-xs">{u.email}</td>
-                    <td className="px-6 py-4">
+                    <td className="px-3 py-3 md:px-6 md:py-4 text-xs">{u.email}</td>
+                    <td className="px-3 py-3 md:px-6 md:py-4">
                       <div className="flex flex-wrap gap-1 max-w-md">
                         {(u.permissoes || []).map((p) => {
                           const mod = MODULOS.find(m => m.id === p);
@@ -247,7 +247,7 @@ function Configuracoes({ usuarioAtual }) {
                         })}
                       </div>
                     </td>
-                    <td className="px-6 py-4 text-center">
+                    <td className="px-3 py-3 md:px-6 md:py-4 text-center">
                       <span className={`inline-block px-2.5 py-1 rounded-full text-[10px] font-bold border ${
                         u.ativo 
                           ? 'bg-emerald-50 text-emerald-700 border-emerald-100' 
@@ -256,7 +256,7 @@ function Configuracoes({ usuarioAtual }) {
                         {u.ativo ? 'Ativo' : 'Inativo'}
                       </span>
                     </td>
-                    <td className="px-6 py-4">
+                    <td className="px-3 py-3 md:px-6 md:py-4">
                       <div className="flex justify-center items-center gap-2">
                         <button
                           onClick={() => openEditModal(u)}
@@ -286,7 +286,7 @@ function Configuracoes({ usuarioAtual }) {
       {showModal && (
         <div className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center z-50 p-4">
           <div className="bg-white rounded-2xl shadow-2xl max-w-2xl w-full overflow-hidden animate-in fade-in zoom-in duration-200 max-h-[90vh] flex flex-col">
-            <div className="bg-slate-900 text-white px-6 py-4 flex items-center justify-between">
+            <div className="bg-slate-900 text-white px-3 py-3 md:px-6 md:py-4 flex items-center justify-between">
               <h3 className="font-bold text-lg flex items-center gap-2">
                 <UserCog className="text-primary-400" size={20} />
                 {editingId ? 'Editar Usuário' : 'Novo Usuário'}

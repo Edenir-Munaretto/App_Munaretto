@@ -426,15 +426,15 @@ function Recebimentos() {
           <table className="w-full text-left border-collapse text-sm">
             <thead>
               <tr className="bg-slate-50 border-b border-slate-100 text-slate-400 font-bold text-xs uppercase tracking-wider">
-                <th className="px-6 py-4">Cliente</th>
-                <th className="px-6 py-4">Data Início</th>
-                <th className="px-6 py-4">Valor da Obra</th>
-                <th className="px-6 py-4">Valor Devolução</th>
-                <th className="px-6 py-4">Pag. Cliente</th>
-                <th className="px-6 py-4">Emissão NF</th>
-                <th className="px-6 py-4">Nota PS</th>
-                <th className="px-6 py-4 text-center">Cessão</th>
-                <th className="px-6 py-4 text-center print:hidden">Ações</th>
+                <th className="px-3 py-3 md:px-6 md:py-4">Cliente</th>
+                <th className="px-3 py-3 md:px-6 md:py-4">Data Início</th>
+                <th className="px-3 py-3 md:px-6 md:py-4">Valor da Obra</th>
+                <th className="px-3 py-3 md:px-6 md:py-4">Valor Devolução</th>
+                <th className="px-3 py-3 md:px-6 md:py-4">Pag. Cliente</th>
+                <th className="px-3 py-3 md:px-6 md:py-4">Emissão NF</th>
+                <th className="px-3 py-3 md:px-6 md:py-4">Nota PS</th>
+                <th className="px-3 py-3 md:px-6 md:py-4 text-center">Cessão</th>
+                <th className="px-3 py-3 md:px-6 md:py-4 text-center print:hidden">Ações</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-100 text-slate-700">
@@ -460,14 +460,14 @@ function Recebimentos() {
                   const pag = (parseFloat(r.valor_da_obra) || 0) - (parseFloat(r.valor_de_devolucao) || 0);
                   return (
                     <tr key={r.id} className="hover:bg-slate-50/50 transition-colors">
-                      <td className="px-6 py-4 font-bold text-slate-900">{r.nome_cliente}</td>
-                      <td className="px-6 py-4">{formatDate(r.data_inicio)}</td>
-                      <td className="px-6 py-4 font-semibold">{formatCurrency(r.valor_da_obra)}</td>
-                      <td className="px-6 py-4 text-amber-600 font-semibold">{formatCurrency(r.valor_de_devolucao)}</td>
-                      <td className="px-6 py-4 text-emerald-600 font-bold">{formatCurrency(pag)}</td>
-                      <td className="px-6 py-4">{formatDate(r.emissao_nf)}</td>
-                      <td className="px-6 py-4">{r.nota_ps || '-'}</td>
-                      <td className="px-6 py-4 text-center">
+                      <td className="px-3 py-3 md:px-6 md:py-4 font-bold text-slate-900">{r.nome_cliente}</td>
+                      <td className="px-3 py-3 md:px-6 md:py-4">{formatDate(r.data_inicio)}</td>
+                      <td className="px-3 py-3 md:px-6 md:py-4 font-semibold">{formatCurrency(r.valor_da_obra)}</td>
+                      <td className="px-3 py-3 md:px-6 md:py-4 text-amber-600 font-semibold">{formatCurrency(r.valor_de_devolucao)}</td>
+                      <td className="px-3 py-3 md:px-6 md:py-4 text-emerald-600 font-bold">{formatCurrency(pag)}</td>
+                      <td className="px-3 py-3 md:px-6 md:py-4">{formatDate(r.emissao_nf)}</td>
+                      <td className="px-3 py-3 md:px-6 md:py-4">{r.nota_ps || '-'}</td>
+                      <td className="px-3 py-3 md:px-6 md:py-4 text-center">
                         <span className={`inline-block px-2.5 py-1 rounded-full text-[10px] font-bold border ${
                           r.cessao === 'sim' 
                             ? 'bg-emerald-50 text-emerald-700 border-emerald-100' 
@@ -476,7 +476,7 @@ function Recebimentos() {
                           {r.cessao === 'sim' ? 'Sim' : 'Não'}
                         </span>
                       </td>
-                      <td className="px-6 py-4 print:hidden">
+                      <td className="px-3 py-3 md:px-6 md:py-4 print:hidden">
                         <div className="flex justify-center items-center gap-2">
                           <button
                             onClick={() => openEditModal(r)}
@@ -507,7 +507,7 @@ function Recebimentos() {
       {showModal && (
         <div className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center z-50 p-4">
           <div className="bg-white rounded-2xl shadow-2xl max-w-2xl w-full overflow-hidden animate-in fade-in zoom-in duration-200">
-            <div className="bg-slate-900 text-white px-6 py-4 flex items-center justify-between">
+            <div className="bg-slate-900 text-white px-3 py-3 md:px-6 md:py-4 flex items-center justify-between">
               <h3 className="font-bold text-lg">
                 {editingId ? 'Editar Recebimento' : 'Novo Recebimento'}
               </h3>

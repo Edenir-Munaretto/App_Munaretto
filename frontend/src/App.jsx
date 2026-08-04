@@ -237,7 +237,7 @@ function App() {
       <main className="flex-1 flex flex-col overflow-hidden">
         
         {/* HEADER */}
-        <header className="h-16 bg-white border-b border-slate-200 flex items-center justify-between px-6 z-10">
+        <header className="h-16 bg-white border-b border-slate-200 flex items-center justify-between px-4 md:px-6 z-10">
           
           <div className="flex items-center gap-4">
             <h1 className="text-xl font-bold text-slate-800 capitalize">
@@ -263,7 +263,7 @@ function App() {
               </button>
 
               {showNotifPanel && (
-                <div className="absolute right-0 top-12 w-96 bg-white rounded-2xl shadow-2xl border border-slate-100 z-50 overflow-hidden animate-in slide-in-from-top-2 duration-200">
+                <div className="absolute right-0 top-12 w-[calc(100vw-2rem)] max-w-sm bg-white rounded-2xl shadow-2xl border border-slate-100 z-50 overflow-hidden animate-in slide-in-from-top-2 duration-200">
                   <div className="bg-slate-900 text-white px-4 py-3 flex items-center justify-between">
                     <div className="flex items-center gap-2">
                       <Bell size={16} className="text-primary-400" />
@@ -373,7 +373,7 @@ function App() {
         </header>
 
         {/* VIEW CONTAINER */}
-        <div className="flex-1 overflow-y-auto p-6">
+        <div className="flex-1 overflow-y-auto p-4 md:p-6">
           <ActiveComponent
             alerts={alerts}
             fetchAlerts={fetchAlerts}
