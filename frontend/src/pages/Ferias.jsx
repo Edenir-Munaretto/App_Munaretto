@@ -15,6 +15,18 @@ function Ferias({ fetchAlerts, fetchNotifications, usuarioAtual }) {
   const programados = useMemo(() => records.filter(r => r.status === 'Programado'), [records]);
   const confirmados = useMemo(() => records.filter(r => r.status !== 'Programado'), [records]);
 
+  // Agendamento Form State
+  const [formData, setFormData] = useState({
+    nome: '',
+    data_inicio: '',
+    dias_abono: 0,
+    dias_gozo: '',
+    data_limite: '',
+    departamento: '',
+    saldo_anterior: 0,
+    dias_utilizados: 0
+  });
+
   const sugestoes = useMemo(() => {
     const termo = formData.nome.trim().toLowerCase();
     if (!termo) return [];
@@ -28,18 +40,6 @@ function Ferias({ fetchAlerts, fetchNotifications, usuarioAtual }) {
     setFormData(prev => ({ ...prev, nome: f.nome }));
     setSugestoesAbertas(false);
   };
-
-  // Agendamento Form State
-  const [formData, setFormData] = useState({
-    nome: '',
-    data_inicio: '',
-    dias_abono: 0,
-    dias_gozo: '',
-    data_limite: '',
-    departamento: '',
-    saldo_anterior: 0,
-    dias_utilizados: 0
-  });
 
   useEffect(() => {
     fetchRecords();
