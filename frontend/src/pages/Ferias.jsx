@@ -10,9 +10,24 @@ function Ferias({ fetchAlerts, fetchNotifications, usuarioAtual }) {
   const [loading, setLoading] = useState(true);
   const [toast, setToast] = useState(null);
   const [funcionarios, setFuncionarios] = useState([]);
+  const [sugestoesAbertas, setSugestoesAbertas] = useState(false);
 
   const programados = useMemo(() => records.filter(r => r.status === 'Programado'), [records]);
   const confirmados = useMemo(() => records.filter(r => r.status !== 'Programado'), [records]);
+
+  const sugestoes = useMemo(() => {
+    const termo = formData.nome.trim().toLowerCase();
+    if (!termo) return [];
+    return funcionarios.filter((f) =>
+      (f.nome || '').toLowerCase().includes(termo) ||
+      (f.cpf || '').toLowerCase().includes(termo)
+    );
+  }, [funcionarios, formData.nome]);
+
+  const selectSugestao = (f) => {
+    setFormData(prev => ({ ...prev, nome: f.nome }));
+    setSugestoesAbertas(false);
+  };
 
   // Agendamento Form State
   const [formData, setFormData] = useState({
@@ -213,21 +228,37 @@ function Ferias({ fetchAlerts, fetchNotifications, usuarioAtual }) {
             {/* Nome Colaborador */}
             <div>
               <label className="block text-xs font-bold text-slate-700 mb-1.5">Nome do Colaborador *</label>
-              <input
-                type="text"
-                name="nome"
-                value={formData.nome}
-                onChange={handleInputChange}
-                required
-                list="funcionarios-list"
-                placeholder="Ex: João da Silva"
-                className="w-full px-3.5 py-2 border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-primary-500/20 focus:border-primary-500 text-sm"
-              />
-              <datalist id="funcionarios-list">
-                {funcionarios.map((f) => (
-                  <option key={f.id} value={f.nome}>{f.nome} - {f.cpf}</option>
-                ))}
-              </datalist>
+              <div className="relative">
+                <input
+                  type="text"
+                  name="nome"
+                  value={formData.nome}
+                  onChange={(e) => {
+                    handleInputChange(e);
+                    setSugestoesAbertas(true);
+                  }}
+                  onFocus={() => setSugestoesAbertas(true)}
+                  onBlur={() => setTimeout(() => setSugestoesAbertas(false), 150)}
+                  required
+                  placeholder="Ex: João da Silva"
+                  className="w-full px-3.5 py-2 border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-primary-500/20 focus:border-primary-500 text-sm"
+                />
+                {sugestoesAbertas && formData.nome.trim() !== '' && sugestoes.length > 0 && (
+                  <div className="absolute z-20 mt-1 w-full bg-white border border-slate-200 rounded-xl shadow-lg max-h-52 overflow-y-auto">
+                    {sugestoes.map((f) => (
+                      <button
+                        key={f.id}
+                        type="button"
+                        onMouseDown={(e) => { e.preventDefault(); selectSugestao(f); }}
+                        className="w-full text-left px-3.5 py-2 hover:bg-primary-50 transition-colors text-sm"
+                      >
+                        <span className="font-semibold text-slate-800">{f.nome}</span>
+                        <span className="text-slate-400 text-xs ml-1">{f.cpf}</span>
+                      </button>
+                    ))}
+                  </div>
+                )}
+              </div>
               <span className="text-[10px] text-slate-400 mt-1 block">
                 Digite ou selecione um funcionário cadastrado na aba Funcionários.
               </span>
