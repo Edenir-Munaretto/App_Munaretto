@@ -6,13 +6,9 @@ import {
   LineChart, 
   FileText, 
   Bell, 
-  BellRing, 
   Menu, 
-  Sun, 
-  Moon, 
   LogOut, 
   User as UserIcon,
-  ShieldAlert,
   Receipt,
   Banknote,
   Settings
@@ -58,7 +54,6 @@ function App() {
   const [activeTab, setActiveTab] = useState('dashboard');
   const [sidebarOpen, setSidebarOpen] = useState(true);
   const [alerts, setAlerts] = useState([]);
-  const [showAlertModal, setShowAlertModal] = useState(false);
   const [notificacoes, setNotificacoes] = useState([]);
   const [showNotifPanel, setShowNotifPanel] = useState(false);
   const [usuario, setUsuario] = useState(() => {
@@ -150,6 +145,7 @@ function App() {
   };
 
   const notificacoesNaoLidas = notificacoes.filter(n => !n.lida).length;
+  const totalSinos = notificacoesNaoLidas + alerts.length;
 
   const handleLogin = (user) => {
     localStorage.setItem('munaretto_usuario', JSON.stringify(user));
@@ -251,17 +247,17 @@ function App() {
 
           <div className="flex items-center gap-4">
             
-            {/* Notificações */}
+            {/* Central de Notificações (sino único) */}
             <div className="relative">
               <button 
                 onClick={() => setShowNotifPanel(!showNotifPanel)} 
                 className="p-2 rounded-full hover:bg-slate-100 text-slate-600 relative transition-all"
-                title="Notificações"
+                title="Notificações e alertas"
               >
-                <BellRing size={20} />
-                {notificacoesNaoLidas > 0 && (
-                  <span className="absolute top-1 right-1 w-4 h-4 bg-primary-600 text-white text-[9px] font-bold rounded-full flex items-center justify-center animate-pulse">
-                    {notificacoesNaoLidas}
+                <Bell size={20} />
+                {totalSinos > 0 && (
+                  <span className="absolute top-1 right-1 w-4 h-4 bg-rose-500 text-white text-[9px] font-bold rounded-full flex items-center justify-center animate-pulse">
+                    {totalSinos}
                   </span>
                 )}
               </button>
@@ -270,8 +266,8 @@ function App() {
                 <div className="absolute right-0 top-12 w-96 bg-white rounded-2xl shadow-2xl border border-slate-100 z-50 overflow-hidden animate-in slide-in-from-top-2 duration-200">
                   <div className="bg-slate-900 text-white px-4 py-3 flex items-center justify-between">
                     <div className="flex items-center gap-2">
-                      <BellRing size={16} className="text-primary-400" />
-                      <h3 className="font-bold text-sm">Notificações</h3>
+                      <Bell size={16} className="text-primary-400" />
+                      <h3 className="font-bold text-sm">Central de Notificações</h3>
                     </div>
                     {notificacoesNaoLidas > 0 && (
                       <button 
@@ -283,54 +279,75 @@ function App() {
                     )}
                   </div>
 
-                  <div className="max-h-80 overflow-y-auto divide-y divide-slate-100">
-                    {notificacoes.length === 0 ? (
-                      <p className="text-center text-slate-400 text-sm py-10">🔔 Nenhuma notificação.</p>
-                    ) : (
-                      notificacoes.map((n) => (
-                        <button
-                          key={n.id}
-                          onClick={() => abrirNotificacao(n)}
-                          className={`w-full text-left px-4 py-3 flex gap-3 transition-colors ${
-                            n.lida ? 'bg-white hover:bg-slate-50' : 'bg-primary-50/60 hover:bg-primary-50'
-                          }`}
-                        >
-                          <span className={`mt-1.5 w-2 h-2 rounded-full flex-shrink-0 ${n.lida ? 'bg-slate-200' : 'bg-primary-500'}`} />
-                          <span className="flex-1 min-w-0">
-                            <span className="block text-xs font-bold text-slate-800">{n.titulo}</span>
-                            <span className="block text-xs text-slate-600 mt-0.5">{n.mensagem}</span>
-                            <span className="block text-[10px] text-slate-400 mt-1">{formatDateBR(n.created_at)}</span>
+                  <div className="max-h-96 overflow-y-auto divide-y divide-slate-100">
+                    
+                    {/* Seção: Notificações */}
+                    <div className="py-2">
+                      <div className="px-4 py-2 text-[10px] font-extrabold uppercase tracking-wider text-slate-400 flex items-center gap-1.5">
+                        <span>🔔</span> Notificações
+                        {notificacoesNaoLidas > 0 && (
+                          <span className="px-1.5 py-0.5 rounded-full bg-primary-100 text-primary-700 text-[9px]">
+                            {notificacoesNaoLidas} novas
                           </span>
-                          {n.tipo === 'ferias' && (
-                            <span className="text-lg">🌴</span>
-                          )}
-                        </button>
-                      ))
-                    )}
-                  </div>
+                        )}
+                      </div>
+                      {notificacoes.length === 0 ? (
+                        <p className="px-4 pb-3 text-center text-slate-400 text-sm">Nenhuma notificação.</p>
+                      ) : (
+                        notificacoes.map((n) => (
+                          <button
+                            key={n.id}
+                            onClick={() => abrirNotificacao(n)}
+                            className={`w-full text-left px-4 py-3 flex gap-3 transition-colors ${
+                              n.lida ? 'bg-white hover:bg-slate-50' : 'bg-primary-50/60 hover:bg-primary-50'
+                            }`}
+                          >
+                            <span className={`mt-1.5 w-2 h-2 rounded-full flex-shrink-0 ${n.lida ? 'bg-slate-200' : 'bg-primary-500'}`} />
+                            <span className="flex-1 min-w-0">
+                              <span className="block text-xs font-bold text-slate-800">{n.titulo}</span>
+                              <span className="block text-xs text-slate-600 mt-0.5">{n.mensagem}</span>
+                              <span className="block text-[10px] text-slate-400 mt-1">{formatDateBR(n.created_at)}</span>
+                            </span>
+                            {n.tipo === 'ferias' && (
+                              <span className="text-lg">🌴</span>
+                            )}
+                          </button>
+                        ))
+                      )}
+                    </div>
 
-                  <div className="bg-slate-50 px-4 py-2 border-t border-slate-100">
-                    <p className="text-[10px] text-slate-400 text-center">
-                      Clique para abrir e marcar como lida
-                    </p>
+                    {/* Seção: Alertas de prazos de férias */}
+                    <div className="py-2">
+                      <div className="px-4 py-2 text-[10px] font-extrabold uppercase tracking-wider text-slate-400 flex items-center gap-1.5">
+                        <span>⚠️</span> Alertas de Prazos de Férias
+                        {alerts.length > 0 && (
+                          <span className="px-1.5 py-0.5 rounded-full bg-rose-100 text-rose-700 text-[9px]">
+                            {alerts.length}
+                          </span>
+                        )}
+                      </div>
+                      {alerts.length === 0 ? (
+                        <p className="px-4 pb-3 text-center text-slate-400 text-sm">✅ Nenhum alerta pendente.</p>
+                      ) : (
+                        alerts.map((alert, idx) => (
+                          <div
+                            key={idx}
+                            className={`px-4 py-3 text-xs border-t flex gap-2 ${
+                              alert.gravidade === 'danger' || alert.gravidade === 'expired'
+                                ? 'bg-rose-50 text-rose-800'
+                                : 'bg-amber-50 text-amber-800'
+                            }`}
+                          >
+                            <span>{alert.gravidade === 'danger' || alert.gravidade === 'expired' ? '🚨' : '⚠️'}</span>
+                            <span>{alert.mensagem}</span>
+                          </div>
+                        ))
+                      )}
+                    </div>
+
                   </div>
                 </div>
               )}
-            </div>
-
-            {/* Alertas Bell */}
-            <div className="relative">
-              <button 
-                onClick={() => setShowAlertModal(true)} 
-                className="p-2 rounded-full hover:bg-slate-100 text-slate-600 relative transition-all"
-              >
-                <Bell size={20} />
-                {alerts.length > 0 && (
-                  <span className="absolute top-1 right-1 w-4 h-4 bg-rose-500 text-white text-[9px] font-bold rounded-full flex items-center justify-center animate-pulse">
-                    {alerts.length}
-                  </span>
-                )}
-              </button>
             </div>
 
             <div className="h-8 w-[1px] bg-slate-200" />
@@ -365,61 +382,6 @@ function App() {
           />
         </div>
       </main>
-
-      {/* MODAL DE ALERTAS */}
-      {showAlertModal && (
-        <div className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center z-50 p-4">
-          <div className="bg-white rounded-xl shadow-2xl max-w-lg w-full overflow-hidden animate-in fade-in zoom-in duration-200">
-            <div className="bg-slate-900 text-white p-4 flex items-center justify-between">
-              <div className="flex items-center gap-2">
-                <ShieldAlert className="text-rose-500" />
-                <h3 className="font-bold text-lg">Alertas de Prazos de Férias</h3>
-              </div>
-              <button 
-                onClick={() => setShowAlertModal(false)} 
-                className="text-slate-400 hover:text-white text-xl font-bold"
-              >
-                &times;
-              </button>
-            </div>
-            
-            <div className="p-6 max-h-[400px] overflow-y-auto space-y-3">
-              {alerts.length === 0 ? (
-                <p className="text-center text-slate-500 py-8">✅ Nenhum alerta de férias pendente no momento.</p>
-              ) : (
-                alerts.map((alert, idx) => (
-                  <div 
-                    key={idx} 
-                    className={`p-3 rounded-lg border flex gap-3 text-sm ${
-                      alert.gravidade === 'danger' 
-                        ? 'bg-rose-50 border-rose-200 text-rose-800' 
-                        : alert.gravidade === 'expired'
-                        ? 'bg-red-100 border-red-300 text-red-950 font-semibold'
-                        : 'bg-amber-50 border-amber-200 text-amber-800'
-                    }`}
-                  >
-                    <span className="text-lg">
-                      {alert.gravidade === 'danger' || alert.gravidade === 'expired' ? '🚨' : '⚠️'}
-                    </span>
-                    <div>
-                      <p>{alert.mensagem}</p>
-                    </div>
-                  </div>
-                ))
-              )}
-            </div>
-            
-            <div className="bg-slate-50 p-4 flex justify-end border-t border-slate-100">
-              <button 
-                onClick={() => setShowAlertModal(false)} 
-                className="px-4 py-2 bg-slate-900 text-white font-semibold rounded-lg text-sm hover:bg-slate-800 transition-all"
-              >
-                Fechar
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
     </div>
   );
 }
