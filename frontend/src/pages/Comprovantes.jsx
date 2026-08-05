@@ -130,6 +130,11 @@ function Comprovantes() {
         showToast('Nome, CNPJ e Data de Emissão são obrigatórios para Nota Fiscal.', 'error');
         return;
       }
+    } else if (tipoDocumento === 'Imposto') {
+      if (!formData.data_vencimento || !formData.descricao || !formData.valor_pago) {
+        showToast('Data de Vencimento, Descrição e Valor são obrigatórios.', 'error');
+        return;
+      }
     } else {
       if (!formData.data_pagamento || !formData.descricao || !formData.valor_pago) {
         showToast('Data de Pagamento, Descrição e Valor Pago são obrigatórios.', 'error');
@@ -217,7 +222,7 @@ function Comprovantes() {
     if (tipoFiltro && c.tipo_documento !== tipoFiltro) return false;
 
     // Filtragem por período
-    const itemDate = c.tipo_documento === 'Nota Fiscal' ? c.data_emissao : c.data_pagamento;
+    const itemDate = c.tipo_documento === 'Nota Fiscal' ? c.data_emissao : c.data_pagamento || c.data_vencimento;
     if (dataInicio && itemDate && itemDate < dataInicio) return false;
     if (dataFim && itemDate && itemDate > dataFim) return false;
     return true;
@@ -352,6 +357,7 @@ function Comprovantes() {
               <option value="Pix">Pix</option>
               <option value="Diversas">Diversas</option>
               <option value="Aluguel">Aluguel</option>
+              <option value="Imposto">Imposto</option>
             </select>
             <span className="text-xs font-bold text-slate-500 uppercase tracking-wider">Filtrar Período:</span>
           <div className="flex items-center gap-2">
@@ -399,12 +405,14 @@ function Comprovantes() {
         ) : (
           filteredComprovantes.map((c) => {
             const isNF = c.tipo_documento === 'Nota Fiscal';
+            const isImposto = c.tipo_documento === 'Imposto';
             
             const borderLeftColor = 
               c.tipo_documento === 'Nota Fiscal' ? 'border-l-blue-500' :
               c.tipo_documento === 'Boleto' ? 'border-l-amber-500' :
               c.tipo_documento === 'Pix' ? 'border-l-teal-500' :
               c.tipo_documento === 'Aluguel' ? 'border-l-purple-500' :
+              c.tipo_documento === 'Imposto' ? 'border-l-rose-500' :
               'border-l-slate-400';
 
             const badgeColor = 
@@ -412,6 +420,7 @@ function Comprovantes() {
               c.tipo_documento === 'Boleto' ? 'bg-amber-50 text-amber-700 border-amber-100' :
               c.tipo_documento === 'Pix' ? 'bg-teal-50 text-teal-700 border-teal-100' :
               c.tipo_documento === 'Aluguel' ? 'bg-purple-50 text-purple-700 border-purple-100' :
+              c.tipo_documento === 'Imposto' ? 'bg-rose-50 text-rose-700 border-rose-100' :
               'bg-slate-50 text-slate-700 border-slate-100';
 
             return (
@@ -488,8 +497,73 @@ function Comprovantes() {
                       <span className="font-extrabold text-primary-750 print:text-black">{formatCurrency(c.valor_liquido)}</span>
                     </div>
                   </div>
-                ) : (
-                  /* Grid de Campos Específicos para os Outros Tipos */
+                ) : isImposto ? (
+                  /* Grid de Campos para o Tipo: Imposto */
+                  <div className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-6 gap-x-4 gap-y-2 text-xs pt-2 border-t border-slate-50 print:gap-y-0.5 print:pt-1 print:text-[10px]">
+                    <div>
+                      <span className="block text-[9px] text-slate-400 font-bold uppercase tracking-wider">Data de Vencimento</span>
+                      <span className="font-semibold text-slate-750">{formatDate(c.data_vencimento)}</span>
+                    </div>
+                    <div className="sm:col-span-2 lg:col-span-3">
+                      <span className="block text-[9px] text-slate-400 font-bold uppercase tracking-wider">Descrição</span>
+                      <span className="font-semibold text-slate-750">{c.descricao || '-'}</span>
+                    </div>
+                    <div>
+                      <span className="block text-[9px] text-slate-400 font-bold uppercase tracking-wider">Data de Pagamento</span>
+                      <span className="font-semibold text-slate-750">{formatDate(c.data_pagamento)}</span>
+                    </div>
+                    <div className="bg-primary-50/20 px-2 py-0.5 rounded border border-primary-50 print:bg-transparent print:border-none print:px-0">
+                      <span className="block text-[9px] text-primary-600 font-bold uppercase tracking-wider print:text-slate-400">Valor</span>
+                      <span className="font-extrabold text-primary-750 print:text-black">{formatCurrency(c.valor_pago)}</span>
+                    </div>
+                  </div>
+) : tipoDocumento === 'Imposto' ? (
+                /* Formulário para o tipo Imposto */
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                  <div className="space-y-1.5">
+                    <label className="block text-xs font-bold text-slate-755">Data de Vencimento *</label>
+                    <input
+                      type="date"
+                      name="data_vencimento"
+                      value={formData.data_vencimento}
+                      onChange={handleInputChange}
+                      className="w-full px-3.5 py-2 border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-primary-500/20 focus:border-primary-500 text-sm font-semibold"
+                    />
+                  </div>
+                  <div className="space-y-1.5">
+                    <label className="block text-xs font-bold text-slate-755">Data de Pagamento</label>
+                    <input
+                      type="date"
+                      name="data_pagamento"
+                      value={formData.data_pagamento}
+                      onChange={handleInputChange}
+                      className="w-full px-3.5 py-2 border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-primary-500/20 focus:border-primary-500 text-sm font-semibold"
+                    />
+                  </div>
+                  <div className="space-y-1.5 sm:col-span-2">
+                    <label className="block text-xs font-bold text-slate-755">Descrição *</label>
+                    <input
+                      type="text"
+                      name="descricao"
+                      value={formData.descricao}
+                      onChange={handleInputChange}
+                      placeholder="Ex: INSS, ISS, Imposto de Renda, PIS/COFINS..."
+                      className="w-full px-3.5 py-2 border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-primary-500/20 focus:border-primary-500 text-sm font-semibold"
+                    />
+                  </div>
+                  <div className="space-y-1.5 sm:col-span-2">
+                    <label className="block text-xs font-bold text-slate-755">Valor *</label>
+                    <input
+                      type="number"
+                      step="0.01"
+                      name="valor_pago"
+                      value={formData.valor_pago}
+                      onChange={handleInputChange}
+                      className="w-full px-3.5 py-2 border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-primary-500/20 focus:border-primary-500 text-sm font-bold text-primary-750"
+                    />
+                  </div>
+                </div>
+              ) : (
                   <div className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-6 gap-x-4 gap-y-2 text-xs pt-2 border-t border-slate-50 print:gap-y-0.5 print:pt-1 print:text-[10px]">
                     <div>
                       <span className="block text-[9px] text-slate-400 font-bold uppercase tracking-wider">Vencimento</span>
@@ -549,6 +623,18 @@ function Comprovantes() {
                 <span className="font-extrabold text-primary-750 print:text-black">{formatCurrency(totaisTipo.valor_liquido)}</span>
               </div>
             </div>
+          ) : tipoFiltro === 'Imposto' ? (
+            <div className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-6 gap-x-4 gap-y-2 text-xs">
+              <div className="hidden lg:block"></div>
+              <div className="hidden lg:block"></div>
+              <div className="hidden lg:block"></div>
+              <div className="hidden lg:block"></div>
+              <div className="bg-primary-50/20 px-2 py-0.5 rounded border border-primary-50 print:bg-transparent print:border-none print:px-0">
+                <span className="block text-[9px] text-primary-600 font-bold uppercase tracking-wider print:text-slate-400">Total Valor</span>
+                <span className="font-extrabold text-primary-750 print:text-black">{formatCurrency(totaisTipo.valor_pago)}</span>
+              </div>
+              <div className="hidden lg:block"></div>
+            </div>
           ) : (
             <div className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-6 gap-x-4 gap-y-2 text-xs">
               <div className="hidden lg:block"></div>
@@ -602,6 +688,7 @@ function Comprovantes() {
                       'Pix': 'pix',
                       'Diversas': 'boleto',
                       'Aluguel': 'boleto',
+                      'Imposto': 'boleto',
                     };
                     setFormData(prev => ({ ...prev, forma_pagamento: formaPorTipo[tipo] || 'boleto' }));
                   }}
@@ -612,6 +699,7 @@ function Comprovantes() {
                   <option value="Pix">Pix</option>
                   <option value="Diversas">Diversas</option>
                   <option value="Aluguel">Aluguel</option>
+                  <option value="Imposto">Imposto</option>
                 </select>
               </div>
 

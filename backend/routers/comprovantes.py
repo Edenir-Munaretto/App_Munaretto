@@ -6,7 +6,7 @@ from supabase_client import get_supabase
 router = APIRouter()
 
 class ComprovanteCreate(BaseModel):
-    tipo_documento: str = Field(..., description="Tipo do documento: Nota Fiscal, Boleto, Pix, Diversas, Aluguel")
+    tipo_documento: str = Field(..., description="Tipo do documento: Nota Fiscal, Boleto, Pix, Diversas, Aluguel, Imposto")
     
     # Campos Nota Fiscal
     numero_nf: Optional[str] = None
