@@ -1,13 +1,11 @@
 services:
   - type: web
     name: app-munaretto
-    env: python
+    # Usa Docker para que o LibreOffice seja instalado via Dockerfile
+    env: docker
+    dockerfilePath: ./backend/Dockerfile
+    dockerContext: ./backend
     region: oregon
-    # Instala o LibreOffice antes de instalar as dependências Python,
-    # necessário para a conversão de DOCX → PDF no módulo de documentos.
-    buildCommand: apt-get update && apt-get install -y --no-install-recommends libreoffice-writer fonts-dejavu-core fonts-liberation && pip install -r backend/requirements.txt
-    startCommand: cd backend && uvicorn main:app --host 0.0.0.0 --port $PORT
-    rootDir: .
     envVars:
       - key: PYTHONUNBUFFERED
         value: "1"
