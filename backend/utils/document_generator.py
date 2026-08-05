@@ -88,12 +88,19 @@ def convert_docx_to_pdf(docx_path: str, out_dir: str) -> str:
     # ── Método 2: LibreOffice headless ────────────────────────────────────────
     libreoffice_bin = shutil.which("libreoffice") or shutil.which("soffice")
 
-    if not libreoffice_bin and os.name == "nt":
-        windows_paths = [
+    if not libreoffice_bin:
+        # Caminhos padrão Windows
+        candidate_paths = [
             r"C:\Program Files\LibreOffice\program\soffice.exe",
             r"C:\Program Files (x86)\LibreOffice\program\soffice.exe",
+            # Caminhos padrão Linux/Debian (Render, Docker, Ubuntu)
+            "/usr/bin/soffice",
+            "/usr/bin/libreoffice",
+            "/usr/lib/libreoffice/program/soffice",
+            "/opt/libreoffice/program/soffice",
+            "/snap/bin/libreoffice",
         ]
-        for path in windows_paths:
+        for path in candidate_paths:
             if os.path.exists(path):
                 libreoffice_bin = path
                 break
