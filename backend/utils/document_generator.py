@@ -51,19 +51,44 @@ def criar_contexto_cliente(cliente: dict) -> dict:
     }
 
 def convert_docx_to_pdf(docx_path: str, out_dir: str) -> str:
-    """Converte arquivo DOCX para PDF usando LibreOffice Headless ou Word COM (Windows).
-    
+    """Converte arquivo DOCX para PDF.
+
+    Tenta os seguintes métodos em ordem:
+    1. docx2pdf (usa Word COM — requer Word instalado no Windows)
+    2. LibreOffice headless (requer LibreOffice instalado)
+    3. win32com direto (fallback manual)
+
     Lança RuntimeError com mensagem descritiva se a conversão falhar.
     """
     pdf_name = os.path.splitext(os.path.basename(docx_path))[0] + ".pdf"
     pdf_path_esperado = os.path.join(out_dir, pdf_name)
     erros = []
 
-    # 1. Procura por libreoffice no PATH (Linux / Mac / Windows configurado)
+    # ── Método 1: docx2pdf (Windows com Word instalado) ──────────────────────
+    try:
+        from docx2pdf import convert as docx2pdf_convert
+        logger.info("Convertendo DOCX→PDF via docx2pdf...")
+        docx2pdf_convert(docx_path, pdf_path_esperado)
+        if os.path.exists(pdf_path_esperado):
+            logger.info("PDF gerado com sucesso via docx2pdf: %s", pdf_path_esperado)
+            return pdf_path_esperado
+        else:
+            msg = "docx2pdf executou sem erro mas o PDF não foi criado."
+            logger.warning(msg)
+            erros.append(msg)
+    except ImportError:
+        msg = "docx2pdf não instalado. Execute: pip install docx2pdf"
+        logger.warning(msg)
+        erros.append(msg)
+    except Exception as exc:
+        msg = f"Erro ao converter via docx2pdf: {exc}"
+        logger.warning(msg)
+        erros.append(msg)
+
+    # ── Método 2: LibreOffice headless ────────────────────────────────────────
     libreoffice_bin = shutil.which("libreoffice") or shutil.which("soffice")
 
-    # 2. Tenta caminhos padrão no Windows se não estiver no PATH
-    if not libreoffice_bin and os.name == 'nt':
+    if not libreoffice_bin and os.name == "nt":
         windows_paths = [
             r"C:\Program Files\LibreOffice\program\soffice.exe",
             r"C:\Program Files (x86)\LibreOffice\program\soffice.exe",
@@ -77,31 +102,21 @@ def convert_docx_to_pdf(docx_path: str, out_dir: str) -> str:
         logger.info("Convertendo DOCX→PDF via LibreOffice: %s", libreoffice_bin)
         try:
             result = subprocess.run(
-                [
-                    libreoffice_bin,
-                    "--headless",
-                    "--convert-to",
-                    "pdf",
-                    "--outdir",
-                    out_dir,
-                    docx_path,
-                ],
+                [libreoffice_bin, "--headless", "--convert-to", "pdf", "--outdir", out_dir, docx_path],
                 stdout=subprocess.PIPE,
                 stderr=subprocess.PIPE,
                 timeout=60,
             )
             stdout = result.stdout.decode("utf-8", errors="ignore")
             stderr = result.stderr.decode("utf-8", errors="ignore")
-            logger.debug("LibreOffice stdout: %s", stdout)
             if result.returncode != 0:
                 logger.warning("LibreOffice retornou código %d. stderr: %s", result.returncode, stderr)
                 erros.append(f"LibreOffice (código {result.returncode}): {stderr.strip() or stdout.strip()}")
-            # Verifica se o PDF foi gerado mesmo com returncode != 0 (comportamento comum do LO)
             if os.path.exists(pdf_path_esperado):
                 logger.info("PDF gerado com sucesso via LibreOffice: %s", pdf_path_esperado)
                 return pdf_path_esperado
             else:
-                msg = f"LibreOffice executou mas o PDF não foi criado em '{pdf_path_esperado}'. {stderr.strip()}"
+                msg = f"LibreOffice executou mas o PDF não foi criado. {stderr.strip()}"
                 logger.error(msg)
                 erros.append(msg)
         except subprocess.TimeoutExpired:
@@ -113,12 +128,10 @@ def convert_docx_to_pdf(docx_path: str, out_dir: str) -> str:
             logger.exception(msg)
             erros.append(msg)
     else:
-        msg = "LibreOffice não encontrado no PATH nem nos caminhos padrão do Windows."
-        logger.warning(msg)
-        erros.append(msg)
+        erros.append("LibreOffice não encontrado no PATH nem nos caminhos padrão do Windows.")
 
-    # 3. Fallback: Automação COM do Word (Apenas Windows)
-    if os.name == 'nt':
+    # ── Método 3: win32com direto (fallback) ──────────────────────────────────
+    if os.name == "nt":
         logger.info("Tentando fallback via Word COM (pywin32)...")
         try:
             import pythoncom
@@ -144,16 +157,14 @@ def convert_docx_to_pdf(docx_path: str, out_dir: str) -> str:
                 word.Quit()
                 pythoncom.CoUninitialize()
         except ImportError:
-            msg = "pywin32 não instalado. Instale com: pip install pywin32"
-            logger.warning(msg)
-            erros.append(msg)
+            erros.append("pywin32 não instalado. Execute: pip install pywin32")
         except Exception as exc:
             msg = f"Erro no fallback Word COM: {exc}"
             logger.exception(msg)
             erros.append(msg)
 
-    # Nenhum método funcionou — lança exceção com todos os detalhes
-    detalhe = " | ".join(erros) if erros else "Nenhum conversor disponível (LibreOffice ou pywin32)."
+    # Nenhum método funcionou
+    detalhe = " | ".join(erros) if erros else "Nenhum conversor disponível (docx2pdf, LibreOffice ou pywin32)."
     raise RuntimeError(f"Falha ao converter DOCX para PDF. Detalhes: {detalhe}")
 
 def preencher_word(cliente: dict, template_name: str, out_dir: str) -> str:
