@@ -1,4 +1,4 @@
-export const API_URL = import.meta.env.VITE_API_URL || 'https://app-munaretto.onrender.com/api';
+export const API_URL = import.meta.env.VITE_API_URL || 'https://app-munaretto-1.onrender.com/api';
 
 const TOKEN_KEY = 'munaretto_token';
 
