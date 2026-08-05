@@ -144,10 +144,15 @@ def gerar_documento(
             if not caminho_word:
                 raise HTTPException(status_code=404, detail="Template do Word correspondente não encontrado para conversão.")
             
-            caminho_gerado = convert_docx_to_pdf(caminho_word, temp_dir)
-            # Remove o Word temporário
-            if os.path.exists(caminho_word):
-                os.remove(caminho_word)
+            try:
+                caminho_gerado = convert_docx_to_pdf(caminho_word, temp_dir)
+            except RuntimeError as conv_err:
+                logger.error("Falha na conversão para PDF: %s", conv_err)
+                raise HTTPException(status_code=500, detail=str(conv_err))
+            finally:
+                # Remove o Word temporário independente do resultado
+                if os.path.exists(caminho_word):
+                    os.remove(caminho_word)
                 
             media_type = "application/pdf"
         else:
