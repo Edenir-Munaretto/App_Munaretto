@@ -10,8 +10,9 @@ python-multipart>=0.0.6
 num2words
 PyJWT>=2.8.0
 # Conversão DOCX→PDF no Windows (requer Microsoft Word instalado)
-docx2pdf>=0.1.8
-pywin32>=306
+# pywin32 é Windows-only; no Linux (Docker/Render) o LibreOffice faz a conversão
+docx2pdf>=0.1.8; platform_system == "Windows"
+pywin32>=306; platform_system == "Windows"
 
 # Testes
 pytest>=7.0.0
