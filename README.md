@@ -148,6 +148,38 @@ App_Munaretto/
 └── backups/                  # Backups em JSON (criado automaticamente)
 ```
 
+## 🌐 Versão Web (FastAPI + React)
+
+O projeto também possui uma versão web com autenticação JWT, em `backend/` (API FastAPI) e `frontend/` (React/Vite).
+
+### Configuração do backend
+
+1. Copie o exemplo de configuração e preencha os valores:
+
+   ```bash
+   cd backend
+   cp .env.example .env
+   ```
+
+2. Variáveis de ambiente documentadas em `backend/.env.example`:
+
+   | Variável | Descrição | Obrigatória |
+   |----------|-----------|-------------|
+   | `SUPABASE_URL` | URL do projeto Supabase | Sim |
+   | `SUPABASE_KEY` | Chave de API do Supabase | Sim |
+   | `JWT_SECRET` | Secret para assinar tokens (gere com `secrets.token_hex(32)`) | Sim |
+   | `JWT_VALIDADE_MINUTOS` | Validade do token em minutos (padrão 480) | Não |
+   | `CORS_ORIGINS` | Origens permitidas separadas por vírgula (nunca `*` em produção) | Não |
+
+3. Instale as dependências e rode:
+
+   ```bash
+   pip install -r requirements.txt
+   uvicorn main:app --reload
+   ```
+
+> **Exigência de produção:** a API deve ser servida via HTTPS/TLS (ex: nginx + Let's Encrypt ou plataforma como Railway/Render). Nunca exponha o serviço sem TLS, pois o token JWT trafega no cabeçalho `Authorization`.
+
 ## 🎯 Próximas Funcionalidades
 
 - [ ] Interface gráfica (Tkinter/PyQt)

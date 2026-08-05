@@ -5,10 +5,11 @@ import logging
 from fastapi import APIRouter, HTTPException, Query, Depends
 from pydantic import BaseModel, Field
 from supabase_client import get_supabase
+from auth import get_current_user, UsuarioAutenticado
 
 logger = logging.getLogger(__name__)
 
-router = APIRouter()
+router = APIRouter(dependencies=[Depends(get_current_user)])
 
 
 class NotificacaoCreate(BaseModel):
@@ -118,55 +119,57 @@ def _gerar_lembretes_ferias(db) -> None:
 
 @router.get("/", response_model=List[NotificacaoResponse])
 def listar_notificacoes(
-    destinatario: Optional[str] = Query(None, description="Filtra pelos e-mails destinatários"),
     lida: Optional[bool] = Query(None, description="Filtra por lida/não lida"),
+    usuario: UsuarioAutenticado = Depends(get_current_user),
     db = Depends(get_supabase),
 ):
-    """Lista notificações. Pode filtrar por destinatário e estado de leitura."""
+    """Lista apenas as notificações do usuário autenticado (e-mail derivado do token)."""
     try:
         _gerar_lembretes_ferias(db)
         query = db.table("notificacoes").select("*").order("created_at", desc=True)
 
-        if destinatario:
-            query = query.eq("destinatario", destinatario)
+        # Escopo obrigatório: ignora qualquer destinatário enviado pelo cliente
+        query = query.eq("destinatario", usuario.email)
         if lida is not None:
             query = query.eq("lida", lida)
 
         response = query.execute()
         return response.data
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Erro ao listar notificações: {str(e)}")
-
-
+        logger.exception("Erro ao listar notificações")
+        raise HTTPException(status_code=500, detail="Erro ao listar notificações")
 @router.post("/", response_model=NotificacaoResponse, status_code=201)
-def criar_notificacao(notificacao: NotificacaoCreate, db = Depends(get_supabase)):
-    """Cria uma nova notificação no sistema."""
+def criar_notificacao(notificacao: NotificacaoCreate, usuario: UsuarioAutenticado = Depends(get_current_user), db = Depends(get_supabase)):
+    """Cria uma notificação para o próprio usuário autenticado (destinatário vem do token)."""
     try:
-        response = db.table("notificacoes").insert(notificacao.model_dump()).execute()
+        payload = notificacao.model_dump()
+        payload["destinatario"] = usuario.email
+        response = db.table("notificacoes").insert(payload).execute()
         if not response.data:
             raise HTTPException(status_code=500, detail="Falha ao criar notificação.")
         return response.data[0]
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Erro ao criar notificação: {str(e)}")
-
-
+        logger.exception("Erro ao criar notificação")
+        raise HTTPException(status_code=500, detail="Erro ao criar notificação")
 @router.patch("/{notificacao_id}/lida")
-def marcar_lida(notificacao_id: int, db = Depends(get_supabase)):
-    """Marca uma notificação como lida."""
+def marcar_lida(notificacao_id: int, usuario: UsuarioAutenticado = Depends(get_current_user), db = Depends(get_supabase)):
+    """Marca uma notificação do usuário autenticado como lida."""
     try:
-        response = db.table("notificacoes").update({"lida": True}).eq("id", notificacao_id).execute()
+        response = db.table("notificacoes").update({"lida": True}).eq("id", notificacao_id).eq("destinatario", usuario.email).execute()
         if not response.data:
             raise HTTPException(status_code=404, detail="Notificação não encontrada.")
         return {"success": True, "id": notificacao_id}
+    except HTTPException:
+        raise
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Erro ao marcar notificação como lida: {str(e)}")
-
-
+        logger.exception("Erro ao marcar notificação como lida")
+        raise HTTPException(status_code=500, detail="Erro ao marcar notificação como lida")
 @router.post("/marcar-todas-lidas")
-def marcar_todas_lidas(destinatario: str = Query(...), db = Depends(get_supabase)):
-    """Marca todas as notificações de um destinatário como lidas."""
+def marcar_todas_lidas(usuario: UsuarioAutenticado = Depends(get_current_user), db = Depends(get_supabase)):
+    """Marca todas as notificações do usuário autenticado como lidas."""
     try:
-        db.table("notificacoes").update({"lida": True}).eq("destinatario", destinatario).eq("lida", False).execute()
+        db.table("notificacoes").update({"lida": True}).eq("destinatario", usuario.email).eq("lida", False).execute()
         return {"success": True}
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Erro ao marcar notificações como lidas: {str(e)}")
+        logger.exception("Erro ao marcar notificações como lidas")
+        raise HTTPException(status_code=500, detail="Erro ao marcar notificações como lidas")

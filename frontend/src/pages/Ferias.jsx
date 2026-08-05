@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { Calendar, Search, Trash2, ShieldAlert, Plus, Check, X, AlertTriangle, Clock } from 'lucide-react';
-import { API_URL } from '../App';
+import { API_URL, apiFetch } from '../api';
 
 function Ferias({ fetchAlerts, fetchNotifications, usuarioAtual }) {
   const [records, setRecords] = useState([]);
@@ -47,7 +47,7 @@ function Ferias({ fetchAlerts, fetchNotifications, usuarioAtual }) {
   useEffect(() => {
     const fetchFuncionarios = async () => {
       try {
-        const res = await fetch(`${API_URL}/funcionarios/`);
+        const res = await apiFetch(`${API_URL}/funcionarios/`);
         if (res.ok) {
           const data = await res.json();
           setFuncionarios(data);
@@ -72,7 +72,7 @@ function Ferias({ fetchAlerts, fetchNotifications, usuarioAtual }) {
       if (proximoMes) queryParams.push(`proximo_mes=true`);
       
       const queryStr = queryParams.length > 0 ? `?${queryParams.join('&')}` : '';
-      const res = await fetch(`${API_URL}/ferias/${queryStr}`);
+      const res = await apiFetch(`${API_URL}/ferias/${queryStr}`);
       if (res.ok) {
         const data = await res.json();
         setRecords(data);
@@ -109,7 +109,7 @@ function Ferias({ fetchAlerts, fetchNotifications, usuarioAtual }) {
       if (payload.dias_gozo === '') {
         delete payload.dias_gozo;
       }
-      const res = await fetch(`${API_URL}/ferias/`, {
+      const res = await apiFetch(`${API_URL}/ferias/`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(payload)
@@ -145,7 +145,7 @@ function Ferias({ fetchAlerts, fetchNotifications, usuarioAtual }) {
     if (!window.confirm(`Deseja realmente deletar o agendamento de férias de "${nome}"?`)) return;
 
     try {
-      const res = await fetch(`${API_URL}/ferias/${id}`, { method: 'DELETE' });
+      const res = await apiFetch(`${API_URL}/ferias/${id}`, { method: 'DELETE' });
       if (res.ok) {
         showToast('Agendamento excluído com sucesso.');
         fetchRecords();
@@ -161,7 +161,7 @@ function Ferias({ fetchAlerts, fetchNotifications, usuarioAtual }) {
 
   const handleStatusChange = async (id, novoStatus) => {
     try {
-      const res = await fetch(`${API_URL}/ferias/${id}/status?status=${novoStatus}`, { method: 'PATCH' });
+      const res = await apiFetch(`${API_URL}/ferias/${id}/status?status=${novoStatus}`, { method: 'PATCH' });
       if (res.ok) {
         showToast(`Status atualizado para ${novoStatus}.`);
         fetchRecords();

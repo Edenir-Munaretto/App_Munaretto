@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { Search, Plus, Edit2, Trash2, X, Check, AlertTriangle, Users, Briefcase } from 'lucide-react';
-import { API_URL } from '../App';
+import { API_URL, apiFetch } from '../api';
 
 function Clientes() {
   const [tab, setTab] = useState('clientes');
@@ -48,7 +48,7 @@ function Clientes() {
     try {
       setLoading(true);
       const url = busca ? `${API_URL}/clientes/?busca=${encodeURIComponent(busca)}` : `${API_URL}/clientes/`;
-      const res = await fetch(url);
+      const res = await apiFetch(url);
       if (res.ok) {
         const data = await res.json();
         setClientes(data);
@@ -107,7 +107,7 @@ function Clientes() {
       const method = editingId ? 'PUT' : 'POST';
       const url = editingId ? `${API_URL}/clientes/${editingId}` : `${API_URL}/clientes/`;
       
-      const res = await fetch(url, {
+      const res = await apiFetch(url, {
         method,
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(formData)
@@ -132,7 +132,7 @@ function Clientes() {
     if (!window.confirm(`Tem certeza que deseja inativar o cliente "${nome}"?`)) return;
 
     try {
-      const res = await fetch(`${API_URL}/clientes/${id}`, { method: 'DELETE' });
+      const res = await apiFetch(`${API_URL}/clientes/${id}`, { method: 'DELETE' });
       if (res.ok) {
         showToast('Cliente excluído com sucesso.');
         fetchClientes();
@@ -150,7 +150,7 @@ function Clientes() {
     try {
       setFuncLoading(true);
       const url = funcBusca ? `${API_URL}/funcionarios/?busca=${encodeURIComponent(funcBusca)}` : `${API_URL}/funcionarios/`;
-      const res = await fetch(url);
+      const res = await apiFetch(url);
       if (res.ok) {
         const data = await res.json();
         setFuncionarios(data);
@@ -191,7 +191,7 @@ function Clientes() {
       const method = funcEditingId ? 'PUT' : 'POST';
       const url = funcEditingId ? `${API_URL}/funcionarios/${funcEditingId}` : `${API_URL}/funcionarios/`;
 
-      const res = await fetch(url, {
+      const res = await apiFetch(url, {
         method,
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(funcForm)
@@ -216,7 +216,7 @@ function Clientes() {
     if (!window.confirm(`Tem certeza que deseja inativar o funcionário "${nome}"?`)) return;
 
     try {
-      const res = await fetch(`${API_URL}/funcionarios/${id}`, { method: 'DELETE' });
+      const res = await apiFetch(`${API_URL}/funcionarios/${id}`, { method: 'DELETE' });
       if (res.ok) {
         showToast('Funcionário excluído com sucesso.');
         fetchFuncionarios();

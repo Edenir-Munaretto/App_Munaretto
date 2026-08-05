@@ -1,3 +1,4 @@
+import logging
 from fastapi import APIRouter, HTTPException, Query, Depends
 from fastapi.responses import FileResponse
 from pydantic import BaseModel, Field
@@ -5,8 +6,11 @@ from typing import List, Optional
 import os
 from supabase_client import get_supabase
 from utils.pdf_generator import gerar_pdf_mensal, gerar_pdf_socio_especifico
+from auth import get_current_user, require_permisao
 
-router = APIRouter()
+router = APIRouter(dependencies=[Depends(require_permisao("fluxo"))])
+
+logger = logging.getLogger(__name__)
 
 class FluxoCaixaCreate(BaseModel):
     mes_referencia: str = Field(..., description="Mês de referência (ex: Janeiro/2026 ou 2026-01)")
@@ -36,8 +40,8 @@ def listar_fluxos(db = Depends(get_supabase)):
         response = db.table("fluxo_caixa").select("*").order("data_registro", desc=True).execute()
         return response.data
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Erro ao buscar fluxo de caixa: {str(e)}")
-
+        logger.exception("Erro ao buscar fluxo de caixa")
+        raise HTTPException(status_code=500, detail="Erro ao buscar fluxo de caixa")
 @router.get("/{fluxo_id}", response_model=FluxoCaixaResponse)
 def buscar_fluxo(fluxo_id: int, db = Depends(get_supabase)):
     """Busca um registro específico de fluxo de caixa pelo ID."""
@@ -49,8 +53,8 @@ def buscar_fluxo(fluxo_id: int, db = Depends(get_supabase)):
     except HTTPException:
         raise
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Erro ao buscar fluxo de caixa: {str(e)}")
-
+        logger.exception("Erro ao buscar fluxo de caixa")
+        raise HTTPException(status_code=500, detail="Erro ao buscar fluxo de caixa")
 @router.post("/", response_model=FluxoCaixaResponse, status_code=201)
 def criar_fluxo(fluxo: FluxoCaixaCreate, db = Depends(get_supabase)):
     """Salva um novo fechamento de fluxo de caixa calculando automaticamente o total líquido."""
@@ -72,8 +76,8 @@ def criar_fluxo(fluxo: FluxoCaixaCreate, db = Depends(get_supabase)):
             
         return response.data[0]
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Erro ao salvar fluxo de caixa: {str(e)}")
-
+        logger.exception("Erro ao salvar fluxo de caixa")
+        raise HTTPException(status_code=500, detail="Erro ao salvar fluxo de caixa")
 @router.put("/{fluxo_id}", response_model=FluxoCaixaResponse)
 def atualizar_fluxo(fluxo_id: int, fluxo: FluxoCaixaCreate, db = Depends(get_supabase)):
     """Atualiza um fechamento financeiro existente e recalcula o total líquido."""
@@ -101,8 +105,8 @@ def atualizar_fluxo(fluxo_id: int, fluxo: FluxoCaixaCreate, db = Depends(get_sup
     except HTTPException:
         raise
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Erro ao atualizar fluxo de caixa: {str(e)}")
-
+        logger.exception("Erro ao atualizar fluxo de caixa")
+        raise HTTPException(status_code=500, detail="Erro ao atualizar fluxo de caixa")
 @router.delete("/{fluxo_id}")
 def excluir_fluxo(fluxo_id: int, db = Depends(get_supabase)):
     """Exclui um fechamento de fluxo de caixa pelo ID."""
@@ -112,8 +116,8 @@ def excluir_fluxo(fluxo_id: int, db = Depends(get_supabase)):
             raise HTTPException(status_code=404, detail="Fechamento financeiro não encontrado.")
         return {"success": True, "message": "Fechamento de fluxo de caixa excluído com sucesso."}
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Erro ao excluir fluxo de caixa: {str(e)}")
-
+        logger.exception("Erro ao excluir fluxo de caixa")
+        raise HTTPException(status_code=500, detail="Erro ao excluir fluxo de caixa")
 @router.get("/{fluxo_id}/relatorio")
 def obter_relatorio_pdf(
     fluxo_id: int,
@@ -170,4 +174,5 @@ def obter_relatorio_pdf(
     except HTTPException:
         raise
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Erro ao gerar relatório do fluxo: {str(e)}")
+        logger.exception("Erro ao gerar relatório do fluxo")
+        raise HTTPException(status_code=500, detail="Erro ao gerar relatório do fluxo")

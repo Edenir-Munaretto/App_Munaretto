@@ -25,8 +25,7 @@ import Recebimentos from './pages/Recebimentos';
 import Configuracoes from './pages/Configuracoes';
 import Login from './pages/Login';
 import { MODULOS } from './modules';
-
-export const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:8000/api';
+import { API_URL, apiFetch, getToken, setToken, clearToken } from './api';
 
 const ICONES = {
   dashboard: LayoutDashboard,
@@ -63,6 +62,18 @@ function App() {
       return null;
     }
   });
+  const [sessaoExpirada, setSessaoExpirada] = useState(false);
+
+  // Encerra a sessão automaticamente quando o token expira (401)
+  useEffect(() => {
+    const handleUnauthorized = () => {
+      setSessaoExpirada(true);
+      setUsuario(null);
+      setActiveTab('dashboard');
+    };
+    window.addEventListener('auth:unauthorized', handleUnauthorized);
+    return () => window.removeEventListener('auth:unauthorized', handleUnauthorized);
+  }, []);
 
   // Busca alertas de férias ao carregar
   useEffect(() => {
@@ -73,7 +84,7 @@ function App() {
 
   const fetchAlerts = async () => {
     try {
-      const res = await fetch(`${API_URL}/ferias/alertas`);
+      const res = await apiFetch(`${API_URL}/ferias/alertas`);
       if (res.ok) {
         const data = await res.json();
         setAlerts(data);
@@ -86,7 +97,7 @@ function App() {
   const fetchNotifications = useCallback(async () => {
     if (!usuario?.email) return;
     try {
-      const res = await fetch(`${API_URL}/notificacoes/?destinatario=${encodeURIComponent(usuario.email)}`);
+      const res = await apiFetch(`${API_URL}/notificacoes/?destinatario=${encodeURIComponent(usuario.email)}`);
       if (res.ok) {
         const data = await res.json();
         setNotificacoes(data);
@@ -106,7 +117,7 @@ function App() {
 
   const marcarNotifLida = async (id) => {
     try {
-      await fetch(`${API_URL}/notificacoes/${id}/lida`, { method: 'PATCH' });
+      await apiFetch(`${API_URL}/notificacoes/${id}/lida`, { method: 'PATCH' });
       fetchNotifications();
     } catch (err) {
       console.error('Erro ao marcar notificação como lida:', err);
@@ -116,7 +127,7 @@ function App() {
   const marcarTodasNotifLidas = async () => {
     if (!usuario?.email) return;
     try {
-      await fetch(`${API_URL}/notificacoes/marcar-todas-lidas?destinatario=${encodeURIComponent(usuario.email)}`, { method: 'POST' });
+      await apiFetch(`${API_URL}/notificacoes/marcar-todas-lidas?destinatario=${encodeURIComponent(usuario.email)}`, { method: 'POST' });
       fetchNotifications();
     } catch (err) {
       console.error('Erro ao marcar notificações como lidas:', err);
@@ -148,31 +159,63 @@ function App() {
   const totalSinos = notificacoesNaoLidas + alerts.length;
 
   const handleLogin = (user) => {
-    localStorage.setItem('munaretto_usuario', JSON.stringify(user));
-    setUsuario(user);
+    if (user?.token) setToken(user.token);
+    const { token, ...dadosUsuario } = user || {};
+    localStorage.setItem('munaretto_usuario', JSON.stringify(dadosUsuario));
+    setUsuario(dadosUsuario);
+    setSessaoExpirada(false);
     setActiveTab('dashboard');
   };
 
   const handleLogout = () => {
+    clearToken();
     localStorage.removeItem('munaretto_usuario');
     setUsuario(null);
     setActiveTab('dashboard');
   };
 
-  const tabs = MODULOS
-    .filter(m => (usuario?.permissoes || []).includes(m.id))
-    .map(m => ({
-      id: m.id,
-      label: m.label,
-      icon: ICONES[m.id] || FileText,
-      component: COMPONENTES[m.id] || Dashboard
-    }));
+  // O Dashboard não é um módulo validado no backend; ele agrega dados de clientes,
+  // férias e usinas. Só é exibido se o usuário tiver acesso a pelo menos um deles.
+  const permissoes = usuario?.permissoes || [];
+  const modulosDoDashboard = ['clientes', 'ferias', 'fluxo'];
+  const podeDashboard = modulosDoDashboard.some((m) => permissoes.includes(m));
 
-  const ActiveComponent = tabs.find(t => t.id === activeTab)?.component || (tabs[0]?.component || Dashboard);
+  const tabs = [
+    ...(podeDashboard ? [{ id: 'dashboard', label: 'Dashboard', icon: LayoutDashboard, component: Dashboard }] : []),
+    ...MODULOS
+      .filter(m => permissoes.includes(m.id))
+      .map(m => ({
+        id: m.id,
+        label: m.label,
+        icon: ICONES[m.id] || FileText,
+        component: COMPONENTES[m.id] || Dashboard
+      }))
+  ];
 
-  if (!usuario) {
-    return <Login onLogin={handleLogin} />;
+  if (!usuario || !getToken()) {
+    return <Login onLogin={handleLogin} mensagemExpirada={sessaoExpirada} />;
   }
+
+  if (tabs.length === 0) {
+    return (
+      <div className="flex h-screen items-center justify-center bg-slate-50 p-6">
+        <div className="bg-white rounded-2xl shadow-lg p-8 max-w-sm text-center border border-slate-200">
+          <p className="text-lg font-bold text-slate-800">Sem permissões de acesso</p>
+          <p className="text-sm text-slate-500 mt-2">
+            Seu usuário não possui módulos liberados. Fale com o administrador.
+          </p>
+          <button
+            onClick={handleLogout}
+            className="mt-6 px-4 py-2 rounded-lg bg-slate-900 text-white text-sm font-semibold hover:bg-slate-700"
+          >
+            Sair
+          </button>
+        </div>
+      </div>
+    );
+  }
+
+  const ActiveComponent = tabs.find(t => t.id === activeTab)?.component || tabs[0].component;
 
   return (
     <div className="flex h-screen bg-slate-50 overflow-hidden">

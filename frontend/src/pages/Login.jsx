@@ -1,8 +1,8 @@
 import React, { useState } from 'react';
 import { LogIn, Lock, Mail, AlertTriangle } from 'lucide-react';
-import { API_URL } from '../App';
+import { API_URL, apiFetch } from '../api';
 
-function Login({ onLogin }) {
+function Login({ onLogin, mensagemExpirada = false }) {
   const [email, setEmail] = useState('');
   const [senha, setSenha] = useState('');
   const [loading, setLoading] = useState(false);
@@ -10,21 +10,47 @@ function Login({ onLogin }) {
 
   const handleSubmit = async (e) => {
     e.preventDefault();
-    setLoading(true);
     setErro('');
 
+    // Validações no cliente antes do envio
+    const emailLimpo = email.trim();
+    if (!emailLimpo) {
+      setErro('Informe seu e-mail.');
+      return;
+    }
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(emailLimpo)) {
+      setErro('Informe um e-mail válido.');
+      return;
+    }
+    if (!senha) {
+      setErro('Informe sua senha.');
+      return;
+    }
+    if (senha.length < 4) {
+      setErro('A senha deve ter pelo menos 4 caracteres.');
+      return;
+    }
+
+    setLoading(true);
+
     try {
-      const res = await fetch(`${API_URL}/usuarios/login`, {
+      const res = await apiFetch(`${API_URL}/usuarios/login`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ email, senha })
+        body: JSON.stringify({ email: emailLimpo, senha })
       });
-      const data = await res.json();
 
       if (res.ok) {
+        const data = await res.json();
         onLogin(data);
+      } else if (res.status === 401) {
+        setErro('E-mail ou senha incorretos.');
+      } else if (res.status === 403) {
+        setErro('Usuário inativo. Contate o administrador.');
+      } else if (res.status === 429) {
+        setErro('Muitas tentativas de login. Aguarde um pouco e tente novamente.');
       } else {
-        setErro(data.detail || 'Erro ao realizar login.');
+        setErro('Não foi possível entrar. Tente novamente mais tarde.');
       }
     } catch (err) {
       console.error(err);
@@ -51,6 +77,13 @@ function Login({ onLogin }) {
               <div className="p-3 rounded-xl bg-rose-50 border border-rose-200 text-rose-800 text-sm flex items-center gap-2">
                 <AlertTriangle size={16} />
                 {erro}
+              </div>
+            )}
+
+            {mensagemExpirada && (
+              <div className="p-3 rounded-xl bg-amber-50 border border-amber-200 text-amber-800 text-sm flex items-center gap-2">
+                <AlertTriangle size={16} />
+                Sua sessão expirou. Faça login novamente para continuar.
               </div>
             )}
 

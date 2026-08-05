@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { FileText, FileSpreadsheet, Plus, Upload, Check, AlertTriangle, Download, RefreshCw } from 'lucide-react';
-import { API_URL } from '../App';
+import { API_URL, apiFetch } from '../api';
 
 function GeradorDocumentos() {
   const [clientes, setClientes] = useState([]);
@@ -40,7 +40,7 @@ function GeradorDocumentos() {
 
   const fetchClientes = async () => {
     try {
-      const res = await fetch(`${API_URL}/clientes/`);
+      const res = await apiFetch(`${API_URL}/clientes/`);
       if (res.ok) {
         const data = await res.json();
         setClientes(data);
@@ -52,7 +52,7 @@ function GeradorDocumentos() {
 
   const fetchTemplates = async () => {
     try {
-      const res = await fetch(`${API_URL}/documentos/templates`);
+      const res = await apiFetch(`${API_URL}/documentos/templates`);
       if (res.ok) {
         const data = await res.json();
         setTemplates(data);
@@ -96,7 +96,7 @@ function GeradorDocumentos() {
       const formData = new FormData();
       formData.append('file', file);
 
-      const res = await fetch(`${API_URL}/documentos/templates/upload`, {
+      const res = await apiFetch(`${API_URL}/documentos/templates/upload`, {
         method: 'POST',
         body: formData
       });
@@ -134,7 +134,7 @@ function GeradorDocumentos() {
       formData.append('template_name', selectedTemplate);
       formData.append('formato', formato);
 
-      const res = await fetch(`${API_URL}/documentos/gerar`, {
+      const res = await apiFetch(`${API_URL}/documentos/gerar`, {
         method: 'POST',
         body: formData
       });

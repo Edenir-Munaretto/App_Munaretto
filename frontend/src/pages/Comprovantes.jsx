@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { FileText, Plus, Trash2, Edit2, Search, X, Check, AlertTriangle, DollarSign, Calendar, Printer } from 'lucide-react';
-import { API_URL } from '../App';
+import { API_URL, apiFetch } from '../api';
 
 function Comprovantes() {
   const [comprovantes, setComprovantes] = useState([]);
@@ -48,7 +48,7 @@ function Comprovantes() {
   const fetchComprovantes = async () => {
     try {
       setLoading(true);
-      const res = await fetch(`${API_URL}/comprovantes/`);
+      const res = await apiFetch(`${API_URL}/comprovantes/`);
       if (res.ok) {
         const data = await res.json();
         setComprovantes(data);
@@ -157,7 +157,7 @@ function Comprovantes() {
       const method = editingId ? 'PUT' : 'POST';
       const url = editingId ? `${API_URL}/comprovantes/${editingId}` : `${API_URL}/comprovantes/`;
 
-      const res = await fetch(url, {
+      const res = await apiFetch(url, {
         method,
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(payload)
@@ -181,7 +181,7 @@ function Comprovantes() {
     if (!window.confirm('Tem certeza que deseja excluir este lançamento?')) return;
 
     try {
-      const res = await fetch(`${API_URL}/comprovantes/${id}`, { method: 'DELETE' });
+      const res = await apiFetch(`${API_URL}/comprovantes/${id}`, { method: 'DELETE' });
       if (res.ok) {
         showToast('Lançamento excluído com sucesso.');
         fetchComprovantes();

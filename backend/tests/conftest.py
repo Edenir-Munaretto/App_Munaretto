@@ -1,0 +1,60 @@
+import os
+import sys
+
+import pytest
+from fastapi.testclient import TestClient
+
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
+
+from supabase_client import get_supabase  # noqa: E402
+from main import app  # noqa: E402
+from tests.supabase_fake import SupabaseFake  # noqa: E402
+
+
+def _montar_dados_banco():
+    return {
+        "usuarios": [
+            {
+                "id": 1,
+                "nome": "Administrador",
+                "email": "admin@munaretto.com",
+                "senha": "f3a1f7c47d63d1b8d3f5e67b7f9d2b3e$abcd" * 4,
+                "permissoes": [
+                    "dashboard", "clientes", "ferias", "fluxo",
+                    "documentos", "comprovantes", "recebimentos", "configuracoes",
+                ],
+                "ativo": True,
+                "precisa_trocar_senha": False,
+            }
+        ],
+        "clientes": [
+            {
+                "id": 1,
+                "nome": "Cliente Teste",
+                "cpf_cnpj": "12345678901",
+                "endereco": "Rua A, 100",
+                "ativo": True,
+                "data_cadastro": "2026-01-01T00:00:00Z",
+            }
+        ],
+        "notificacoes": [],
+    }
+
+
+@pytest.fixture
+def db_fake():
+    return SupabaseFake(_montar_dados_banco())
+
+
+@pytest.fixture
+def client(monkeypatch, db_fake):
+    monkeypatch.setenv("JWT_SECRET", "chave-de-teste-segura-12345678901234567890")
+    monkeypatch.setenv("SUPABASE_URL", "http://teste")
+    monkeypatch.setenv("SUPABASE_KEY", "chave")
+
+    def _get_supabase():
+        return db_fake
+
+    app.dependency_overrides[get_supabase] = _get_supabase
+    yield TestClient(app)
+    app.dependency_overrides.clear()

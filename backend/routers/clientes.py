@@ -1,9 +1,13 @@
+import logging
 from fastapi import APIRouter, HTTPException, Query, Depends
 from pydantic import BaseModel, Field
 from typing import List, Optional
 from supabase_client import get_supabase
+from auth import get_current_user, require_permisao
 
-router = APIRouter()
+router = APIRouter(dependencies=[Depends(require_permisao("clientes"))])
+
+logger = logging.getLogger(__name__)
 
 # Schema Pydantic para validação na criação de clientes
 class ClienteCreate(BaseModel):
@@ -28,17 +32,24 @@ def listar_clientes(
 ):
     """Lista todos os clientes ativos. Se um termo de busca for fornecido, filtra os resultados."""
     try:
-        query = db.table("clientes").select("*").eq("ativo", True)
-        
-        if busca:
-            # Filtra por nome ou cpf_cnpj que contenha o termo de busca (case-insensitive)
-            query = query.or_(f"nome.ilike.%{busca}%,cpf_cnpj.ilike.%{busca}%")
-            
-        response = query.order("nome").execute()
-        return response.data
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Erro ao buscar clientes: {str(e)}")
+        base = lambda: db.table("clientes").select("*").eq("ativo", True)
 
+        if busca:
+            # Busca segura por coluna (parametrizada); sem interpolação no filtro do PostgREST
+            consolidado = {}
+            for coluna in ("nome", "cpf_cnpj"):
+                resposta = base().ilike(coluna, f"%{busca}%").execute()
+                for linha in resposta.data:
+                    consolidado[linha["id"]] = linha
+            dados = list(consolidado.values())
+        else:
+            dados = base().execute().data
+
+        dados.sort(key=lambda x: str(x.get("nome", "")))
+        return dados
+    except Exception as e:
+        logger.exception("Erro ao buscar clientes")
+        raise HTTPException(status_code=500, detail="Erro ao buscar clientes")
 @router.get("/{cliente_id}", response_model=ClienteResponse)
 def buscar_cliente(cliente_id: int, db = Depends(get_supabase)):
     """Busca os detalhes de um cliente específico pelo ID."""
@@ -50,8 +61,8 @@ def buscar_cliente(cliente_id: int, db = Depends(get_supabase)):
     except HTTPException:
         raise
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Erro ao buscar cliente: {str(e)}")
-
+        logger.exception("Erro ao buscar cliente")
+        raise HTTPException(status_code=500, detail="Erro ao buscar cliente")
 @router.post("/", response_model=ClienteResponse, status_code=201)
 def cadastrar_cliente(cliente: ClienteCreate, db = Depends(get_supabase)):
     """Cadastra um novo cliente no sistema. Retorna erro se o CPF/CNPJ já existir."""
@@ -71,8 +82,8 @@ def cadastrar_cliente(cliente: ClienteCreate, db = Depends(get_supabase)):
     except HTTPException:
         raise
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Erro ao cadastrar cliente: {str(e)}")
-
+        logger.exception("Erro ao cadastrar cliente")
+        raise HTTPException(status_code=500, detail="Erro ao cadastrar cliente")
 @router.put("/{cliente_id}", response_model=ClienteResponse)
 def atualizar_cliente(cliente_id: int, cliente: ClienteCreate, db = Depends(get_supabase)):
     """Atualiza as informações de um cliente existente."""
@@ -92,8 +103,8 @@ def atualizar_cliente(cliente_id: int, cliente: ClienteCreate, db = Depends(get_
     except HTTPException:
         raise
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Erro ao atualizar cliente: {str(e)}")
-
+        logger.exception("Erro ao atualizar cliente")
+        raise HTTPException(status_code=500, detail="Erro ao atualizar cliente")
 @router.delete("/{cliente_id}")
 def excluir_cliente(cliente_id: int, db = Depends(get_supabase)):
     """Realiza exclusão lógica (soft delete) do cliente, marcando 'ativo' como falso."""
@@ -108,4 +119,5 @@ def excluir_cliente(cliente_id: int, db = Depends(get_supabase)):
     except HTTPException:
         raise
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Erro ao excluir cliente: {str(e)}")
+        logger.exception("Erro ao excluir cliente")
+        raise HTTPException(status_code=500, detail="Erro ao excluir cliente")

@@ -1,13 +1,20 @@
+import logging
 import hashlib
 import hmac
 import os
+import secrets
 from typing import List, Optional
 
-from fastapi import APIRouter, HTTPException, Depends
+from fastapi import APIRouter, HTTPException, Depends, Request
 from pydantic import BaseModel, Field
 from supabase_client import get_supabase, supabase
+from auth import criar_token_acesso, secret_esta_configurada, get_current_user, UsuarioAutenticado, require_permisao, limite_login, obter_ip_cliente
 
 router = APIRouter()
+
+logger = logging.getLogger(__name__)
+
+SENHA_MIN_LENGTH = 8
 
 # ---------------------------------------------------------------------------
 # Hash de senha (pbkdf2 - sem dependências externas)
@@ -37,14 +44,14 @@ def verificar_senha(senha: str, armazenada: str) -> bool:
 class UsuarioCreate(BaseModel):
     nome: str = Field(..., min_length=2, description="Nome do usuário")
     email: str = Field(..., description="E-mail de acesso")
-    senha: str = Field(..., min_length=4, description="Senha de acesso")
+    senha: str = Field(..., min_length=SENHA_MIN_LENGTH, description=f"Senha de acesso (mínimo {SENHA_MIN_LENGTH} caracteres)")
     permissoes: List[str] = Field(default_factory=list, description="IDs dos módulos acessíveis")
     ativo: bool = True
 
 class UsuarioUpdate(BaseModel):
     nome: str = Field(..., min_length=2)
     email: str = Field(...)
-    senha: Optional[str] = None
+    senha: Optional[str] = Field(None, min_length=SENHA_MIN_LENGTH)
     permissoes: List[str] = Field(default_factory=list)
     ativo: bool = True
 
@@ -54,11 +61,15 @@ class UsuarioResponse(BaseModel):
     email: str
     permissoes: List[str]
     ativo: bool
+    precisa_trocar_senha: bool = False
     created_at: Optional[str] = None
 
 class LoginRequest(BaseModel):
     email: str = Field(...)
     senha: str = Field(...)
+
+class LoginResponse(UsuarioResponse):
+    token: str
 
 # ---------------------------------------------------------------------------
 # Admin padrão
@@ -68,17 +79,22 @@ def _garantir_admin(db) -> None:
     try:
         res = db.table("usuarios").select("id").limit(1).execute()
         if not res.data:
+            # Senha gerada aleatoriamente (não há credencial padrão fraca).
+            senha_temporaria = secrets.token_urlsafe(12)
             db.table("usuarios").insert({
                 "nome": "Administrador",
                 "email": "admin@munaretto.com",
-                "senha": hash_senha("admin123"),
+                "senha": hash_senha(senha_temporaria),
                 "permissoes": [
                     "dashboard", "clientes", "ferias", "fluxo",
                     "documentos", "comprovantes", "recebimentos", "configuracoes"
                 ],
                 "ativo": True,
+                "precisa_trocar_senha": True,
             }).execute()
-            print("✅ Usuário padrão criado: admin@munaretto.com / admin123")
+            # A senha é exibida apenas uma vez no log do servidor (nunca persistida em texto).
+            print(f"✅ Usuário padrão criado: admin@munaretto.com")
+            print(f"🔐 Senha temporária do administrador (troque no 1º acesso): {senha_temporaria}")
     except Exception as e:
         print(f"⚠️ Aviso: não foi possível garantir o admin padrão: {e}")
 
@@ -90,16 +106,16 @@ def _user_sem_senha(user: dict) -> dict:
 # ---------------------------------------------------------------------------
 
 @router.get("/", response_model=List[UsuarioResponse])
-def listar_usuarios(db = Depends(get_supabase)):
+def listar_usuarios(usuario: UsuarioAutenticado = Depends(require_permisao("configuracoes")), db = Depends(get_supabase)):
     """Lista todos os usuários cadastrados."""
     try:
         response = db.table("usuarios").select("*").order("nome").execute()
         return [_user_sem_senha(u) for u in response.data]
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Erro ao buscar usuários: {str(e)}")
-
+        logger.exception("Erro ao buscar usuários")
+        raise HTTPException(status_code=500, detail="Erro ao buscar usuários")
 @router.get("/{usuario_id}", response_model=UsuarioResponse)
-def buscar_usuario(usuario_id: int, db = Depends(get_supabase)):
+def buscar_usuario(usuario_id: int, usuario: UsuarioAutenticado = Depends(require_permisao("configuracoes")), db = Depends(get_supabase)):
     """Busca um usuário pelo ID."""
     try:
         response = db.table("usuarios").select("*").eq("id", usuario_id).execute()
@@ -109,10 +125,10 @@ def buscar_usuario(usuario_id: int, db = Depends(get_supabase)):
     except HTTPException:
         raise
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Erro ao buscar usuário: {str(e)}")
-
+        logger.exception("Erro ao buscar usuário")
+        raise HTTPException(status_code=500, detail="Erro ao buscar usuário")
 @router.post("/", response_model=UsuarioResponse, status_code=201)
-def criar_usuario(usuario: UsuarioCreate, db = Depends(get_supabase)):
+def criar_usuario(usuario: UsuarioCreate, usuario_auth: UsuarioAutenticado = Depends(require_permisao("configuracoes")), db = Depends(get_supabase)):
     """Cria um novo usuário no sistema."""
     try:
         dup = db.table("usuarios").select("id").eq("email", usuario.email).execute()
@@ -128,10 +144,10 @@ def criar_usuario(usuario: UsuarioCreate, db = Depends(get_supabase)):
     except HTTPException:
         raise
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Erro ao criar usuário: {str(e)}")
-
+        logger.exception("Erro ao criar usuário")
+        raise HTTPException(status_code=500, detail="Erro ao criar usuário")
 @router.put("/{usuario_id}", response_model=UsuarioResponse)
-def atualizar_usuario(usuario_id: int, usuario: UsuarioUpdate, db = Depends(get_supabase)):
+def atualizar_usuario(usuario_id: int, usuario: UsuarioUpdate, usuario_auth: UsuarioAutenticado = Depends(require_permisao("configuracoes")), db = Depends(get_supabase)):
     """Atualiza um usuário existente."""
     try:
         check = db.table("usuarios").select("id").eq("id", usuario_id).execute()
@@ -147,6 +163,8 @@ def atualizar_usuario(usuario_id: int, usuario: UsuarioUpdate, db = Depends(get_
             payload.pop("senha", None)
         else:
             payload["senha"] = hash_senha(payload["senha"])
+            # Ao definir nova senha, encerra a exigência de troca no primeiro acesso.
+            payload["precisa_trocar_senha"] = False
 
         response = db.table("usuarios").update(payload).eq("id", usuario_id).execute()
         if not response.data:
@@ -155,10 +173,10 @@ def atualizar_usuario(usuario_id: int, usuario: UsuarioUpdate, db = Depends(get_
     except HTTPException:
         raise
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Erro ao atualizar usuário: {str(e)}")
-
+        logger.exception("Erro ao atualizar usuário")
+        raise HTTPException(status_code=500, detail="Erro ao atualizar usuário")
 @router.delete("/{usuario_id}")
-def excluir_usuario(usuario_id: int, db = Depends(get_supabase)):
+def excluir_usuario(usuario_id: int, usuario_auth: UsuarioAutenticado = Depends(require_permisao("configuracoes")), db = Depends(get_supabase)):
     """Exclui um usuário do sistema."""
     try:
         check = db.table("usuarios").select("id").eq("id", usuario_id).execute()
@@ -170,27 +188,93 @@ def excluir_usuario(usuario_id: int, db = Depends(get_supabase)):
     except HTTPException:
         raise
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Erro ao excluir usuário: {str(e)}")
-
-@router.post("/login", response_model=UsuarioResponse)
-def login(credenciais: LoginRequest, db = Depends(get_supabase)):
-    """Autentica um usuário e retorna seus dados e permissões."""
+        logger.exception("Erro ao excluir usuário")
+        raise HTTPException(status_code=500, detail="Erro ao excluir usuário")
+@router.post("/login", response_model=LoginResponse)
+def login(credenciais: LoginRequest, request: Request, db = Depends(get_supabase)):
+    """Autentica um usuário e retorna seus dados, permissões e um token de acesso."""
     try:
+        if not secret_esta_configurada():
+            raise HTTPException(
+                status_code=500,
+                detail="Servidor mal configurado: JWT_SECRET não definido. Contate o administrador.",
+            )
+
+        ip = obter_ip_cliente(request)
+        chave_email = credenciais.email.strip().lower()
+
+        if limite_login.bloqueado(chave_email) or limite_login.bloqueado(ip):
+            raise HTTPException(
+                status_code=429,
+                detail="Muitas tentativas de login. Aguarde um pouco e tente novamente.",
+            )
+
         response = db.table("usuarios").select("*").eq("email", credenciais.email).limit(1).execute()
         if not response.data:
+            limite_login.registrar(chave_email)
+            limite_login.registrar(ip)
             raise HTTPException(status_code=401, detail="E-mail ou senha inválidos.")
 
         user = response.data[0]
         if not verificar_senha(credenciais.senha, user.get("senha", "")):
+            limite_login.registrar(chave_email)
+            limite_login.registrar(ip)
             raise HTTPException(status_code=401, detail="E-mail ou senha inválidos.")
+
         if not user.get("ativo", True):
             raise HTTPException(status_code=403, detail="Usuário inativo. Contate o administrador.")
 
-        return _user_sem_senha(user)
+        # Login bem-sucedido: zera os contadores do usuário e do IP
+        limite_login.restaurar(chave_email)
+        limite_login.restaurar(ip)
+
+        token = criar_token_acesso(user["id"], user["email"])
+        return {**_user_sem_senha(user), "token": token}
     except HTTPException:
         raise
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Erro ao autenticar: {str(e)}")
+        logger.exception("Erro ao autenticar")
+        raise HTTPException(status_code=500, detail="Erro ao autenticar")
+
+
+class TrocarSenhaRequest(BaseModel):
+    senha_atual: str = Field(...)
+    nova_senha: str = Field(..., min_length=SENHA_MIN_LENGTH, description=f"A nova senha deve ter no mínimo {SENHA_MIN_LENGTH} caracteres")
+
+
+@router.post("/trocar-senha")
+def trocar_senha(
+    dados: TrocarSenhaRequest,
+    usuario: UsuarioAutenticado = Depends(get_current_user),
+    db=Depends(get_supabase),
+):
+    """Permite o próprio usuário autenticado trocar sua senha (auto-serviço).
+
+    Exige a senha atual para confirmação e zera o flag `precisa_trocar_senha`.
+    """
+    try:
+        response = db.table("usuarios").select("*").eq("id", usuario.id).limit(1).execute()
+        if not response.data:
+            raise HTTPException(status_code=404, detail="Usuário não encontrado.")
+
+        if not verificar_senha(dados.senha_atual, response.data[0].get("senha", "")):
+            raise HTTPException(status_code=400, detail="Senha atual incorreta.")
+
+        if dados.senha_atual == dados.nova_senha:
+            raise HTTPException(status_code=400, detail="A nova senha deve ser diferente da atual.")
+
+        db.table("usuarios").update({
+            "senha": hash_senha(dados.nova_senha),
+            "precisa_trocar_senha": False,
+        }).eq("id", usuario.id).execute()
+
+        return {"status": "success", "message": "Senha alterada com sucesso."}
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.exception("Erro ao trocar senha")
+        raise HTTPException(status_code=500, detail="Erro ao trocar senha")
+
 
 # Garante a existência de um usuário admin padrão no primeiro acesso
 if supabase is not None:

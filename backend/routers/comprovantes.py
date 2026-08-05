@@ -1,9 +1,13 @@
+import logging
 from fastapi import APIRouter, HTTPException, Query, Depends
 from pydantic import BaseModel, Field
 from typing import List, Optional
 from supabase_client import get_supabase
+from auth import get_current_user, require_permisao
 
-router = APIRouter()
+router = APIRouter(dependencies=[Depends(require_permisao("comprovantes"))])
+
+logger = logging.getLogger(__name__)
 
 class ComprovanteCreate(BaseModel):
     tipo_documento: str = Field(..., description="Tipo do documento: Nota Fiscal, Boleto, Pix, Diversas, Aluguel, Imposto")
@@ -39,8 +43,8 @@ def listar_comprovantes(db = Depends(get_supabase)):
         response = db.table("comprovantes").select("*").order("data_registro", desc=True).execute()
         return response.data
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Erro ao buscar comprovantes: {str(e)}")
-
+        logger.exception("Erro ao buscar comprovantes")
+        raise HTTPException(status_code=500, detail="Erro ao buscar comprovantes")
 @router.get("/{comprovante_id}", response_model=ComprovanteResponse)
 def buscar_comprovante(comprovante_id: int, db = Depends(get_supabase)):
     """Busca um comprovante específico pelo ID."""
@@ -52,8 +56,8 @@ def buscar_comprovante(comprovante_id: int, db = Depends(get_supabase)):
     except HTTPException:
         raise
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Erro ao buscar comprovante: {str(e)}")
-
+        logger.exception("Erro ao buscar comprovante")
+        raise HTTPException(status_code=500, detail="Erro ao buscar comprovante")
 @router.post("/", response_model=ComprovanteResponse, status_code=201)
 def criar_comprovante(comprovante: ComprovanteCreate, db = Depends(get_supabase)):
     """Cria um novo lançamento de comprovante."""
@@ -68,8 +72,8 @@ def criar_comprovante(comprovante: ComprovanteCreate, db = Depends(get_supabase)
             raise HTTPException(status_code=500, detail="Falha ao salvar comprovante.")
         return response.data[0]
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Erro ao criar comprovante: {str(e)}")
-
+        logger.exception("Erro ao criar comprovante")
+        raise HTTPException(status_code=500, detail="Erro ao criar comprovante")
 @router.put("/{comprovante_id}", response_model=ComprovanteResponse)
 def atualizar_comprovante(comprovante_id: int, comprovante: ComprovanteCreate, db = Depends(get_supabase)):
     """Atualiza um comprovante existente."""
@@ -90,8 +94,8 @@ def atualizar_comprovante(comprovante_id: int, comprovante: ComprovanteCreate, d
     except HTTPException:
         raise
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Erro ao atualizar comprovante: {str(e)}")
-
+        logger.exception("Erro ao atualizar comprovante")
+        raise HTTPException(status_code=500, detail="Erro ao atualizar comprovante")
 @router.delete("/{comprovante_id}")
 def excluir_comprovante(comprovante_id: int, db = Depends(get_supabase)):
     """Exclui um comprovante do sistema."""
@@ -105,4 +109,5 @@ def excluir_comprovante(comprovante_id: int, db = Depends(get_supabase)):
     except HTTPException:
         raise
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Erro ao excluir comprovante: {str(e)}")
+        logger.exception("Erro ao excluir comprovante")
+        raise HTTPException(status_code=500, detail="Erro ao excluir comprovante")

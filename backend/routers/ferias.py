@@ -4,10 +4,14 @@ from datetime import datetime, date, timedelta
 from typing import List, Optional
 import logging
 from supabase_client import get_supabase
+from auth import get_current_user, require_permisao
 
 logger = logging.getLogger(__name__)
 
-router = APIRouter()
+router = APIRouter(dependencies=[Depends(require_permisao("ferias"))])
+
+# Status aceitos para um registro de férias
+STATUS_VALIDOS = {"Programado", "Agendado", "Em Férias", "Concluído", "Gozadas", "Cancelado"}
 
 class FeriasCreate(BaseModel):
     nome: str = Field(..., description="Nome do colaborador")
@@ -79,6 +83,12 @@ def listar_ferias(
             query = query.ilike("nome", f"%{busca}%")
             
         if status:
+            status = status.strip()
+            if status not in STATUS_VALIDOS:
+                raise HTTPException(
+                    status_code=400,
+                    detail=f"Status inválido. Valores permitidos: {', '.join(sorted(STATUS_VALIDOS))}.",
+                )
             query = query.eq("status", status)
             
         if proximo_mes:
@@ -98,9 +108,11 @@ def listar_ferias(
             result.append(r)
             
         return result
+    except HTTPException:
+        raise
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Erro ao buscar férias: {str(e)}")
-
+        logger.exception("Erro ao buscar férias")
+        raise HTTPException(status_code=500, detail="Erro ao buscar férias")
 @router.post("/", response_model=FeriasResponse, status_code=201)
 def agendar_ferias(ferias: FeriasCreate, db = Depends(get_supabase)):
     """Calcula prazos, valida conflitos e agenda férias de um colaborador."""
@@ -182,19 +194,25 @@ def agendar_ferias(ferias: FeriasCreate, db = Depends(get_supabase)):
     except HTTPException:
         raise
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Erro interno ao agendar férias: {str(e)}")
-
+        logger.exception("Erro interno ao agendar férias")
+        raise HTTPException(status_code=500, detail="Erro interno ao agendar férias")
 @router.patch("/{ferias_id}/status")
 def atualizar_status(ferias_id: int, status: str = Query(..., description="Novo status (ex: Gozadas, Cancelado, Agendado)"), db = Depends(get_supabase)):
     """Atualiza manualmente o status de um registro de férias."""
+    status = status.strip()
+    if status not in STATUS_VALIDOS:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Status inválido. Valores permitidos: {', '.join(sorted(STATUS_VALIDOS))}.",
+        )
     try:
         response = db.table("gestao_ferias").update({"status": status}).eq("id", ferias_id).execute()
         if not response.data:
             raise HTTPException(status_code=404, detail="Registro de férias não encontrado.")
         return {"success": True, "message": f"Status atualizado para '{status}' com sucesso.", "data": response.data[0]}
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Erro ao atualizar status: {str(e)}")
-
+        logger.exception("Erro ao atualizar status")
+        raise HTTPException(status_code=500, detail="Erro ao atualizar status")
 @router.delete("/{ferias_id}")
 def excluir_ferias(ferias_id: int, db = Depends(get_supabase)):
     """Deleta permanentemente o agendamento de férias pelo ID."""
@@ -204,8 +222,8 @@ def excluir_ferias(ferias_id: int, db = Depends(get_supabase)):
             raise HTTPException(status_code=404, detail="Registro de férias não encontrado.")
         return {"success": True, "message": "Registro de férias excluído."}
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Erro ao excluir férias: {str(e)}")
-
+        logger.exception("Erro ao excluir férias")
+        raise HTTPException(status_code=500, detail="Erro ao excluir férias")
 @router.get("/alertas")
 def obter_alertas(db = Depends(get_supabase)):
     """Retorna alertas de prazos de gozo de férias próximos do limite."""
@@ -247,4 +265,5 @@ def obter_alertas(db = Depends(get_supabase)):
                 continue
         return alertas
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Erro ao buscar alertas de férias: {str(e)}")
+        logger.exception("Erro ao buscar alertas de férias")
+        raise HTTPException(status_code=500, detail="Erro ao buscar alertas de férias")

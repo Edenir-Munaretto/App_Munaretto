@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { Search, Plus, Edit2, Trash2, X, Check, AlertTriangle, UserCog } from 'lucide-react';
-import { API_URL } from '../App';
+import { API_URL, apiFetch } from '../api';
 import { MODULOS } from '../modules';
 
 function Configuracoes({ usuarioAtual }) {
@@ -17,7 +17,7 @@ function Configuracoes({ usuarioAtual }) {
     email: '',
     senha: '',
     ativo: true,
-    permissoes: ['dashboard']
+    permissoes: []
   });
 
   useEffect(() => {
@@ -32,7 +32,7 @@ function Configuracoes({ usuarioAtual }) {
   const fetchUsuarios = async () => {
     try {
       setLoading(true);
-      const res = await fetch(`${API_URL}/usuarios/`);
+      const res = await apiFetch(`${API_URL}/usuarios/`);
       if (res.ok) {
         setUsuarios(await res.json());
       }
@@ -51,7 +51,7 @@ function Configuracoes({ usuarioAtual }) {
       email: '',
       senha: '',
       ativo: true,
-      permissoes: ['dashboard']
+      permissoes: []
     });
     setShowModal(true);
   };
@@ -109,7 +109,7 @@ function Configuracoes({ usuarioAtual }) {
       const method = editingId ? 'PUT' : 'POST';
       const url = editingId ? `${API_URL}/usuarios/${editingId}` : `${API_URL}/usuarios/`;
 
-      const res = await fetch(url, {
+      const res = await apiFetch(url, {
         method,
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(payload)
@@ -138,7 +138,7 @@ function Configuracoes({ usuarioAtual }) {
     if (!window.confirm(`Tem certeza que deseja excluir o usuário "${nome}"?`)) return;
 
     try {
-      const res = await fetch(`${API_URL}/usuarios/${id}`, { method: 'DELETE' });
+      const res = await apiFetch(`${API_URL}/usuarios/${id}`, { method: 'DELETE' });
       if (res.ok) {
         showToast('Usuário excluído com sucesso.');
         fetchUsuarios();

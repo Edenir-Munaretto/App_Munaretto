@@ -128,8 +128,13 @@ CREATE TABLE IF NOT EXISTS usuarios (
     senha TEXT NOT NULL,
     permissoes JSONB DEFAULT '[]'::jsonb,
     ativo BOOLEAN DEFAULT TRUE,
+    precisa_trocar_senha BOOLEAN DEFAULT FALSE,
     created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
 );
+
+-- Migração segura: adiciona a coluna somente se ainda não existir.
+-- Necessário porque "CREATE TABLE IF NOT EXISTS" é ignorado quando a tabela já existe.
+ALTER TABLE IF EXISTS usuarios ADD COLUMN IF NOT EXISTS precisa_trocar_senha BOOLEAN DEFAULT FALSE;
 
 -- TABELA: notificacoes
 CREATE TABLE IF NOT EXISTS notificacoes (
@@ -155,3 +160,78 @@ CREATE TABLE IF NOT EXISTS funcionarios (
     ativo BOOLEAN DEFAULT TRUE,
     created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
 );
+
+-- ============================================================================
+-- ROW LEVEL SECURITY (RLS)
+-- ============================================================================
+-- O backend acessa o Supabase com a chave de service role, que por definição
+-- BURLA o RLS. Por isso as políticas abaixo permitem acesso ao service_role
+-- e NEGAM acesso a anon/authenticated (funções/vídeos/anônimos não autenticados).
+--
+-- COMO APLICAR NO SUPABASE:
+--   1. Acesse: Supabase Dashboard > seu projeto > SQL Editor.
+--   2. Cole TODO o conteúdo deste arquivo (ou apenas a seção RLS abaixo).
+--   3. Execute o script.
+--   4. IMPORTANTE: toda tabela deve ter RLS ENABLED para valer o bloqueio.
+--      O script abaixo habilita RLS em todas as tabelas existentes.
+--
+-- Nota: a chave `SUPABASE_KEY` utilizada NO BACKEND deve ser a SERVICE ROLE key,
+-- e jamais deve ser exposta no frontend. O frontend deve se comunicar apenas
+-- com a API FastAPI.
+
+-- Habilita RLS em todas as tabelas (idempotente se repetido).
+ALTER TABLE IF EXISTS clientes           ENABLE ROW LEVEL SECURITY;
+ALTER TABLE IF EXISTS documentos_gerados ENABLE ROW LEVEL SECURITY;
+ALTER TABLE IF EXISTS fluxo_caixa        ENABLE ROW LEVEL SECURITY;
+ALTER TABLE IF EXISTS gestao_ferias      ENABLE ROW LEVEL SECURITY;
+ALTER TABLE IF EXISTS comprovantes       ENABLE ROW LEVEL SECURITY;
+ALTER TABLE IF EXISTS controle_recebimentos ENABLE ROW LEVEL SECURITY;
+ALTER TABLE IF EXISTS usuarios           ENABLE ROW LEVEL SECURITY;
+ALTER TABLE IF EXISTS notificacoes       ENABLE ROW LEVEL SECURITY;
+ALTER TABLE IF EXISTS funcionarios       ENABLE ROW LEVEL SECURITY;
+
+-- ============================================================================
+-- POLÍTICAS RLS PARA service_role
+-- O resto do mundo (anon, authenticated) fica bloqueado por padrão.
+-- Cada bloco é idempotente (DROP antes de CREATE) e pode ser re-executado.
+--
+-- IMPORTANTE: com RLS ativo, anon/authenticated perdem acesso. O backend só
+-- continua acessando se SUPABASE_KEY (.env) for a SERVICE ROLE key. Configure
+-- ANTES de rodar este trecho, senão o app para de ler/escrever os dados.
+-- ============================================================================
+
+DROP POLICY IF EXISTS "service_role_full_clientes" ON clientes;
+CREATE POLICY "service_role_full_clientes" ON clientes
+    FOR ALL TO service_role USING (true) WITH CHECK (true);
+
+DROP POLICY IF EXISTS "service_role_full_documentos_gerados" ON documentos_gerados;
+CREATE POLICY "service_role_full_documentos_gerados" ON documentos_gerados
+    FOR ALL TO service_role USING (true) WITH CHECK (true);
+
+DROP POLICY IF EXISTS "service_role_full_fluxo_caixa" ON fluxo_caixa;
+CREATE POLICY "service_role_full_fluxo_caixa" ON fluxo_caixa
+    FOR ALL TO service_role USING (true) WITH CHECK (true);
+
+DROP POLICY IF EXISTS "service_role_full_gestao_ferias" ON gestao_ferias;
+CREATE POLICY "service_role_full_gestao_ferias" ON gestao_ferias
+    FOR ALL TO service_role USING (true) WITH CHECK (true);
+
+DROP POLICY IF EXISTS "service_role_full_comprovantes" ON comprovantes;
+CREATE POLICY "service_role_full_comprovantes" ON comprovantes
+    FOR ALL TO service_role USING (true) WITH CHECK (true);
+
+DROP POLICY IF EXISTS "service_role_full_controle_recebimentos" ON controle_recebimentos;
+CREATE POLICY "service_role_full_controle_recebimentos" ON controle_recebimentos
+    FOR ALL TO service_role USING (true) WITH CHECK (true);
+
+DROP POLICY IF EXISTS "service_role_full_usuarios" ON usuarios;
+CREATE POLICY "service_role_full_usuarios" ON usuarios
+    FOR ALL TO service_role USING (true) WITH CHECK (true);
+
+DROP POLICY IF EXISTS "service_role_full_notificacoes" ON notificacoes;
+CREATE POLICY "service_role_full_notificacoes" ON notificacoes
+    FOR ALL TO service_role USING (true) WITH CHECK (true);
+
+DROP POLICY IF EXISTS "service_role_full_funcionarios" ON funcionarios;
+CREATE POLICY "service_role_full_funcionarios" ON funcionarios
+    FOR ALL TO service_role USING (true) WITH CHECK (true);

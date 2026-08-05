@@ -1,5 +1,4 @@
 export const MODULOS = [
-  { id: 'dashboard', label: 'Dashboard' },
   { id: 'clientes', label: 'Clientes' },
   { id: 'ferias', label: 'Gestão Férias' },
   { id: 'fluxo', label: 'Gestão Usinas' },

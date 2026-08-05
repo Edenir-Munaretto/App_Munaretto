@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { Users, Palmtree, LineChart, ShieldAlert, ArrowUpRight, TrendingUp } from 'lucide-react';
-import { API_URL } from '../App';
+import { API_URL, apiFetch } from '../api';
 
 function Dashboard({ alerts }) {
   const [stats, setStats] = useState({
@@ -19,15 +19,15 @@ function Dashboard({ alerts }) {
     try {
       setLoading(true);
       // Busca clientes
-      const cliRes = await fetch(`${API_URL}/clientes/`);
+      const cliRes = await apiFetch(`${API_URL}/clientes/`);
       const cliData = cliRes.ok ? await cliRes.json() : [];
 
       // Busca férias
-      const ferRes = await fetch(`${API_URL}/ferias/`);
+      const ferRes = await apiFetch(`${API_URL}/ferias/`);
       const ferData = ferRes.ok ? await ferRes.json() : [];
 
       // Busca fluxos para obter o último
-      const fluxRes = await fetch(`${API_URL}/fluxo-caixa/`);
+      const fluxRes = await apiFetch(`${API_URL}/fluxo-caixa/`);
       const fluxData = fluxRes.ok ? await fluxRes.json() : [];
 
       let ultimoLucro = '0,00';

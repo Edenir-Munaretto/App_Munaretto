@@ -1,0 +1,108 @@
+"""Mock do cliente Supabase para testes.
+
+Simula a API encadeada do supabase-py (table/select/eq/neq/ilike/order/
+insert/update/delete/limit/execute) sobre um dicionário em memória, de forma
+que os routers da API possam ser testados sem conexão externa.
+"""
+
+from dataclasses import dataclass, field
+
+
+@dataclass
+class _Resposta:
+    data: list
+    count: int = 0
+
+    def execute(self):
+        return self
+
+    def __iter__(self):
+        return iter(self.data)
+
+
+class _Query:
+    def __init__(self, tabela, dados, filtros=None, ordenacao=None, limite=None):
+        self.tabela = tabela
+        self.dados = dados
+        self.filtros = filtros or []
+        self.ordenacao = ordenacao
+        self.limite = limite
+
+    def select(self, *args, **kwargs):
+        return self
+
+    def eq(self, coluna, valor):
+        self.filtros.append(("eq", coluna, valor))
+        return self
+
+    def neq(self, coluna, valor):
+        self.filtros.append(("neq", coluna, valor))
+        return self
+
+    def ilike(self, coluna, valor):
+        self.filtros.append(("ilike", coluna, valor))
+        return self
+
+    def limit(self, n):
+        self.limite = n
+        return self
+
+    def order(self, coluna, **kwargs):
+        self.ordenacao = (coluna, kwargs.get("desc", False))
+        return self
+
+    def _aplica(self):
+        linhas = self.dados[self.tabela]
+        for op, coluna, valor in self.filtros:
+            if op == "eq":
+                linhas = [r for r in linhas if r.get(coluna) == valor]
+            elif op == "neq":
+                linhas = [r for r in linhas if r.get(coluna) != valor]
+            elif op == "ilike":
+                termo = str(valor).replace("%", "").lower()
+                linhas = [
+                    r for r in linhas
+                    if termo in str(r.get(coluna, "")).lower()
+                ]
+        if self.ordenacao:
+            coluna, desc = self.ordenacao
+            linhas = sorted(
+                linhas, key=lambda r: str(r.get(coluna, "")), reverse=desc
+            )
+        if self.limite is not None:
+            linhas = linhas[: self.limite]
+        return list(linhas)
+
+    def execute(self):
+        return _Resposta(self._aplica())
+
+    def insert(self, payload):
+        if isinstance(payload, dict):
+            payload = [payload]
+        self.dados[self.tabela] = self.dados.get(self.tabela, [])
+        for item in payload:
+            novo = dict(item)
+            novo["id"] = max(
+                (r["id"] for r in self.dados[self.tabela]), default=0
+            ) + 1
+            self.dados[self.tabela].append(novo)
+        return _Resposta(payload)
+
+    def update(self, payload):
+        for r in self._aplica():
+            r.update(payload)
+        return _Resposta(self._aplica())
+
+    def delete(self):
+        removidos = self._aplica()
+        restante = [r for r in self.dados[self.tabela] if r not in removidos]
+        self.dados[self.tabela] = restante
+        return _Resposta([])
+
+
+class SupabaseFake:
+    def __init__(self, dados):
+        self._dados = dados
+
+    def table(self, tabela):
+        return _Query(tabela, self._dados)

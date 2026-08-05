@@ -1,7 +1,11 @@
+import os
 import uvicorn
+from dotenv import load_dotenv
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from routers import clientes, ferias, fluxo_caixa, documentos, comprovantes, recebimentos, usuarios, notificacoes, funcionarios
+
+load_dotenv()
 
 app = FastAPI(
     title="App Munaretto Web API",
@@ -9,10 +13,18 @@ app = FastAPI(
     version="1.0.0"
 )
 
-# Configuração de CORS para permitir acesso do frontend React (Vite roda na porta 5173 por padrão)
+# Configuração de CORS: origens explícitas vindas da variável de ambiente CORS_ORIGINS.
+# Exemplo: CORS_ORIGINS=http://localhost:5173,https://app.munaretto.com.br
+# Não use "*" em produção quando allow_credentials=True.
+_cors_origins = [
+    o.strip()
+    for o in os.environ.get("CORS_ORIGINS", "http://localhost:5173,http://127.0.0.1:5173").split(",")
+    if o.strip()
+]
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"], # Em produção, defina o domínio do frontend
+    allow_origins=_cors_origins,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],

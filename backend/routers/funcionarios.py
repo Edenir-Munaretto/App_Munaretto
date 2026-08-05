@@ -1,10 +1,14 @@
+import logging
 from typing import List, Optional
 
 from fastapi import APIRouter, HTTPException, Query, Depends
 from pydantic import BaseModel, Field
 from supabase_client import get_supabase
+from auth import get_current_user, require_qualquer_permisao
 
-router = APIRouter()
+router = APIRouter(dependencies=[Depends(require_qualquer_permisao(["clientes", "ferias"]))])
+
+logger = logging.getLogger(__name__)
 
 
 class FuncionarioCreate(BaseModel):
@@ -25,17 +29,24 @@ def listar_funcionarios(
 ):
     """Lista todos os funcionários ativos. Filtra por nome ou CPF se informado."""
     try:
-        query = db.table("funcionarios").select("*").eq("ativo", True)
+        base = lambda: db.table("funcionarios").select("*").eq("ativo", True)
 
         if busca:
-            query = query.or_(f"nome.ilike.%{busca}%,cpf.ilike.%{busca}%")
+            # Busca segura por coluna (parametrizada); sem interpolação no filtro do PostgREST
+            consolidado = {}
+            for coluna in ("nome", "cpf"):
+                resposta = base().ilike(coluna, f"%{busca}%").execute()
+                for linha in resposta.data:
+                    consolidado[linha["id"]] = linha
+            dados = list(consolidado.values())
+        else:
+            dados = base().execute().data
 
-        response = query.order("nome").execute()
-        return response.data
+        dados.sort(key=lambda x: str(x.get("nome", "")))
+        return dados
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Erro ao buscar funcionários: {str(e)}")
-
-
+        logger.exception("Erro ao buscar funcionários")
+        raise HTTPException(status_code=500, detail="Erro ao buscar funcionários")
 @router.get("/{funcionario_id}", response_model=FuncionarioResponse)
 def buscar_funcionario(funcionario_id: int, db = Depends(get_supabase)):
     """Busca os detalhes de um funcionário pelo ID."""
@@ -47,9 +58,8 @@ def buscar_funcionario(funcionario_id: int, db = Depends(get_supabase)):
     except HTTPException:
         raise
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Erro ao buscar funcionário: {str(e)}")
-
-
+        logger.exception("Erro ao buscar funcionário")
+        raise HTTPException(status_code=500, detail="Erro ao buscar funcionário")
 @router.post("/", response_model=FuncionarioResponse, status_code=201)
 def cadastrar_funcionario(funcionario: FuncionarioCreate, db = Depends(get_supabase)):
     """Cadastra um novo funcionário. Retorna erro se o CPF já existir."""
@@ -66,9 +76,8 @@ def cadastrar_funcionario(funcionario: FuncionarioCreate, db = Depends(get_supab
     except HTTPException:
         raise
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Erro ao cadastrar funcionário: {str(e)}")
-
-
+        logger.exception("Erro ao cadastrar funcionário")
+        raise HTTPException(status_code=500, detail="Erro ao cadastrar funcionário")
 @router.put("/{funcionario_id}", response_model=FuncionarioResponse)
 def atualizar_funcionario(funcionario_id: int, funcionario: FuncionarioCreate, db = Depends(get_supabase)):
     """Atualiza os dados de um funcionário existente."""
@@ -89,9 +98,8 @@ def atualizar_funcionario(funcionario_id: int, funcionario: FuncionarioCreate, d
     except HTTPException:
         raise
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Erro ao atualizar funcionário: {str(e)}")
-
-
+        logger.exception("Erro ao atualizar funcionário")
+        raise HTTPException(status_code=500, detail="Erro ao atualizar funcionário")
 @router.delete("/{funcionario_id}")
 def excluir_funcionario(funcionario_id: int, db = Depends(get_supabase)):
     """Realiza exclusão lógica (soft delete) do funcionário."""
@@ -105,4 +113,5 @@ def excluir_funcionario(funcionario_id: int, db = Depends(get_supabase)):
     except HTTPException:
         raise
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Erro ao excluir funcionário: {str(e)}")
+        logger.exception("Erro ao excluir funcionário")
+        raise HTTPException(status_code=500, detail="Erro ao excluir funcionário")

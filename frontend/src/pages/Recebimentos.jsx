@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { Search, Plus, Edit2, Trash2, X, Check, AlertTriangle, Printer, FileCheck2, FileX2 } from 'lucide-react';
-import { API_URL } from '../App';
+import { API_URL, apiFetch } from '../api';
 
 function Recebimentos() {
   const [recebimentos, setRecebimentos] = useState([]);
@@ -42,7 +42,7 @@ function Recebimentos() {
   const fetchRecebimentos = async () => {
     try {
       setLoading(true);
-      const res = await fetch(`${API_URL}/recebimentos/`);
+      const res = await apiFetch(`${API_URL}/recebimentos/`);
       if (res.ok) {
         const data = await res.json();
         setRecebimentos(data);
@@ -57,7 +57,7 @@ function Recebimentos() {
 
   const fetchClientes = async () => {
     try {
-      const res = await fetch(`${API_URL}/clientes/`);
+      const res = await apiFetch(`${API_URL}/clientes/`);
       if (res.ok) {
         setClientes(await res.json());
       }
@@ -155,7 +155,7 @@ function Recebimentos() {
       const method = editingId ? 'PUT' : 'POST';
       const url = editingId ? `${API_URL}/recebimentos/${editingId}` : `${API_URL}/recebimentos/`;
 
-      const res = await fetch(url, {
+      const res = await apiFetch(url, {
         method,
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(payload)
@@ -180,7 +180,7 @@ function Recebimentos() {
     if (!window.confirm(`Tem certeza que deseja excluir o recebimento de "${nome}"?`)) return;
 
     try {
-      const res = await fetch(`${API_URL}/recebimentos/${id}`, { method: 'DELETE' });
+      const res = await apiFetch(`${API_URL}/recebimentos/${id}`, { method: 'DELETE' });
       if (res.ok) {
         showToast('Recebimento excluído com sucesso.');
         fetchRecebimentos();

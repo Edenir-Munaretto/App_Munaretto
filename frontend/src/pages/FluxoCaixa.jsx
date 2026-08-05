@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { LineChart, Plus, Trash2, FileDown, Check, AlertTriangle, Calculator, UserCheck } from 'lucide-react';
-import { API_URL } from '../App';
+import { API_URL, apiFetch } from '../api';
 
 function FluxoCaixa() {
   const [closings, setClosings] = useState([]);
@@ -35,7 +35,7 @@ function FluxoCaixa() {
   const fetchClosings = async () => {
     try {
       setLoading(true);
-      const res = await fetch(`${API_URL}/fluxo-caixa/`);
+      const res = await apiFetch(`${API_URL}/fluxo-caixa/`);
       if (res.ok) {
         const data = await res.json();
         setClosings(data);
@@ -117,7 +117,7 @@ function FluxoCaixa() {
       const method = selectedId ? 'PUT' : 'POST';
       const url = selectedId ? `${API_URL}/fluxo-caixa/${selectedId}` : `${API_URL}/fluxo-caixa/`;
 
-      const res = await fetch(url, {
+      const res = await apiFetch(url, {
         method,
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(formData)
@@ -141,7 +141,7 @@ function FluxoCaixa() {
     if (!window.confirm(`Tem certeza que deseja deletar o fechamento de "${formData.mes_referencia}"?`)) return;
 
     try {
-      const res = await fetch(`${API_URL}/fluxo-caixa/${selectedId}`, { method: 'DELETE' });
+      const res = await apiFetch(`${API_URL}/fluxo-caixa/${selectedId}`, { method: 'DELETE' });
       if (res.ok) {
         showToast('Fechamento excluído com sucesso.');
         handleClearForm();
@@ -155,12 +155,29 @@ function FluxoCaixa() {
     }
   };
 
-  const triggerPdfDownload = (id, mesRef, socio = null) => {
+  const triggerPdfDownload = async (id, mesRef, socio = null) => {
     let url = `${API_URL}/fluxo-caixa/${id}/relatorio`;
     if (socio) url += `?socio=${encodeURIComponent(socio)}`;
-    
-    // Abre em nova janela/aba do navegador para iniciar download direto do stream PDF
-    window.open(url, '_blank');
+
+    try {
+      const res = await apiFetch(url);
+      if (!res.ok) {
+        showToast('Erro ao gerar o relatório.', 'error');
+        return;
+      }
+      const blob = await res.blob();
+      const objectUrl = window.URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = objectUrl;
+      a.download = `Relatorio_${socio || 'Geral'}_${(mesRef || 'mensal').replace(/\//g, '-')}.pdf`;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      window.URL.revokeObjectURL(objectUrl);
+    } catch (err) {
+      console.error(err);
+      showToast('Erro de conexão ao gerar o relatório.', 'error');
+    }
   };
 
   const formatBRL = (val) => {
