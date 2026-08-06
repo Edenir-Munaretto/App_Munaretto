@@ -74,8 +74,21 @@ function Recebimentos() {
     return isNaN(num) ? 0 : num;
   };
 
+  const parseInput = (value) => {
+    if (value === null || value === undefined || value === '') return 0;
+    if (typeof value === 'number') return value;
+    let str = String(value).replace(/[^\d.,-]/g, '');
+    if (str.includes(',')) {
+      str = str.replace(/\./g, '').replace(',', '.');
+    } else if ((str.match(/\./g) || []).length > 1) {
+      str = str.replace(/\./g, '');
+    }
+    const num = parseFloat(str);
+    return isNaN(num) ? 0 : num;
+  };
+
   const pagCliente = () =>
-    (parseFloat(formData.valor_da_obra) || 0) - (parseFloat(formData.valor_de_devolucao) || 0);
+    parseInput(formData.valor_da_obra) - parseInput(formData.valor_de_devolucao);
 
   const sugestoesClientes = buscaCliente.trim()
     ? clientes.filter(c => c.nome.toLowerCase().includes(buscaCliente.toLowerCase())).slice(0, 8)
@@ -129,11 +142,7 @@ function Recebimentos() {
 
   const handleInputChange = (e) => {
     const { name, value } = e.target;
-    const numericFields = ['valor_da_obra', 'valor_de_devolucao'];
-    setFormData(prev => ({
-      ...prev,
-      [name]: numericFields.includes(name) ? parseFloat(value) || 0 : value
-    }));
+    setFormData(prev => ({ ...prev, [name]: value }));
   };
 
   const handleSubmit = async (e) => {
@@ -147,8 +156,8 @@ function Recebimentos() {
     const payload = {
       ...formData,
       pag_cliente: pagCliente(),
-      valor_da_obra: parseFloat(formData.valor_da_obra) || 0,
-      valor_de_devolucao: parseFloat(formData.valor_de_devolucao) || 0
+      valor_da_obra: parseInput(formData.valor_da_obra),
+      valor_de_devolucao: parseInput(formData.valor_de_devolucao)
     };
 
     try {
@@ -614,11 +623,12 @@ function Recebimentos() {
                 <div>
                   <label className="block text-xs font-bold text-slate-700 mb-1.5">Valor da Obra (R$)</label>
                   <input
-                    type="number"
-                    step="0.01"
+                    type="text"
+                    inputMode="decimal"
                     name="valor_da_obra"
                     value={formData.valor_da_obra}
                     onChange={handleInputChange}
+                    placeholder="Ex: 25.000,00"
                     className="w-full px-3.5 py-2 border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-primary-500/20 focus:border-primary-500 text-sm font-semibold text-emerald-700"
                   />
                 </div>
@@ -626,11 +636,12 @@ function Recebimentos() {
                 <div>
                   <label className="block text-xs font-bold text-slate-700 mb-1.5">Valor de Devolução (R$)</label>
                   <input
-                    type="number"
-                    step="0.01"
+                    type="text"
+                    inputMode="decimal"
                     name="valor_de_devolucao"
                     value={formData.valor_de_devolucao}
                     onChange={handleInputChange}
+                    placeholder="Ex: 500,00"
                     className="w-full px-3.5 py-2 border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-primary-500/20 focus:border-primary-500 text-sm font-semibold text-amber-700"
                   />
                 </div>
