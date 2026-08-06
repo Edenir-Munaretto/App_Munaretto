@@ -27,6 +27,8 @@ class _Query:
         self.filtros = filtros or []
         self.ordenacao = ordenacao
         self.limite = limite
+        self._update_payload = None
+        self._delete = False
 
     def select(self, *args, **kwargs):
         return self
@@ -73,31 +75,40 @@ class _Query:
             linhas = linhas[: self.limite]
         return list(linhas)
 
-    def execute(self):
-        return _Resposta(self._aplica())
-
     def insert(self, payload):
         if isinstance(payload, dict):
             payload = [payload]
         self.dados[self.tabela] = self.dados.get(self.tabela, [])
+        criados = []
         for item in payload:
             novo = dict(item)
             novo["id"] = max(
                 (r["id"] for r in self.dados[self.tabela]), default=0
             ) + 1
             self.dados[self.tabela].append(novo)
-        return _Resposta(payload)
+            criados.append(novo)
+        return _Resposta(criados)
 
     def update(self, payload):
-        for r in self._aplica():
-            r.update(payload)
-        return _Resposta(self._aplica())
+        self._update_payload = payload
+        return self
 
     def delete(self):
-        removidos = self._aplica()
-        restante = [r for r in self.dados[self.tabela] if r not in removidos]
-        self.dados[self.tabela] = restante
-        return _Resposta([])
+        self._delete = True
+        return self
+
+    def execute(self):
+        if self._update_payload is not None:
+            alvo = self._aplica()
+            for r in alvo:
+                r.update(self._update_payload)
+            return _Resposta(alvo)
+        if self._delete:
+            removidos = self._aplica()
+            restante = [r for r in self.dados[self.tabela] if r not in removidos]
+            self.dados[self.tabela] = restante
+            return _Resposta(removidos)
+        return _Resposta(self._aplica())
 
 
 class SupabaseFake:

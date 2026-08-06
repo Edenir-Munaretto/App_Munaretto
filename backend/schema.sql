@@ -162,6 +162,109 @@ CREATE TABLE IF NOT EXISTS funcionarios (
 );
 
 -- ============================================================================
+-- MÓDULO: SEGURANÇA DO TRABALHO (SST)
+-- ============================================================================
+-- Tabelas para compliance de NRs: matriz de treinamentos (NR-6, NR-7, NR-10,
+-- NR-35 etc.), controle de vencimentos, ASO e Ficha de EPI digital.
+
+-- TABELA: cargos (funções da empresa)
+CREATE TABLE IF NOT EXISTS cargos (
+    id SERIAL PRIMARY KEY,
+    nome VARCHAR(255) NOT NULL UNIQUE,
+    descricao TEXT,
+    ativo BOOLEAN DEFAULT TRUE,
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+);
+
+-- TABELA: treinamentos (catálogo de cursos obrigatórios - NRs)
+CREATE TABLE IF NOT EXISTS treinamentos (
+    id SERIAL PRIMARY KEY,
+    nome VARCHAR(255) NOT NULL,
+    norma VARCHAR(100),
+    tipo VARCHAR(100),
+    validade_meses INTEGER,          -- periodicidade de reciclagem (NULL = sem validade)
+    carga_horaria INTEGER,
+    instituicao VARCHAR(255),
+    ativo BOOLEAN DEFAULT TRUE,
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+);
+
+-- TABELA: matriz_treinamentos (vínculo cargo x curso obrigatório)
+CREATE TABLE IF NOT EXISTS matriz_treinamentos (
+    id SERIAL PRIMARY KEY,
+    cargo_id INTEGER NOT NULL REFERENCES cargos(id) ON DELETE CASCADE,
+    treinamento_id INTEGER NOT NULL REFERENCES treinamentos(id) ON DELETE CASCADE,
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+    UNIQUE (cargo_id, treinamento_id)
+);
+
+-- Funcionários passam a ter cargo para a matriz de treinamentos
+ALTER TABLE IF EXISTS funcionarios ADD COLUMN IF NOT EXISTS cargo_id INTEGER REFERENCES cargos(id);
+
+-- TABELA: funcionario_treinamentos (cursos realizados pelos funcionários)
+CREATE TABLE IF NOT EXISTS funcionario_treinamentos (
+    id SERIAL PRIMARY KEY,
+    funcionario_id INTEGER NOT NULL REFERENCES funcionarios(id) ON DELETE CASCADE,
+    treinamento_id INTEGER NOT NULL REFERENCES treinamentos(id),
+    funcionario_nome VARCHAR(255),
+    treinamento_nome VARCHAR(255),
+    norma VARCHAR(100),
+    data_realizacao DATE,
+    data_validade DATE,
+    carga_horaria INTEGER,
+    certificado_url TEXT,
+    observacao TEXT,
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+);
+
+-- TABELA: aso (Atestado de Saúde Ocupacional - NR-7)
+CREATE TABLE IF NOT EXISTS aso (
+    id SERIAL PRIMARY KEY,
+    funcionario_id INTEGER NOT NULL REFERENCES funcionarios(id) ON DELETE CASCADE,
+    funcionario_nome VARCHAR(255),
+    tipo_exame VARCHAR(50),          -- admissional | periodico | retorno_trabalho | mudanca_funcao | demissional
+    data_exame DATE,
+    data_validade DATE,              -- somente exames periódicos possuem validade
+    validade_meses INTEGER,
+    medico_responsavel VARCHAR(255),
+    clinica VARCHAR(255),
+    resultado VARCHAR(50),           -- apto | apto_com_restricao | inapto
+    observacao TEXT,
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+);
+
+-- TABELA: epis (catálogo de EPIs com controle de CA - NR-6)
+CREATE TABLE IF NOT EXISTS epis (
+    id SERIAL PRIMARY KEY,
+    nome VARCHAR(255) NOT NULL,
+    categoria VARCHAR(100),
+    ca_numero VARCHAR(50),
+    fabricante VARCHAR(255),
+    ca_validade DATE,
+    ativo BOOLEAN DEFAULT TRUE,
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+);
+
+-- TABELA: funcionario_epis (Ficha de EPI digital - entregas aos funcionários)
+CREATE TABLE IF NOT EXISTS funcionario_epis (
+    id SERIAL PRIMARY KEY,
+    funcionario_id INTEGER NOT NULL REFERENCES funcionarios(id) ON DELETE CASCADE,
+    epi_id INTEGER NOT NULL REFERENCES epis(id),
+    funcionario_nome VARCHAR(255),
+    epi_nome VARCHAR(255),
+    ca_numero VARCHAR(50),
+    data_entrega DATE,
+    data_devolucao DATE,
+    quantidade INTEGER DEFAULT 1,
+    observacao TEXT,
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE INDEX IF NOT EXISTS idx_ft_funcionario ON funcionario_treinamentos (funcionario_id);
+CREATE INDEX IF NOT EXISTS idx_aso_funcionario ON aso (funcionario_id);
+CREATE INDEX IF NOT EXISTS idx_fepi_funcionario ON funcionario_epis (funcionario_id);
+
+-- ============================================================================
 -- ROW LEVEL SECURITY (RLS)
 -- ============================================================================
 -- O backend acessa o Supabase com a chave de service role, que por definição
@@ -189,6 +292,13 @@ ALTER TABLE IF EXISTS controle_recebimentos ENABLE ROW LEVEL SECURITY;
 ALTER TABLE IF EXISTS usuarios           ENABLE ROW LEVEL SECURITY;
 ALTER TABLE IF EXISTS notificacoes       ENABLE ROW LEVEL SECURITY;
 ALTER TABLE IF EXISTS funcionarios       ENABLE ROW LEVEL SECURITY;
+ALTER TABLE IF EXISTS cargos             ENABLE ROW LEVEL SECURITY;
+ALTER TABLE IF EXISTS treinamentos       ENABLE ROW LEVEL SECURITY;
+ALTER TABLE IF EXISTS matriz_treinamentos ENABLE ROW LEVEL SECURITY;
+ALTER TABLE IF EXISTS funcionario_treinamentos ENABLE ROW LEVEL SECURITY;
+ALTER TABLE IF EXISTS aso                ENABLE ROW LEVEL SECURITY;
+ALTER TABLE IF EXISTS epis               ENABLE ROW LEVEL SECURITY;
+ALTER TABLE IF EXISTS funcionario_epis   ENABLE ROW LEVEL SECURITY;
 
 -- ============================================================================
 -- POLÍTICAS RLS PARA service_role
@@ -234,4 +344,32 @@ CREATE POLICY "service_role_full_notificacoes" ON notificacoes
 
 DROP POLICY IF EXISTS "service_role_full_funcionarios" ON funcionarios;
 CREATE POLICY "service_role_full_funcionarios" ON funcionarios
+    FOR ALL TO service_role USING (true) WITH CHECK (true);
+
+DROP POLICY IF EXISTS "service_role_full_cargos" ON cargos;
+CREATE POLICY "service_role_full_cargos" ON cargos
+    FOR ALL TO service_role USING (true) WITH CHECK (true);
+
+DROP POLICY IF EXISTS "service_role_full_treinamentos" ON treinamentos;
+CREATE POLICY "service_role_full_treinamentos" ON treinamentos
+    FOR ALL TO service_role USING (true) WITH CHECK (true);
+
+DROP POLICY IF EXISTS "service_role_full_matriz_treinamentos" ON matriz_treinamentos;
+CREATE POLICY "service_role_full_matriz_treinamentos" ON matriz_treinamentos
+    FOR ALL TO service_role USING (true) WITH CHECK (true);
+
+DROP POLICY IF EXISTS "service_role_full_funcionario_treinamentos" ON funcionario_treinamentos;
+CREATE POLICY "service_role_full_funcionario_treinamentos" ON funcionario_treinamentos
+    FOR ALL TO service_role USING (true) WITH CHECK (true);
+
+DROP POLICY IF EXISTS "service_role_full_aso" ON aso;
+CREATE POLICY "service_role_full_aso" ON aso
+    FOR ALL TO service_role USING (true) WITH CHECK (true);
+
+DROP POLICY IF EXISTS "service_role_full_epis" ON epis;
+CREATE POLICY "service_role_full_epis" ON epis
+    FOR ALL TO service_role USING (true) WITH CHECK (true);
+
+DROP POLICY IF EXISTS "service_role_full_funcionario_epis" ON funcionario_epis;
+CREATE POLICY "service_role_full_funcionario_epis" ON funcionario_epis
     FOR ALL TO service_role USING (true) WITH CHECK (true);

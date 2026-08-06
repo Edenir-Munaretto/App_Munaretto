@@ -1,17 +1,18 @@
 import React, { useState, useEffect, useCallback } from 'react';
-import { 
-  LayoutDashboard, 
-  Users, 
-  Palmtree, 
-  LineChart, 
-  FileText, 
-  Bell, 
-  Menu, 
-  LogOut, 
+import {
+  LayoutDashboard,
+  Users,
+  Palmtree,
+  LineChart,
+  FileText,
+  Bell,
+  Menu,
+  LogOut,
   User as UserIcon,
   Receipt,
   Banknote,
-  Settings
+  Settings,
+  ShieldCheck,
 } from 'lucide-react';
 
 // Importando as páginas
@@ -22,6 +23,7 @@ import FluxoCaixa from './pages/FluxoCaixa';
 import GeradorDocumentos from './pages/GeradorDocumentos';
 import Comprovantes from './pages/Comprovantes';
 import Recebimentos from './pages/Recebimentos';
+import Sst from './pages/Sst';
 import Configuracoes from './pages/Configuracoes';
 import Login from './pages/Login';
 import { MODULOS } from './modules';
@@ -35,6 +37,7 @@ const ICONES = {
   documentos: FileText,
   comprovantes: Receipt,
   recebimentos: Banknote,
+  sst: ShieldCheck,
   configuracoes: Settings,
 };
 
@@ -46,6 +49,7 @@ const COMPONENTES = {
   documentos: GeradorDocumentos,
   comprovantes: Comprovantes,
   recebimentos: Recebimentos,
+  sst: Sst,
   configuracoes: Configuracoes,
 };
 
@@ -53,6 +57,7 @@ function App() {
   const [activeTab, setActiveTab] = useState('dashboard');
   const [sidebarOpen, setSidebarOpen] = useState(true);
   const [alerts, setAlerts] = useState([]);
+  const [sstAlerts, setSstAlerts] = useState([]);
   const [notificacoes, setNotificacoes] = useState([]);
   const [showNotifPanel, setShowNotifPanel] = useState(false);
   const [usuario, setUsuario] = useState(() => {
@@ -91,6 +96,17 @@ function App() {
       }
     } catch (err) {
       console.error('Erro ao buscar alertas:', err);
+    }
+    try {
+      if (usuario?.permissoes?.includes('sst')) {
+        const res = await apiFetch(`${API_URL}/sst/alertas`);
+        if (res.ok) {
+          const data = await res.json();
+          setSstAlerts(data.alertas || []);
+        }
+      }
+    } catch (err) {
+      console.error('Erro ao buscar alertas de SST:', err);
     }
   };
 
@@ -156,7 +172,7 @@ function App() {
   };
 
   const notificacoesNaoLidas = notificacoes.filter(n => !n.lida).length;
-  const totalSinos = notificacoesNaoLidas + alerts.length;
+  const totalSinos = notificacoesNaoLidas + alerts.length + sstAlerts.length;
 
   const handleLogin = (user) => {
     if (user?.token) setToken(user.token);
@@ -387,6 +403,31 @@ function App() {
                         ))
                       )}
                     </div>
+
+                    {/* Seção: Alertas de SST */}
+                    {sstAlerts.length > 0 && (
+                      <div className="py-2">
+                        <div className="px-4 py-2 text-[10px] font-extrabold uppercase tracking-wider text-slate-400 flex items-center gap-1.5">
+                          <span>🦺</span> Alertas de Segurança do Trabalho
+                          <span className="px-1.5 py-0.5 rounded-full bg-rose-100 text-rose-700 text-[9px]">
+                            {sstAlerts.length}
+                          </span>
+                        </div>
+                        {sstAlerts.map((alert, idx) => (
+                          <div
+                            key={idx}
+                            className={`px-4 py-3 text-xs border-t flex gap-2 ${
+                              alert.gravidade === 'danger' || alert.gravidade === 'expired'
+                                ? 'bg-rose-50 text-rose-800'
+                                : 'bg-amber-50 text-amber-800'
+                            }`}
+                          >
+                            <span>{alert.gravidade === 'danger' || alert.gravidade === 'expired' ? '🚨' : '⚠️'}</span>
+                            <span>{alert.mensagem}</span>
+                          </div>
+                        ))}
+                      </div>
+                    )}
 
                   </div>
                 </div>

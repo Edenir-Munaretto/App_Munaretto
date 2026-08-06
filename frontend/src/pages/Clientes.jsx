@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { Search, Plus, Edit2, Trash2, X, Check, AlertTriangle, Users, Briefcase } from 'lucide-react';
 import { API_URL, apiFetch } from '../api';
 
-function Clientes() {
+function Clientes({ usuarioAtual }) {
   const [tab, setTab] = useState('clientes');
   const [clientes, setClientes] = useState([]);
   const [busca, setBusca] = useState('');
@@ -29,7 +29,9 @@ function Clientes() {
   const [funcLoading, setFuncLoading] = useState(true);
   const [showFuncModal, setShowFuncModal] = useState(false);
   const [funcEditingId, setFuncEditingId] = useState(null);
-  const [funcForm, setFuncForm] = useState({ nome: '', cpf: '' });
+  const [funcForm, setFuncForm] = useState({ nome: '', cpf: '', cargo_id: '' });
+  const [cargos, setCargos] = useState([]);
+  const temSst = (usuarioAtual?.permissoes || []).includes('sst');
 
   useEffect(() => {
     fetchClientes();
@@ -38,6 +40,15 @@ function Clientes() {
   useEffect(() => {
     fetchFuncionarios();
   }, [funcBusca]);
+
+  useEffect(() => {
+    if (temSst) {
+      apiFetch(`${API_URL}/sst/cargos`)
+        .then(res => res.ok ? res.json() : [])
+        .then(setCargos)
+        .catch(() => setCargos([]));
+    }
+  }, [temSst]);
 
   const showToast = (message, type = 'success') => {
     setToast({ message, type });
@@ -165,13 +176,13 @@ function Clientes() {
 
   const openAddFuncModal = () => {
     setFuncEditingId(null);
-    setFuncForm({ nome: '', cpf: '' });
+    setFuncForm({ nome: '', cpf: '', cargo_id: '' });
     setShowFuncModal(true);
   };
 
   const openEditFuncModal = (f) => {
     setFuncEditingId(f.id);
-    setFuncForm({ nome: f.nome, cpf: f.cpf });
+    setFuncForm({ nome: f.nome, cpf: f.cpf, cargo_id: f.cargo_id || '' });
     setShowFuncModal(true);
   };
 
@@ -187,6 +198,12 @@ function Clientes() {
       return;
     }
 
+    const payload = {
+      nome: funcForm.nome,
+      cpf: funcForm.cpf,
+      cargo_id: funcForm.cargo_id ? Number(funcForm.cargo_id) : null
+    };
+
     try {
       const method = funcEditingId ? 'PUT' : 'POST';
       const url = funcEditingId ? `${API_URL}/funcionarios/${funcEditingId}` : `${API_URL}/funcionarios/`;
@@ -194,7 +211,7 @@ function Clientes() {
       const res = await apiFetch(url, {
         method,
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(funcForm)
+        body: JSON.stringify(payload)
       });
 
       const resData = await res.json();
@@ -569,13 +586,14 @@ function Clientes() {
                   <tr className="bg-slate-50 border-b border-slate-100 text-slate-400 font-bold text-xs uppercase tracking-wider">
                     <th className="px-3 py-3 md:px-6 md:py-4">Nome</th>
                     <th className="px-3 py-3 md:px-6 md:py-4">CPF</th>
+                    {temSst && <th className="px-3 py-3 md:px-6 md:py-4">Cargo</th>}
                     <th className="px-3 py-3 md:px-6 md:py-4 text-center">Ações</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-100 text-slate-700">
                   {funcLoading ? (
                     <tr>
-                      <td colSpan="3" className="text-center py-12 text-slate-400">
+                      <td colSpan={temSst ? 4 : 3} className="text-center py-12 text-slate-400">
                         <div className="flex flex-col items-center justify-center gap-3">
                           <div className="w-8 h-8 border-4 border-primary-500 border-t-transparent rounded-full animate-spin" />
                           <p className="text-xs">Buscando funcionários...</p>
@@ -584,7 +602,7 @@ function Clientes() {
                     </tr>
                   ) : funcionarios.length === 0 ? (
                     <tr>
-                      <td colSpan="3" className="text-center py-16 text-slate-400">
+                      <td colSpan={temSst ? 4 : 3} className="text-center py-16 text-slate-400">
                         <span className="text-3xl">🧑‍🏭</span>
                         <p className="font-semibold mt-2">Nenhum funcionário cadastrado.</p>
                         <p className="text-xs mt-1">Cadastre funcionários para usar como lista ao lançar férias.</p>
@@ -595,6 +613,17 @@ function Clientes() {
                       <tr key={f.id} className="hover:bg-slate-50/50 transition-colors">
                         <td className="px-3 py-3 md:px-6 md:py-4 font-bold text-slate-900">{f.nome}</td>
                         <td className="px-3 py-3 md:px-6 md:py-4 font-mono text-xs">{f.cpf}</td>
+                        {temSst && (
+                          <td className="px-3 py-3 md:px-6 md:py-4">
+                            {f.cargo_id ? (
+                              <span className="px-2 py-0.5 rounded-full bg-primary-50 text-primary-700 border border-primary-100 text-[10px] font-bold">
+                                {cargos.find(c => c.id === f.cargo_id)?.nome || 'Cargo'}
+                              </span>
+                            ) : (
+                              <span className="text-xs text-slate-400">-</span>
+                            )}
+                          </td>
+                        )}
                         <td className="px-3 py-3 md:px-6 md:py-4">
                           <div className="flex justify-center items-center gap-2">
                             <button
@@ -663,6 +692,26 @@ function Clientes() {
                       className="w-full px-3.5 py-2 border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-primary-500/20 focus:border-primary-500 text-sm"
                     />
                   </div>
+
+                  {temSst && (
+                    <div>
+                      <label className="block text-xs font-bold text-slate-700 mb-1.5">Cargo / Função (Matriz SST)</label>
+                      <select
+                        name="cargo_id"
+                        value={funcForm.cargo_id}
+                        onChange={handleFuncInputChange}
+                        className="w-full px-3.5 py-2.5 border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-primary-500/20 focus:border-primary-500 text-sm font-semibold"
+                      >
+                        <option value="">Selecione o cargo...</option>
+                        {cargos.map(c => (
+                          <option key={c.id} value={c.id}>{c.nome}</option>
+                        ))}
+                      </select>
+                      <p className="text-[10px] text-slate-400 mt-1 font-semibold">
+                        Usado pelo módulo Segurança do Trabalho para sugerir os treinamentos obrigatórios.
+                      </p>
+                    </div>
+                  )}
 
                   <div className="flex justify-end gap-3 pt-4 border-t border-slate-100">
                     <button

@@ -1,0 +1,2224 @@
+import React, { useState, useEffect } from 'react';
+import {
+  Search, Plus, Edit2, Trash2, X, Check, AlertTriangle,
+  HardHat, GraduationCap, Stethoscope, Link2, Unlink, Briefcase, FileText, User, Printer, ListChecks
+} from 'lucide-react';
+import { API_URL, apiFetch } from '../api';
+
+const STATUS_STYLES = {
+  'Vigente': 'bg-emerald-50 text-emerald-700 border-emerald-100',
+  'Próximo ao Vencimento': 'bg-amber-50 text-amber-700 border-amber-100',
+  'Vencido': 'bg-rose-50 text-rose-700 border-rose-100',
+  'Sem validade': 'bg-slate-50 text-slate-500 border-slate-200',
+};
+
+const RESULTADO_ASO = [
+  { value: 'apto', label: 'Apto' },
+  { value: 'apto_com_restricao', label: 'Apto com Restrição' },
+  { value: 'inapto', label: 'Inapto' },
+];
+
+const TIPOS_EXAME = [
+  { value: 'admissional', label: 'Admissional' },
+  { value: 'periodico', label: 'Periódico' },
+  { value: 'retorno_trabalho', label: 'Retorno ao Trabalho' },
+  { value: 'mudanca_funcao', label: 'Mudança de Função' },
+  { value: 'demissional', label: 'Demissional' },
+];
+
+function Sst() {
+  const [tab, setTab] = useState('matriz');
+  const [toast, setToast] = useState(null);
+  const [loading, setLoading] = useState(true);
+
+  // ---- Dados compartilhados ----
+  const [funcionarios, setFuncionarios] = useState([]);
+
+  // ---- Aba Matriz ----
+  const [cargos, setCargos] = useState([]);
+  const [treinamentos, setTreinamentos] = useState([]);
+  const [matriz, setMatriz] = useState([]);
+  const [cargoSelecionado, setCargoSelecionado] = useState(null);
+  const [showCargoModal, setShowCargoModal] = useState(false);
+  const [cargoEditingId, setCargoEditingId] = useState(null);
+  const [cargoForm, setCargoForm] = useState({ nome: '', descricao: '' });
+  const [showCatalogoModal, setShowCatalogoModal] = useState(false);
+  const [showTreinamentoModal, setShowTreinamentoModal] = useState(false);
+  const [treinamentoEditingId, setTreinamentoEditingId] = useState(null);
+  const [treinamentoForm, setTreinamentoForm] = useState({
+    nome: '', norma: '', tipo: '', validade_meses: '', carga_horaria: '', instituicao: ''
+  });
+  const [showVincularModal, setShowVincularModal] = useState(false);
+  const [vincularForm, setVincularForm] = useState({ treinamento_id: '' });
+
+  // ---- Aba Treinamentos ----
+  const [funcTreinamentos, setFuncTreinamentos] = useState([]);
+  const [ftView, setFtView] = useState('vencimentos'); // vencimentos | pendencias
+  const [pendencias, setPendencias] = useState([]);
+  const [pendBusca, setPendBusca] = useState('');
+  const [ftBusca, setFtBusca] = useState('');
+  const [ftStatus, setFtStatus] = useState('');
+  const [showFtModal, setShowFtModal] = useState(false);
+  const [ftEditingId, setFtEditingId] = useState(null);
+  const [ftForm, setFtForm] = useState({
+    funcionario_id: '', treinamento_id: '', data_realizacao: '',
+    data_validade: '', carga_horaria: '', observacao: ''
+  });
+  const [buscaFuncFt, setBuscaFuncFt] = useState('');
+  const [sugestoesFt, setSugestoesFt] = useState([]);
+  const [sugestoesFtAbertas, setSugestoesFtAbertas] = useState(false);
+  const [sugestoesMatriz, setSugestoesMatriz] = useState([]);
+
+  // ---- Aba ASO ----
+  const [asos, setAsos] = useState([]);
+  const [asoBusca, setAsoBusca] = useState('');
+  const [asoStatus, setAsoStatus] = useState('');
+  const [asoTipo, setAsoTipo] = useState('');
+  const [showAsoModal, setShowAsoModal] = useState(false);
+  const [asoEditingId, setAsoEditingId] = useState(null);
+  const [asoForm, setAsoForm] = useState({
+    funcionario_id: '', tipo_exame: 'admissional', data_exame: '',
+    data_validade: '', validade_meses: '', medico_responsavel: '',
+    clinica: '', resultado: 'apto', observacao: ''
+  });
+  const [buscaFuncAso, setBuscaFuncAso] = useState('');
+  const [sugestoesAso, setSugestoesAso] = useState([]);
+  const [sugestoesAsoAbertas, setSugestoesAsoAbertas] = useState(false);
+
+  // ---- Aba EPI ----
+  const [epiAba, setEpiAba] = useState('catalogo'); // catalogo | fichas
+  const [epis, setEpis] = useState([]);
+  const [showEpiModal, setShowEpiModal] = useState(false);
+  const [epiEditingId, setEpiEditingId] = useState(null);
+  const [epiForm, setEpiForm] = useState({
+    nome: '', categoria: '', ca_numero: '', fabricante: '', ca_validade: ''
+  });
+  const [funcEpis, setFuncEpis] = useState([]);
+  const [feBusca, setFeBusca] = useState('');
+  const [feStatus, setFeStatus] = useState('');
+  const [showFeModal, setShowFeModal] = useState(false);
+  const [feEditingId, setFeEditingId] = useState(null);
+  const [feForm, setFeForm] = useState({
+    funcionario_id: '', epi_id: '', data_entrega: '', data_devolucao: '',
+    quantidade: 1, observacao: ''
+  });
+  const [buscaFuncFe, setBuscaFuncFe] = useState('');
+  const [sugestoesFe, setSugestoesFe] = useState([]);
+  const [sugestoesFeAbertas, setSugestoesFeAbertas] = useState(false);
+
+  useEffect(() => {
+    fetchFuncionarios();
+    if (tab === 'matriz') fetchMatriz();
+    if (tab === 'treinamentos') { fetchFuncTreinamentos(); fetchPendencias(); }
+    if (tab === 'aso') fetchAsos();
+    if (tab === 'epi') { fetchEpis(); fetchFuncEpis(); }
+  }, [tab]);
+
+  // ============================= Helpers =============================
+  const showToast = (message, type = 'success') => {
+    setToast({ message, type });
+    setTimeout(() => setToast(null), 4000);
+  };
+
+  const formatDateBR = (dateStr) => {
+    if (!dateStr) return '-';
+    const parts = String(dateStr).split('-');
+    if (parts.length === 3) return `${parts[2]}/${parts[1]}/${parts[0]}`;
+    return dateStr;
+  };
+
+  const addMonths = (dateStr, months) => {
+    if (!dateStr || !months) return '';
+    const [y, m, d] = dateStr.split('-').map(Number);
+    if (!y || !m || !d) return '';
+    const diasPorMes = [31, (y % 4 === 0 && (y % 100 !== 0 || y % 400 === 0)) ? 29 : 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31];
+    const mesIndex = m - 1 + months;
+    const ano = y + Math.floor(mesIndex / 12);
+    const mes = ((mesIndex % 12) + 12) % 12;
+    const dia = Math.min(d, diasPorMes[mes]);
+    return `${ano}-${String(mes + 1).padStart(2, '0')}-${String(dia).padStart(2, '0')}`;
+  };
+
+  const StatusBadge = ({ status }) => (
+    <span className={`inline-block px-2.5 py-1 rounded-full text-[10px] font-bold border ${STATUS_STYLES[status] || STATUS_STYLES['Sem validade']}`}>
+      {status}
+    </span>
+  );
+
+  const buscarFuncionarios = (termo, lista) =>
+    termo.trim()
+      ? lista.filter(f => f.nome.toLowerCase().includes(termo.toLowerCase())).slice(0, 8)
+      : [];
+
+  // ============================= Fetch =============================
+  const fetchFuncionarios = async () => {
+    try {
+      const res = await apiFetch(`${API_URL}/funcionarios/`);
+      if (res.ok) setFuncionarios(await res.json());
+    } catch (err) {
+      console.error('Erro ao buscar funcionários:', err);
+    }
+  };
+
+  const fetchMatriz = async () => {
+    try {
+      setLoading(true);
+      const [cargosRes, treinRes, matrizRes] = await Promise.all([
+        apiFetch(`${API_URL}/sst/cargos`),
+        apiFetch(`${API_URL}/sst/treinamentos`),
+        apiFetch(`${API_URL}/sst/matriz`),
+      ]);
+      if (cargosRes.ok) setCargos(await cargosRes.json());
+      if (treinRes.ok) setTreinamentos(await treinRes.json());
+      if (matrizRes.ok) setMatriz(await matrizRes.json());
+    } catch (err) {
+      console.error(err);
+      showToast('Erro ao carregar matriz de treinamentos.', 'error');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const fetchFuncTreinamentos = async () => {
+    try {
+      setLoading(true);
+      const res = await apiFetch(`${API_URL}/sst/funcionario-treinamentos`);
+      if (res.ok) setFuncTreinamentos(await res.json());
+    } catch (err) {
+      console.error(err);
+      showToast('Erro ao carregar treinamentos.', 'error');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const fetchPendencias = async () => {
+    try {
+      const res = await apiFetch(`${API_URL}/sst/pendencias`);
+      if (res.ok) setPendencias(await res.json());
+    } catch (err) {
+      console.error(err);
+      showToast('Erro ao carregar pendências da matriz.', 'error');
+    }
+  };
+
+  const fetchAsos = async () => {
+    try {
+      setLoading(true);
+      const res = await apiFetch(`${API_URL}/sst/aso`);
+      if (res.ok) setAsos(await res.json());
+    } catch (err) {
+      console.error(err);
+      showToast('Erro ao carregar ASOs.', 'error');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const fetchEpis = async () => {
+    try {
+      const res = await apiFetch(`${API_URL}/sst/epis`);
+      if (res.ok) setEpis(await res.json());
+    } catch (err) {
+      console.error(err);
+      showToast('Erro ao carregar EPIs.', 'error');
+    }
+  };
+
+  const fetchFuncEpis = async () => {
+    try {
+      const res = await apiFetch(`${API_URL}/sst/funcionario-epis`);
+      if (res.ok) setFuncEpis(await res.json());
+    } catch (err) {
+      console.error(err);
+      showToast('Erro ao carregar fichas de EPI.', 'error');
+    }
+  };
+
+  // ============================= Aba Matriz =============================
+  const openAddCargo = () => {
+    setCargoEditingId(null);
+    setCargoForm({ nome: '', descricao: '' });
+    setShowCargoModal(true);
+  };
+
+  const openEditCargo = (c) => {
+    setCargoEditingId(c.id);
+    setCargoForm({ nome: c.nome, descricao: c.descricao || '' });
+    setShowCargoModal(true);
+  };
+
+  const handleCargoSubmit = async (e) => {
+    e.preventDefault();
+    if (!cargoForm.nome) {
+      showToast('Nome do cargo é obrigatório.', 'error');
+      return;
+    }
+    try {
+      const method = cargoEditingId ? 'PUT' : 'POST';
+      const url = cargoEditingId ? `${API_URL}/sst/cargos/${cargoEditingId}` : `${API_URL}/sst/cargos/`;
+      const res = await apiFetch(url, {
+        method,
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(cargoForm)
+      });
+      const resData = await res.json();
+      if (res.ok) {
+        showToast(cargoEditingId ? 'Cargo atualizado com sucesso!' : 'Cargo cadastrado com sucesso!');
+        setShowCargoModal(false);
+        fetchMatriz();
+      } else {
+        showToast(resData.detail || 'Erro ao salvar cargo.', 'error');
+      }
+    } catch (err) {
+      console.error(err);
+      showToast('Erro de conexão ao salvar cargo.', 'error');
+    }
+  };
+
+  const handleDeleteCargo = async (id, nome) => {
+    if (!window.confirm(`Tem certeza que deseja excluir o cargo "${nome}"?`)) return;
+    try {
+      const res = await apiFetch(`${API_URL}/sst/cargos/${id}`, { method: 'DELETE' });
+      if (res.ok) {
+        showToast('Cargo excluído com sucesso.');
+        if (cargoSelecionado === id) setCargoSelecionado(null);
+        fetchMatriz();
+      } else {
+        showToast('Erro ao excluir cargo.', 'error');
+      }
+    } catch (err) {
+      console.error(err);
+      showToast('Erro de conexão ao excluir cargo.', 'error');
+    }
+  };
+
+  const openAddTreinamento = () => {
+    setTreinamentoEditingId(null);
+    setTreinamentoForm({ nome: '', norma: '', tipo: '', validade_meses: '', carga_horaria: '', instituicao: '' });
+    setShowTreinamentoModal(true);
+  };
+
+  const openEditTreinamento = (t) => {
+    setTreinamentoEditingId(t.id);
+    setTreinamentoForm({
+      nome: t.nome, norma: t.norma || '', tipo: t.tipo || '',
+      validade_meses: t.validade_meses || '', carga_horaria: t.carga_horaria || '', instituicao: t.instituicao || ''
+    });
+    setShowTreinamentoModal(true);
+  };
+
+  const handleTreinamentoSubmit = async (e) => {
+    e.preventDefault();
+    if (!treinamentoForm.nome) {
+      showToast('Nome do curso é obrigatório.', 'error');
+      return;
+    }
+    const payload = {
+      ...treinamentoForm,
+      validade_meses: treinamentoForm.validade_meses ? Number(treinamentoForm.validade_meses) : null,
+      carga_horaria: treinamentoForm.carga_horaria ? Number(treinamentoForm.carga_horaria) : null,
+    };
+    try {
+      const method = treinamentoEditingId ? 'PUT' : 'POST';
+      const url = treinamentoEditingId ? `${API_URL}/sst/treinamentos/${treinamentoEditingId}` : `${API_URL}/sst/treinamentos/`;
+      const res = await apiFetch(url, {
+        method,
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload)
+      });
+      const resData = await res.json();
+      if (res.ok) {
+        showToast(treinamentoEditingId ? 'Curso atualizado com sucesso!' : 'Curso cadastrado com sucesso!');
+        setShowTreinamentoModal(false);
+        fetchMatriz();
+      } else {
+        showToast(resData.detail || 'Erro ao salvar curso.', 'error');
+      }
+    } catch (err) {
+      console.error(err);
+      showToast('Erro de conexão ao salvar curso.', 'error');
+    }
+  };
+
+  const handleDeleteTreinamento = async (id, nome) => {
+    if (!window.confirm(`Tem certeza que deseja excluir o curso "${nome}"?`)) return;
+    try {
+      const res = await apiFetch(`${API_URL}/sst/treinamentos/${id}`, { method: 'DELETE' });
+      if (res.ok) {
+        showToast('Curso excluído com sucesso.');
+        fetchMatriz();
+      } else {
+        showToast('Erro ao excluir curso.', 'error');
+      }
+    } catch (err) {
+      console.error(err);
+      showToast('Erro de conexão ao excluir curso.', 'error');
+    }
+  };
+
+  const openVincular = () => {
+    setVincularForm({ treinamento_id: '' });
+    setShowVincularModal(true);
+  };
+
+  const handleVincularSubmit = async (e) => {
+    e.preventDefault();
+    if (!vincularForm.treinamento_id) {
+      showToast('Selecione um curso.', 'error');
+      return;
+    }
+    try {
+      const res = await apiFetch(`${API_URL}/sst/matriz`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ cargo_id: cargoSelecionado, treinamento_id: Number(vincularForm.treinamento_id) })
+      });
+      const resData = await res.json();
+      if (res.ok) {
+        showToast('Curso vinculado ao cargo!');
+        setShowVincularModal(false);
+        fetchMatriz();
+      } else {
+        showToast(resData.detail || 'Erro ao vincular curso.', 'error');
+      }
+    } catch (err) {
+      console.error(err);
+      showToast('Erro de conexão ao vincular curso.', 'error');
+    }
+  };
+
+  const handleDesvincular = async (vinculoId, cursoNome) => {
+    if (!window.confirm(`Desvincular "${cursoNome}" deste cargo?`)) return;
+    try {
+      const res = await apiFetch(`${API_URL}/sst/matriz/${vinculoId}`, { method: 'DELETE' });
+      if (res.ok) {
+        showToast('Curso desvinculado do cargo.');
+        fetchMatriz();
+      } else {
+        showToast('Erro ao desvincular curso.', 'error');
+      }
+    } catch (err) {
+      console.error(err);
+      showToast('Erro de conexão ao desvincular curso.', 'error');
+    }
+  };
+
+  const cursosDoCargo = (cargoId) => matriz.filter(m => m.cargo_id === cargoId);
+  const cursosLivres = (cargoId) => {
+    const vinculados = new Set(cursosDoCargo(cargoId).map(m => m.treinamento_id));
+    return treinamentos.filter(t => !vinculados.has(t.id));
+  };
+  const funcionariosDoCargo = (cargoId) => funcionarios.filter(f => f.cargo_id === cargoId);
+
+  // ============================= Aba Treinamentos =============================
+  const filteredFuncTreinamentos = funcTreinamentos.filter(r => {
+    if (ftStatus && r.status !== ftStatus) return false;
+    if (ftBusca) {
+      const termo = ftBusca.toLowerCase();
+      if (!String(r.funcionario_nome || '').toLowerCase().includes(termo) &&
+          !String(r.treinamento_nome || '').toLowerCase().includes(termo)) return false;
+    }
+    return true;
+  });
+
+  const countsTreinamentos = {
+    'Vigente': funcTreinamentos.filter(r => r.status === 'Vigente').length,
+    'Próximo ao Vencimento': funcTreinamentos.filter(r => r.status === 'Próximo ao Vencimento').length,
+    'Vencido': funcTreinamentos.filter(r => r.status === 'Vencido').length,
+    'Sem validade': funcTreinamentos.filter(r => r.status === 'Sem validade').length,
+  };
+
+  const openAddFt = () => {
+    setFtEditingId(null);
+    setFtForm({ funcionario_id: '', treinamento_id: '', data_realizacao: '', data_validade: '', carga_horaria: '', observacao: '' });
+    setBuscaFuncFt('');
+    setSugestoesMatriz([]);
+    setShowFtModal(true);
+  };
+
+  const openEditFt = (r) => {
+    setFtEditingId(r.id);
+    setFtForm({
+      funcionario_id: r.funcionario_id, treinamento_id: r.treinamento_id,
+      data_realizacao: r.data_realizacao || '', data_validade: r.data_validade || '',
+      carga_horaria: r.carga_horaria || '', observacao: r.observacao || ''
+    });
+    const func = funcionarios.find(f => f.id === r.funcionario_id);
+    setBuscaFuncFt(func ? func.nome : r.funcionario_nome || '');
+    setSugestoesMatriz([]);
+    setShowFtModal(true);
+  };
+
+  const selecionarFuncFt = (func) => {
+    setFtForm(prev => ({ ...prev, funcionario_id: func.id }));
+    setBuscaFuncFt(func.nome);
+    setSugestoesFtAbertas(false);
+    if (func.cargo_id) {
+      apiFetch(`${API_URL}/sst/matriz?cargo_id=${func.cargo_id}`)
+        .then(res => res.ok ? res.json() : [])
+        .then(data => setSugestoesMatriz(data))
+        .catch(() => setSugestoesMatriz([]));
+    } else {
+      setSugestoesMatriz([]);
+    }
+  };
+
+  const handleFtCursoChange = (treinamentoId) => {
+    setFtForm(prev => {
+      const curso = treinamentos.find(t => t.id === Number(treinamentoId));
+      let dataValidade = prev.data_validade;
+      if (curso?.validade_meses && prev.data_realizacao) {
+        dataValidade = addMonths(prev.data_realizacao, curso.validade_meses);
+      }
+      return { ...prev, treinamento_id: Number(treinamentoId), data_validade: dataValidade };
+    });
+  };
+
+  const handleFtDataRealizacaoChange = (dateStr) => {
+    setFtForm(prev => {
+      const curso = treinamentos.find(t => t.id === prev.treinamento_id);
+      let dataValidade = prev.data_validade;
+      if (curso?.validade_meses && dateStr) {
+        dataValidade = addMonths(dateStr, curso.validade_meses);
+      }
+      return { ...prev, data_realizacao: dateStr, data_validade: dataValidade };
+    });
+  };
+
+  const adicionarSugestaoMatriz = (sug) => {
+    if (!ftForm.data_realizacao) {
+      showToast('Informe a data de realização primeiro.', 'error');
+      return;
+    }
+    const curso = treinamentos.find(t => t.id === sug.treinamento_id);
+    const dataValidade = curso?.validade_meses ? addMonths(ftForm.data_realizacao, curso.validade_meses) : '';
+    setFtForm(prev => ({
+      ...prev,
+      treinamento_id: sug.treinamento_id,
+      data_validade: dataValidade
+    }));
+  };
+
+  const abrirRegistroPendencia = (p) => {
+    setFtEditingId(null);
+    setFtForm({
+      funcionario_id: p.funcionario_id,
+      treinamento_id: p.treinamento_id,
+      data_realizacao: '',
+      data_validade: '',
+      carga_horaria: '',
+      observacao: ''
+    });
+    setBuscaFuncFt(p.funcionario_nome);
+    setSugestoesMatriz([]);
+    setShowFtModal(true);
+  };
+
+  const filteredPendencias = pendencias.filter(p => {
+    if (!pendBusca) return true;
+    const termo = pendBusca.toLowerCase();
+    return String(p.funcionario_nome || '').toLowerCase().includes(termo) ||
+      String(p.treinamento_nome || '').toLowerCase().includes(termo) ||
+      String(p.cargo_nome || '').toLowerCase().includes(termo);
+  });
+
+  const qtdPendentes = pendencias.filter(p => p.situacao === 'Pendente').length;
+  const qtdVencidos = pendencias.filter(p => p.situacao === 'Vencido').length;
+
+  const handleFtSubmit = async (e) => {
+    e.preventDefault();
+    if (!ftForm.funcionario_id || !ftForm.treinamento_id || !ftForm.data_realizacao) {
+      showToast('Funcionário, curso e data de realização são obrigatórios.', 'error');
+      return;
+    }
+    const payload = {
+      ...ftForm,
+      funcionario_id: Number(ftForm.funcionario_id),
+      treinamento_id: Number(ftForm.treinamento_id),
+      data_validade: ftForm.data_validade || null,
+      carga_horaria: ftForm.carga_horaria ? Number(ftForm.carga_horaria) : null,
+    };
+    try {
+      const method = ftEditingId ? 'PUT' : 'POST';
+      const url = ftEditingId ? `${API_URL}/sst/funcionario-treinamentos/${ftEditingId}` : `${API_URL}/sst/funcionario-treinamentos/`;
+      const res = await apiFetch(url, {
+        method,
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload)
+      });
+      const resData = await res.json();
+      if (res.ok) {
+        showToast(ftEditingId ? 'Registro atualizado com sucesso!' : 'Treinamento registrado com sucesso!');
+        setShowFtModal(false);
+        fetchFuncTreinamentos();
+      } else {
+        showToast(resData.detail || 'Erro ao salvar treinamento.', 'error');
+      }
+    } catch (err) {
+      console.error(err);
+      showToast('Erro de conexão ao salvar treinamento.', 'error');
+    }
+  };
+
+  const handleDeleteFt = async (id, label) => {
+    if (!window.confirm(`Excluir o registro de "${label}"?`)) return;
+    try {
+      const res = await apiFetch(`${API_URL}/sst/funcionario-treinamentos/${id}`, { method: 'DELETE' });
+      if (res.ok) {
+        showToast('Registro excluído com sucesso.');
+        fetchFuncTreinamentos();
+      } else {
+        showToast('Erro ao excluir registro.', 'error');
+      }
+    } catch (err) {
+      console.error(err);
+      showToast('Erro de conexão ao excluir registro.', 'error');
+    }
+  };
+
+  // ============================= Aba ASO =============================
+  const filteredAsos = asos.filter(a => {
+    if (asoStatus && a.status !== asoStatus) return false;
+    if (asoTipo && a.tipo_exame !== asoTipo) return false;
+    if (asoBusca && !String(a.funcionario_nome || '').toLowerCase().includes(asoBusca.toLowerCase())) return false;
+    return true;
+  });
+
+  const countsAsos = {
+    'Vigente': asos.filter(a => a.status === 'Vigente').length,
+    'Próximo ao Vencimento': asos.filter(a => a.status === 'Próximo ao Vencimento').length,
+    'Vencido': asos.filter(a => a.status === 'Vencido').length,
+    'Sem validade': asos.filter(a => a.status === 'Sem validade').length,
+  };
+
+  const openAddAso = () => {
+    setAsoEditingId(null);
+    setAsoForm({ funcionario_id: '', tipo_exame: 'admissional', data_exame: '', data_validade: '', validade_meses: '', medico_responsavel: '', clinica: '', resultado: 'apto', observacao: '' });
+    setBuscaFuncAso('');
+    setShowAsoModal(true);
+  };
+
+  const openEditAso = (a) => {
+    setAsoEditingId(a.id);
+    setAsoForm({
+      funcionario_id: a.funcionario_id, tipo_exame: a.tipo_exame || 'admissional',
+      data_exame: a.data_exame || '', data_validade: a.data_validade || '',
+      validade_meses: a.validade_meses || '', medico_responsavel: a.medico_responsavel || '',
+      clinica: a.clinica || '', resultado: a.resultado || 'apto', observacao: a.observacao || ''
+    });
+    const func = funcionarios.find(f => f.id === a.funcionario_id);
+    setBuscaFuncAso(func ? func.nome : a.funcionario_nome || '');
+    setShowAsoModal(true);
+  };
+
+  const selecionarFuncAso = (func) => {
+    setAsoForm(prev => ({ ...prev, funcionario_id: func.id }));
+    setBuscaFuncAso(func.nome);
+    setSugestoesAsoAbertas(false);
+  };
+
+  const handleAsoTipoChange = (tipo) => {
+    setAsoForm(prev => {
+      const novoTipo = tipo;
+      if (novoTipo !== 'periodico') {
+        return { ...prev, tipo_exame: novoTipo, data_validade: '', validade_meses: '' };
+      }
+      const validade = prev.validade_meses && prev.data_exame
+        ? addMonths(prev.data_exame, Number(prev.validade_meses))
+        : prev.data_validade;
+      return { ...prev, tipo_exame: novoTipo, data_validade: validade };
+    });
+  };
+
+  const handleAsoValidadeMesesChange = (meses) => {
+    setAsoForm(prev => {
+      const dataValidade = meses && prev.data_exame ? addMonths(prev.data_exame, Number(meses)) : prev.data_validade;
+      return { ...prev, validade_meses: meses, data_validade: dataValidade };
+    });
+  };
+
+  const handleAsoDataExameChange = (dateStr) => {
+    setAsoForm(prev => {
+      const dataValidade = prev.validade_meses && dateStr
+        ? addMonths(dateStr, Number(prev.validade_meses))
+        : prev.data_validade;
+      return { ...prev, data_exame: dateStr, data_validade: dataValidade };
+    });
+  };
+
+  const handleAsoSubmit = async (e) => {
+    e.preventDefault();
+    if (!asoForm.funcionario_id || !asoForm.data_exame) {
+      showToast('Funcionário e data do exame são obrigatórios.', 'error');
+      return;
+    }
+    const payload = {
+      ...asoForm,
+      funcionario_id: Number(asoForm.funcionario_id),
+      validade_meses: asoForm.validade_meses ? Number(asoForm.validade_meses) : null,
+      data_validade: asoForm.data_validade || null,
+    };
+    try {
+      const method = asoEditingId ? 'PUT' : 'POST';
+      const url = asoEditingId ? `${API_URL}/sst/aso/${asoEditingId}` : `${API_URL}/sst/aso/`;
+      const res = await apiFetch(url, {
+        method,
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload)
+      });
+      const resData = await res.json();
+      if (res.ok) {
+        showToast(asoEditingId ? 'ASO atualizado com sucesso!' : 'ASO cadastrado com sucesso!');
+        setShowAsoModal(false);
+        fetchAsos();
+      } else {
+        showToast(resData.detail || 'Erro ao salvar ASO.', 'error');
+      }
+    } catch (err) {
+      console.error(err);
+      showToast('Erro de conexão ao salvar ASO.', 'error');
+    }
+  };
+
+  const handleDeleteAso = async (id, label) => {
+    if (!window.confirm(`Excluir o ASO de "${label}"?`)) return;
+    try {
+      const res = await apiFetch(`${API_URL}/sst/aso/${id}`, { method: 'DELETE' });
+      if (res.ok) {
+        showToast('ASO excluído com sucesso.');
+        fetchAsos();
+      } else {
+        showToast('Erro ao excluir ASO.', 'error');
+      }
+    } catch (err) {
+      console.error(err);
+      showToast('Erro de conexão ao excluir ASO.', 'error');
+    }
+  };
+
+  // ============================= Aba EPI =============================
+  const openAddEpi = () => {
+    setEpiEditingId(null);
+    setEpiForm({ nome: '', categoria: '', ca_numero: '', fabricante: '', ca_validade: '' });
+    setShowEpiModal(true);
+  };
+
+  const openEditEpi = (e) => {
+    setEpiEditingId(e.id);
+    setEpiForm({
+      nome: e.nome, categoria: e.categoria || '', ca_numero: e.ca_numero || '',
+      fabricante: e.fabricante || '', ca_validade: e.ca_validade || ''
+    });
+    setShowEpiModal(true);
+  };
+
+  const handleEpiSubmit = async (e) => {
+    e.preventDefault();
+    if (!epiForm.nome) {
+      showToast('Nome do EPI é obrigatório.', 'error');
+      return;
+    }
+    const payload = { ...epiForm, ca_validade: epiForm.ca_validade || null };
+    try {
+      const method = epiEditingId ? 'PUT' : 'POST';
+      const url = epiEditingId ? `${API_URL}/sst/epis/${epiEditingId}` : `${API_URL}/sst/epis/`;
+      const res = await apiFetch(url, {
+        method,
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload)
+      });
+      const resData = await res.json();
+      if (res.ok) {
+        showToast(epiEditingId ? 'EPI atualizado com sucesso!' : 'EPI cadastrado com sucesso!');
+        setShowEpiModal(false);
+        fetchEpis();
+      } else {
+        showToast(resData.detail || 'Erro ao salvar EPI.', 'error');
+      }
+    } catch (err) {
+      console.error(err);
+      showToast('Erro de conexão ao salvar EPI.', 'error');
+    }
+  };
+
+  const handleDeleteEpi = async (id, nome) => {
+    if (!window.confirm(`Tem certeza que deseja excluir o EPI "${nome}"?`)) return;
+    try {
+      const res = await apiFetch(`${API_URL}/sst/epis/${id}`, { method: 'DELETE' });
+      if (res.ok) {
+        showToast('EPI excluído com sucesso.');
+        fetchEpis();
+      } else {
+        showToast('Erro ao excluir EPI.', 'error');
+      }
+    } catch (err) {
+      console.error(err);
+      showToast('Erro de conexão ao excluir EPI.', 'error');
+    }
+  };
+
+  const epiPorId = (id) => epis.find(e => e.id === Number(id));
+  const epiSelecionadoCaVencido = feForm.epi_id && epiPorId(feForm.epi_id)?.ca_status === 'CA Vencido';
+
+  const openAddFe = () => {
+    setFeEditingId(null);
+    setFeForm({ funcionario_id: '', epi_id: '', data_entrega: '', data_devolucao: '', quantidade: 1, observacao: '' });
+    setBuscaFuncFe('');
+    setShowFeModal(true);
+  };
+
+  const openEditFe = (f) => {
+    setFeEditingId(f.id);
+    setFeForm({
+      funcionario_id: f.funcionario_id, epi_id: f.epi_id, data_entrega: f.data_entrega || '',
+      data_devolucao: f.data_devolucao || '', quantidade: f.quantidade || 1, observacao: f.observacao || ''
+    });
+    const func = funcionarios.find(x => x.id === f.funcionario_id);
+    setBuscaFuncFe(func ? func.nome : f.funcionario_nome || '');
+    setShowFeModal(true);
+  };
+
+  const selecionarFuncFe = (func) => {
+    setFeForm(prev => ({ ...prev, funcionario_id: func.id }));
+    setBuscaFuncFe(func.nome);
+    setSugestoesFeAbertas(false);
+  };
+
+  const handleFeSubmit = async (e) => {
+    e.preventDefault();
+    if (!feForm.funcionario_id || !feForm.epi_id || !feForm.data_entrega) {
+      showToast('Funcionário, EPI e data de entrega são obrigatórios.', 'error');
+      return;
+    }
+    const payload = {
+      ...feForm,
+      funcionario_id: Number(feForm.funcionario_id),
+      epi_id: Number(feForm.epi_id),
+      quantidade: Number(feForm.quantidade) || 1,
+      data_devolucao: feForm.data_devolucao || null,
+    };
+    try {
+      const method = feEditingId ? 'PUT' : 'POST';
+      const url = feEditingId ? `${API_URL}/sst/funcionario-epis/${feEditingId}` : `${API_URL}/sst/funcionario-epis/`;
+      const res = await apiFetch(url, {
+        method,
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload)
+      });
+      const resData = await res.json();
+      if (res.ok) {
+        showToast(feEditingId ? 'Ficha atualizada com sucesso!' : 'Entrega de EPI registrada com sucesso!');
+        setShowFeModal(false);
+        fetchFuncEpis();
+      } else {
+        showToast(resData.detail || 'Erro ao salvar ficha de EPI.', 'error');
+      }
+    } catch (err) {
+      console.error(err);
+      showToast('Erro de conexão ao salvar ficha de EPI.', 'error');
+    }
+  };
+
+  const handleDeleteFe = async (id, label) => {
+    if (!window.confirm(`Excluir a ficha de entrega de "${label}"?`)) return;
+    try {
+      const res = await apiFetch(`${API_URL}/sst/funcionario-epis/${id}`, { method: 'DELETE' });
+      if (res.ok) {
+        showToast('Ficha de EPI excluída com sucesso.');
+        fetchFuncEpis();
+      } else {
+        showToast('Erro ao excluir ficha de EPI.', 'error');
+      }
+    } catch (err) {
+      console.error(err);
+      showToast('Erro de conexão ao excluir ficha de EPI.', 'error');
+    }
+  };
+
+  const baixarPdfFicha = async (id) => {
+    try {
+      const res = await apiFetch(`${API_URL}/sst/funcionario-epis/${id}/pdf`);
+      if (!res.ok) {
+        showToast('Erro ao gerar o PDF.', 'error');
+        return;
+      }
+      const blob = await res.blob();
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `ficha_epi_${id}.pdf`;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      URL.revokeObjectURL(url);
+      showToast('Ficha de EPI em PDF gerada!');
+    } catch (err) {
+      console.error(err);
+      showToast('Erro de conexão ao gerar o PDF.', 'error');
+    }
+  };
+
+  const filteredFuncEpis = funcEpis.filter(f => {
+    if (feStatus && f.status !== feStatus) return false;
+    if (feBusca) {
+      const termo = feBusca.toLowerCase();
+      if (!String(f.funcionario_nome || '').toLowerCase().includes(termo) &&
+          !String(f.epi_nome || '').toLowerCase().includes(termo)) return false;
+    }
+    return true;
+  });
+
+  // ============================= UI =============================
+  return (
+    <div className="space-y-6">
+      {/* Estilos para impressão */}
+      <style dangerouslySetInnerHTML={{__html: `
+        @media print {
+          @page { margin: 8mm; }
+          body { background-color: white !important; color: black !important; }
+          aside, header, button, input, select, .print\\:hidden, .no-print { display: none !important; }
+          main { padding: 0 !important; margin: 0 !important; }
+          .flex-1.overflow-y-auto { overflow: visible !important; height: auto !important; max-height: none !important; }
+          .flex.h-screen.overflow-hidden, main { overflow: visible !important; height: auto !important; min-height: 0 !important; }
+          table { width: 100% !important; border-collapse: collapse !important; }
+          th, td { border: 1px solid #cbd5e1 !important; padding: 4px 6px !important; font-size: 9px !important; }
+          .print-full-width { width: 100% !important; max-width: 100% !important; border: none !important; box-shadow: none !important; }
+        }
+      `}} />
+
+      {/* Toast */}
+      {toast && (
+        <div className={`fixed top-4 right-4 z-50 p-4 rounded-xl shadow-xl flex items-center gap-3 border text-sm max-w-sm animate-in slide-in-from-top-4 duration-300 ${
+          toast.type === 'error'
+            ? 'bg-rose-50 border-rose-200 text-rose-800'
+            : 'bg-emerald-50 border-emerald-200 text-emerald-800'
+        }`}>
+          <div className={`p-1 rounded-full ${toast.type === 'error' ? 'bg-rose-100 text-rose-600' : 'bg-emerald-100 text-emerald-600'}`}>
+            {toast.type === 'error' ? <AlertTriangle size={16} /> : <Check size={16} />}
+          </div>
+          <p className="font-semibold">{toast.message}</p>
+        </div>
+      )}
+
+      {/* Tabs */}
+      <div className="flex flex-wrap gap-2">
+        {[
+          { id: 'matriz', label: 'Matriz de Treinamentos', icon: Briefcase },
+          { id: 'treinamentos', label: 'Vencimentos de Cursos', icon: GraduationCap },
+          { id: 'aso', label: 'ASO', icon: Stethoscope },
+          { id: 'epi', label: 'Ficha de EPI', icon: HardHat },
+        ].map(t => {
+          const Icon = t.icon;
+          return (
+            <button
+              key={t.id}
+              onClick={() => setTab(t.id)}
+              className={`flex items-center gap-2 px-4 py-2.5 rounded-xl text-sm font-bold border transition-all ${
+                tab === t.id
+                  ? 'bg-slate-900 border-slate-900 text-white shadow-sm'
+                  : 'bg-white border-slate-200 text-slate-600 hover:bg-slate-50'
+              }`}
+            >
+              <Icon size={16} />
+              {t.label}
+            </button>
+          );
+        })}
+      </div>
+
+      {/* ================= ABAS ================= */}
+      {tab === 'matriz' && (
+        <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+          {/* Cargos */}
+          <div className="bg-white rounded-2xl border border-slate-100 shadow-sm overflow-hidden">
+            <div className="px-4 py-3 border-b border-slate-100 flex items-center justify-between">
+              <h3 className="text-sm font-extrabold text-slate-700 uppercase tracking-wider">Cargos / Funções</h3>
+              <button
+                onClick={openAddCargo}
+                className="flex items-center gap-1 px-2.5 py-1.5 bg-primary-600 hover:bg-primary-700 text-white rounded-lg text-xs font-bold transition-all cursor-pointer"
+              >
+                <Plus size={14} /> Novo
+              </button>
+            </div>
+            <div className="divide-y divide-slate-100 max-h-[520px] overflow-y-auto">
+              {cargos.length === 0 ? (
+                <p className="p-6 text-center text-sm text-slate-400">Nenhum cargo cadastrado.</p>
+              ) : cargos.map(c => (
+                <button
+                  key={c.id}
+                  onClick={() => setCargoSelecionado(c.id)}
+                  className={`w-full text-left px-4 py-3 flex items-center justify-between gap-2 transition-colors cursor-pointer ${
+                    cargoSelecionado === c.id ? 'bg-primary-50/70' : 'hover:bg-slate-50'
+                  }`}
+                >
+                  <div className="min-w-0">
+                    <p className="font-bold text-sm text-slate-800 truncate">{c.nome}</p>
+                    <p className="text-[11px] text-slate-400 font-semibold">
+                      {cursosDoCargo(c.id).length} curso(s) · {funcionariosDoCargo(c.id).length} funcionário(s)
+                    </p>
+                  </div>
+                  <div className="flex items-center gap-1 shrink-0">
+                    <span
+                      onClick={(e) => { e.stopPropagation(); openEditCargo(c); }}
+                      className="p-1.5 rounded bg-slate-50 text-slate-500 hover:text-amber-700 hover:bg-amber-50 border border-slate-100"
+                      title="Editar"
+                    >
+                      <Edit2 size={13} />
+                    </span>
+                    <span
+                      onClick={(e) => { e.stopPropagation(); handleDeleteCargo(c.id, c.nome); }}
+                      className="p-1.5 rounded bg-slate-50 text-slate-500 hover:text-rose-700 hover:bg-rose-50 border border-slate-100"
+                      title="Excluir"
+                    >
+                      <Trash2 size={13} />
+                    </span>
+                  </div>
+                </button>
+              ))}
+            </div>
+          </div>
+
+          {/* Cursos do cargo selecionado */}
+          <div className="lg:col-span-2 bg-white rounded-2xl border border-slate-100 shadow-sm overflow-hidden">
+            <div className="px-4 py-3 border-b border-slate-100 flex items-center justify-between flex-wrap gap-2">
+              <div>
+                <h3 className="text-sm font-extrabold text-slate-700 uppercase tracking-wider">
+                  {cargoSelecionado ? `Cursos obrigatórios - ${cargos.find(c => c.id === cargoSelecionado)?.nome || ''}` : 'Cursos obrigatórios do cargo'}
+                </h3>
+                <p className="text-[11px] text-slate-400 font-semibold mt-0.5">
+                  Vincule os treinamentos (NR-10, NR-35 etc.) obrigatórios para o cargo selecionado.
+                </p>
+              </div>
+              <div className="flex items-center gap-2">
+                <button
+                  onClick={() => setShowCatalogoModal(true)}
+                  className="flex items-center gap-1.5 px-3 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-xl text-xs font-bold transition-all cursor-pointer border border-slate-200"
+                >
+                  <FileText size={14} /> Gerenciar Cursos
+                </button>
+                {cargoSelecionado && (
+                  <button
+                    onClick={openVincular}
+                    className="flex items-center gap-1.5 px-3 py-2 bg-primary-600 hover:bg-primary-700 text-white rounded-xl text-xs font-bold transition-all cursor-pointer"
+                  >
+                    <Link2 size={14} /> Vincular Curso
+                  </button>
+                )}
+              </div>
+            </div>
+
+            <div className="p-4">
+              {!cargoSelecionado ? (
+                <div className="text-center py-14 text-slate-400">
+                  <Briefcase className="mx-auto mb-3 text-slate-300" size={40} />
+                  <p className="font-semibold text-sm">Selecione um cargo ao lado para ver seus cursos obrigatórios.</p>
+                </div>
+              ) : cursosDoCargo(cargoSelecionado).length === 0 ? (
+                <div className="text-center py-14 text-slate-400">
+                  <Link2 className="mx-auto mb-3 text-slate-300" size={40} />
+                  <p className="font-semibold text-sm">Nenhum curso vinculado a este cargo ainda.</p>
+                  <p className="text-xs mt-1">Clique em "Vincular Curso" para adicionar treinamentos obrigatórios.</p>
+                </div>
+              ) : (
+                <div className="space-y-2">
+                  {cursosDoCargo(cargoSelecionado).map(m => (
+                    <div key={m.id} className="flex items-center justify-between gap-3 p-3 rounded-xl border border-slate-200 bg-slate-50/50">
+                      <div className="min-w-0">
+                        <p className="font-bold text-sm text-slate-800">{m.treinamento_nome}</p>
+                        <div className="flex flex-wrap gap-2 mt-1">
+                          {m.norma && <span className="px-2 py-0.5 rounded-full bg-primary-50 text-primary-700 border border-primary-100 text-[10px] font-bold">{m.norma}</span>}
+                          {m.tipo && <span className="px-2 py-0.5 rounded-full bg-slate-100 text-slate-600 border border-slate-200 text-[10px] font-bold">{m.tipo}</span>}
+                          {m.validade_meses && <span className="px-2 py-0.5 rounded-full bg-amber-50 text-amber-700 border border-amber-100 text-[10px] font-bold">Reciclagem: {m.validade_meses} meses</span>}
+                        </div>
+                      </div>
+                      <button
+                        onClick={() => handleDesvincular(m.id, m.treinamento_nome)}
+                        className="p-2 rounded bg-slate-100 text-slate-500 hover:text-rose-700 hover:bg-rose-50 border border-slate-200 transition-colors shrink-0 cursor-pointer"
+                        title="Desvincular"
+                      >
+                        <Unlink size={15} />
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {tab === 'treinamentos' && (
+        <>
+          {/* Alternador: Vencimentos / Pendências da Matriz */}
+          <div className="flex flex-wrap gap-2">
+            {[
+              { id: 'vencimentos', label: 'Vencimentos de Cursos', icon: GraduationCap },
+              { id: 'pendencias', label: 'Pendências da Matriz', icon: ListChecks },
+            ].map(t => (
+              <button
+                key={t.id}
+                onClick={() => setFtView(t.id)}
+                className={`flex items-center gap-2 px-4 py-2.5 rounded-xl text-sm font-bold border transition-all ${
+                  ftView === t.id
+                    ? 'bg-slate-900 border-slate-900 text-white shadow-sm'
+                    : 'bg-white border-slate-200 text-slate-600 hover:bg-slate-50'
+                }`}
+              >
+                <t.icon size={15} />
+                {t.label}
+                {t.id === 'pendencias' && (qtdPendentes + qtdVencidos) > 0 && (
+                  <span className="px-1.5 py-0.5 rounded-full bg-rose-100 text-rose-700 text-[9px] font-bold">
+                    {qtdPendentes + qtdVencidos}
+                  </span>
+                )}
+              </button>
+            ))}
+          </div>
+
+          {ftView === 'vencimentos' ? (
+          <>
+          {/* Cards resumo */}
+          <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
+            {Object.entries(countsTreinamentos).map(([status, qtd]) => (
+              <div key={status} className={`rounded-2xl border p-4 ${STATUS_STYLES[status]}`}>
+                <span className="block text-2xl font-extrabold">{qtd}</span>
+                <span className="block text-[11px] font-bold uppercase tracking-wider mt-1">{status}</span>
+              </div>
+            ))}
+          </div>
+
+          <div className="flex flex-col md:flex-row gap-4 items-center justify-between bg-white p-4 rounded-2xl border border-slate-100 shadow-sm">
+            <div className="relative w-full md:w-96">
+              <Search className="absolute left-3.5 top-3 text-slate-400" size={18} />
+              <input
+                type="text"
+                placeholder="Buscar por funcionário ou curso..."
+                value={ftBusca}
+                onChange={(e) => setFtBusca(e.target.value)}
+                className="w-full pl-10 pr-4 py-2.5 rounded-xl border border-slate-200 bg-slate-50 focus:bg-white focus:outline-none focus:ring-2 focus:ring-primary-500/20 focus:border-primary-500 transition-all text-sm"
+              />
+            </div>
+            <div className="flex items-center gap-3 w-full md:w-auto">
+              <select
+                value={ftStatus}
+                onChange={(e) => setFtStatus(e.target.value)}
+                className="px-3 py-2.5 border border-slate-200 rounded-xl text-xs font-semibold focus:outline-none focus:ring-2 focus:ring-primary-500/20 focus:border-primary-500"
+              >
+                <option value="">Status: Todos</option>
+                <option value="Vigente">Vigente</option>
+                <option value="Próximo ao Vencimento">Próximo ao Vencimento</option>
+                <option value="Vencido">Vencido</option>
+                <option value="Sem validade">Sem validade</option>
+              </select>
+              <button
+                onClick={openAddFt}
+                className="flex items-center justify-center gap-2 px-5 py-2.5 bg-primary-600 hover:bg-primary-700 text-white rounded-xl font-semibold text-sm transition-all shadow-md shadow-primary-900/10 cursor-pointer w-full sm:w-auto"
+              >
+                <Plus size={18} /> Novo Registro
+              </button>
+            </div>
+          </div>
+
+          <div className="bg-white rounded-2xl border border-slate-100 shadow-sm overflow-hidden">
+            <div className="overflow-x-auto">
+              <table className="w-full text-left border-collapse text-sm">
+                <thead>
+                  <tr className="bg-slate-50 border-b border-slate-100 text-slate-400 font-bold text-xs uppercase tracking-wider">
+                    <th className="px-3 py-3 md:px-6 md:py-4">Funcionário</th>
+                    <th className="px-3 py-3 md:px-6 md:py-4">Curso</th>
+                    <th className="px-3 py-3 md:px-6 md:py-4">Data Realização</th>
+                    <th className="px-3 py-3 md:px-6 md:py-4">Validade</th>
+                    <th className="px-3 py-3 md:px-6 md:py-4">Status</th>
+                    <th className="px-3 py-3 md:px-6 md:py-4 text-center">Ações</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-100 text-slate-700">
+                  {loading ? (
+                    <tr>
+                      <td colSpan="6" className="text-center py-12 text-slate-400">
+                        <div className="flex flex-col items-center justify-center gap-3">
+                          <div className="w-8 h-8 border-4 border-primary-500 border-t-transparent rounded-full animate-spin" />
+                          <p className="text-xs">Carregando...</p>
+                        </div>
+                      </td>
+                    </tr>
+                  ) : filteredFuncTreinamentos.length === 0 ? (
+                    <tr>
+                      <td colSpan="6" className="text-center py-16 text-slate-400">
+                        <GraduationCap className="mx-auto mb-3 text-slate-300" size={40} />
+                        <p className="font-semibold">Nenhum registro encontrado.</p>
+                      </td>
+                    </tr>
+                  ) : (
+                    filteredFuncTreinamentos.map(r => (
+                      <tr key={r.id} className="hover:bg-slate-50/50 transition-colors">
+                        <td className="px-3 py-3 md:px-6 md:py-4 font-bold text-slate-900">{r.funcionario_nome}</td>
+                        <td className="px-3 py-3 md:px-6 md:py-4">
+                          {r.treinamento_nome}
+                          {r.norma && <span className="ml-2 px-1.5 py-0.5 rounded bg-primary-50 text-primary-700 border border-primary-100 text-[9px] font-bold">{r.norma}</span>}
+                        </td>
+                        <td className="px-3 py-3 md:px-6 md:py-4">{formatDateBR(r.data_realizacao)}</td>
+                        <td className="px-3 py-3 md:px-6 md:py-4">{formatDateBR(r.data_validade)}</td>
+                        <td className="px-3 py-3 md:px-6 md:py-4"><StatusBadge status={r.status} /></td>
+                        <td className="px-3 py-3 md:px-6 md:py-4">
+                          <div className="flex justify-center items-center gap-2">
+                            <button onClick={() => openEditFt(r)} className="p-2 rounded bg-slate-50 hover:bg-amber-50 text-slate-500 hover:text-amber-700 border border-slate-100 transition-colors" title="Editar">
+                              <Edit2 size={15} />
+                            </button>
+                            <button onClick={() => handleDeleteFt(r.id, `${r.funcionario_nome} - ${r.treinamento_nome}`)} className="p-2 rounded bg-slate-50 hover:bg-rose-50 text-slate-500 hover:text-rose-700 border border-slate-100 transition-colors" title="Excluir">
+                              <Trash2 size={15} />
+                            </button>
+                          </div>
+                        </td>
+                      </tr>
+                    ))
+                  )}
+                </tbody>
+              </table>
+            </div>
+          </div>
+          </>
+        ) : (
+          <>
+            {/* Cards resumo pendências */}
+            <div className="grid grid-cols-2 gap-3">
+              <div className="rounded-2xl border p-4 bg-rose-50 text-rose-700 border-rose-100">
+                <span className="block text-2xl font-extrabold">{qtdPendentes}</span>
+                <span className="block text-[11px] font-bold uppercase tracking-wider mt-1">Pendentes (nunca realizados)</span>
+              </div>
+              <div className="rounded-2xl border p-4 bg-amber-50 text-amber-700 border-amber-100">
+                <span className="block text-2xl font-extrabold">{qtdVencidos}</span>
+                <span className="block text-[11px] font-bold uppercase tracking-wider mt-1">Vencidos (reciclagem)</span>
+              </div>
+            </div>
+
+            <div className="flex flex-col md:flex-row gap-4 items-center justify-between bg-white p-4 rounded-2xl border border-slate-100 shadow-sm">
+              <div className="relative w-full md:w-96">
+                <Search className="absolute left-3.5 top-3 text-slate-400" size={18} />
+                <input
+                  type="text"
+                  placeholder="Buscar por funcionário, cargo ou curso..."
+                  value={pendBusca}
+                  onChange={(e) => setPendBusca(e.target.value)}
+                  className="w-full pl-10 pr-4 py-2.5 rounded-xl border border-slate-200 bg-slate-50 focus:bg-white focus:outline-none focus:ring-2 focus:ring-primary-500/20 focus:border-primary-500 transition-all text-sm"
+                />
+              </div>
+              <p className="text-xs text-slate-400 font-semibold">
+                Treinamentos obrigatórios da Matriz ainda não realizados ou com reciclagem vencida.
+              </p>
+            </div>
+
+            <div className="bg-white rounded-2xl border border-slate-100 shadow-sm overflow-hidden">
+              <div className="overflow-x-auto">
+                <table className="w-full text-left border-collapse text-sm">
+                  <thead>
+                    <tr className="bg-slate-50 border-b border-slate-100 text-slate-400 font-bold text-xs uppercase tracking-wider">
+                      <th className="px-3 py-3 md:px-6 md:py-4">Funcionário</th>
+                      <th className="px-3 py-3 md:px-6 md:py-4">Cargo</th>
+                      <th className="px-3 py-3 md:px-6 md:py-4">Curso Obrigatório</th>
+                      <th className="px-3 py-3 md:px-6 md:py-4">Situação</th>
+                      <th className="px-3 py-3 md:px-6 md:py-4">Última Validade</th>
+                      <th className="px-3 py-3 md:px-6 md:py-4 text-center">Ações</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-slate-100 text-slate-700">
+                    {loading ? (
+                      <tr>
+                        <td colSpan="6" className="text-center py-12 text-slate-400">
+                          <div className="flex flex-col items-center justify-center gap-3">
+                            <div className="w-8 h-8 border-4 border-primary-500 border-t-transparent rounded-full animate-spin" />
+                            <p className="text-xs">Carregando...</p>
+                          </div>
+                        </td>
+                      </tr>
+                    ) : filteredPendencias.length === 0 ? (
+                      <tr>
+                        <td colSpan="6" className="text-center py-16 text-slate-400">
+                          <ListChecks className="mx-auto mb-3 text-emerald-300" size={40} />
+                          <p className="font-semibold">Nenhuma pendência! Todos os treinamentos obrigatórios estão em dia.</p>
+                        </td>
+                      </tr>
+                    ) : (
+                      filteredPendencias.map((p, idx) => (
+                        <tr key={`${p.funcionario_id}-${p.treinamento_id}-${idx}`} className="hover:bg-slate-50/50 transition-colors">
+                          <td className="px-3 py-3 md:px-6 md:py-4 font-bold text-slate-900">{p.funcionario_nome}</td>
+                          <td className="px-3 py-3 md:px-6 md:py-4">{p.cargo_nome}</td>
+                          <td className="px-3 py-3 md:px-6 md:py-4">
+                            {p.treinamento_nome}
+                            {p.norma && <span className="ml-2 px-1.5 py-0.5 rounded bg-primary-50 text-primary-700 border border-primary-100 text-[9px] font-bold">{p.norma}</span>}
+                            {p.validade_meses && <span className="ml-1 px-1.5 py-0.5 rounded bg-amber-50 text-amber-700 border border-amber-100 text-[9px] font-bold">{p.validade_meses}m</span>}
+                          </td>
+                          <td className="px-3 py-3 md:px-6 md:py-4">
+                            <span className={`inline-block px-2.5 py-1 rounded-full text-[10px] font-bold border ${
+                              p.situacao === 'Pendente'
+                                ? 'bg-rose-50 text-rose-700 border-rose-100'
+                                : 'bg-amber-50 text-amber-700 border-amber-100'
+                            }`}>
+                              {p.situacao}
+                            </span>
+                          </td>
+                          <td className="px-3 py-3 md:px-6 md:py-4">{formatDateBR(p.ultima_validade)}</td>
+                          <td className="px-3 py-3 md:px-6 md:py-4">
+                            <div className="flex justify-center items-center gap-2">
+                              <button
+                                onClick={() => abrirRegistroPendencia(p)}
+                                className="flex items-center gap-1.5 px-3 py-2 bg-primary-600 hover:bg-primary-700 text-white rounded-lg text-xs font-bold transition-all cursor-pointer"
+                                title="Registrar treinamento"
+                              >
+                                <Plus size={13} /> Registrar
+                              </button>
+                            </div>
+                          </td>
+                        </tr>
+                      ))
+                    )}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          </>
+        )}
+        </>
+      )}
+
+      {tab === 'aso' && (
+        <>
+          <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
+            {Object.entries(countsAsos).map(([status, qtd]) => (
+              <div key={status} className={`rounded-2xl border p-4 ${STATUS_STYLES[status]}`}>
+                <span className="block text-2xl font-extrabold">{qtd}</span>
+                <span className="block text-[11px] font-bold uppercase tracking-wider mt-1">{status}</span>
+              </div>
+            ))}
+          </div>
+
+          <div className="flex flex-col md:flex-row gap-4 items-center justify-between bg-white p-4 rounded-2xl border border-slate-100 shadow-sm">
+            <div className="relative w-full md:w-96">
+              <Search className="absolute left-3.5 top-3 text-slate-400" size={18} />
+              <input
+                type="text"
+                placeholder="Buscar por funcionário..."
+                value={asoBusca}
+                onChange={(e) => setAsoBusca(e.target.value)}
+                className="w-full pl-10 pr-4 py-2.5 rounded-xl border border-slate-200 bg-slate-50 focus:bg-white focus:outline-none focus:ring-2 focus:ring-primary-500/20 focus:border-primary-500 transition-all text-sm"
+              />
+            </div>
+            <div className="flex flex-wrap items-center gap-3 w-full md:w-auto">
+              <select value={asoTipo} onChange={(e) => setAsoTipo(e.target.value)} className="px-3 py-2.5 border border-slate-200 rounded-xl text-xs font-semibold focus:outline-none focus:ring-2 focus:ring-primary-500/20 focus:border-primary-500">
+                <option value="">Exame: Todos</option>
+                {TIPOS_EXAME.map(t => <option key={t.value} value={t.value}>{t.label}</option>)}
+              </select>
+              <select value={asoStatus} onChange={(e) => setAsoStatus(e.target.value)} className="px-3 py-2.5 border border-slate-200 rounded-xl text-xs font-semibold focus:outline-none focus:ring-2 focus:ring-primary-500/20 focus:border-primary-500">
+                <option value="">Status: Todos</option>
+                <option value="Vigente">Vigente</option>
+                <option value="Próximo ao Vencimento">Próximo ao Vencimento</option>
+                <option value="Vencido">Vencido</option>
+                <option value="Sem validade">Sem validade</option>
+              </select>
+              <button onClick={openAddAso} className="flex items-center justify-center gap-2 px-5 py-2.5 bg-primary-600 hover:bg-primary-700 text-white rounded-xl font-semibold text-sm transition-all shadow-md shadow-primary-900/10 cursor-pointer w-full sm:w-auto">
+                <Plus size={18} /> Novo ASO
+              </button>
+            </div>
+          </div>
+
+          <div className="bg-white rounded-2xl border border-slate-100 shadow-sm overflow-hidden">
+            <div className="overflow-x-auto">
+              <table className="w-full text-left border-collapse text-sm">
+                <thead>
+                  <tr className="bg-slate-50 border-b border-slate-100 text-slate-400 font-bold text-xs uppercase tracking-wider">
+                    <th className="px-3 py-3 md:px-6 md:py-4">Funcionário</th>
+                    <th className="px-3 py-3 md:px-6 md:py-4">Tipo Exame</th>
+                    <th className="px-3 py-3 md:px-6 md:py-4">Data Exame</th>
+                    <th className="px-3 py-3 md:px-6 md:py-4">Validade</th>
+                    <th className="px-3 py-3 md:px-6 md:py-4">Resultado</th>
+                    <th className="px-3 py-3 md:px-6 md:py-4">Status</th>
+                    <th className="px-3 py-3 md:px-6 md:py-4 text-center">Ações</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-100 text-slate-700">
+                  {loading ? (
+                    <tr>
+                      <td colSpan="7" className="text-center py-12 text-slate-400">
+                        <div className="flex flex-col items-center justify-center gap-3">
+                          <div className="w-8 h-8 border-4 border-primary-500 border-t-transparent rounded-full animate-spin" />
+                          <p className="text-xs">Carregando...</p>
+                        </div>
+                      </td>
+                    </tr>
+                  ) : filteredAsos.length === 0 ? (
+                    <tr>
+                      <td colSpan="7" className="text-center py-16 text-slate-400">
+                        <Stethoscope className="mx-auto mb-3 text-slate-300" size={40} />
+                        <p className="font-semibold">Nenhum ASO encontrado.</p>
+                      </td>
+                    </tr>
+                  ) : (
+                    filteredAsos.map(a => (
+                      <tr key={a.id} className="hover:bg-slate-50/50 transition-colors">
+                        <td className="px-3 py-3 md:px-6 md:py-4 font-bold text-slate-900">{a.funcionario_nome}</td>
+                        <td className="px-3 py-3 md:px-6 md:py-4">{TIPOS_EXAME.find(t => t.value === a.tipo_exame)?.label || a.tipo_exame}</td>
+                        <td className="px-3 py-3 md:px-6 md:py-4">{formatDateBR(a.data_exame)}</td>
+                        <td className="px-3 py-3 md:px-6 md:py-4">{formatDateBR(a.data_validade)}</td>
+                        <td className="px-3 py-3 md:px-6 md:py-4">
+                          <span className={`inline-block px-2.5 py-1 rounded-full text-[10px] font-bold border ${
+                            a.resultado === 'apto' ? 'bg-emerald-50 text-emerald-700 border-emerald-100'
+                              : a.resultado === 'apto_com_restricao' ? 'bg-amber-50 text-amber-700 border-amber-100'
+                              : 'bg-rose-50 text-rose-700 border-rose-100'
+                          }`}>
+                            {RESULTADO_ASO.find(r => r.value === a.resultado)?.label || a.resultado}
+                          </span>
+                        </td>
+                        <td className="px-3 py-3 md:px-6 md:py-4"><StatusBadge status={a.status} /></td>
+                        <td className="px-3 py-3 md:px-6 md:py-4">
+                          <div className="flex justify-center items-center gap-2">
+                            <button onClick={() => openEditAso(a)} className="p-2 rounded bg-slate-50 hover:bg-amber-50 text-slate-500 hover:text-amber-700 border border-slate-100 transition-colors" title="Editar">
+                              <Edit2 size={15} />
+                            </button>
+                            <button onClick={() => handleDeleteAso(a.id, a.funcionario_nome)} className="p-2 rounded bg-slate-50 hover:bg-rose-50 text-slate-500 hover:text-rose-700 border border-slate-100 transition-colors" title="Excluir">
+                              <Trash2 size={15} />
+                            </button>
+                          </div>
+                        </td>
+                      </tr>
+                    ))
+                  )}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </>
+      )}
+
+      {tab === 'epi' && (
+        <>
+          <div className="flex flex-wrap gap-2">
+            {[
+              { id: 'catalogo', label: 'Catálogo de EPIs (CA)', icon: HardHat },
+              { id: 'fichas', label: 'Fichas de Entrega', icon: FileText },
+            ].map(t => (
+              <button
+                key={t.id}
+                onClick={() => setEpiAba(t.id)}
+                className={`flex items-center gap-2 px-4 py-2.5 rounded-xl text-sm font-bold border transition-all ${
+                  epiAba === t.id
+                    ? 'bg-slate-900 border-slate-900 text-white shadow-sm'
+                    : 'bg-white border-slate-200 text-slate-600 hover:bg-slate-50'
+                }`}
+              >
+                <t.icon size={15} />
+                {t.label}
+              </button>
+            ))}
+          </div>
+
+          {epiAba === 'catalogo' ? (
+            <div className="bg-white rounded-2xl border border-slate-100 shadow-sm overflow-hidden">
+              <div className="px-4 py-3 border-b border-slate-100 flex items-center justify-between flex-wrap gap-2">
+                <div>
+                  <h3 className="text-sm font-extrabold text-slate-700 uppercase tracking-wider">Catálogo de EPIs</h3>
+                  <p className="text-[11px] text-slate-400 font-semibold">Controle do Certificado de Aprovação (CA) por equipamento.</p>
+                </div>
+                <button onClick={openAddEpi} className="flex items-center gap-2 px-4 py-2 bg-primary-600 hover:bg-primary-700 text-white rounded-xl font-semibold text-xs transition-all cursor-pointer">
+                  <Plus size={15} /> Novo EPI
+                </button>
+              </div>
+              <div className="overflow-x-auto">
+                <table className="w-full text-left border-collapse text-sm">
+                  <thead>
+                    <tr className="bg-slate-50 border-b border-slate-100 text-slate-400 font-bold text-xs uppercase tracking-wider">
+                      <th className="px-3 py-3 md:px-6 md:py-4">EPI</th>
+                      <th className="px-3 py-3 md:px-6 md:py-4">Categoria</th>
+                      <th className="px-3 py-3 md:px-6 md:py-4">CA</th>
+                      <th className="px-3 py-3 md:px-6 md:py-4">Fabricante</th>
+                      <th className="px-3 py-3 md:px-6 md:py-4">Validade CA</th>
+                      <th className="px-3 py-3 md:px-6 md:py-4">Situação CA</th>
+                      <th className="px-3 py-3 md:px-6 md:py-4 text-center">Ações</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-slate-100 text-slate-700">
+                    {epis.length === 0 ? (
+                      <tr>
+                        <td colSpan="7" className="text-center py-16 text-slate-400">
+                          <HardHat className="mx-auto mb-3 text-slate-300" size={40} />
+                          <p className="font-semibold">Nenhum EPI cadastrado.</p>
+                        </td>
+                      </tr>
+                    ) : epis.map(e => (
+                      <tr key={e.id} className="hover:bg-slate-50/50 transition-colors">
+                        <td className="px-3 py-3 md:px-6 md:py-4 font-bold text-slate-900">{e.nome}</td>
+                        <td className="px-3 py-3 md:px-6 md:py-4">{e.categoria || '-'}</td>
+                        <td className="px-3 py-3 md:px-6 md:py-4 font-semibold">{e.ca_numero || '-'}</td>
+                        <td className="px-3 py-3 md:px-6 md:py-4">{e.fabricante || '-'}</td>
+                        <td className="px-3 py-3 md:px-6 md:py-4">{formatDateBR(e.ca_validade)}</td>
+                        <td className="px-3 py-3 md:px-6 md:py-4">
+                          <span className={`inline-block px-2.5 py-1 rounded-full text-[10px] font-bold border ${
+                            e.ca_status === 'Válido'
+                              ? 'bg-emerald-50 text-emerald-700 border-emerald-100'
+                              : e.ca_status === 'CA Vencido'
+                                ? 'bg-rose-50 text-rose-700 border-rose-100'
+                                : 'bg-slate-50 text-slate-500 border-slate-200'
+                          }`}>
+                            {e.ca_status}
+                          </span>
+                        </td>
+                        <td className="px-3 py-3 md:px-6 md:py-4">
+                          <div className="flex justify-center items-center gap-2">
+                            <button onClick={() => openEditEpi(e)} className="p-2 rounded bg-slate-50 hover:bg-amber-50 text-slate-500 hover:text-amber-700 border border-slate-100 transition-colors" title="Editar">
+                              <Edit2 size={15} />
+                            </button>
+                            <button onClick={() => handleDeleteEpi(e.id, e.nome)} className="p-2 rounded bg-slate-50 hover:bg-rose-50 text-slate-500 hover:text-rose-700 border border-slate-100 transition-colors" title="Excluir">
+                              <Trash2 size={15} />
+                            </button>
+                          </div>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          ) : (
+            <>
+              <div className="flex flex-col md:flex-row gap-4 items-center justify-between bg-white p-4 rounded-2xl border border-slate-100 shadow-sm">
+                <div className="relative w-full md:w-96">
+                  <Search className="absolute left-3.5 top-3 text-slate-400" size={18} />
+                  <input
+                    type="text"
+                    placeholder="Buscar por funcionário ou EPI..."
+                    value={feBusca}
+                    onChange={(e) => setFeBusca(e.target.value)}
+                    className="w-full pl-10 pr-4 py-2.5 rounded-xl border border-slate-200 bg-slate-50 focus:bg-white focus:outline-none focus:ring-2 focus:ring-primary-500/20 focus:border-primary-500 transition-all text-sm"
+                  />
+                </div>
+                <div className="flex items-center gap-3 w-full md:w-auto">
+                  <select value={feStatus} onChange={(e) => setFeStatus(e.target.value)} className="px-3 py-2.5 border border-slate-200 rounded-xl text-xs font-semibold focus:outline-none focus:ring-2 focus:ring-primary-500/20 focus:border-primary-500">
+                    <option value="">Status: Todos</option>
+                    <option value="Em uso">Em uso</option>
+                    <option value="Devolvido">Devolvido</option>
+                  </select>
+                  <button onClick={openAddFe} className="flex items-center justify-center gap-2 px-5 py-2.5 bg-primary-600 hover:bg-primary-700 text-white rounded-xl font-semibold text-sm transition-all shadow-md shadow-primary-900/10 cursor-pointer w-full sm:w-auto">
+                    <Plus size={18} /> Registrar Entrega
+                  </button>
+                </div>
+              </div>
+
+              <div className="bg-white rounded-2xl border border-slate-100 shadow-sm overflow-hidden">
+                <div className="overflow-x-auto">
+                  <table className="w-full text-left border-collapse text-sm">
+                    <thead>
+                      <tr className="bg-slate-50 border-b border-slate-100 text-slate-400 font-bold text-xs uppercase tracking-wider">
+                        <th className="px-3 py-3 md:px-6 md:py-4">Funcionário</th>
+                        <th className="px-3 py-3 md:px-6 md:py-4">EPI</th>
+                        <th className="px-3 py-3 md:px-6 md:py-4">CA</th>
+                        <th className="px-3 py-3 md:px-6 md:py-4">Qtd</th>
+                        <th className="px-3 py-3 md:px-6 md:py-4">Entrega</th>
+                        <th className="px-3 py-3 md:px-6 md:py-4">Devolução</th>
+                        <th className="px-3 py-3 md:px-6 md:py-4">Status</th>
+                        <th className="px-3 py-3 md:px-6 md:py-4 text-center">Ações</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-slate-100 text-slate-700">
+                      {filteredFuncEpis.length === 0 ? (
+                        <tr>
+                          <td colSpan="8" className="text-center py-16 text-slate-400">
+                            <FileText className="mx-auto mb-3 text-slate-300" size={40} />
+                            <p className="font-semibold">Nenhuma ficha de entrega encontrada.</p>
+                          </td>
+                        </tr>
+                      ) : filteredFuncEpis.map(f => (
+                        <tr key={f.id} className="hover:bg-slate-50/50 transition-colors">
+                          <td className="px-3 py-3 md:px-6 md:py-4 font-bold text-slate-900">{f.funcionario_nome}</td>
+                          <td className="px-3 py-3 md:px-6 md:py-4">
+                            {f.epi_nome}
+                            {f.ca_status === 'CA Vencido' && <span className="ml-2 px-1.5 py-0.5 rounded bg-rose-50 text-rose-700 border border-rose-100 text-[9px] font-bold">CA VENCIDO</span>}
+                          </td>
+                          <td className="px-3 py-3 md:px-6 md:py-4">{f.ca_numero || '-'}</td>
+                          <td className="px-3 py-3 md:px-6 md:py-4">{f.quantidade}</td>
+                          <td className="px-3 py-3 md:px-6 md:py-4">{formatDateBR(f.data_entrega)}</td>
+                          <td className="px-3 py-3 md:px-6 md:py-4">{formatDateBR(f.data_devolucao)}</td>
+                          <td className="px-3 py-3 md:px-6 md:py-4">
+                            <span className={`inline-block px-2.5 py-1 rounded-full text-[10px] font-bold border ${
+                              f.status === 'Em uso'
+                                ? 'bg-emerald-50 text-emerald-700 border-emerald-100'
+                                : 'bg-slate-50 text-slate-500 border-slate-200'
+                            }`}>
+                              {f.status}
+                            </span>
+                          </td>
+                          <td className="px-3 py-3 md:px-6 md:py-4">
+                            <div className="flex justify-center items-center gap-2">
+                              <button onClick={() => baixarPdfFicha(f.id)} className="p-2 rounded bg-slate-50 hover:bg-primary-50 text-slate-500 hover:text-primary-700 border border-slate-100 transition-colors" title="Baixar Ficha (PDF)">
+                                <Printer size={15} />
+                              </button>
+                              <button onClick={() => openEditFe(f)} className="p-2 rounded bg-slate-50 hover:bg-amber-50 text-slate-500 hover:text-amber-700 border border-slate-100 transition-colors" title="Editar">
+                                <Edit2 size={15} />
+                              </button>
+                              <button onClick={() => handleDeleteFe(f.id, `${f.funcionario_nome} - ${f.epi_nome}`)} className="p-2 rounded bg-slate-50 hover:bg-rose-50 text-slate-500 hover:text-rose-700 border border-slate-100 transition-colors" title="Excluir">
+                                <Trash2 size={15} />
+                              </button>
+                            </div>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            </>
+          )}
+        </>
+      )}
+
+      {/* ================= MODAIS ================= */}
+
+      {/* Modal Cargo */}
+      {showCargoModal && (
+        <ModalShell titulo={cargoEditingId ? 'Editar Cargo' : 'Novo Cargo'} onClose={() => setShowCargoModal(false)}>
+          <form onSubmit={handleCargoSubmit} className="p-6 space-y-4">
+            <div>
+              <label className="block text-xs font-bold text-slate-700 mb-1.5">Nome do Cargo *</label>
+              <input
+                type="text"
+                name="nome"
+                value={cargoForm.nome}
+                onChange={(e) => setCargoForm(p => ({ ...p, nome: e.target.value }))}
+                required
+                placeholder="Ex: Pedreiro, Eletricista, Servente"
+                className="w-full px-3.5 py-2 border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-primary-500/20 focus:border-primary-500 text-sm"
+              />
+            </div>
+            <div>
+              <label className="block text-xs font-bold text-slate-700 mb-1.5">Descrição</label>
+              <textarea
+                name="descricao"
+                value={cargoForm.descricao}
+                onChange={(e) => setCargoForm(p => ({ ...p, descricao: e.target.value }))}
+                rows={3}
+                placeholder="Descrição das atividades (opcional)"
+                className="w-full px-3.5 py-2 border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-primary-500/20 focus:border-primary-500 text-sm"
+              />
+            </div>
+            <ModalActions label={cargoEditingId ? 'Salvar Alterações' : 'Cadastrar Cargo'} onCancel={() => setShowCargoModal(false)} />
+          </form>
+        </ModalShell>
+      )}
+
+      {/* Modal Catálogo de Cursos */}
+      {showCatalogoModal && (
+        <ModalShell titulo="Catálogo de Cursos" onClose={() => setShowCatalogoModal(false)} largura="max-w-3xl">
+          <div className="p-6 space-y-4">
+            <div className="flex items-center justify-between">
+              <p className="text-sm text-slate-500 font-semibold">Cadastre os cursos obrigatórios (NRs) e defina a periodicidade de reciclagem.</p>
+              <button onClick={openAddTreinamento} className="flex items-center gap-2 px-4 py-2 bg-primary-600 hover:bg-primary-700 text-white rounded-xl font-semibold text-xs transition-all cursor-pointer shrink-0">
+                <Plus size={15} /> Novo Curso
+              </button>
+            </div>
+            <div className="max-h-[420px] overflow-y-auto divide-y divide-slate-100 border border-slate-200 rounded-xl">
+              {treinamentos.length === 0 ? (
+                <p className="p-8 text-center text-sm text-slate-400">Nenhum curso cadastrado.</p>
+              ) : treinamentos.map(t => (
+                <div key={t.id} className="flex items-center justify-between gap-3 p-3.5 hover:bg-slate-50/60">
+                  <div className="min-w-0">
+                    <p className="font-bold text-sm text-slate-800">{t.nome}</p>
+                    <div className="flex flex-wrap gap-2 mt-1">
+                      {t.norma && <span className="px-2 py-0.5 rounded-full bg-primary-50 text-primary-700 border border-primary-100 text-[10px] font-bold">{t.norma}</span>}
+                      {t.tipo && <span className="px-2 py-0.5 rounded-full bg-slate-100 text-slate-600 border border-slate-200 text-[10px] font-bold">{t.tipo}</span>}
+                      {t.validade_meses && <span className="px-2 py-0.5 rounded-full bg-amber-50 text-amber-700 border border-amber-100 text-[10px] font-bold">Reciclagem: {t.validade_meses} meses</span>}
+                      {t.carga_horaria && <span className="px-2 py-0.5 rounded-full bg-slate-100 text-slate-600 border border-slate-200 text-[10px] font-bold">{t.carga_horaria}h</span>}
+                    </div>
+                  </div>
+                  <div className="flex items-center gap-1.5 shrink-0">
+                    <button onClick={() => openEditTreinamento(t)} className="p-2 rounded bg-slate-50 hover:bg-amber-50 text-slate-500 hover:text-amber-700 border border-slate-100 transition-colors cursor-pointer" title="Editar">
+                      <Edit2 size={14} />
+                    </button>
+                    <button onClick={() => handleDeleteTreinamento(t.id, t.nome)} className="p-2 rounded bg-slate-50 hover:bg-rose-50 text-slate-500 hover:text-rose-700 border border-slate-100 transition-colors cursor-pointer" title="Excluir">
+                      <Trash2 size={14} />
+                    </button>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        </ModalShell>
+      )}
+
+      {/* Modal Treinamento (curso) */}
+      {showTreinamentoModal && (
+        <ModalShell titulo={treinamentoEditingId ? 'Editar Curso' : 'Novo Curso'} onClose={() => setShowTreinamentoModal(false)}>
+          <form onSubmit={handleTreinamentoSubmit} className="p-6 space-y-4">
+            <div>
+              <label className="block text-xs font-bold text-slate-700 mb-1.5">Nome do Curso *</label>
+              <input
+                type="text"
+                name="nome"
+                value={treinamentoForm.nome}
+                onChange={(e) => setTreinamentoForm(p => ({ ...p, nome: e.target.value }))}
+                required
+                placeholder="Ex: NR-10 Básico, NR-35 Trabalho em Altura"
+                className="w-full px-3.5 py-2 border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-primary-500/20 focus:border-primary-500 text-sm"
+              />
+            </div>
+            <div className="grid grid-cols-2 gap-4">
+              <div>
+                <label className="block text-xs font-bold text-slate-700 mb-1.5">Norma Regulamentadora</label>
+                <input
+                  type="text"
+                  name="norma"
+                  value={treinamentoForm.norma}
+                  onChange={(e) => setTreinamentoForm(p => ({ ...p, norma: e.target.value }))}
+                  placeholder="Ex: NR-10"
+                  className="w-full px-3.5 py-2 border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-primary-500/20 focus:border-primary-500 text-sm"
+                />
+              </div>
+              <div>
+                <label className="block text-xs font-bold text-slate-700 mb-1.5">Tipo</label>
+                <input
+                  type="text"
+                  name="tipo"
+                  value={treinamentoForm.tipo}
+                  onChange={(e) => setTreinamentoForm(p => ({ ...p, tipo: e.target.value }))}
+                  placeholder="Inicial / Reciclagem"
+                  className="w-full px-3.5 py-2 border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-primary-500/20 focus:border-primary-500 text-sm"
+                />
+              </div>
+              <div>
+                <label className="block text-xs font-bold text-slate-700 mb-1.5">Validade (meses)</label>
+                <input
+                  type="number"
+                  min="1"
+                  name="validade_meses"
+                  value={treinamentoForm.validade_meses}
+                  onChange={(e) => setTreinamentoForm(p => ({ ...p, validade_meses: e.target.value }))}
+                  placeholder="Ex: 12 (vazio = sem reciclagem)"
+                  className="w-full px-3.5 py-2 border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-primary-500/20 focus:border-primary-500 text-sm"
+                />
+              </div>
+              <div>
+                <label className="block text-xs font-bold text-slate-700 mb-1.5">Carga Horária (h)</label>
+                <input
+                  type="number"
+                  min="0"
+                  name="carga_horaria"
+                  value={treinamentoForm.carga_horaria}
+                  onChange={(e) => setTreinamentoForm(p => ({ ...p, carga_horaria: e.target.value }))}
+                  placeholder="Ex: 40"
+                  className="w-full px-3.5 py-2 border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-primary-500/20 focus:border-primary-500 text-sm"
+                />
+              </div>
+            </div>
+            <div>
+              <label className="block text-xs font-bold text-slate-700 mb-1.5">Instituição / Credenciada</label>
+              <input
+                type="text"
+                name="instituicao"
+                value={treinamentoForm.instituicao}
+                onChange={(e) => setTreinamentoForm(p => ({ ...p, instituicao: e.target.value }))}
+                placeholder="Ex: SENAI, empresa especializada"
+                className="w-full px-3.5 py-2 border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-primary-500/20 focus:border-primary-500 text-sm"
+              />
+            </div>
+            <ModalActions label={treinamentoEditingId ? 'Salvar Alterações' : 'Cadastrar Curso'} onCancel={() => setShowTreinamentoModal(false)} />
+          </form>
+        </ModalShell>
+      )}
+
+      {/* Modal Vincular curso ao cargo */}
+      {showVincularModal && cargoSelecionado && (
+        <ModalShell titulo={`Vincular curso - ${cargos.find(c => c.id === cargoSelecionado)?.nome || ''}`} onClose={() => setShowVincularModal(false)}>
+          <form onSubmit={handleVincularSubmit} className="p-6 space-y-4">
+            <div>
+              <label className="block text-xs font-bold text-slate-700 mb-1.5">Curso Obrigatório *</label>
+              <select
+                value={vincularForm.treinamento_id}
+                onChange={(e) => setVincularForm(p => ({ ...p, treinamento_id: e.target.value }))}
+                className="w-full px-3.5 py-2.5 border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-primary-500/20 focus:border-primary-500 text-sm font-semibold"
+              >
+                <option value="">Selecione o curso...</option>
+                {cursosLivres(cargoSelecionado).map(t => (
+                  <option key={t.id} value={t.id}>
+                    {t.nome}{t.norma ? ` (${t.norma})` : ''}
+                  </option>
+                ))}
+              </select>
+              {cursosLivres(cargoSelecionado).length === 0 && (
+                <p className="text-[11px] text-amber-600 font-semibold mt-2">
+                  Todos os cursos já estão vinculados a este cargo. Cadastre novos cursos em "Gerenciar Cursos".
+                </p>
+              )}
+            </div>
+            <ModalActions label="Vincular Curso" onCancel={() => setShowVincularModal(false)} />
+          </form>
+        </ModalShell>
+      )}
+
+      {/* Modal Treinamento do Funcionário */}
+      {showFtModal && (
+        <ModalShell titulo={ftEditingId ? 'Editar Registro de Treinamento' : 'Registrar Treinamento'} onClose={() => setShowFtModal(false)}>
+          <form onSubmit={handleFtSubmit} className="p-6 space-y-4">
+            <div className="relative">
+              <label className="block text-xs font-bold text-slate-700 mb-1.5">Funcionário *</label>
+              <input
+                type="text"
+                value={buscaFuncFt}
+                onChange={(e) => { setBuscaFuncFt(e.target.value); setSugestoesFtAbertas(true); }}
+                onFocus={() => setSugestoesFtAbertas(true)}
+                onBlur={() => setTimeout(() => setSugestoesFtAbertas(false), 150)}
+                placeholder="Digite o nome do funcionário..."
+                className="w-full px-3.5 py-2 border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-primary-500/20 focus:border-primary-500 text-sm"
+              />
+              {sugestoesFtAbertas && buscarFuncionarios(buscaFuncFt, funcionarios).length > 0 && (
+                <div className="absolute z-20 mt-1 w-full bg-white border border-slate-200 rounded-xl shadow-lg max-h-56 overflow-y-auto">
+                  {buscarFuncionarios(buscaFuncFt, funcionarios).map(f => (
+                    <button
+                      type="button"
+                      key={f.id}
+                      onMouseDown={(e) => { e.preventDefault(); selecionarFuncFt(f); }}
+                      className="w-full text-left px-3.5 py-2.5 text-sm hover:bg-primary-50 cursor-pointer border-b border-slate-50 last:border-b-0"
+                    >
+                      <span className="font-semibold text-slate-700 flex items-center gap-2">
+                        <User size={13} className="text-slate-400" /> {f.nome}
+                      </span>
+                      {f.cargo_id && <span className="block text-[10px] text-slate-400">Cargo ID: {f.cargo_id}</span>}
+                    </button>
+                  ))}
+                </div>
+              )}
+            </div>
+
+            {sugestoesMatriz.length > 0 && (
+              <div className="bg-primary-50/60 border border-primary-100 rounded-xl p-3">
+                <p className="text-[11px] font-bold text-primary-700 uppercase tracking-wider mb-2">
+                  Cursos obrigatórios do cargo (Matriz) - clique para usar
+                </p>
+                <div className="flex flex-wrap gap-2">
+                  {sugestoesMatriz.map(sug => {
+                    const jaUsado = ftForm.treinamento_id === sug.treinamento_id;
+                    return (
+                      <button
+                        type="button"
+                        key={sug.id}
+                        onClick={() => adicionarSugestaoMatriz(sug)}
+                        className={`px-3 py-1.5 rounded-lg text-xs font-bold border transition-all cursor-pointer ${
+                          jaUsado
+                            ? 'bg-primary-600 text-white border-primary-600'
+                            : 'bg-white text-primary-700 border-primary-200 hover:bg-primary-100'
+                        }`}
+                      >
+                        {sug.treinamento_nome}
+                        {sug.validade_meses ? ` (${sug.validade_meses}m)` : ''}
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+            )}
+
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <div>
+                <label className="block text-xs font-bold text-slate-700 mb-1.5">Curso *</label>
+                <select
+                  value={ftForm.treinamento_id}
+                  onChange={(e) => handleFtCursoChange(e.target.value)}
+                  className="w-full px-3.5 py-2.5 border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-primary-500/20 focus:border-primary-500 text-sm font-semibold"
+                >
+                  <option value="">Selecione o curso...</option>
+                  {treinamentos.map(t => (
+                    <option key={t.id} value={t.id}>{t.nome}{t.norma ? ` (${t.norma})` : ''}</option>
+                  ))}
+                </select>
+              </div>
+              <div>
+                <label className="block text-xs font-bold text-slate-700 mb-1.5">Data de Realização *</label>
+                <input
+                  type="date"
+                  name="data_realizacao"
+                  value={ftForm.data_realizacao}
+                  onChange={(e) => handleFtDataRealizacaoChange(e.target.value)}
+                  required
+                  className="w-full px-3.5 py-2 border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-primary-500/20 focus:border-primary-500 text-sm"
+                />
+              </div>
+              <div>
+                <label className="block text-xs font-bold text-slate-700 mb-1.5">Data de Validade</label>
+                <input
+                  type="date"
+                  name="data_validade"
+                  value={ftForm.data_validade}
+                  onChange={(e) => setFtForm(p => ({ ...p, data_validade: e.target.value }))}
+                  className="w-full px-3.5 py-2 border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-primary-500/20 focus:border-primary-500 text-sm"
+                />
+                {treinamentos.find(t => t.id === Number(ftForm.treinamento_id))?.validade_meses && (
+                  <p className="text-[10px] text-slate-400 mt-1 font-semibold">
+                    Calculada automaticamente conforme a reciclagem do curso.
+                  </p>
+                )}
+              </div>
+              <div>
+                <label className="block text-xs font-bold text-slate-700 mb-1.5">Carga Horária (h)</label>
+                <input
+                  type="number"
+                  min="0"
+                  name="carga_horaria"
+                  value={ftForm.carga_horaria}
+                  onChange={(e) => setFtForm(p => ({ ...p, carga_horaria: e.target.value }))}
+                  className="w-full px-3.5 py-2 border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-primary-500/20 focus:border-primary-500 text-sm"
+                />
+              </div>
+            </div>
+            <div>
+              <label className="block text-xs font-bold text-slate-700 mb-1.5">Observação</label>
+              <textarea
+                name="observacao"
+                value={ftForm.observacao}
+                onChange={(e) => setFtForm(p => ({ ...p, observacao: e.target.value }))}
+                rows={2}
+                placeholder="Ex: Certificado nº ..., instituição..."
+                className="w-full px-3.5 py-2 border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-primary-500/20 focus:border-primary-500 text-sm"
+              />
+            </div>
+            <ModalActions label={ftEditingId ? 'Salvar Alterações' : 'Registrar Treinamento'} onCancel={() => setShowFtModal(false)} />
+          </form>
+        </ModalShell>
+      )}
+
+      {/* Modal ASO */}
+      {showAsoModal && (
+        <ModalShell titulo={asoEditingId ? 'Editar ASO' : 'Novo ASO'} onClose={() => setShowAsoModal(false)}>
+          <form onSubmit={handleAsoSubmit} className="p-6 space-y-4">
+            <div className="relative">
+              <label className="block text-xs font-bold text-slate-700 mb-1.5">Funcionário *</label>
+              <input
+                type="text"
+                value={buscaFuncAso}
+                onChange={(e) => { setBuscaFuncAso(e.target.value); setSugestoesAsoAbertas(true); }}
+                onFocus={() => setSugestoesAsoAbertas(true)}
+                onBlur={() => setTimeout(() => setSugestoesAsoAbertas(false), 150)}
+                placeholder="Digite o nome do funcionário..."
+                className="w-full px-3.5 py-2 border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-primary-500/20 focus:border-primary-500 text-sm"
+              />
+              {sugestoesAsoAbertas && buscarFuncionarios(buscaFuncAso, funcionarios).length > 0 && (
+                <div className="absolute z-20 mt-1 w-full bg-white border border-slate-200 rounded-xl shadow-lg max-h-56 overflow-y-auto">
+                  {buscarFuncionarios(buscaFuncAso, funcionarios).map(f => (
+                    <button
+                      type="button"
+                      key={f.id}
+                      onMouseDown={(e) => { e.preventDefault(); selecionarFuncAso(f); }}
+                      className="w-full text-left px-3.5 py-2.5 text-sm hover:bg-primary-50 cursor-pointer border-b border-slate-50 last:border-b-0"
+                    >
+                      <span className="font-semibold text-slate-700">{f.nome}</span>
+                    </button>
+                  ))}
+                </div>
+              )}
+            </div>
+
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <div>
+                <label className="block text-xs font-bold text-slate-700 mb-1.5">Tipo de Exame *</label>
+                <select
+                  value={asoForm.tipo_exame}
+                  onChange={(e) => handleAsoTipoChange(e.target.value)}
+                  className="w-full px-3.5 py-2.5 border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-primary-500/20 focus:border-primary-500 text-sm font-semibold"
+                >
+                  {TIPOS_EXAME.map(t => <option key={t.value} value={t.value}>{t.label}</option>)}
+                </select>
+              </div>
+              <div>
+                <label className="block text-xs font-bold text-slate-700 mb-1.5">Data do Exame *</label>
+                <input
+                  type="date"
+                  name="data_exame"
+                  value={asoForm.data_exame}
+                  onChange={(e) => handleAsoDataExameChange(e.target.value)}
+                  required
+                  className="w-full px-3.5 py-2 border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-primary-500/20 focus:border-primary-500 text-sm"
+                />
+              </div>
+              {asoForm.tipo_exame === 'periodico' && (
+                <>
+                  <div>
+                    <label className="block text-xs font-bold text-slate-700 mb-1.5">Periodicidade (meses) - grau de risco</label>
+                    <select
+                      value={asoForm.validade_meses}
+                      onChange={(e) => handleAsoValidadeMesesChange(e.target.value)}
+                      className="w-full px-3.5 py-2.5 border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-primary-500/20 focus:border-primary-500 text-sm font-semibold"
+                    >
+                      <option value="">Selecione...</option>
+                      <option value="6">6 meses (risco 4 - semestral)</option>
+                      <option value="12">12 meses (risco 3 - anual)</option>
+                      <option value="24">24 meses (risco 1 e 2 - bienal)</option>
+                    </select>
+                  </div>
+                  <div>
+                    <label className="block text-xs font-bold text-slate-700 mb-1.5">Data de Validade</label>
+                    <input
+                      type="date"
+                      name="data_validade"
+                      value={asoForm.data_validade}
+                      onChange={(e) => setAsoForm(p => ({ ...p, data_validade: e.target.value }))}
+                      className="w-full px-3.5 py-2 border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-primary-500/20 focus:border-primary-500 text-sm"
+                    />
+                  </div>
+                </>
+              )}
+              <div>
+                <label className="block text-xs font-bold text-slate-700 mb-1.5">Resultado</label>
+                <select
+                  value={asoForm.resultado}
+                  onChange={(e) => setAsoForm(p => ({ ...p, resultado: e.target.value }))}
+                  className="w-full px-3.5 py-2.5 border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-primary-500/20 focus:border-primary-500 text-sm font-semibold"
+                >
+                  {RESULTADO_ASO.map(r => <option key={r.value} value={r.value}>{r.label}</option>)}
+                </select>
+              </div>
+              <div>
+                <label className="block text-xs font-bold text-slate-700 mb-1.5">Médico Responsável</label>
+                <input
+                  type="text"
+                  name="medico_responsavel"
+                  value={asoForm.medico_responsavel}
+                  onChange={(e) => setAsoForm(p => ({ ...p, medico_responsavel: e.target.value }))}
+                  placeholder="Ex: Dr. João"
+                  className="w-full px-3.5 py-2 border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-primary-500/20 focus:border-primary-500 text-sm"
+                />
+              </div>
+              <div>
+                <label className="block text-xs font-bold text-slate-700 mb-1.5">Clínica</label>
+                <input
+                  type="text"
+                  name="clinica"
+                  value={asoForm.clinica}
+                  onChange={(e) => setAsoForm(p => ({ ...p, clinica: e.target.value }))}
+                  placeholder="Clínica ocupacional"
+                  className="w-full px-3.5 py-2 border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-primary-500/20 focus:border-primary-500 text-sm"
+                />
+              </div>
+            </div>
+            <div>
+              <label className="block text-xs font-bold text-slate-700 mb-1.5">Observação</label>
+              <textarea
+                name="observacao"
+                value={asoForm.observacao}
+                onChange={(e) => setAsoForm(p => ({ ...p, observacao: e.target.value }))}
+                rows={2}
+                placeholder="Observações médicas (opcional)"
+                className="w-full px-3.5 py-2 border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-primary-500/20 focus:border-primary-500 text-sm"
+              />
+            </div>
+            <ModalActions label={asoEditingId ? 'Salvar Alterações' : 'Cadastrar ASO'} onCancel={() => setShowAsoModal(false)} />
+          </form>
+        </ModalShell>
+      )}
+
+      {/* Modal EPI */}
+      {showEpiModal && (
+        <ModalShell titulo={epiEditingId ? 'Editar EPI' : 'Novo EPI'} onClose={() => setShowEpiModal(false)}>
+          <form onSubmit={handleEpiSubmit} className="p-6 space-y-4">
+            <div>
+              <label className="block text-xs font-bold text-slate-700 mb-1.5">Nome do EPI *</label>
+              <input
+                type="text"
+                name="nome"
+                value={epiForm.nome}
+                onChange={(e) => setEpiForm(p => ({ ...p, nome: e.target.value }))}
+                required
+                placeholder="Ex: Capacete de Segurança, Óculos de Proteção"
+                className="w-full px-3.5 py-2 border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-primary-500/20 focus:border-primary-500 text-sm"
+              />
+            </div>
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <div>
+                <label className="block text-xs font-bold text-slate-700 mb-1.5">Categoria</label>
+                <input
+                  type="text"
+                  name="categoria"
+                  value={epiForm.categoria}
+                  onChange={(e) => setEpiForm(p => ({ ...p, categoria: e.target.value }))}
+                  placeholder="Ex: Proteção da cabeça"
+                  className="w-full px-3.5 py-2 border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-primary-500/20 focus:border-primary-500 text-sm"
+                />
+              </div>
+              <div>
+                <label className="block text-xs font-bold text-slate-700 mb-1.5">Número do CA</label>
+                <input
+                  type="text"
+                  name="ca_numero"
+                  value={epiForm.ca_numero}
+                  onChange={(e) => setEpiForm(p => ({ ...p, ca_numero: e.target.value }))}
+                  placeholder="Certificado de Aprovação"
+                  className="w-full px-3.5 py-2 border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-primary-500/20 focus:border-primary-500 text-sm"
+                />
+              </div>
+              <div>
+                <label className="block text-xs font-bold text-slate-700 mb-1.5">Fabricante</label>
+                <input
+                  type="text"
+                  name="fabricante"
+                  value={epiForm.fabricante}
+                  onChange={(e) => setEpiForm(p => ({ ...p, fabricante: e.target.value }))}
+                  className="w-full px-3.5 py-2 border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-primary-500/20 focus:border-primary-500 text-sm"
+                />
+              </div>
+              <div>
+                <label className="block text-xs font-bold text-slate-700 mb-1.5">Validade do CA</label>
+                <input
+                  type="date"
+                  name="ca_validade"
+                  value={epiForm.ca_validade}
+                  onChange={(e) => setEpiForm(p => ({ ...p, ca_validade: e.target.value }))}
+                  className="w-full px-3.5 py-2 border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-primary-500/20 focus:border-primary-500 text-sm"
+                />
+                <p className="text-[10px] text-slate-400 mt-1 font-semibold">Deixe vazio se o CA não possuir validade.</p>
+              </div>
+            </div>
+            <ModalActions label={epiEditingId ? 'Salvar Alterações' : 'Cadastrar EPI'} onCancel={() => setShowEpiModal(false)} />
+          </form>
+        </ModalShell>
+      )}
+
+      {/* Modal Ficha de EPI */}
+      {showFeModal && (
+        <ModalShell titulo={feEditingId ? 'Editar Ficha de EPI' : 'Registrar Entrega de EPI'} onClose={() => setShowFeModal(false)}>
+          <form onSubmit={handleFeSubmit} className="p-6 space-y-4">
+            <div className="relative">
+              <label className="block text-xs font-bold text-slate-700 mb-1.5">Funcionário *</label>
+              <input
+                type="text"
+                value={buscaFuncFe}
+                onChange={(e) => { setBuscaFuncFe(e.target.value); setSugestoesFeAbertas(true); }}
+                onFocus={() => setSugestoesFeAbertas(true)}
+                onBlur={() => setTimeout(() => setSugestoesFeAbertas(false), 150)}
+                placeholder="Digite o nome do funcionário..."
+                className="w-full px-3.5 py-2 border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-primary-500/20 focus:border-primary-500 text-sm"
+              />
+              {sugestoesFeAbertas && buscarFuncionarios(buscaFuncFe, funcionarios).length > 0 && (
+                <div className="absolute z-20 mt-1 w-full bg-white border border-slate-200 rounded-xl shadow-lg max-h-56 overflow-y-auto">
+                  {buscarFuncionarios(buscaFuncFe, funcionarios).map(f => (
+                    <button
+                      type="button"
+                      key={f.id}
+                      onMouseDown={(e) => { e.preventDefault(); selecionarFuncFe(f); }}
+                      className="w-full text-left px-3.5 py-2.5 text-sm hover:bg-primary-50 cursor-pointer border-b border-slate-50 last:border-b-0"
+                    >
+                      <span className="font-semibold text-slate-700">{f.nome}</span>
+                    </button>
+                  ))}
+                </div>
+              )}
+            </div>
+
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <div className="md:col-span-2">
+                <label className="block text-xs font-bold text-slate-700 mb-1.5">EPI *</label>
+                <select
+                  value={feForm.epi_id}
+                  onChange={(e) => setFeForm(p => ({ ...p, epi_id: e.target.value }))}
+                  className="w-full px-3.5 py-2.5 border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-primary-500/20 focus:border-primary-500 text-sm font-semibold"
+                >
+                  <option value="">Selecione o EPI...</option>
+                  {epis.map(e => (
+                    <option key={e.id} value={e.id}>
+                      {e.nome}{e.ca_numero ? ` (CA ${e.ca_numero})` : ''}{e.ca_status === 'CA Vencido' ? ' - CA VENCIDO' : ''}
+                    </option>
+                  ))}
+                </select>
+                {epiSelecionadoCaVencido && (
+                  <div className="mt-2 flex items-center gap-2 bg-rose-50 border border-rose-200 text-rose-700 rounded-xl px-3 py-2">
+                    <AlertTriangle size={14} />
+                    <p className="text-[11px] font-bold">
+                      ATENÇÃO: O CA deste EPI está vencido. A NR-6 proíbe a utilização de EPI com CA vencido.
+                    </p>
+                  </div>
+                )}
+              </div>
+              <div>
+                <label className="block text-xs font-bold text-slate-700 mb-1.5">Data de Entrega *</label>
+                <input
+                  type="date"
+                  name="data_entrega"
+                  value={feForm.data_entrega}
+                  onChange={(e) => setFeForm(p => ({ ...p, data_entrega: e.target.value }))}
+                  required
+                  className="w-full px-3.5 py-2 border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-primary-500/20 focus:border-primary-500 text-sm"
+                />
+              </div>
+              <div>
+                <label className="block text-xs font-bold text-slate-700 mb-1.5">Quantidade</label>
+                <input
+                  type="number"
+                  min="1"
+                  name="quantidade"
+                  value={feForm.quantidade}
+                  onChange={(e) => setFeForm(p => ({ ...p, quantidade: e.target.value }))}
+                  className="w-full px-3.5 py-2 border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-primary-500/20 focus:border-primary-500 text-sm"
+                />
+              </div>
+              <div>
+                <label className="block text-xs font-bold text-slate-700 mb-1.5">Data de Devolução</label>
+                <input
+                  type="date"
+                  name="data_devolucao"
+                  value={feForm.data_devolucao}
+                  onChange={(e) => setFeForm(p => ({ ...p, data_devolucao: e.target.value }))}
+                  className="w-full px-3.5 py-2 border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-primary-500/20 focus:border-primary-500 text-sm"
+                />
+                <p className="text-[10px] text-slate-400 mt-1 font-semibold">Preencha para marcar como "Devolvido".</p>
+              </div>
+            </div>
+            <div>
+              <label className="block text-xs font-bold text-slate-700 mb-1.5">Observação</label>
+              <textarea
+                name="observacao"
+                value={feForm.observacao}
+                onChange={(e) => setFeForm(p => ({ ...p, observacao: e.target.value }))}
+                rows={2}
+                placeholder="Ex: Substituição por desgaste, modelo novo..."
+                className="w-full px-3.5 py-2 border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-primary-500/20 focus:border-primary-500 text-sm"
+              />
+            </div>
+            <ModalActions label={feEditingId ? 'Salvar Alterações' : 'Registrar Entrega'} onCancel={() => setShowFeModal(false)} />
+          </form>
+        </ModalShell>
+      )}
+    </div>
+  );
+}
+
+function ModalShell({ titulo, onClose, children, largura = 'max-w-2xl' }) {
+  return (
+    <div className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center z-50 p-4">
+      <div className={`bg-white rounded-2xl shadow-2xl ${largura} w-full overflow-hidden animate-in fade-in zoom-in duration-200 max-h-[92vh] flex flex-col`}>
+        <div className="bg-slate-900 text-white px-3 py-3 md:px-6 md:py-4 flex items-center justify-between shrink-0">
+          <h3 className="font-bold text-lg">{titulo}</h3>
+          <button onClick={onClose} className="text-slate-400 hover:text-white text-xl font-bold cursor-pointer">
+            <X size={20} />
+          </button>
+        </div>
+        <div className="overflow-y-auto">{children}</div>
+      </div>
+    </div>
+  );
+}
+
+function ModalActions({ label, onCancel }) {
+  return (
+    <div className="flex justify-end gap-3 pt-4 border-t border-slate-100">
+      <button
+        type="button"
+        onClick={onCancel}
+        className="px-4 py-2 border border-slate-200 text-slate-600 rounded-xl text-sm font-semibold hover:bg-slate-50 transition-all cursor-pointer"
+      >
+        Cancelar
+      </button>
+      <button
+        type="submit"
+        className="px-5 py-2 bg-primary-600 text-white rounded-xl text-sm font-semibold hover:bg-primary-700 transition-all shadow-md shadow-primary-900/10 cursor-pointer"
+      >
+        {label}
+      </button>
+    </div>
+  );
+}
+
+export default Sst;

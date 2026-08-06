@@ -14,12 +14,14 @@ logger = logging.getLogger(__name__)
 class FuncionarioCreate(BaseModel):
     nome: str = Field(..., min_length=2, description="Nome do funcionário")
     cpf: str = Field(..., min_length=11, description="CPF do funcionário")
+    cargo_id: Optional[int] = Field(None, description="ID do cargo/função (módulo SST)")
 
 
 class FuncionarioResponse(FuncionarioCreate):
     id: int
     ativo: bool
     created_at: Optional[str] = None
+    cargo_id: Optional[int] = None
 
 
 @router.get("/", response_model=List[FuncionarioResponse])

@@ -38,6 +38,14 @@ def _montar_dados_banco():
             }
         ],
         "notificacoes": [],
+        "funcionarios": [],
+        "cargos": [],
+        "treinamentos": [],
+        "matriz_treinamentos": [],
+        "funcionario_treinamentos": [],
+        "aso": [],
+        "epis": [],
+        "funcionario_epis": [],
     }
 
 
