@@ -1,7 +1,7 @@
 ﻿import React, { useState, useEffect } from 'react';
 import {
   Search, Plus, Edit2, Trash2, X, Check, AlertTriangle,
-  HardHat, GraduationCap, Stethoscope, Link2, Unlink, Briefcase, FileText, User, Printer, ListChecks
+  HardHat, GraduationCap, Stethoscope, Link2, Unlink, Briefcase, FileText, User, Printer, ListChecks, BookOpen
 } from 'lucide-react';
 import { API_URL, apiFetch, erroDaResposta } from '../api';
 
@@ -925,6 +925,16 @@ function Sst() {
             </button>
           );
         })}
+        <a
+          href="/manuais/Guia_Modulo_SST.pdf"
+          target="_blank"
+          rel="noopener noreferrer"
+          title="Baixar guia de uso do módulo SST (PDF)"
+          className="flex items-center gap-2 px-4 py-2.5 rounded-xl text-sm font-bold border border-dashed border-primary-300 text-primary-700 bg-primary-50 hover:bg-primary-100 transition-all"
+        >
+          <BookOpen size={16} />
+          Guia de Uso
+        </a>
       </div>
 
       {/* ================= ABAS ================= */}
