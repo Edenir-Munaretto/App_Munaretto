@@ -1,6 +1,6 @@
-import React, { useState, useEffect, useMemo } from 'react';
+﻿import React, { useState, useEffect, useMemo } from 'react';
 import { Calendar, Search, Trash2, ShieldAlert, Plus, Check, X, AlertTriangle, Clock } from 'lucide-react';
-import { API_URL, apiFetch } from '../api';
+import { API_URL, apiFetch, erroDaResposta } from '../api';
 
 function Ferias({ fetchAlerts, fetchNotifications, usuarioAtual }) {
   const [records, setRecords] = useState([]);
@@ -133,7 +133,7 @@ function Ferias({ fetchAlerts, fetchNotifications, usuarioAtual }) {
         fetchAlerts(); // Atualiza a contagem de alertas no header
         if (fetchNotifications) fetchNotifications(); // Atualiza notificações no header
       } else {
-        showToast(resData.detail || 'Erro ao agendar férias.', 'error');
+        showToast(erroDaResposta(resData, 'Erro ao agendar férias.'), 'error');
       }
     } catch (err) {
       console.error(err);
@@ -206,7 +206,7 @@ function Ferias({ fetchAlerts, fetchNotifications, usuarioAtual }) {
           <div className={`p-1 rounded-full ${toast.type === 'error' ? 'bg-rose-100 text-rose-600' : 'bg-emerald-100 text-emerald-600'}`}>
             {toast.type === 'error' ? <AlertTriangle size={16} /> : <Check size={16} />}
           </div>
-          <p className="font-semibold">{toast.message}</p>
+          <p className="font-semibold">{typeof toast.message === 'string' ? toast.message : 'Erro inesperado.'}</p>
         </div>
       )}
 

@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+﻿import React, { useState, useEffect } from 'react';
 import { LineChart, Plus, Trash2, FileDown, Check, AlertTriangle, Calculator, UserCheck } from 'lucide-react';
 import { API_URL, apiFetch } from '../api';
 
@@ -197,7 +197,7 @@ function FluxoCaixa() {
           <div className={`p-1 rounded-full ${toast.type === 'error' ? 'bg-rose-100 text-rose-600' : 'bg-emerald-100 text-emerald-600'}`}>
             {toast.type === 'error' ? <AlertTriangle size={16} /> : <Check size={16} />}
           </div>
-          <p className="font-semibold">{toast.message}</p>
+          <p className="font-semibold">{typeof toast.message === 'string' ? toast.message : 'Erro inesperado.'}</p>
         </div>
       )}
 

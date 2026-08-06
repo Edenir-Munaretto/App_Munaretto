@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from 'react';
+﻿import React, { useState, useEffect, useCallback } from 'react';
 import {
   LayoutDashboard,
   Users,
@@ -438,7 +438,7 @@ function App() {
                             }`}
                           >
                             <span>{alert.gravidade === 'danger' || alert.gravidade === 'expired' ? '🚨' : '⚠️'}</span>
-                            <span>{alert.mensagem}</span>
+                            <span>{typeof alert.mensagem === 'string' ? alert.mensagem : ''}</span>
                           </div>
                         ))
                       )}
@@ -463,7 +463,7 @@ function App() {
                             }`}
                           >
                             <span>{alert.gravidade === 'danger' || alert.gravidade === 'expired' ? '🚨' : '⚠️'}</span>
-                            <span>{alert.mensagem}</span>
+                            <span>{typeof alert.mensagem === 'string' ? alert.mensagem : ''}</span>
                           </div>
                         ))}
                       </div>

@@ -14,6 +14,23 @@ export function clearToken() {
   localStorage.removeItem(TOKEN_KEY);
 }
 
+// Converte a resposta de erro do backend em um texto seguro.
+// O FastAPI/Pydantic pode retornar `detail` como string OU como array de
+// objetos {type, loc, msg, input, ctx} (erro 422). Renderizar esse array
+// diretamente quebra o React (error #31). Este helper normaliza tudo.
+export function erroDaResposta(resData, fallback = 'Erro inesperado.') {
+  if (!resData) return fallback;
+  if (typeof resData === 'string') return resData;
+  const detail = resData.detail;
+  if (typeof detail === 'string') return detail;
+  if (Array.isArray(detail)) {
+    const msgs = detail.map(e => e.msg || e.message || JSON.stringify(e));
+    return msgs.filter(Boolean).join(' ');
+  }
+  if (typeof resData.message === 'string') return resData.message;
+  return fallback;
+}
+
 export async function apiFetch(url, options = {}) {
   const token = getToken();
   const headers = { ...(options.headers || {}) };

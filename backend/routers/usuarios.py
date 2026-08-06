@@ -6,7 +6,7 @@ import secrets
 from typing import List, Optional
 
 from fastapi import APIRouter, HTTPException, Depends, Request
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 from supabase_client import get_supabase, supabase
 from auth import criar_token_acesso, secret_esta_configurada, get_current_user, UsuarioAutenticado, require_permisao, limite_login, obter_ip_cliente
 
@@ -54,6 +54,15 @@ class UsuarioUpdate(BaseModel):
     senha: Optional[str] = Field(None, min_length=SENHA_MIN_LENGTH)
     permissoes: List[str] = Field(default_factory=list)
     ativo: bool = True
+
+    @field_validator("senha", mode="before")
+    @classmethod
+    def _senha_vazia_para_none(cls, v):
+        # O frontend envia senha vazia quando o usuário deve MANTER a senha atual.
+        # Sem isso, "" viola min_length=8 e o Pydantic retorna 422.
+        if v == "":
+            return None
+        return v
 
 class UsuarioResponse(BaseModel):
     id: int

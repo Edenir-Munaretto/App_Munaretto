@@ -87,6 +87,36 @@ def test_permissao_negada(client, db_fake):
     assert resp.status_code == 403
 
 
+def test_atualizar_usuario_senha_vazia_ok(client, db_fake):
+    """Editar usuário sem trocar a senha não pode retornar 422 (senha '').
+
+    Antes da correção, '' violava min_length=8 do Pydantic e o frontend
+    renderizava o array de validação no toast, quebrando o React (error #31).
+    """
+    _injetar_usuario(
+        db_fake,
+        email="gestor@munaretto.com",
+        senha="gestorSenha123",
+        permissoes=("configuracoes",),
+    )
+    token = _login(client, email="gestor@munaretto.com", senha="gestorSenha123")
+    resp = client.put(
+        "/api/usuarios/99",
+        json={
+            "nome": "Teste",
+            "email": "teste@munaretto.com",
+            "senha": "",
+            "ativo": True,
+            "permissoes": ["clientes", "sst"],
+        },
+        headers={"Authorization": f"Bearer {token}"},
+    )
+    assert resp.status_code == 200, resp.text
+    body = resp.json()
+    assert "sst" in body["permissoes"]
+    assert "senha" not in body
+
+
 def test_health_publico(client):
     resp = client.get("/health")
     assert resp.status_code == 200

@@ -1,6 +1,6 @@
-import React, { useState, useEffect, useRef } from 'react';
+﻿import React, { useState, useEffect, useRef } from 'react';
 import { FileText, FileSpreadsheet, Plus, Upload, Check, AlertTriangle, Download, RefreshCw } from 'lucide-react';
-import { API_URL, apiFetch } from '../api';
+import { API_URL, apiFetch, erroDaResposta } from '../api';
 
 function GeradorDocumentos() {
   const [clientes, setClientes] = useState([]);
@@ -194,7 +194,7 @@ function GeradorDocumentos() {
         showToast('Documento gerado e baixado com sucesso!');
       } else {
         const errJson = await res.json();
-        showToast(errJson.detail || 'Erro ao gerar documento.', 'error');
+        showToast(erroDaResposta(errJson, 'Erro ao gerar documento.'), 'error');
       }
     } catch (err) {
       console.error(err);
@@ -229,7 +229,7 @@ function GeradorDocumentos() {
           <div className={`p-1 rounded-full ${toast.type === 'error' ? 'bg-rose-100 text-rose-600' : 'bg-emerald-100 text-emerald-600'}`}>
             {toast.type === 'error' ? <AlertTriangle size={16} /> : <Check size={16} />}
           </div>
-          <p className="font-semibold">{toast.message}</p>
+          <p className="font-semibold">{typeof toast.message === 'string' ? toast.message : 'Erro inesperado.'}</p>
         </div>
       )}
 

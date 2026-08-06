@@ -1,6 +1,6 @@
-import React, { useState, useEffect } from 'react';
+﻿import React, { useState, useEffect } from 'react';
 import { Search, Plus, Edit2, Trash2, X, Check, AlertTriangle, Printer, FileCheck2, FileX2 } from 'lucide-react';
-import { API_URL, apiFetch } from '../api';
+import { API_URL, apiFetch, erroDaResposta } from '../api';
 
 function Recebimentos() {
   const [recebimentos, setRecebimentos] = useState([]);
@@ -177,7 +177,7 @@ function Recebimentos() {
         setShowModal(false);
         fetchRecebimentos();
       } else {
-        showToast(resData.detail || 'Erro ao salvar recebimento.', 'error');
+        showToast(erroDaResposta(resData, 'Erro ao salvar recebimento.'), 'error');
       }
     } catch (err) {
       console.error(err);
@@ -303,7 +303,7 @@ function Recebimentos() {
           <div className={`p-1 rounded-full ${toast.type === 'error' ? 'bg-rose-100 text-rose-600' : 'bg-emerald-100 text-emerald-600'}`}>
             {toast.type === 'error' ? <AlertTriangle size={16} /> : <Check size={16} />}
           </div>
-          <p className="font-semibold">{toast.message}</p>
+          <p className="font-semibold">{typeof toast.message === 'string' ? toast.message : 'Erro inesperado.'}</p>
         </div>
       )}
 

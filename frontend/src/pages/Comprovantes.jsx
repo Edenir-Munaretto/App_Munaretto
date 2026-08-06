@@ -1,6 +1,6 @@
-import React, { useState, useEffect } from 'react';
+﻿import React, { useState, useEffect } from 'react';
 import { FileText, Plus, Trash2, Edit2, Search, X, Check, AlertTriangle, DollarSign, Calendar, Printer } from 'lucide-react';
-import { API_URL, apiFetch } from '../api';
+import { API_URL, apiFetch, erroDaResposta } from '../api';
 
 function Comprovantes() {
   const [comprovantes, setComprovantes] = useState([]);
@@ -169,7 +169,7 @@ function Comprovantes() {
         fetchComprovantes();
       } else {
         const errorData = await res.json();
-        showToast(errorData.detail || 'Erro ao salvar comprovante.', 'error');
+        showToast(erroDaResposta(errorData, 'Erro ao salvar comprovante.'), 'error');
       }
     } catch (err) {
       console.error(err);
@@ -297,7 +297,7 @@ function Comprovantes() {
           <div className={`p-1 rounded-full ${toast.type === 'error' ? 'bg-rose-100 text-rose-600' : 'bg-emerald-100 text-emerald-600'}`}>
             {toast.type === 'error' ? <AlertTriangle size={16} /> : <Check size={16} />}
           </div>
-          <p className="font-semibold">{toast.message}</p>
+          <p className="font-semibold">{typeof toast.message === 'string' ? toast.message : 'Erro inesperado.'}</p>
         </div>
       )}
 

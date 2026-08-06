@@ -1,9 +1,9 @@
-import React, { useState, useEffect } from 'react';
+﻿import React, { useState, useEffect } from 'react';
 import {
   Search, Plus, Edit2, Trash2, X, Check, AlertTriangle,
   HardHat, GraduationCap, Stethoscope, Link2, Unlink, Briefcase, FileText, User, Printer, ListChecks
 } from 'lucide-react';
-import { API_URL, apiFetch } from '../api';
+import { API_URL, apiFetch, erroDaResposta } from '../api';
 
 const STATUS_STYLES = {
   'Vigente': 'bg-emerald-50 text-emerald-700 border-emerald-100',
@@ -268,7 +268,7 @@ function Sst() {
         setShowCargoModal(false);
         fetchMatriz();
       } else {
-        showToast(resData.detail || 'Erro ao salvar cargo.', 'error');
+        showToast(erroDaResposta(resData, 'Erro ao salvar cargo.'), 'error');
       }
     } catch (err) {
       console.error(err);
@@ -333,7 +333,7 @@ function Sst() {
         setShowTreinamentoModal(false);
         fetchMatriz();
       } else {
-        showToast(resData.detail || 'Erro ao salvar curso.', 'error');
+        showToast(erroDaResposta(resData, 'Erro ao salvar curso.'), 'error');
       }
     } catch (err) {
       console.error(err);
@@ -380,7 +380,7 @@ function Sst() {
         setShowVincularModal(false);
         fetchMatriz();
       } else {
-        showToast(resData.detail || 'Erro ao vincular curso.', 'error');
+        showToast(erroDaResposta(resData, 'Erro ao vincular curso.'), 'error');
       }
     } catch (err) {
       console.error(err);
@@ -553,7 +553,7 @@ function Sst() {
         setShowFtModal(false);
         fetchFuncTreinamentos();
       } else {
-        showToast(resData.detail || 'Erro ao salvar treinamento.', 'error');
+        showToast(erroDaResposta(resData, 'Erro ao salvar treinamento.'), 'error');
       }
     } catch (err) {
       console.error(err);
@@ -673,7 +673,7 @@ function Sst() {
         setShowAsoModal(false);
         fetchAsos();
       } else {
-        showToast(resData.detail || 'Erro ao salvar ASO.', 'error');
+        showToast(erroDaResposta(resData, 'Erro ao salvar ASO.'), 'error');
       }
     } catch (err) {
       console.error(err);
@@ -734,7 +734,7 @@ function Sst() {
         setShowEpiModal(false);
         fetchEpis();
       } else {
-        showToast(resData.detail || 'Erro ao salvar EPI.', 'error');
+        showToast(erroDaResposta(resData, 'Erro ao salvar EPI.'), 'error');
       }
     } catch (err) {
       console.error(err);
@@ -812,7 +812,7 @@ function Sst() {
         setShowFeModal(false);
         fetchFuncEpis();
       } else {
-        showToast(resData.detail || 'Erro ao salvar ficha de EPI.', 'error');
+        showToast(erroDaResposta(resData, 'Erro ao salvar ficha de EPI.'), 'error');
       }
     } catch (err) {
       console.error(err);
@@ -897,7 +897,7 @@ function Sst() {
           <div className={`p-1 rounded-full ${toast.type === 'error' ? 'bg-rose-100 text-rose-600' : 'bg-emerald-100 text-emerald-600'}`}>
             {toast.type === 'error' ? <AlertTriangle size={16} /> : <Check size={16} />}
           </div>
-          <p className="font-semibold">{toast.message}</p>
+          <p className="font-semibold">{typeof toast.message === 'string' ? toast.message : 'Erro inesperado.'}</p>
         </div>
       )}
 
