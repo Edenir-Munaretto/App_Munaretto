@@ -2,6 +2,7 @@
 import {
   LayoutDashboard,
   Users,
+  Contact,
   Palmtree,
   LineChart,
   FileText,
@@ -18,6 +19,7 @@ import {
 // Importando as páginas
 import Dashboard from './pages/Dashboard';
 import Clientes from './pages/Clientes';
+import Funcionarios from './pages/Funcionarios';
 import Ferias from './pages/Ferias';
 import FluxoCaixa from './pages/FluxoCaixa';
 import GeradorDocumentos from './pages/GeradorDocumentos';
@@ -32,6 +34,7 @@ import { API_URL, apiFetch, getToken, setToken, clearToken } from './api';
 const ICONES = {
   dashboard: LayoutDashboard,
   clientes: Users,
+  funcionarios: Contact,
   ferias: Palmtree,
   fluxo: LineChart,
   documentos: FileText,
@@ -44,6 +47,7 @@ const ICONES = {
 const COMPONENTES = {
   dashboard: Dashboard,
   clientes: Clientes,
+  funcionarios: Funcionarios,
   ferias: Ferias,
   fluxo: FluxoCaixa,
   documentos: GeradorDocumentos,

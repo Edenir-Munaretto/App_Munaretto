@@ -136,6 +136,52 @@ def test_usuarios_me_retorna_permissoes_frescas(client, db_fake):
     assert "senha" not in body
 
 
+def test_funcionarios_permisao_funcionarios_ok(client, db_fake):
+    """Usuário com o módulo 'funcionarios' consegue listar funcionários."""
+    _injetar_usuario(
+        db_fake,
+        email="rh@munaretto.com",
+        senha="rhSenha123",
+        permissoes=("funcionarios",),
+    )
+    token = _login(client, email="rh@munaretto.com", senha="rhSenha123")
+    resp = client.get(
+        "/api/funcionarios/", headers={"Authorization": f"Bearer {token}"}
+    )
+    assert resp.status_code == 200, resp.text
+    assert isinstance(resp.json(), list)
+
+
+def test_funcionarios_permisao_negada(client, db_fake):
+    """Sem nenhuma das permissões do módulo, o acesso deve ser negado (403)."""
+    _injetar_usuario(
+        db_fake,
+        email="semmodulo@munaretto.com",
+        senha="semModulo123",
+        permissoes=("fluxo",),
+    )
+    token = _login(client, email="semmodulo@munaretto.com", senha="semModulo123")
+    resp = client.get(
+        "/api/funcionarios/", headers={"Authorization": f"Bearer {token}"}
+    )
+    assert resp.status_code == 403
+
+
+def test_funcionarios_permisao_sst_ok(client, db_fake):
+    """Compatibilidade: quem tem 'sst' (não o módulo funcionários) também acessa."""
+    _injetar_usuario(
+        db_fake,
+        email="sst@munaretto.com",
+        senha="sstSenha123",
+        permissoes=("sst",),
+    )
+    token = _login(client, email="sst@munaretto.com", senha="sstSenha123")
+    resp = client.get(
+        "/api/funcionarios/", headers={"Authorization": f"Bearer {token}"}
+    )
+    assert resp.status_code == 200, resp.text
+
+
 def test_health_publico(client):
     resp = client.get("/health")
     assert resp.status_code == 200
