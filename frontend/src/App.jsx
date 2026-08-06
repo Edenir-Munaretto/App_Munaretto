@@ -53,6 +53,45 @@ const COMPONENTES = {
   configuracoes: Configuracoes,
 };
 
+class ErrorBoundary extends React.Component {
+  constructor(props) {
+    super(props);
+    this.state = { erro: null };
+  }
+
+  static getDerivedStateFromError(erro) {
+    return { erro };
+  }
+
+  componentDidCatch(error, info) {
+    console.error('Erro capturado pelo ErrorBoundary:', error, info);
+  }
+
+  render() {
+    if (this.state.erro) {
+      return (
+        <div className="flex h-screen items-center justify-center bg-slate-50 p-6">
+          <div className="bg-white rounded-2xl shadow-lg p-8 max-w-lg w-full border border-rose-200">
+            <p className="text-2xl">⚠️</p>
+            <h2 className="text-lg font-bold text-slate-800 mt-2">Ocorreu um erro inesperado</h2>
+            <p className="text-sm text-slate-500 mt-1">Recarregue a página (F5). Se persistir, verifique o console (F12).</p>
+            <pre className="mt-4 p-3 bg-rose-50 border border-rose-200 rounded-xl text-xs text-rose-800 overflow-x-auto whitespace-pre-wrap">
+              {String(this.state.erro.message || this.state.erro)}
+            </pre>
+            <button
+              onClick={() => window.location.reload()}
+              className="mt-4 px-4 py-2 bg-slate-900 text-white rounded-xl text-sm font-semibold cursor-pointer"
+            >
+              Recarregar página
+            </button>
+          </div>
+        </div>
+      );
+    }
+    return this.props.children;
+  }
+}
+
 function App() {
   const [activeTab, setActiveTab] = useState('dashboard');
   const [sidebarOpen, setSidebarOpen] = useState(true);
@@ -234,7 +273,8 @@ function App() {
   const ActiveComponent = tabs.find(t => t.id === activeTab)?.component || tabs[0].component;
 
   return (
-    <div className="flex h-screen bg-slate-50 overflow-hidden">
+    <ErrorBoundary>
+      <div className="flex h-screen bg-slate-50 overflow-hidden">
       
       {/* SIDEBAR */}
       <aside className={`bg-slate-900 text-white flex flex-col transition-all duration-300 ${sidebarOpen ? 'w-64' : 'w-20'}`}>
@@ -466,7 +506,8 @@ function App() {
           />
         </div>
       </main>
-    </div>
+      </div>
+    </ErrorBoundary>
   );
 }
 
