@@ -3,7 +3,7 @@ import { Search, Plus, Edit2, Trash2, X, Check, AlertTriangle, UserCog } from 'l
 import { API_URL, apiFetch, erroDaResposta } from '../api';
 import { MODULOS } from '../modules';
 
-function Configuracoes({ usuarioAtual }) {
+function Configuracoes({ usuarioAtual, onUsuarioAtualizado }) {
   const [usuarios, setUsuarios] = useState([]);
   const [busca, setBusca] = useState('');
   const [loading, setLoading] = useState(true);
@@ -121,6 +121,8 @@ function Configuracoes({ usuarioAtual }) {
         showToast(editingId ? 'Usuário atualizado com sucesso!' : 'Usuário cadastrado com sucesso!');
         setShowModal(false);
         fetchUsuarios();
+        // Se o próprio usuário logado teve permissões alteradas, atualiza a sessão na hora.
+        if (onUsuarioAtualizado) onUsuarioAtualizado();
       } else {
         showToast(erroDaResposta(resData, 'Erro ao salvar usuário.'), 'error');
       }

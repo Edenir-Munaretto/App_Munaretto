@@ -123,6 +123,27 @@ def listar_usuarios(usuario: UsuarioAutenticado = Depends(require_permisao("conf
     except Exception as e:
         logger.exception("Erro ao buscar usuários")
         raise HTTPException(status_code=500, detail="Erro ao buscar usuários")
+@router.get("/me", response_model=UsuarioResponse)
+def obter_usuario_atual(
+    usuario: UsuarioAutenticado = Depends(get_current_user),
+    db=Depends(get_supabase),
+):
+    """Retorna os dados ATUAIS do usuário autenticado (permissões frescas do banco).
+
+    Usado pelo frontend para atualizar a sessão quando o administrador altera
+    as permissões, sem exigir logout/login.
+    """
+    try:
+        response = db.table("usuarios").select("*").eq("id", usuario.id).limit(1).execute()
+        if not response.data:
+            raise HTTPException(status_code=404, detail="Usuário não encontrado.")
+        return _user_sem_senha(response.data[0])
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.exception("Erro ao buscar usuário atual")
+        raise HTTPException(status_code=500, detail="Erro ao buscar usuário atual")
+
 @router.get("/{usuario_id}", response_model=UsuarioResponse)
 def buscar_usuario(usuario_id: int, usuario: UsuarioAutenticado = Depends(require_permisao("configuracoes")), db = Depends(get_supabase)):
     """Busca um usuário pelo ID."""

@@ -229,6 +229,35 @@ function App() {
     setActiveTab('dashboard');
   };
 
+  // Busca os dados ATUAIS do usuário no backend e atualiza a sessão.
+  // Permite que mudanças de permissão (feitas pelo admin) valham sem logout/login.
+  const atualizarUsuarioAtual = useCallback(async () => {
+    if (!getToken()) return;
+    try {
+      const res = await apiFetch(`${API_URL}/usuarios/me`);
+      if (res.ok) {
+        const dados = await res.json();
+        setUsuario(dados);
+        localStorage.setItem('munaretto_usuario', JSON.stringify(dados));
+      }
+    } catch (err) {
+      console.error('Erro ao atualizar dados do usuário:', err);
+    }
+  }, []);
+
+  // Ao carregar, ao focar a janela e a cada minuto, sincroniza as permissões.
+  useEffect(() => {
+    if (!getToken()) return;
+    atualizarUsuarioAtual();
+    const onFocus = () => atualizarUsuarioAtual();
+    window.addEventListener('focus', onFocus);
+    const interval = setInterval(atualizarUsuarioAtual, 60000);
+    return () => {
+      window.removeEventListener('focus', onFocus);
+      clearInterval(interval);
+    };
+  }, [atualizarUsuarioAtual]);
+
   // O Dashboard não é um módulo validado no backend; ele agrega dados de clientes,
   // férias e usinas. Só é exibido se o usuário tiver acesso a pelo menos um deles.
   const permissoes = usuario?.permissoes || [];
@@ -503,6 +532,7 @@ function App() {
             fetchAlerts={fetchAlerts}
             fetchNotifications={fetchNotifications}
             usuarioAtual={usuario}
+            onUsuarioAtualizado={atualizarUsuarioAtual}
           />
         </div>
       </main>

@@ -117,6 +117,25 @@ def test_atualizar_usuario_senha_vazia_ok(client, db_fake):
     assert "senha" not in body
 
 
+def test_usuarios_me_retorna_permissoes_frescas(client, db_fake):
+    """/api/usuarios/me deve devolver as permissões atuais do banco."""
+    _injetar_usuario(
+        db_fake,
+        email="gestor2@munaretto.com",
+        senha="gestorSenha456",
+        permissoes=("clientes", "sst"),
+    )
+    token = _login(client, email="gestor2@munaretto.com", senha="gestorSenha456")
+    resp = client.get(
+        "/api/usuarios/me", headers={"Authorization": f"Bearer {token}"}
+    )
+    assert resp.status_code == 200, resp.text
+    body = resp.json()
+    assert body["id"] == 99
+    assert "sst" in body["permissoes"]
+    assert "senha" not in body
+
+
 def test_health_publico(client):
     resp = client.get("/health")
     assert resp.status_code == 200
