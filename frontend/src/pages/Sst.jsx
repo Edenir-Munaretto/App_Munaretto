@@ -552,6 +552,7 @@ function Sst() {
         showToast(ftEditingId ? 'Registro atualizado com sucesso!' : 'Treinamento registrado com sucesso!');
         setShowFtModal(false);
         fetchFuncTreinamentos();
+        fetchPendencias();
       } else {
         showToast(erroDaResposta(resData, 'Erro ao salvar treinamento.'), 'error');
       }
@@ -568,6 +569,7 @@ function Sst() {
       if (res.ok) {
         showToast('Registro excluído com sucesso.');
         fetchFuncTreinamentos();
+        fetchPendencias();
       } else {
         showToast('Erro ao excluir registro.', 'error');
       }
