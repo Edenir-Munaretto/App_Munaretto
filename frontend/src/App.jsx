@@ -14,6 +14,7 @@ import {
   Banknote,
   Settings,
   ShieldCheck,
+  Check,
 } from 'lucide-react';
 
 // Importando as páginas
@@ -427,23 +428,37 @@ function App() {
                         <p className="px-4 pb-3 text-center text-slate-400 text-sm">Nenhuma notificação.</p>
                       ) : (
                         notificacoes.map((n) => (
-                          <button
+                          <div
                             key={n.id}
-                            onClick={() => abrirNotificacao(n)}
-                            className={`w-full text-left px-4 py-3 flex gap-3 transition-colors ${
+                            className={`w-full text-left px-4 py-3 flex gap-3 transition-colors items-center ${
                               n.lida ? 'bg-white hover:bg-slate-50' : 'bg-primary-50/60 hover:bg-primary-50'
                             }`}
                           >
-                            <span className={`mt-1.5 w-2 h-2 rounded-full flex-shrink-0 ${n.lida ? 'bg-slate-200' : 'bg-primary-500'}`} />
-                            <span className="flex-1 min-w-0">
-                              <span className="block text-xs font-bold text-slate-800">{n.titulo}</span>
-                              <span className="block text-xs text-slate-600 mt-0.5">{n.mensagem}</span>
-                              <span className="block text-[10px] text-slate-400 mt-1">{formatDateBR(n.created_at)}</span>
-                            </span>
-                            {n.tipo === 'ferias' && (
-                              <span className="text-lg">🌴</span>
+                            <button
+                              onClick={() => abrirNotificacao(n)}
+                              className="flex gap-3 items-center flex-1 min-w-0 text-left cursor-pointer"
+                            >
+                              <span className={`mt-1.5 w-2 h-2 rounded-full flex-shrink-0 ${n.lida ? 'bg-slate-200' : 'bg-primary-500'}`} />
+                              <span className="flex-1 min-w-0">
+                                <span className="block text-xs font-bold text-slate-800">{n.titulo}</span>
+                                <span className="block text-xs text-slate-600 mt-0.5">{n.mensagem}</span>
+                                <span className="block text-[10px] text-slate-400 mt-1">{formatDateBR(n.created_at)}</span>
+                              </span>
+                              {n.tipo === 'ferias' && (
+                                <span className="text-lg">🌴</span>
+                              )}
+                            </button>
+                            {!n.lida && (
+                              <button
+                                onClick={(e) => { e.stopPropagation(); marcarNotifLida(n.id); }}
+                                className="flex items-center gap-1 px-2.5 py-1.5 rounded-lg bg-white text-primary-600 border border-primary-200 text-[10px] font-bold hover:bg-primary-50 transition-colors shrink-0 cursor-pointer"
+                                title="Marcar como lida"
+                              >
+                                <Check size={12} />
+                                Marcar como lida
+                              </button>
                             )}
-                          </button>
+                          </div>
                         ))
                       )}
                     </div>
