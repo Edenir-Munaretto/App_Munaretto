@@ -27,15 +27,43 @@ class FuncionarioResponse(FuncionarioCreate):
     cargo_id: Optional[int] = None
 
 
+class FuncionarioStats(BaseModel):
+    total: int
+    ativos: int
+    inativos: int
+
+
+@router.get("/stats", response_model=FuncionarioStats)
+def estatisticas_funcionarios(db = Depends(get_supabase)):
+    """Retorna a quantidade total de funcionários cadastrados, ativos e inativos."""
+    try:
+        response = db.table("funcionarios").select("ativo").execute()
+        dados = response.data
+        total = len(dados)
+        ativos = sum(1 for r in dados if r.get("ativo", True))
+        return FuncionarioStats(total=total, ativos=ativos, inativos=total - ativos)
+    except Exception as e:
+        logger.exception("Erro ao buscar estatísticas de funcionários")
+        raise HTTPException(status_code=500, detail="Erro ao buscar estatísticas de funcionários")
+
+
 @router.get("/", response_model=List[FuncionarioResponse])
 def listar_funcionarios(
     busca: Optional[str] = Query(None, description="Termo de busca (nome ou CPF)"),
+    status: Optional[str] = Query("ativos", description="Filtro de status: ativos, inativos ou todos"),
     db = Depends(get_supabase),
 ):
-    """Lista todos os funcionários ativos. Filtra por nome ou CPF se informado."""
-    try:
-        base = lambda: db.table("funcionarios").select("*").eq("ativo", True)
+    """Lista funcionários filtrados por status. Filtra por nome ou CPF se informado."""
 
+    def base():
+        query = db.table("funcionarios").select("*")
+        if status == "inativos":
+            query = query.eq("ativo", False)
+        elif status != "todos":
+            query = query.eq("ativo", True)
+        return query
+
+    try:
         if busca:
             # Busca segura por coluna (parametrizada); sem interpolação no filtro do PostgREST
             consolidado = {}
@@ -105,6 +133,30 @@ def atualizar_funcionario(funcionario_id: int, funcionario: FuncionarioCreate, d
     except Exception as e:
         logger.exception("Erro ao atualizar funcionário")
         raise HTTPException(status_code=500, detail="Erro ao atualizar funcionário")
+class FuncionarioStatusUpdate(BaseModel):
+    ativo: bool
+
+
+@router.patch("/{funcionario_id}/status", response_model=FuncionarioResponse)
+def alterar_status_funcionario(funcionario_id: int, payload: FuncionarioStatusUpdate, db = Depends(get_supabase)):
+    """Ativa ou inativa um funcionário existente."""
+    try:
+        check = db.table("funcionarios").select("id").eq("id", funcionario_id).execute()
+        if not check.data:
+            raise HTTPException(status_code=404, detail="Funcionário não encontrado")
+
+        response = db.table("funcionarios").update({"ativo": payload.ativo}).eq("id", funcionario_id).execute()
+        if not response.data:
+            raise HTTPException(status_code=500, detail="Falha ao alterar status do funcionário.")
+
+        return response.data[0]
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.exception("Erro ao alterar status do funcionário")
+        raise HTTPException(status_code=500, detail="Erro ao alterar status do funcionário")
+
+
 @router.delete("/{funcionario_id}")
 def excluir_funcionario(funcionario_id: int, db = Depends(get_supabase)):
     """Realiza exclusão lógica (soft delete) do funcionário."""
