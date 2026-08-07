@@ -858,6 +858,7 @@ function Comprovantes() {
                       <option value="boleto">Boleto</option>
                       <option value="dda">DDA</option>
                       <option value="pix">Pix</option>
+                      <option value="ted">TED</option>
                       <option value="dinheiro">Dinheiro</option>
                       <option value="cartao">Cartão</option>
                     </select>
