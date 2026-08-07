@@ -556,7 +556,7 @@ def listar_asos(
 ):
     """Lista os ASOs com status de vencimento."""
     try:
-        linhas = db.table("aso").select("*").order("data_exame", desc=True).execute().data
+        linhas = db.table("aso").select("*").order("funcionario_nome").execute().data
         resultado = []
         for r in linhas:
             r["status"] = _status_vencimento(r.get("data_validade"))
