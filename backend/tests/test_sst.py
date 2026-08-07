@@ -45,7 +45,7 @@ def sst_client(client, db_fake):
 
 def _criar_funcionario(db_fake, nome="João da Silva", cpf="12345678901"):
     db_fake._dados["funcionarios"].append(
-        {"id": 1, "nome": nome, "cpf": cpf, "ativo": True, "cargo_id": None}
+        {"id": 1, "nome": nome, "cpf": cpf, "ativo": True, "cargo_id": None, "excluido": False}
     )
 
 

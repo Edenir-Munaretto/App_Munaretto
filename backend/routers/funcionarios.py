@@ -35,9 +35,9 @@ class FuncionarioStats(BaseModel):
 
 @router.get("/stats", response_model=FuncionarioStats)
 def estatisticas_funcionarios(db = Depends(get_supabase)):
-    """Retorna a quantidade total de funcionários cadastrados, ativos e inativos."""
+    """Retorna a quantidade total de funcionários cadastrados (ativos + inativos), sem contar os excluídos."""
     try:
-        response = db.table("funcionarios").select("ativo").execute()
+        response = db.table("funcionarios").select("ativo", "excluido").eq("excluido", False).execute()
         dados = response.data
         total = len(dados)
         ativos = sum(1 for r in dados if r.get("ativo", True))
@@ -53,10 +53,10 @@ def listar_funcionarios(
     status: Optional[str] = Query("ativos", description="Filtro de status: ativos, inativos ou todos"),
     db = Depends(get_supabase),
 ):
-    """Lista funcionários filtrados por status. Filtra por nome ou CPF se informado."""
+    """Lista funcionários filtrados por status (exclui os excluídos). Filtra por nome ou CPF se informado."""
 
     def base():
-        query = db.table("funcionarios").select("*")
+        query = db.table("funcionarios").select("*").eq("excluido", False)
         if status == "inativos":
             query = query.eq("ativo", False)
         elif status != "todos":
@@ -165,7 +165,7 @@ def excluir_funcionario(funcionario_id: int, db = Depends(get_supabase)):
         if not check.data:
             raise HTTPException(status_code=404, detail="Funcionário não encontrado")
 
-        db.table("funcionarios").update({"ativo": False}).eq("id", funcionario_id).execute()
+        db.table("funcionarios").update({"ativo": False, "excluido": True}).eq("id", funcionario_id).execute()
         return {"success": True, "message": "Funcionário excluído com sucesso."}
     except HTTPException:
         raise
