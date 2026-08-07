@@ -75,7 +75,7 @@ def listar_funcionarios(
         else:
             dados = base().execute().data
 
-        dados.sort(key=lambda x: str(x.get("nome", "")))
+        dados.sort(key=lambda x: str(x.get("nome", "")).lower())
         return dados
     except Exception as e:
         logger.exception("Erro ao buscar funcionários")
