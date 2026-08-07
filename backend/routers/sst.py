@@ -413,7 +413,7 @@ def listar_funcionario_treinamentos(
 ):
     """Lista os treinamentos realizados pelos funcionários com status de vencimento."""
     try:
-        linhas = db.table("funcionario_treinamentos").select("*").order("data_realizacao", desc=True).execute().data
+        linhas = db.table("funcionario_treinamentos").select("*").order("funcionario_nome").execute().data
         resultado = []
         for r in linhas:
             r["status"] = _status_vencimento(r.get("data_validade"))
