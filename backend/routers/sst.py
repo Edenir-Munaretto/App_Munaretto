@@ -918,41 +918,49 @@ def listar_pendencias(
 
         pendencias = []
         for func in funcionarios:
-            cargo_id = func.get("cargo_id")
-            if not cargo_id or cargo_id not in cargo_map:
+            # Considera as duas funções do funcionário (cargo_id e cargo_id_2).
+            cargos_do_func = {func.get("cargo_id"), func.get("cargo_id_2")}
+            cargos_do_func = [cid for cid in cargos_do_func if cid and cid in cargo_map]
+            if not cargos_do_func:
                 continue
-            for m in matriz:
-                if m.get("cargo_id") != cargo_id:
-                    continue
-                treino = treino_map.get(m.get("treinamento_id"))
-                if not treino:
-                    continue
-                ultimo = realizados_map.get((func["id"], treino["id"]))
-                base = {
-                    "funcionario_id": func["id"],
-                    "funcionario_nome": func["nome"],
-                    "cargo_id": cargo_id,
-                    "cargo_nome": cargo_map[cargo_id]["nome"],
-                    "treinamento_id": treino["id"],
-                    "treinamento_nome": treino["nome"],
-                    "norma": treino.get("norma"),
-                    "tipo": treino.get("tipo"),
-                    "validade_meses": treino.get("validade_meses"),
-                }
-                if ultimo is None:
-                    pendencias.append({
-                        **base,
-                        "situacao": "Pendente",
-                        "ultima_realizacao": None,
-                        "ultima_validade": None,
-                    })
-                elif _status_vencimento(ultimo.get("data_validade")) == STATUS_VENCIDO:
-                    pendencias.append({
-                        **base,
-                        "situacao": "Vencido",
-                        "ultima_realizacao": ultimo.get("data_realizacao"),
-                        "ultima_validade": ultimo.get("data_validade"),
-                    })
+            # Um curso exigido por ambos os cargos aparece apenas uma vez na pendência.
+            cursos_vistos = set()
+            for cargo_id in cargos_do_func:
+                for m in matriz:
+                    if m.get("cargo_id") != cargo_id:
+                        continue
+                    treino = treino_map.get(m.get("treinamento_id"))
+                    if not treino:
+                        continue
+                    if treino["id"] in cursos_vistos:
+                        continue
+                    cursos_vistos.add(treino["id"])
+                    ultimo = realizados_map.get((func["id"], treino["id"]))
+                    base = {
+                        "funcionario_id": func["id"],
+                        "funcionario_nome": func["nome"],
+                        "cargo_id": cargo_id,
+                        "cargo_nome": cargo_map[cargo_id]["nome"],
+                        "treinamento_id": treino["id"],
+                        "treinamento_nome": treino["nome"],
+                        "norma": treino.get("norma"),
+                        "tipo": treino.get("tipo"),
+                        "validade_meses": treino.get("validade_meses"),
+                    }
+                    if ultimo is None:
+                        pendencias.append({
+                            **base,
+                            "situacao": "Pendente",
+                            "ultima_realizacao": None,
+                            "ultima_validade": None,
+                        })
+                    elif _status_vencimento(ultimo.get("data_validade")) == STATUS_VENCIDO:
+                        pendencias.append({
+                            **base,
+                            "situacao": "Vencido",
+                            "ultima_realizacao": ultimo.get("data_realizacao"),
+                            "ultima_validade": ultimo.get("data_validade"),
+                        })
 
         if busca:
             termo = busca.lower()

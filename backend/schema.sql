@@ -201,6 +201,10 @@ CREATE TABLE IF NOT EXISTS matriz_treinamentos (
 -- Funcionários passam a ter cargo para a matriz de treinamentos
 ALTER TABLE IF EXISTS funcionarios ADD COLUMN IF NOT EXISTS cargo_id INTEGER REFERENCES cargos(id);
 
+-- Funcionários podem acumular uma 2ª função. A matriz de treinamentos passa a
+-- considerar os cursos obrigatórios de ambos os cargos (cargo_id e cargo_id_2).
+ALTER TABLE IF EXISTS funcionarios ADD COLUMN IF NOT EXISTS cargo_id_2 INTEGER REFERENCES cargos(id);
+
 -- Marca a exclusão lógica separada da inativação, para que as estatísticas
 -- possam somar apenas ativos + inativos sem considerar os excluídos.
 ALTER TABLE IF EXISTS funcionarios ADD COLUMN IF NOT EXISTS excluido BOOLEAN DEFAULT FALSE;

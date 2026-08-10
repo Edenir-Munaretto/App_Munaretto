@@ -18,6 +18,7 @@ class FuncionarioCreate(BaseModel):
     nome: str = Field(..., min_length=2, description="Nome do funcionário")
     cpf: str = Field(..., min_length=11, description="CPF do funcionário")
     cargo_id: Optional[int] = Field(None, description="ID do cargo/função (módulo SST)")
+    cargo_id_2: Optional[int] = Field(None, description="ID da 2ª função (módulo SST)")
 
 
 class FuncionarioResponse(FuncionarioCreate):
@@ -25,6 +26,7 @@ class FuncionarioResponse(FuncionarioCreate):
     ativo: bool
     created_at: Optional[str] = None
     cargo_id: Optional[int] = None
+    cargo_id_2: Optional[int] = None
 
 
 class FuncionarioStats(BaseModel):

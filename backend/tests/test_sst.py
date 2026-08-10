@@ -341,6 +341,39 @@ def test_funcionario_sem_cargo_sem_pendencia(sst_client, db_fake):
     assert sst_client.get("/api/sst/pendencias").json() == []
 
 
+def test_pendencias_considera_duas_funcoes(sst_client, db_fake):
+    """Funcionário com 2 funções recebe pendências dos cursos de ambas, sem duplicar."""
+    _criar_funcionario(db_fake)
+    cargo1 = sst_client.post("/api/sst/cargos", json={"nome": "Eletricista"}).json()
+    cargo2 = sst_client.post("/api/sst/cargos", json={"nome": "Servente"}).json()
+    treino1 = sst_client.post(
+        "/api/sst/treinamentos",
+        json={"nome": "NR-10 Básico", "norma": "NR-10", "validade_meses": 12},
+    ).json()
+    treino2 = sst_client.post(
+        "/api/sst/treinamentos",
+        json={"nome": "NR-35 Trabalho em Altura", "norma": "NR-35", "validade_meses": 24},
+    ).json()
+    # Curso em comum para os dois cargos
+    treino3 = sst_client.post(
+        "/api/sst/treinamentos",
+        json={"nome": "NR-6 EPI", "norma": "NR-6"},
+    ).json()
+    sst_client.post("/api/sst/matriz", json={"cargo_id": cargo1["id"], "treinamento_id": treino1["id"]})
+    sst_client.post("/api/sst/matriz", json={"cargo_id": cargo1["id"], "treinamento_id": treino3["id"]})
+    sst_client.post("/api/sst/matriz", json={"cargo_id": cargo2["id"], "treinamento_id": treino2["id"]})
+    sst_client.post("/api/sst/matriz", json={"cargo_id": cargo2["id"], "treinamento_id": treino3["id"]})
+
+    db_fake._dados["funcionarios"][0]["cargo_id"] = cargo1["id"]
+    db_fake._dados["funcionarios"][0]["cargo_id_2"] = cargo2["id"]
+
+    pend = sst_client.get("/api/sst/pendencias").json()
+    nomes = {p["treinamento_nome"] for p in pend}
+    assert nomes == {"NR-10 Básico", "NR-35 Trabalho em Altura", "NR-6 EPI"}
+    assert len(pend) == 3
+    assert all(p["situacao"] == "Pendente" for p in pend)
+
+
 # ---------------------------------------------------------------------------
 # PDF da Ficha de EPI
 # ---------------------------------------------------------------------------

@@ -409,7 +409,7 @@ function Sst() {
     const vinculados = new Set(cursosDoCargo(cargoId).map(m => m.treinamento_id));
     return treinamentos.filter(t => !vinculados.has(t.id));
   };
-  const funcionariosDoCargo = (cargoId) => funcionarios.filter(f => f.cargo_id === cargoId);
+  const funcionariosDoCargo = (cargoId) => funcionarios.filter(f => f.cargo_id === cargoId || f.cargo_id_2 === cargoId);
 
   // ============================= Aba Treinamentos =============================
   const filteredFuncTreinamentos = funcTreinamentos.filter(r => {
@@ -454,14 +454,28 @@ function Sst() {
     setFtForm(prev => ({ ...prev, funcionario_id: func.id }));
     setBuscaFuncFt(func.nome);
     setSugestoesFtAbertas(false);
-    if (func.cargo_id) {
-      apiFetch(`${API_URL}/sst/matriz?cargo_id=${func.cargo_id}`)
-        .then(res => res.ok ? res.json() : [])
-        .then(data => setSugestoesMatriz(data))
-        .catch(() => setSugestoesMatriz([]));
-    } else {
+    const cargosIds = [func.cargo_id, func.cargo_id_2].filter(Boolean);
+    if (cargosIds.length === 0) {
       setSugestoesMatriz([]);
+      return;
     }
+    Promise.all(
+      cargosIds.map(cargoId =>
+        apiFetch(`${API_URL}/sst/matriz?cargo_id=${cargoId}`)
+          .then(res => res.ok ? res.json() : [])
+      )
+    )
+      .then(resultados => {
+        const vistos = new Set();
+        const sugestoes = [];
+        resultados.flat().forEach(sug => {
+          if (vistos.has(sug.treinamento_id)) return;
+          vistos.add(sug.treinamento_id);
+          sugestoes.push(sug);
+        });
+        setSugestoesMatriz(sugestoes);
+      })
+      .catch(() => setSugestoesMatriz([]));
   };
 
   const handleFtCursoChange = (treinamentoId) => {
@@ -1791,7 +1805,13 @@ function Sst() {
                       <span className="font-semibold text-slate-700 flex items-center gap-2">
                         <User size={13} className="text-slate-400" /> {f.nome}
                       </span>
-                      {f.cargo_id && <span className="block text-[10px] text-slate-400">Cargo ID: {f.cargo_id}</span>}
+                      {(f.cargo_id || f.cargo_id_2) && (
+                        <span className="block text-[10px] text-slate-400">
+                          {[f.cargo_id, f.cargo_id_2].filter(Boolean)
+                            .map(id => cargos.find(c => c.id === id)?.nome || `Cargo ${id}`)
+                            .join(' + ')}
+                        </span>
+                      )}
                     </button>
                   ))}
                 </div>

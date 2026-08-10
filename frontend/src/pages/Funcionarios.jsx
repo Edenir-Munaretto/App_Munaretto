@@ -13,7 +13,7 @@ function Funcionarios({ usuarioAtual }) {
   // Modal State
   const [showModal, setShowModal] = useState(false);
   const [editingId, setEditingId] = useState(null);
-  const [form, setForm] = useState({ nome: '', cpf: '', cargo_id: '' });
+  const [form, setForm] = useState({ nome: '', cpf: '', cargo_id: '', cargo_id_2: '' });
   const [cargos, setCargos] = useState([]);
 
   const temSst = (usuarioAtual?.permissoes || []).includes('sst');
@@ -71,13 +71,13 @@ function Funcionarios({ usuarioAtual }) {
 
   const openAddModal = () => {
     setEditingId(null);
-    setForm({ nome: '', cpf: '', cargo_id: '' });
+    setForm({ nome: '', cpf: '', cargo_id: '', cargo_id_2: '' });
     setShowModal(true);
   };
 
   const openEditModal = (f) => {
     setEditingId(f.id);
-    setForm({ nome: f.nome, cpf: f.cpf, cargo_id: f.cargo_id || '' });
+    setForm({ nome: f.nome, cpf: f.cpf, cargo_id: f.cargo_id || '', cargo_id_2: f.cargo_id_2 || '' });
     setShowModal(true);
   };
 
@@ -96,7 +96,8 @@ function Funcionarios({ usuarioAtual }) {
     const payload = {
       nome: form.nome,
       cpf: form.cpf,
-      cargo_id: form.cargo_id ? Number(form.cargo_id) : null
+      cargo_id: form.cargo_id ? Number(form.cargo_id) : null,
+      cargo_id_2: form.cargo_id_2 ? Number(form.cargo_id_2) : null
     };
 
     try {
@@ -301,13 +302,20 @@ function Funcionarios({ usuarioAtual }) {
                     <td className="px-3 py-3 md:px-6 md:py-4 font-mono text-xs">{f.cpf}</td>
                     {temSst && (
                       <td className="px-3 py-3 md:px-6 md:py-4">
-                        {f.cargo_id ? (
-                          <span className="px-2 py-0.5 rounded-full bg-primary-50 text-primary-700 border border-primary-100 text-[10px] font-bold">
-                            {cargos.find(c => c.id === f.cargo_id)?.nome || 'Cargo'}
-                          </span>
-                        ) : (
-                          <span className="text-xs text-slate-400">-</span>
-                        )}
+                        <div className="flex flex-wrap gap-1">
+                          {f.cargo_id ? (
+                            <span className="px-2 py-0.5 rounded-full bg-primary-50 text-primary-700 border border-primary-100 text-[10px] font-bold">
+                              {cargos.find(c => c.id === f.cargo_id)?.nome || 'Cargo'}
+                            </span>
+                          ) : (
+                            <span className="text-xs text-slate-400">-</span>
+                          )}
+                          {f.cargo_id_2 && (
+                            <span className="px-2 py-0.5 rounded-full bg-violet-50 text-violet-700 border border-violet-100 text-[10px] font-bold">
+                              {cargos.find(c => c.id === f.cargo_id_2)?.nome || 'Cargo 2'}
+                            </span>
+                          )}
+                        </div>
                       </td>
                     )}
                     <td className="px-3 py-3 md:px-6 md:py-4">
@@ -402,23 +410,41 @@ function Funcionarios({ usuarioAtual }) {
               </div>
 
               {temSst && (
-                <div>
-                  <label className="block text-xs font-bold text-slate-700 mb-1.5">Cargo / Função (Matriz SST)</label>
-                  <select
-                    name="cargo_id"
-                    value={form.cargo_id}
-                    onChange={handleInputChange}
-                    className="w-full px-3.5 py-2.5 border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-primary-500/20 focus:border-primary-500 text-sm font-semibold"
-                  >
-                    <option value="">Selecione o cargo...</option>
-                    {cargos.map(c => (
-                      <option key={c.id} value={c.id}>{c.nome}</option>
-                    ))}
-                  </select>
-                  <p className="text-[10px] text-slate-400 mt-1 font-semibold">
-                    Usado pelo módulo Segurança do Trabalho para sugerir os treinamentos obrigatórios.
-                  </p>
-                </div>
+                <>
+                  <div>
+                    <label className="block text-xs font-bold text-slate-700 mb-1.5">Cargo / Função (Matriz SST)</label>
+                    <select
+                      name="cargo_id"
+                      value={form.cargo_id}
+                      onChange={handleInputChange}
+                      className="w-full px-3.5 py-2.5 border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-primary-500/20 focus:border-primary-500 text-sm font-semibold"
+                    >
+                      <option value="">Selecione o cargo...</option>
+                      {cargos.map(c => (
+                        <option key={c.id} value={c.id}>{c.nome}</option>
+                      ))}
+                    </select>
+                  </div>
+                  <div>
+                    <label className="block text-xs font-bold text-slate-700 mb-1.5">2ª Cargo / Função (opcional)</label>
+                    <select
+                      name="cargo_id_2"
+                      value={form.cargo_id_2}
+                      onChange={handleInputChange}
+                      className="w-full px-3.5 py-2.5 border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-primary-500/20 focus:border-primary-500 text-sm font-semibold"
+                    >
+                      <option value="">Selecione o cargo...</option>
+                      {cargos
+                        .filter(c => c.id !== Number(form.cargo_id))
+                        .map(c => (
+                          <option key={c.id} value={c.id}>{c.nome}</option>
+                        ))}
+                    </select>
+                    <p className="text-[10px] text-slate-400 mt-1 font-semibold">
+                      Se o funcionário acumular outra função, os cursos obrigatórios das duas funções serão considerados na Matriz SST.
+                    </p>
+                  </div>
+                </>
               )}
 
               <div className="flex justify-end gap-3 pt-4 border-t border-slate-100">
