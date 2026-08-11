@@ -1,5 +1,5 @@
 ﻿import React, { useState, useEffect } from 'react';
-import { Search, Plus, Edit2, Trash2, X, Check, AlertTriangle, Printer, FileCheck2, FileX2 } from 'lucide-react';
+import { Search, Plus, Edit2, Trash2, X, Check, AlertTriangle, Printer, FileCheck2, FileX2, Undo2, Wallet } from 'lucide-react';
 import { API_URL, apiFetch, erroDaResposta } from '../api';
 
 function Recebimentos() {
@@ -235,14 +235,23 @@ function Recebimentos() {
     return true;
   });
 
-  const totalComNF = recebimentos
+  // Totais calculados sobre a lista FILTRADA, para refletir o filtro ativo
+  const qtdTotal = filteredRecebimentos.length;
+  const totalComNF = filteredRecebimentos
     .filter(r => r.emissao_nf)
     .reduce((s, r) => s + (parseFloat(r.valor_da_obra) || 0), 0);
-  const totalSemNF = recebimentos
+  const totalSemNF = filteredRecebimentos
     .filter(r => !r.emissao_nf)
     .reduce((s, r) => s + (parseFloat(r.valor_da_obra) || 0), 0);
-  const qtdComNF = recebimentos.filter(r => r.emissao_nf).length;
-  const qtdSemNF = recebimentos.filter(r => !r.emissao_nf).length;
+  const qtdComNF = filteredRecebimentos.filter(r => r.emissao_nf).length;
+  const qtdSemNF = filteredRecebimentos.filter(r => !r.emissao_nf).length;
+
+  const totalDevolucao = filteredRecebimentos.reduce(
+    (s, r) => s + (parseFloat(r.valor_de_devolucao) || 0), 0
+  );
+  const totalPagClientes = filteredRecebimentos.reduce(
+    (s, r) => s + ((parseFloat(r.valor_da_obra) || 0) - (parseFloat(r.valor_de_devolucao) || 0)), 0
+  );
 
   return (
     <div className="space-y-6">
@@ -425,6 +434,30 @@ function Recebimentos() {
             <span className="block text-[10px] text-slate-400 font-bold uppercase tracking-wider">Clientes sem Emissão NF</span>
             <span className="block text-xl font-extrabold text-amber-700">{formatCurrency(totalSemNF)}</span>
             <span className="block text-xs text-slate-400 font-semibold">{qtdSemNF} cliente(s)</span>
+          </div>
+        </div>
+      </div>
+
+      {/* Resumo de Valores */}
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 print-full-width">
+        <div className="bg-white p-5 rounded-2xl border border-slate-100 shadow-sm flex items-center gap-4">
+          <div className="w-12 h-12 rounded-xl bg-rose-50 border border-rose-100 flex items-center justify-center text-rose-600 shrink-0">
+            <Undo2 size={24} />
+          </div>
+          <div>
+            <span className="block text-[10px] text-slate-400 font-bold uppercase tracking-wider">Total Valor Devolução</span>
+            <span className="block text-xl font-extrabold text-rose-700">{formatCurrency(totalDevolucao)}</span>
+            <span className="block text-xs text-slate-400 font-semibold">{qtdTotal} recebimento(s)</span>
+          </div>
+        </div>
+        <div className="bg-white p-5 rounded-2xl border border-slate-100 shadow-sm flex items-center gap-4">
+          <div className="w-12 h-12 rounded-xl bg-emerald-50 border border-emerald-100 flex items-center justify-center text-emerald-600 shrink-0">
+            <Wallet size={24} />
+          </div>
+          <div>
+            <span className="block text-[10px] text-slate-400 font-bold uppercase tracking-wider">Total Pag. Clientes</span>
+            <span className="block text-xl font-extrabold text-emerald-700">{formatCurrency(totalPagClientes)}</span>
+            <span className="block text-xs text-slate-400 font-semibold">{qtdTotal} recebimento(s)</span>
           </div>
         </div>
       </div>
