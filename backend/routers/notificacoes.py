@@ -139,6 +139,11 @@ def listar_notificacoes(
                 query = query.not_("lida", "is", True)
 
         response = query.execute()
+        # Normaliza lida NULL (registros legados) para False, evitando erro de
+        # serialização no response_model (lida é bool) e mantendo-os como "não lidas"
+        for n in response.data:
+            if n.get("lida") is None:
+                n["lida"] = False
         return response.data
     except Exception as e:
         logger.exception("Erro ao listar notificações")
@@ -149,6 +154,7 @@ def criar_notificacao(notificacao: NotificacaoCreate, usuario: UsuarioAutenticad
     try:
         payload = notificacao.model_dump()
         payload["destinatario"] = usuario.email
+        payload["lida"] = False
         response = db.table("notificacoes").insert(payload).execute()
         if not response.data:
             raise HTTPException(status_code=500, detail="Falha ao criar notificação.")

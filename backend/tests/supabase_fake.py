@@ -41,6 +41,10 @@ class _Query:
         self.filtros.append(("neq", coluna, valor))
         return self
 
+    def not_(self, coluna, operador, valor):
+        self.filtros.append(("not", coluna, operador, valor))
+        return self
+
     def ilike(self, coluna, valor):
         self.filtros.append(("ilike", coluna, valor))
         return self
@@ -55,7 +59,17 @@ class _Query:
 
     def _aplica(self):
         linhas = self.dados[self.tabela]
-        for op, coluna, valor in self.filtros:
+        for filtro in self.filtros:
+            if filtro[0] == "not":
+                _, coluna, op_interno, val = filtro
+                if op_interno == "is":
+                    linhas = [r for r in linhas if r.get(coluna) is not val]
+                elif op_interno == "eq":
+                    linhas = [r for r in linhas if r.get(coluna) != val]
+                elif op_interno == "neq":
+                    linhas = [r for r in linhas if r.get(coluna) == val]
+                continue
+            op, coluna, valor = filtro
             if op == "eq":
                 linhas = [r for r in linhas if r.get(coluna) == valor]
             elif op == "neq":
