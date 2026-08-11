@@ -1,7 +1,7 @@
 ﻿import React, { useState, useEffect } from 'react';
 import {
   Search, Plus, Edit2, Trash2, X, Check, AlertTriangle,
-  HardHat, GraduationCap, Stethoscope, Link2, Unlink, Briefcase, FileText, User, Printer, ListChecks, BookOpen
+  HardHat, GraduationCap, Stethoscope, Link2, Unlink, Briefcase, FileText, User, Printer, ListChecks, BookOpen, Download, Upload
 } from 'lucide-react';
 import { API_URL, apiFetch, erroDaResposta } from '../api';
 
@@ -64,6 +64,8 @@ function Sst() {
     funcionario_id: '', treinamento_id: '', data_realizacao: '',
     data_validade: '', carga_horaria: '', observacao: ''
   });
+  const [ftCertificado, setFtCertificado] = useState(null);
+  const [ftCertificadoAtual, setFtCertificadoAtual] = useState(null);
   const [buscaFuncFt, setBuscaFuncFt] = useState('');
   const [sugestoesFt, setSugestoesFt] = useState([]);
   const [sugestoesFtAbertas, setSugestoesFtAbertas] = useState(false);
@@ -81,6 +83,8 @@ function Sst() {
     data_validade: '', validade_meses: '', medico_responsavel: '',
     clinica: '', resultado: 'apto', observacao: ''
   });
+  const [asoCertificado, setAsoCertificado] = useState(null);
+  const [asoCertificadoAtual, setAsoCertificadoAtual] = useState(null);
   const [buscaFuncAso, setBuscaFuncAso] = useState('');
   const [sugestoesAso, setSugestoesAso] = useState([]);
   const [sugestoesAsoAbertas, setSugestoesAsoAbertas] = useState(false);
@@ -434,6 +438,8 @@ function Sst() {
     setFtForm({ funcionario_id: '', treinamento_id: '', data_realizacao: '', data_validade: '', carga_horaria: '', observacao: '' });
     setBuscaFuncFt('');
     setSugestoesMatriz([]);
+    setFtCertificado(null);
+    setFtCertificadoAtual(null);
     setShowFtModal(true);
   };
 
@@ -447,6 +453,8 @@ function Sst() {
     const func = funcionarios.find(f => f.id === r.funcionario_id);
     setBuscaFuncFt(func ? func.nome : r.funcionario_nome || '');
     setSugestoesMatriz([]);
+    setFtCertificado(null);
+    setFtCertificadoAtual(r.certificado_nome || null);
     setShowFtModal(true);
   };
 
@@ -526,6 +534,8 @@ function Sst() {
     });
     setBuscaFuncFt(p.funcionario_nome);
     setSugestoesMatriz([]);
+    setFtCertificado(null);
+    setFtCertificadoAtual(null);
     setShowFtModal(true);
   };
 
@@ -540,10 +550,36 @@ function Sst() {
   const qtdPendentes = pendencias.filter(p => p.situacao === 'Pendente').length;
   const qtdVencidos = pendencias.filter(p => p.situacao === 'Vencido').length;
 
+  const MIMES_CERTIFICADO = ['application/pdf', 'image/jpeg', 'image/png', 'image/webp'];
+
+  const baixarCertificado = async (r) => {
+    try {
+      const res = await apiFetch(`${API_URL}/certificados/treinamento/${r.id}`);
+      if (!res.ok) {
+        const data = await res.json().catch(() => null);
+        showToast(erroDaResposta(data, 'Certificado não disponível.'), 'error');
+        return;
+      }
+      const data = await res.json();
+      window.open(data.url_temporaria, '_blank');
+    } catch (err) {
+      console.error(err);
+      showToast('Erro de conexão ao obter certificado.', 'error');
+    }
+  };
+
   const handleFtSubmit = async (e) => {
     e.preventDefault();
     if (!ftForm.funcionario_id || !ftForm.treinamento_id || !ftForm.data_realizacao) {
       showToast('Funcionário, curso e data de realização são obrigatórios.', 'error');
+      return;
+    }
+    if (ftCertificado && !MIMES_CERTIFICADO.includes(ftCertificado.type)) {
+      showToast('Certificado deve ser PDF, JPG, PNG ou WEBP.', 'error');
+      return;
+    }
+    if (ftCertificado && ftCertificado.size > 15 * 1024 * 1024) {
+      showToast('Certificado deve ter no máximo 15 MB.', 'error');
       return;
     }
     const payload = {
@@ -562,14 +598,31 @@ function Sst() {
         body: JSON.stringify(payload)
       });
       const resData = await res.json();
-      if (res.ok) {
-        showToast(ftEditingId ? 'Registro atualizado com sucesso!' : 'Treinamento registrado com sucesso!');
-        setShowFtModal(false);
-        fetchFuncTreinamentos();
-        fetchPendencias();
-      } else {
+      if (!res.ok) {
         showToast(erroDaResposta(resData, 'Erro ao salvar treinamento.'), 'error');
+        return;
       }
+      if (ftCertificado) {
+        const fd = new FormData();
+        fd.append('arquivo', ftCertificado);
+        const upRes = await apiFetch(`${API_URL}/certificados/treinamento/${resData.id}`, { method: 'POST', body: fd });
+        if (!upRes.ok) {
+          const upData = await upRes.json().catch(() => null);
+          showToast(`Registro salvo, mas falha no upload do certificado: ${erroDaResposta(upData, 'erro no upload')}`, 'error');
+          setShowFtModal(false);
+          setFtCertificado(null);
+          setFtCertificadoAtual(null);
+          fetchFuncTreinamentos();
+          fetchPendencias();
+          return;
+        }
+      }
+      showToast(ftEditingId ? 'Registro atualizado com sucesso!' : 'Treinamento registrado com sucesso!');
+      setShowFtModal(false);
+      setFtCertificado(null);
+      setFtCertificadoAtual(null);
+      fetchFuncTreinamentos();
+      fetchPendencias();
     } catch (err) {
       console.error(err);
       showToast('Erro de conexão ao salvar treinamento.', 'error');
@@ -612,6 +665,8 @@ function Sst() {
     setAsoEditingId(null);
     setAsoForm({ funcionario_id: '', tipo_exame: 'admissional', data_exame: '', data_validade: '', validade_meses: '', medico_responsavel: '', clinica: '', resultado: 'apto', observacao: '' });
     setBuscaFuncAso('');
+    setAsoCertificado(null);
+    setAsoCertificadoAtual(null);
     setShowAsoModal(true);
   };
 
@@ -625,6 +680,8 @@ function Sst() {
     });
     const func = funcionarios.find(f => f.id === a.funcionario_id);
     setBuscaFuncAso(func ? func.nome : a.funcionario_nome || '');
+    setAsoCertificado(null);
+    setAsoCertificadoAtual(a.documento_nome || null);
     setShowAsoModal(true);
   };
 
@@ -663,10 +720,34 @@ function Sst() {
     });
   };
 
+  const baixarDocumentoAso = async (a) => {
+    try {
+      const res = await apiFetch(`${API_URL}/certificados/aso/${a.id}`);
+      if (!res.ok) {
+        const data = await res.json().catch(() => null);
+        showToast(erroDaResposta(data, 'Documento não disponível.'), 'error');
+        return;
+      }
+      const data = await res.json();
+      window.open(data.url_temporaria, '_blank');
+    } catch (err) {
+      console.error(err);
+      showToast('Erro de conexão ao obter documento.', 'error');
+    }
+  };
+
   const handleAsoSubmit = async (e) => {
     e.preventDefault();
     if (!asoForm.funcionario_id || !asoForm.data_exame) {
       showToast('Funcionário e data do exame são obrigatórios.', 'error');
+      return;
+    }
+    if (asoCertificado && !MIMES_CERTIFICADO.includes(asoCertificado.type)) {
+      showToast('Documento deve ser PDF, JPG, PNG ou WEBP.', 'error');
+      return;
+    }
+    if (asoCertificado && asoCertificado.size > 15 * 1024 * 1024) {
+      showToast('Documento deve ter no máximo 15 MB.', 'error');
       return;
     }
     const payload = {
@@ -684,13 +765,29 @@ function Sst() {
         body: JSON.stringify(payload)
       });
       const resData = await res.json();
-      if (res.ok) {
-        showToast(asoEditingId ? 'ASO atualizado com sucesso!' : 'ASO cadastrado com sucesso!');
-        setShowAsoModal(false);
-        fetchAsos();
-      } else {
+      if (!res.ok) {
         showToast(erroDaResposta(resData, 'Erro ao salvar ASO.'), 'error');
+        return;
       }
+      if (asoCertificado) {
+        const fd = new FormData();
+        fd.append('arquivo', asoCertificado);
+        const upRes = await apiFetch(`${API_URL}/certificados/aso/${resData.id}`, { method: 'POST', body: fd });
+        if (!upRes.ok) {
+          const upData = await upRes.json().catch(() => null);
+          showToast(`ASO salvo, mas falha no upload do documento: ${erroDaResposta(upData, 'erro no upload')}`, 'error');
+          setShowAsoModal(false);
+          setAsoCertificado(null);
+          setAsoCertificadoAtual(null);
+          fetchAsos();
+          return;
+        }
+      }
+      showToast(asoEditingId ? 'ASO atualizado com sucesso!' : 'ASO cadastrado com sucesso!');
+      setShowAsoModal(false);
+      setAsoCertificado(null);
+      setAsoCertificadoAtual(null);
+      fetchAsos();
     } catch (err) {
       console.error(err);
       showToast('Erro de conexão ao salvar ASO.', 'error');
@@ -1156,13 +1253,14 @@ function Sst() {
                     <th className="px-3 py-3 md:px-6 md:py-4">Data Realização</th>
                     <th className="px-3 py-3 md:px-6 md:py-4">Validade</th>
                     <th className="px-3 py-3 md:px-6 md:py-4">Status</th>
+                    <th className="px-3 py-3 md:px-6 md:py-4 text-center">Certificado</th>
                     <th className="px-3 py-3 md:px-6 md:py-4 text-center">Ações</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-100 text-slate-700">
                   {loading ? (
                     <tr>
-                      <td colSpan="6" className="text-center py-12 text-slate-400">
+                      <td colSpan="7" className="text-center py-12 text-slate-400">
                         <div className="flex flex-col items-center justify-center gap-3">
                           <div className="w-8 h-8 border-4 border-primary-500 border-t-transparent rounded-full animate-spin" />
                           <p className="text-xs">Carregando...</p>
@@ -1171,7 +1269,7 @@ function Sst() {
                     </tr>
                   ) : filteredFuncTreinamentos.length === 0 ? (
                     <tr>
-                      <td colSpan="6" className="text-center py-16 text-slate-400">
+                      <td colSpan="7" className="text-center py-16 text-slate-400">
                         <GraduationCap className="mx-auto mb-3 text-slate-300" size={40} />
                         <p className="font-semibold">Nenhum registro encontrado.</p>
                       </td>
@@ -1187,6 +1285,19 @@ function Sst() {
                         <td className="px-3 py-3 md:px-6 md:py-4">{formatDateBR(r.data_realizacao)}</td>
                         <td className="px-3 py-3 md:px-6 md:py-4">{formatDateBR(r.data_validade)}</td>
                         <td className="px-3 py-3 md:px-6 md:py-4"><StatusBadge status={r.status} /></td>
+                        <td className="px-3 py-3 md:px-6 md:py-4">
+                          <div className="flex justify-center items-center gap-2">
+                            {r.tem_certificado ? (
+                              <button onClick={() => baixarCertificado(r)} className="p-2 rounded bg-primary-50 hover:bg-primary-100 text-primary-700 border border-primary-100 transition-colors" title={`Baixar certificado (${r.certificado_nome || ''})`}>
+                                <Download size={15} />
+                              </button>
+                            ) : (
+                              <button onClick={() => openEditFt(r)} className="p-2 rounded bg-slate-50 hover:bg-primary-50 text-slate-400 hover:text-primary-600 border border-slate-100 transition-colors" title="Anexar certificado">
+                                <Upload size={15} />
+                              </button>
+                            )}
+                          </div>
+                        </td>
                         <td className="px-3 py-3 md:px-6 md:py-4">
                           <div className="flex justify-center items-center gap-2">
                             <button onClick={() => openEditFt(r)} className="p-2 rounded bg-slate-50 hover:bg-amber-50 text-slate-500 hover:text-amber-700 border border-slate-100 transition-colors" title="Editar">
@@ -1359,13 +1470,14 @@ function Sst() {
                     <th className="px-3 py-3 md:px-6 md:py-4">Validade</th>
                     <th className="px-3 py-3 md:px-6 md:py-4">Resultado</th>
                     <th className="px-3 py-3 md:px-6 md:py-4">Status</th>
+                    <th className="px-3 py-3 md:px-6 md:py-4 text-center">Documento</th>
                     <th className="px-3 py-3 md:px-6 md:py-4 text-center">Ações</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-100 text-slate-700">
                   {loading ? (
                     <tr>
-                      <td colSpan="7" className="text-center py-12 text-slate-400">
+                      <td colSpan="8" className="text-center py-12 text-slate-400">
                         <div className="flex flex-col items-center justify-center gap-3">
                           <div className="w-8 h-8 border-4 border-primary-500 border-t-transparent rounded-full animate-spin" />
                           <p className="text-xs">Carregando...</p>
@@ -1374,7 +1486,7 @@ function Sst() {
                     </tr>
                   ) : filteredAsos.length === 0 ? (
                     <tr>
-                      <td colSpan="7" className="text-center py-16 text-slate-400">
+                      <td colSpan="8" className="text-center py-16 text-slate-400">
                         <Stethoscope className="mx-auto mb-3 text-slate-300" size={40} />
                         <p className="font-semibold">Nenhum ASO encontrado.</p>
                       </td>
@@ -1396,6 +1508,19 @@ function Sst() {
                           </span>
                         </td>
                         <td className="px-3 py-3 md:px-6 md:py-4"><StatusBadge status={a.status} /></td>
+                        <td className="px-3 py-3 md:px-6 md:py-4">
+                          <div className="flex justify-center items-center gap-2">
+                            {a.tem_documento ? (
+                              <button onClick={() => baixarDocumentoAso(a)} className="p-2 rounded bg-primary-50 hover:bg-primary-100 text-primary-700 border border-primary-100 transition-colors" title={`Baixar documento (${a.documento_nome || ''})`}>
+                                <Download size={15} />
+                              </button>
+                            ) : (
+                              <button onClick={() => openEditAso(a)} className="p-2 rounded bg-slate-50 hover:bg-primary-50 text-slate-400 hover:text-primary-600 border border-slate-100 transition-colors" title="Anexar documento do ASO">
+                                <Upload size={15} />
+                              </button>
+                            )}
+                          </div>
+                        </td>
                         <td className="px-3 py-3 md:px-6 md:py-4">
                           <div className="flex justify-center items-center gap-2">
                             <button onClick={() => openEditAso(a)} className="p-2 rounded bg-slate-50 hover:bg-amber-50 text-slate-500 hover:text-amber-700 border border-slate-100 transition-colors" title="Editar">
@@ -1909,6 +2034,24 @@ function Sst() {
                 className="w-full px-3.5 py-2 border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-primary-500/20 focus:border-primary-500 text-sm"
               />
             </div>
+            <div>
+              <label className="block text-xs font-bold text-slate-700 mb-1.5">Certificado (PDF ou imagem)</label>
+              {ftCertificadoAtual && !ftCertificado && (
+                <div className="mb-2 flex items-center gap-2 px-3 py-2 bg-emerald-50 border border-emerald-100 rounded-xl text-xs font-semibold text-emerald-700">
+                  <FileText size={14} />
+                  <span className="truncate">Certificado atual: {ftCertificadoAtual}</span>
+                </div>
+              )}
+              <input
+                type="file"
+                accept="application/pdf,image/jpeg,image/png,image/webp"
+                onChange={(e) => setFtCertificado(e.target.files?.[0] || null)}
+                className="w-full text-sm text-slate-500 file:mr-3 file:px-4 file:py-2 file:rounded-xl file:border-0 file:bg-primary-50 file:text-primary-700 file:font-bold file:cursor-pointer hover:file:bg-primary-100 cursor-pointer"
+              />
+              <p className="text-[10px] text-slate-400 mt-1 font-semibold">
+                PDF, JPG, PNG ou WEBP - máximo 15 MB. Ao editar, um novo arquivo substitui o anterior.
+              </p>
+            </div>
             <ModalActions label={ftEditingId ? 'Salvar Alterações' : 'Registrar Treinamento'} onCancel={() => setShowFtModal(false)} />
           </form>
         </ModalShell>
@@ -2037,6 +2180,24 @@ function Sst() {
                 placeholder="Observações médicas (opcional)"
                 className="w-full px-3.5 py-2 border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-primary-500/20 focus:border-primary-500 text-sm"
               />
+            </div>
+            <div>
+              <label className="block text-xs font-bold text-slate-700 mb-1.5">Documento do ASO (laudo/exame)</label>
+              {asoCertificadoAtual && !asoCertificado && (
+                <div className="mb-2 flex items-center gap-2 px-3 py-2 bg-emerald-50 border border-emerald-100 rounded-xl text-xs font-semibold text-emerald-700">
+                  <FileText size={14} />
+                  <span className="truncate">Documento atual: {asoCertificadoAtual}</span>
+                </div>
+              )}
+              <input
+                type="file"
+                accept="application/pdf,image/jpeg,image/png,image/webp"
+                onChange={(e) => setAsoCertificado(e.target.files?.[0] || null)}
+                className="w-full text-sm text-slate-500 file:mr-3 file:px-4 file:py-2 file:rounded-xl file:border-0 file:bg-primary-50 file:text-primary-700 file:font-bold file:cursor-pointer hover:file:bg-primary-100 cursor-pointer"
+              />
+              <p className="text-[10px] text-slate-400 mt-1 font-semibold">
+                PDF, JPG, PNG ou WEBP - máximo 15 MB. Ao editar, um novo arquivo substitui o anterior.
+              </p>
             </div>
             <ModalActions label={asoEditingId ? 'Salvar Alterações' : 'Cadastrar ASO'} onCancel={() => setShowAsoModal(false)} />
           </form>

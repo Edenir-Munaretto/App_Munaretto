@@ -402,6 +402,8 @@ class FuncTreinamentoResponse(FuncTreinamentoBase):
     treinamento_nome: str
     norma: Optional[str]
     status: str
+    tem_certificado: bool = False
+    certificado_nome: Optional[str] = None
     created_at: Optional[str] = None
 
 
@@ -414,9 +416,14 @@ def listar_funcionario_treinamentos(
     """Lista os treinamentos realizados pelos funcionários com status de vencimento."""
     try:
         linhas = db.table("funcionario_treinamentos").select("*").order("funcionario_nome").execute().data
+        certs = db.table("certificados").select("registro_id", "nome_original").eq("tipo_registro", "treinamento").execute().data
+        cert_map = {c["registro_id"]: c for c in certs}
         resultado = []
         for r in linhas:
             r["status"] = _status_vencimento(r.get("data_validade"))
+            cert = cert_map.get(r.get("id"))
+            r["tem_certificado"] = cert is not None
+            r["certificado_nome"] = cert.get("nome_original") if cert else None
             if status and r["status"] != status:
                 continue
             if busca:
@@ -512,11 +519,23 @@ def atualizar_funcionario_treinamento(registro_id: int, item: FuncTreinamentoBas
 
 @router.delete("/funcionario-treinamentos/{registro_id}")
 def excluir_funcionario_treinamento(registro_id: int, db=Depends(get_supabase)):
-    """Exclui um registro de treinamento realizado."""
+    """Exclui um registro de treinamento realizado.
+
+    Se houver certificado anexado, o arquivo no B2 também é removido para não
+    deixar objeto órfão no bucket.
+    """
     try:
+        cert = db.table("certificados").select("bucket_key").eq("tipo_registro", "treinamento").eq("registro_id", registro_id).execute()
         response = db.table("funcionario_treinamentos").delete().eq("id", registro_id).execute()
         if not response.data:
             raise HTTPException(status_code=404, detail="Registro de treinamento não encontrado.")
+        if cert.data:
+            try:
+                from storage import bucket as b2_bucket, get_s3_client
+                get_s3_client().delete_object(Bucket=b2_bucket(), Key=cert.data[0]["bucket_key"])
+            except Exception:
+                logger.warning("Não foi possível remover o certificado do B2 (registro %s)", registro_id)
+            db.table("certificados").delete().eq("tipo_registro", "treinamento").eq("registro_id", registro_id).execute()
         return {"success": True, "message": "Registro de treinamento excluído."}
     except HTTPException:
         raise
@@ -544,6 +563,8 @@ class AsoResponse(AsoBase):
     id: int
     funcionario_nome: str
     status: str
+    tem_documento: bool = False
+    documento_nome: Optional[str] = None
     created_at: Optional[str] = None
 
 
@@ -557,9 +578,14 @@ def listar_asos(
     """Lista os ASOs com status de vencimento."""
     try:
         linhas = db.table("aso").select("*").order("funcionario_nome").execute().data
+        certs = db.table("certificados").select("registro_id", "nome_original").eq("tipo_registro", "aso").execute().data
+        cert_map = {c["registro_id"]: c for c in certs}
         resultado = []
         for r in linhas:
             r["status"] = _status_vencimento(r.get("data_validade"))
+            cert = cert_map.get(r.get("id"))
+            r["tem_documento"] = cert is not None
+            r["documento_nome"] = cert.get("nome_original") if cert else None
             if status and r["status"] != status:
                 continue
             if tipo and r.get("tipo_exame") != tipo:
@@ -650,11 +676,23 @@ def atualizar_aso(aso_id: int, item: AsoBase, db=Depends(get_supabase)):
 
 @router.delete("/aso/{aso_id}")
 def excluir_aso(aso_id: int, db=Depends(get_supabase)):
-    """Exclui um ASO."""
+    """Exclui um ASO.
+
+    Se houver documento anexado, o arquivo no B2 também é removido para não
+    deixar objeto órfão no bucket.
+    """
     try:
+        cert = db.table("certificados").select("bucket_key").eq("tipo_registro", "aso").eq("registro_id", aso_id).execute()
         response = db.table("aso").delete().eq("id", aso_id).execute()
         if not response.data:
             raise HTTPException(status_code=404, detail="ASO não encontrado.")
+        if cert.data:
+            try:
+                from storage import bucket as b2_bucket, get_s3_client
+                get_s3_client().delete_object(Bucket=b2_bucket(), Key=cert.data[0]["bucket_key"])
+            except Exception:
+                logger.warning("Não foi possível remover o documento do ASO no B2 (registro %s)", aso_id)
+            db.table("certificados").delete().eq("tipo_registro", "aso").eq("registro_id", aso_id).execute()
         return {"success": True, "message": "ASO excluído com sucesso."}
     except HTTPException:
         raise

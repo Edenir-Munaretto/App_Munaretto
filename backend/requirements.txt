@@ -9,6 +9,8 @@ fpdf2>=2.7.0
 python-multipart>=0.0.6
 num2words
 PyJWT>=2.8.0
+# Armazenamento de arquivos no Backblaze B2 (protocolo compatível com S3)
+boto3>=1.34.0
 # Conversão DOCX→PDF no Windows (requer Microsoft Word instalado)
 # pywin32 é Windows-only; no Linux (Docker/Render) o LibreOffice faz a conversão
 docx2pdf>=0.1.8; platform_system == "Windows"

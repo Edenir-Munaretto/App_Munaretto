@@ -19,30 +19,6 @@ def _hash_senha(senha: str) -> str:
     return f"{salt}${valor}"
 
 
-@pytest.fixture
-def sst_client(client, db_fake):
-    """Cliente autenticado com permissão de módulo 'sst'."""
-    db_fake._dados["usuarios"].append(
-        {
-            "id": 77,
-            "nome": "Tecnico SST",
-            "email": "sst@munaretto.com",
-            "senha": _hash_senha("senhaSST123"),
-            "permissoes": ["sst"],
-            "ativo": True,
-            "precisa_trocar_senha": False,
-        }
-    )
-    resp = client.post(
-        "/api/usuarios/login",
-        json={"email": "sst@munaretto.com", "senha": "senhaSST123"},
-    )
-    assert resp.status_code == 200, resp.text
-    token = resp.json()["token"]
-    client.headers.update({"Authorization": f"Bearer {token}"})
-    return client
-
-
 def _criar_funcionario(db_fake, nome="João da Silva", cpf="12345678901"):
     db_fake._dados["funcionarios"].append(
         {"id": 1, "nome": nome, "cpf": cpf, "ativo": True, "cargo_id": None, "excluido": False}

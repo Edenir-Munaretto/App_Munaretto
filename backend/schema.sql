@@ -381,3 +381,65 @@ CREATE POLICY "service_role_full_epis" ON epis
 DROP POLICY IF EXISTS "service_role_full_funcionario_epis" ON funcionario_epis;
 CREATE POLICY "service_role_full_funcionario_epis" ON funcionario_epis
     FOR ALL TO service_role USING (true) WITH CHECK (true);
+
+-- ============================================================================
+-- TABELA: certificados (metadados de documentos do módulo SST)
+-- O arquivo em si (PDF/imagem) NÃO fica no banco: é armazenado em um bucket
+-- PRIVADO no Backblaze B2. Aqui ficam apenas os metadados e a chave do objeto
+-- no bucket. O acesso é feito por presigned URL temporária (15 min).
+--
+-- `tipo_registro` diz de qual entidade o documento é anexo:
+--   'treinamento' -> registro da tabela funcionario_treinamentos
+--   'aso'         -> registro da tabela aso
+-- A unicidade é por (tipo_registro, registro_id): um documento por registro.
+-- ============================================================================
+CREATE TABLE IF NOT EXISTS certificados (
+    id SERIAL PRIMARY KEY,
+    tipo_registro VARCHAR(20) NOT NULL DEFAULT 'treinamento',
+    colaborador_id INTEGER NOT NULL REFERENCES funcionarios(id) ON DELETE CASCADE,
+    registro_id INTEGER NOT NULL,
+    nome_original VARCHAR(500) NOT NULL,
+    tamanho_bytes BIGINT NOT NULL,
+    mime_type VARCHAR(100) NOT NULL,
+    bucket_key TEXT NOT NULL UNIQUE,
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+);
+
+-- Migração de bancos criados com o formato antigo (coluna registro_treinamento_id):
+-- PRECISA rodar ANTES dos índices sobre (tipo_registro, registro_id), pois a
+-- tabela já existente não tem essas colunas ainda.
+--  1. adiciona tipo_registro (default 'treinamento' preserva os registros atuais);
+--  2. renomeia a coluna para registro_id (Postgres não tem RENAME COLUMN IF EXISTS,
+--     por isso usa um bloco DO condicional);
+--  3. remove o vínculo/FK e a unicidade por coluna única (agora é composta).
+ALTER TABLE IF EXISTS certificados
+    ADD COLUMN IF NOT EXISTS tipo_registro VARCHAR(20) NOT NULL DEFAULT 'treinamento';
+
+DO $$
+BEGIN
+    IF EXISTS (
+        SELECT 1 FROM information_schema.columns
+        WHERE table_schema = 'public' AND table_name = 'certificados'
+          AND column_name = 'registro_treinamento_id'
+    ) THEN
+        ALTER TABLE certificados RENAME COLUMN registro_treinamento_id TO registro_id;
+    END IF;
+END
+$$;
+
+ALTER TABLE IF EXISTS certificados
+    DROP CONSTRAINT IF EXISTS certificados_registro_treinamento_id_fkey;
+
+ALTER TABLE IF EXISTS certificados
+    DROP CONSTRAINT IF EXISTS certificados_registro_treinamento_id_key;
+
+-- Unicidade por entidade de origem (treinamento ou ASO) — depois da migração.
+CREATE UNIQUE INDEX IF NOT EXISTS uq_certificados_tipo_registro ON certificados (tipo_registro, registro_id);
+
+CREATE INDEX IF NOT EXISTS idx_cert_colaborador ON certificados (colaborador_id);
+
+ALTER TABLE IF EXISTS certificados ENABLE ROW LEVEL SECURITY;
+
+DROP POLICY IF EXISTS "service_role_full_certificados" ON certificados;
+CREATE POLICY "service_role_full_certificados" ON certificados
+    FOR ALL TO service_role USING (true) WITH CHECK (true);
