@@ -14,6 +14,29 @@ function Comprovantes() {
   // Modal State
   const [showModal, setShowModal] = useState(false);
   const [editingId, setEditingId] = useState(null);
+
+  // Erros de validação por campo (campo obrigatório não preenchido)
+  const [erros, setErros] = useState({});
+
+  const LABEL_CAMPOS = {
+    nome: 'Nome',
+    cnpj: 'CNPJ',
+    data_emissao: 'Data de Emissão',
+    data_pagamento: 'Data de Pagamento',
+    data_vencimento: 'Data de Vencimento',
+    descricao: 'Descrição',
+    valor_pago: 'Valor Pago',
+  };
+
+  // Adiciona borda vermelha/realce ao campo com erro
+  const erroCampo = (campo) => erros[campo]
+    ? ' border-rose-400 bg-rose-50/40 focus:border-rose-500 focus:ring-rose-500/20'
+    : '';
+
+  // Mensagem de erro exibida abaixo do campo obrigatório
+  const msgErro = (campo) => erros[campo]
+    ? <p className="text-[10px] text-rose-600 font-bold mt-1">Preencha {LABEL_CAMPOS[campo]}.</p>
+    : null;
   
   // Form State
   const [tipoDocumento, setTipoDocumento] = useState('Nota Fiscal');
@@ -82,6 +105,7 @@ function Comprovantes() {
       valor_pago: 0,
       valor_juros: 0
     });
+    setErros({});
     setShowModal(true);
   };
 
@@ -106,6 +130,7 @@ function Comprovantes() {
       valor_pago: c.valor_pago || 0,
       valor_juros: c.valor_juros || 0
     });
+    setErros({});
     setShowModal(true);
   };
 
@@ -119,27 +144,40 @@ function Comprovantes() {
       ...prev,
       [name]: numericFields.includes(name) ? parseFloat(value) || 0 : value
     }));
+    // Remove o destaque de erro assim que o campo é preenchido
+    setErros(prev => {
+      if (!(name in prev)) return prev;
+      const novos = { ...prev };
+      delete novos[name];
+      return novos;
+    });
   };
 
   const handleSubmit = async (e) => {
     e.preventDefault();
 
     // Validações básicas baseadas no tipo
+    let camposObrigatorios = ['data_pagamento', 'descricao', 'valor_pago'];
     if (tipoDocumento === 'Nota Fiscal') {
-      if (!formData.nome || !formData.cnpj || !formData.data_emissao) {
-        showToast('Nome, CNPJ e Data de Emissão são obrigatórios para Nota Fiscal.', 'error');
-        return;
-      }
+      camposObrigatorios = ['nome', 'cnpj', 'data_emissao'];
     } else if (tipoDocumento === 'Imposto') {
-      if (!formData.data_vencimento || !formData.descricao || !formData.valor_pago) {
-        showToast('Data de Vencimento, Descrição e Valor são obrigatórios.', 'error');
-        return;
-      }
-    } else {
-      if (!formData.data_pagamento || !formData.descricao || !formData.valor_pago) {
-        showToast('Data de Pagamento, Descrição e Valor Pago são obrigatórios.', 'error');
-        return;
-      }
+      camposObrigatorios = ['data_vencimento', 'descricao', 'valor_pago'];
+    }
+
+    const camposFaltando = camposObrigatorios.filter(campo => {
+      const v = formData[campo];
+      return v === '' || v === null || v === undefined || v === 0;
+    });
+
+    if (camposFaltando.length > 0) {
+      // Destaca os campos obrigatórios não preenchidos
+      const novosErros = {};
+      camposFaltando.forEach(campo => { novosErros[campo] = true; });
+      setErros(novosErros);
+
+      const nomes = camposFaltando.map(campo => LABEL_CAMPOS[campo]).join(', ');
+      showToast(`Preencha o(s) campo(s) obrigatório(s): ${nomes}.`, 'error');
+      return;
     }
 
     // Sanitiza o payload enviando null ao invés de strings vazias para o Supabase
@@ -289,7 +327,7 @@ function Comprovantes() {
 
       {/* Toast */}
       {toast && (
-        <div className={`fixed top-4 right-4 z-50 p-4 rounded-xl shadow-xl flex items-center gap-3 border text-sm max-w-sm animate-in slide-in-from-top-4 duration-300 ${
+        <div className={`fixed top-4 right-4 z-[100] p-4 rounded-xl shadow-xl flex items-center gap-3 border text-sm max-w-sm animate-in slide-in-from-top-4 duration-300 ${
           toast.type === 'error' 
             ? 'bg-rose-50 border-rose-200 text-rose-800' 
             : 'bg-emerald-50 border-emerald-200 text-emerald-800'
@@ -517,53 +555,7 @@ function Comprovantes() {
                       <span className="font-extrabold text-primary-750 print:text-black">{formatCurrency(c.valor_pago)}</span>
                     </div>
                   </div>
-) : tipoDocumento === 'Imposto' ? (
-                /* Formulário para o tipo Imposto */
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                  <div className="space-y-1.5">
-                    <label className="block text-xs font-bold text-slate-755">Data de Vencimento *</label>
-                    <input
-                      type="date"
-                      name="data_vencimento"
-                      value={formData.data_vencimento}
-                      onChange={handleInputChange}
-                      className="w-full px-3.5 py-2 border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-primary-500/20 focus:border-primary-500 text-sm font-semibold"
-                    />
-                  </div>
-                  <div className="space-y-1.5">
-                    <label className="block text-xs font-bold text-slate-755">Data de Pagamento</label>
-                    <input
-                      type="date"
-                      name="data_pagamento"
-                      value={formData.data_pagamento}
-                      onChange={handleInputChange}
-                      className="w-full px-3.5 py-2 border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-primary-500/20 focus:border-primary-500 text-sm font-semibold"
-                    />
-                  </div>
-                  <div className="space-y-1.5 sm:col-span-2">
-                    <label className="block text-xs font-bold text-slate-755">Descrição *</label>
-                    <input
-                      type="text"
-                      name="descricao"
-                      value={formData.descricao}
-                      onChange={handleInputChange}
-                      placeholder="Ex: INSS, ISS, Imposto de Renda, PIS/COFINS..."
-                      className="w-full px-3.5 py-2 border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-primary-500/20 focus:border-primary-500 text-sm font-semibold"
-                    />
-                  </div>
-                  <div className="space-y-1.5 sm:col-span-2">
-                    <label className="block text-xs font-bold text-slate-755">Valor *</label>
-                    <input
-                      type="number"
-                      step="0.01"
-                      name="valor_pago"
-                      value={formData.valor_pago}
-                      onChange={handleInputChange}
-                      className="w-full px-3.5 py-2 border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-primary-500/20 focus:border-primary-500 text-sm font-bold text-primary-750"
-                    />
-                  </div>
-                </div>
-              ) : (
+                ) : (
                   <div className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-6 gap-x-4 gap-y-2 text-xs pt-2 border-t border-slate-50 print:gap-y-0.5 print:pt-1 print:text-[10px]">
                     <div>
                       <span className="block text-[9px] text-slate-400 font-bold uppercase tracking-wider">Vencimento</span>
@@ -723,8 +715,9 @@ function Comprovantes() {
                       name="data_emissao"
                       value={formData.data_emissao}
                       onChange={handleInputChange}
-                      className="w-full px-3.5 py-2 border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-primary-500/20 focus:border-primary-500 text-sm font-semibold"
+                      className={`w-full px-3.5 py-2 border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-primary-500/20 focus:border-primary-500 text-sm font-semibold${erroCampo('data_emissao')}`}
                     />
+                    {msgErro('data_emissao')}
                   </div>
                   <div className="space-y-1.5 sm:col-span-2">
                     <label className="block text-xs font-bold text-slate-750">Nome *</label>
@@ -733,8 +726,9 @@ function Comprovantes() {
                       name="nome"
                       value={formData.nome}
                       onChange={handleInputChange}
-                      className="w-full px-3.5 py-2 border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-primary-500/20 focus:border-primary-500 text-sm font-semibold"
+                      className={`w-full px-3.5 py-2 border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-primary-500/20 focus:border-primary-500 text-sm font-semibold${erroCampo('nome')}`}
                     />
+                    {msgErro('nome')}
                   </div>
                   <div className="space-y-1.5">
                     <label className="block text-xs font-bold text-slate-750">CNPJ *</label>
@@ -744,8 +738,9 @@ function Comprovantes() {
                       value={formData.cnpj}
                       onChange={handleInputChange}
                       placeholder="00.000.000/0000-00"
-                      className="w-full px-3.5 py-2 border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-primary-500/20 focus:border-primary-500 text-sm font-semibold"
+                      className={`w-full px-3.5 py-2 border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-primary-500/20 focus:border-primary-500 text-sm font-semibold${erroCampo('cnpj')}`}
                     />
+                    {msgErro('cnpj')}
                   </div>
                   <div className="space-y-1.5">
                     <label className="block text-xs font-bold text-slate-750">Local do Serviço</label>
@@ -817,24 +812,26 @@ function Comprovantes() {
                 /* Outros tipos */
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                   <div className="space-y-1.5">
-                    <label className="block text-xs font-bold text-slate-755">Data de Pagamento *</label>
+                    <label className="block text-xs font-bold text-slate-755">Data de Pagamento {tipoDocumento !== 'Imposto' && '*'}</label>
                     <input
                       type="date"
                       name="data_pagamento"
                       value={formData.data_pagamento}
                       onChange={handleInputChange}
-                      className="w-full px-3.5 py-2 border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-primary-500/20 focus:border-primary-500 text-sm font-semibold"
+                      className={`w-full px-3.5 py-2 border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-primary-500/20 focus:border-primary-500 text-sm font-semibold${erroCampo('data_pagamento')}`}
                     />
+                    {msgErro('data_pagamento')}
                   </div>
                   <div className="space-y-1.5">
-                    <label className="block text-xs font-bold text-slate-755">Data de Vencimento</label>
+                    <label className="block text-xs font-bold text-slate-755">Data de Vencimento {tipoDocumento === 'Imposto' && '*'}</label>
                     <input
                       type="date"
                       name="data_vencimento"
                       value={formData.data_vencimento}
                       onChange={handleInputChange}
-                      className="w-full px-3.5 py-2 border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-primary-500/20 focus:border-primary-500 text-sm font-semibold"
+                      className={`w-full px-3.5 py-2 border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-primary-500/20 focus:border-primary-500 text-sm font-semibold${erroCampo('data_vencimento')}`}
                     />
+                    {msgErro('data_vencimento')}
                   </div>
                   <div className="space-y-1.5 sm:col-span-2">
                     <label className="block text-xs font-bold text-slate-755">Descrição *</label>
@@ -844,8 +841,9 @@ function Comprovantes() {
                       value={formData.descricao}
                       onChange={handleInputChange}
                       placeholder="Ex: Mensalidade de internet da usina 1"
-                      className="w-full px-3.5 py-2 border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-primary-500/20 focus:border-primary-500 text-sm font-semibold"
+                      className={`w-full px-3.5 py-2 border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-primary-500/20 focus:border-primary-500 text-sm font-semibold${erroCampo('descricao')}`}
                     />
+                    {msgErro('descricao')}
                   </div>
                   <div className="space-y-1.5">
                     <label className="block text-xs font-bold text-slate-755">Forma de Pagamento</label>
@@ -881,8 +879,9 @@ function Comprovantes() {
                       name="valor_pago"
                       value={formData.valor_pago}
                       onChange={handleInputChange}
-                      className="w-full px-3.5 py-2 border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-primary-500/20 focus:border-primary-500 text-sm font-bold text-primary-750"
+                      className={`w-full px-3.5 py-2 border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-primary-500/20 focus:border-primary-500 text-sm font-bold text-primary-750${erroCampo('valor_pago')}`}
                     />
+                    {msgErro('valor_pago')}
                   </div>
                   <div className="space-y-1.5">
                     <label className="block text-xs font-bold text-slate-755">Valor Juros</label>
