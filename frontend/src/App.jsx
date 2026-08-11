@@ -15,6 +15,7 @@ import {
   Settings,
   ShieldCheck,
   Check,
+  Trash2,
 } from 'lucide-react';
 
 // Importando as páginas
@@ -103,6 +104,7 @@ function App() {
   const [alerts, setAlerts] = useState([]);
   const [sstAlerts, setSstAlerts] = useState([]);
   const [notificacoes, setNotificacoes] = useState([]);
+  const [notifErro, setNotifErro] = useState('');
   const [showNotifPanel, setShowNotifPanel] = useState(false);
   const [usuario, setUsuario] = useState(() => {
     try {
@@ -157,7 +159,8 @@ function App() {
   const fetchNotifications = useCallback(async () => {
     if (!usuario?.email) return;
     try {
-      const res = await apiFetch(`${API_URL}/notificacoes/?destinatario=${encodeURIComponent(usuario.email)}`);
+      // Busca apenas as NÃO LIDAS: ao marcar como lida, a notificação some do painel
+      const res = await apiFetch(`${API_URL}/notificacoes/?lida=false&destinatario=${encodeURIComponent(usuario.email)}`);
       if (res.ok) {
         const data = await res.json();
         setNotificacoes(data);
@@ -175,22 +178,53 @@ function App() {
     return () => clearInterval(interval);
   }, [usuario, fetchNotifications]);
 
+  const mostrarNotifErro = (msg) => {
+    setNotifErro(msg);
+    setTimeout(() => setNotifErro(''), 4000);
+  };
+
   const marcarNotifLida = async (id) => {
     try {
-      await apiFetch(`${API_URL}/notificacoes/${id}/lida`, { method: 'PATCH' });
-      fetchNotifications();
+      const res = await apiFetch(`${API_URL}/notificacoes/${id}/lida`, { method: 'PATCH' });
+      if (res.ok) {
+        // Remove imediatamente do painel (só lista não lidas)
+        setNotificacoes(prev => prev.filter(n => n.id !== id));
+      } else {
+        mostrarNotifErro('Não foi possível marcar a notificação como lida. Tente novamente.');
+      }
     } catch (err) {
       console.error('Erro ao marcar notificação como lida:', err);
+      mostrarNotifErro('Erro de conexão ao marcar a notificação como lida.');
     }
   };
 
   const marcarTodasNotifLidas = async () => {
     if (!usuario?.email) return;
     try {
-      await apiFetch(`${API_URL}/notificacoes/marcar-todas-lidas?destinatario=${encodeURIComponent(usuario.email)}`, { method: 'POST' });
-      fetchNotifications();
+      const res = await apiFetch(`${API_URL}/notificacoes/marcar-todas-lidas?destinatario=${encodeURIComponent(usuario.email)}`, { method: 'POST' });
+      if (res.ok) {
+        setNotificacoes([]);
+      } else {
+        mostrarNotifErro('Não foi possível marcar todas como lidas. Tente novamente.');
+      }
     } catch (err) {
       console.error('Erro ao marcar notificações como lidas:', err);
+      mostrarNotifErro('Erro de conexão ao marcar todas como lidas.');
+    }
+  };
+
+  const excluirNotif = async (id) => {
+    if (!window.confirm('Excluir esta notificação?')) return;
+    try {
+      const res = await apiFetch(`${API_URL}/notificacoes/${id}`, { method: 'DELETE' });
+      if (res.ok) {
+        setNotificacoes(prev => prev.filter(n => n.id !== id));
+      } else {
+        mostrarNotifErro('Não foi possível excluir a notificação. Tente novamente.');
+      }
+    } catch (err) {
+      console.error('Erro ao excluir notificação:', err);
+      mostrarNotifErro('Erro de conexão ao excluir a notificação.');
     }
   };
 
@@ -412,6 +446,12 @@ function App() {
                     )}
                   </div>
 
+                  {notifErro && (
+                    <div className="px-4 py-2 bg-rose-50 border-b border-rose-100 text-rose-700 text-xs font-semibold">
+                      {notifErro}
+                    </div>
+                  )}
+
                   <div className="max-h-96 overflow-y-auto divide-y divide-slate-100">
                     
                     {/* Seção: Notificações */}
@@ -425,7 +465,7 @@ function App() {
                         )}
                       </div>
                       {notificacoes.length === 0 ? (
-                        <p className="px-4 pb-3 text-center text-slate-400 text-sm">Nenhuma notificação.</p>
+                        <p className="px-4 pb-3 text-center text-slate-400 text-sm">Nenhuma notificação pendente.</p>
                       ) : (
                         notificacoes.map((n) => (
                           <div
@@ -458,6 +498,13 @@ function App() {
                                 Marcar como lida
                               </button>
                             )}
+                            <button
+                              onClick={(e) => { e.stopPropagation(); excluirNotif(n.id); }}
+                              className="p-1.5 rounded-lg text-slate-300 hover:text-rose-600 hover:bg-rose-50 transition-colors shrink-0 cursor-pointer"
+                              title="Excluir notificação"
+                            >
+                              <Trash2 size={14} />
+                            </button>
                           </div>
                         ))
                       )}

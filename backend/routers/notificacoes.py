@@ -131,7 +131,12 @@ def listar_notificacoes(
         # Escopo obrigatório: ignora qualquer destinatário enviado pelo cliente
         query = query.eq("destinatario", usuario.email)
         if lida is not None:
-            query = query.eq("lida", lida)
+            # `not is true` também captura registros com lida NULL (legado),
+            # que o `eq(false)` deixaria de fora
+            if lida:
+                query = query.eq("lida", True)
+            else:
+                query = query.not_("lida", "is", True)
 
         response = query.execute()
         return response.data
@@ -164,11 +169,28 @@ def marcar_lida(notificacao_id: int, usuario: UsuarioAutenticado = Depends(get_c
     except Exception as e:
         logger.exception("Erro ao marcar notificação como lida")
         raise HTTPException(status_code=500, detail="Erro ao marcar notificação como lida")
+@router.delete("/{notificacao_id}")
+def excluir_notificacao(notificacao_id: int, usuario: UsuarioAutenticado = Depends(get_current_user), db = Depends(get_supabase)):
+    """Exclui uma notificação do usuário autenticado."""
+    try:
+        response = db.table("notificacoes").delete().eq("id", notificacao_id).eq("destinatario", usuario.email).execute()
+        if not response.data:
+            raise HTTPException(status_code=404, detail="Notificação não encontrada.")
+        return {"success": True, "id": notificacao_id}
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.exception("Erro ao excluir notificação")
+        raise HTTPException(status_code=500, detail="Erro ao excluir notificação")
+
+
 @router.post("/marcar-todas-lidas")
 def marcar_todas_lidas(usuario: UsuarioAutenticado = Depends(get_current_user), db = Depends(get_supabase)):
     """Marca todas as notificações do usuário autenticado como lidas."""
     try:
-        db.table("notificacoes").update({"lida": True}).eq("destinatario", usuario.email).eq("lida", False).execute()
+        # Sem filtro em lida: garante que registros com lida NULL (legado)
+        # também sejam marcados
+        db.table("notificacoes").update({"lida": True}).eq("destinatario", usuario.email).execute()
         return {"success": True}
     except Exception as e:
         logger.exception("Erro ao marcar notificações como lidas")
