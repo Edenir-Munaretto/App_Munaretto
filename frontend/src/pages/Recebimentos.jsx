@@ -414,8 +414,8 @@ function Recebimentos() {
         )}
       </div>
 
-      {/* Resumo Emissão NF */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 print-full-width">
+      {/* Resumo de Totais */}
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 print-full-width">
         <div className="bg-white p-5 rounded-2xl border border-slate-100 shadow-sm flex items-center gap-4">
           <div className="w-12 h-12 rounded-xl bg-emerald-50 border border-emerald-100 flex items-center justify-center text-emerald-600 shrink-0">
             <FileCheck2 size={24} />
@@ -436,10 +436,6 @@ function Recebimentos() {
             <span className="block text-xs text-slate-400 font-semibold">{qtdSemNF} cliente(s)</span>
           </div>
         </div>
-      </div>
-
-      {/* Resumo de Valores */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 print-full-width">
         <div className="bg-white p-5 rounded-2xl border border-slate-100 shadow-sm flex items-center gap-4">
           <div className="w-12 h-12 rounded-xl bg-rose-50 border border-rose-100 flex items-center justify-center text-rose-600 shrink-0">
             <Undo2 size={24} />
