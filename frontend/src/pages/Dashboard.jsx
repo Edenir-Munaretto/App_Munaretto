@@ -1,13 +1,13 @@
 import React, { useState, useEffect } from 'react';
-import { Users, Palmtree, LineChart, ShieldAlert, ArrowUpRight, TrendingUp } from 'lucide-react';
+import { Users, Palmtree, Stethoscope, ShieldAlert, TrendingUp } from 'lucide-react';
 import { API_URL, apiFetch } from '../api';
 
 function Dashboard({ alerts }) {
   const [stats, setStats] = useState({
-    clientes: 0,
+    funcionarios: 0,
     ferias: 0,
-    lucroMensal: '0,00',
-    mesRef: 'N/A'
+    asoVencidos: 0,
+    asoProximos: 0
   });
   const [loading, setLoading] = useState(true);
 
@@ -18,32 +18,30 @@ function Dashboard({ alerts }) {
   const fetchStats = async () => {
     try {
       setLoading(true);
-      // Busca clientes
-      const cliRes = await apiFetch(`${API_URL}/clientes/`);
-      const cliData = cliRes.ok ? await cliRes.json() : [];
+      // Busca total de funcionários cadastrados
+      const funcRes = await apiFetch(`${API_URL}/funcionarios/stats`);
+      const funcData = funcRes.ok ? await funcRes.json() : { total: 0 };
 
       // Busca férias
       const ferRes = await apiFetch(`${API_URL}/ferias/`);
       const ferData = ferRes.ok ? await ferRes.json() : [];
 
-      // Busca fluxos para obter o último
-      const fluxRes = await apiFetch(`${API_URL}/fluxo-caixa/`);
-      const fluxData = fluxRes.ok ? await fluxRes.json() : [];
-
-      let ultimoLucro = '0,00';
-      let ultimoMes = 'N/A';
-      if (fluxData && fluxData.length > 0) {
-        // Ordena por data_registro decrescente para pegar o mais recente
-        const ultimo = fluxData[0];
-        ultimoLucro = new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(ultimo.total_liquido);
-        ultimoMes = ultimo.mes_referencia;
+      // Busca resumo de conformidade SST (ASOs vencidos e próximos ao vencimento)
+      let asoVencidos = 0;
+      let asoProximos = 0;
+      const sstRes = await apiFetch(`${API_URL}/sst/alertas`);
+      if (sstRes.ok) {
+        const sstData = await sstRes.json();
+        const asos = sstData.resumo?.asos || {};
+        asoVencidos = asos['Vencido'] || 0;
+        asoProximos = asos['Próximo ao Vencimento'] || 0;
       }
 
       setStats({
-        clientes: cliData.length,
+        funcionarios: funcData.total ?? 0,
         ferias: ferData.filter(f => f.status === 'Agendado' || f.status === 'Em Férias').length,
-        lucroMensal: ultimoLucro,
-        mesRef: ultimoMes
+        asoVencidos,
+        asoProximos
       });
     } catch (err) {
       console.error('Erro ao buscar estatísticas do dashboard:', err);
@@ -54,9 +52,9 @@ function Dashboard({ alerts }) {
 
   const statCards = [
     {
-      title: 'Clientes Cadastrados',
-      value: stats.clientes,
-      desc: 'Clientes ativos no sistema',
+      title: 'Colaboradores Cadastrados',
+      value: stats.funcionarios,
+      desc: 'Funcionários ativos no sistema',
       icon: Users,
       color: 'from-blue-500 to-primary-600',
       iconColor: 'text-blue-500'
@@ -70,12 +68,12 @@ function Dashboard({ alerts }) {
       iconColor: 'text-amber-500'
     },
     {
-      title: `Último Saldo Líquido (${stats.mesRef})`,
-      value: stats.lucroMensal,
-      desc: 'Fechamento consolidado das usinas',
-      icon: LineChart,
-      color: 'from-emerald-500 to-teal-600',
-      iconColor: 'text-emerald-500'
+      title: 'ASO Vencidos e Próximos',
+      value: stats.asoVencidos + stats.asoProximos,
+      desc: `${stats.asoVencidos} vencido(s) • ${stats.asoProximos} próximo(s)`,
+      icon: Stethoscope,
+      color: 'from-rose-500 to-red-600',
+      iconColor: 'text-rose-500'
     }
   ];
 
