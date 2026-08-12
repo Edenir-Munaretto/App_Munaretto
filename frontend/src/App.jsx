@@ -350,7 +350,7 @@ function App() {
         {/* Logo/Header */}
         <div className="h-16 flex items-center justify-between px-4 border-b border-slate-800">
           <div className="flex items-center gap-3 overflow-hidden">
-            <span className="text-2xl">📄</span>
+            <img src="/logo-munaretto.png" alt="Munaretto" className="w-9 h-9 object-contain shrink-0" />
             {sidebarOpen && (
               <span className="font-extrabold text-lg tracking-wider bg-gradient-to-r from-primary-400 to-emerald-400 bg-clip-text text-transparent uppercase">
                 Munaretto
