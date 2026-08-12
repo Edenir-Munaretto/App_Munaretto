@@ -252,6 +252,7 @@ function Recebimentos() {
   const totalPagClientes = filteredRecebimentos.reduce(
     (s, r) => s + ((parseFloat(r.valor_da_obra) || 0) - (parseFloat(r.valor_de_devolucao) || 0)), 0
   );
+  const totalAReceber = totalDevolucao + totalPagClientes;
 
   return (
     <div className="space-y-6">
@@ -415,7 +416,7 @@ function Recebimentos() {
       </div>
 
       {/* Resumo de Totais */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 print-full-width">
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-4 print-full-width">
         <div className="bg-white p-5 rounded-2xl border border-slate-100 shadow-sm flex items-center gap-4">
           <div className="w-12 h-12 rounded-xl bg-emerald-50 border border-emerald-100 flex items-center justify-center text-emerald-600 shrink-0">
             <FileCheck2 size={24} />
@@ -453,6 +454,16 @@ function Recebimentos() {
           <div>
             <span className="block text-[10px] text-slate-400 font-bold uppercase tracking-wider">Total Pag. Clientes</span>
             <span className="block text-xl font-extrabold text-emerald-700">{formatCurrency(totalPagClientes)}</span>
+            <span className="block text-xs text-slate-400 font-semibold">{qtdTotal} recebimento(s)</span>
+          </div>
+        </div>
+        <div className="bg-white p-5 rounded-2xl border border-slate-100 shadow-sm flex items-center gap-4 print-full-width">
+          <div className="w-12 h-12 rounded-xl bg-primary-50 border border-primary-100 flex items-center justify-center text-primary-700 shrink-0">
+            <Wallet size={24} />
+          </div>
+          <div>
+            <span className="block text-[10px] text-slate-400 font-bold uppercase tracking-wider">Total a Receber</span>
+            <span className="block text-xl font-extrabold text-primary-700">{formatCurrency(totalAReceber)}</span>
             <span className="block text-xs text-slate-400 font-semibold">{qtdTotal} recebimento(s)</span>
           </div>
         </div>
