@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Users, Palmtree, Stethoscope, ShieldAlert, TrendingUp } from 'lucide-react';
+import { Users, Palmtree, Stethoscope, ShieldAlert, GraduationCap } from 'lucide-react';
 import { API_URL, apiFetch } from '../api';
 
 function Dashboard({ alerts }) {
@@ -7,7 +7,10 @@ function Dashboard({ alerts }) {
     funcionarios: 0,
     ferias: 0,
     asoVencidos: 0,
-    asoProximos: 0
+    asoProximos: 0,
+    cursosVigentes: 0,
+    cursosProximos: 0,
+    cursosVencidos: 0
   });
   const [loading, setLoading] = useState(true);
 
@@ -26,22 +29,32 @@ function Dashboard({ alerts }) {
       const ferRes = await apiFetch(`${API_URL}/ferias/`);
       const ferData = ferRes.ok ? await ferRes.json() : [];
 
-      // Busca resumo de conformidade SST (ASOs vencidos e próximos ao vencimento)
+      // Busca resumo de conformidade SST (ASOs e cursos vencidos/próximos)
       let asoVencidos = 0;
       let asoProximos = 0;
+      let cursosVigentes = 0;
+      let cursosProximos = 0;
+      let cursosVencidos = 0;
       const sstRes = await apiFetch(`${API_URL}/sst/alertas`);
       if (sstRes.ok) {
         const sstData = await sstRes.json();
         const asos = sstData.resumo?.asos || {};
         asoVencidos = asos['Vencido'] || 0;
         asoProximos = asos['Próximo ao Vencimento'] || 0;
+        const cursos = sstData.resumo?.treinamentos || {};
+        cursosVigentes = cursos['Vigente'] || 0;
+        cursosProximos = cursos['Próximo ao Vencimento'] || 0;
+        cursosVencidos = cursos['Vencido'] || 0;
       }
 
       setStats({
         funcionarios: funcData.total ?? 0,
         ferias: ferData.filter(f => f.status === 'Agendado' || f.status === 'Em Férias').length,
         asoVencidos,
-        asoProximos
+        asoProximos,
+        cursosVigentes,
+        cursosProximos,
+        cursosVencidos
       });
     } catch (err) {
       console.error('Erro ao buscar estatísticas do dashboard:', err);
@@ -175,37 +188,37 @@ function Dashboard({ alerts }) {
           </div>
         </div>
 
-        {/* Quick Links / Rules */}
+        {/* Cursos / Treinamentos */}
         <div className="bg-white rounded-2xl border border-slate-100 p-6 shadow-sm space-y-4">
           <h4 className="font-bold text-slate-800 flex items-center gap-2 pb-2 border-b border-slate-100">
-            <TrendingUp className="text-primary-500" />
-            Regra Societária de Lucro
+            <GraduationCap className="text-primary-500" />
+            Cursos e Treinamentos
           </h4>
-          
+
           <div className="space-y-3">
-            <p className="text-xs text-slate-500 leading-relaxed">
-              O lucro líquido do fechamento mensal das usinas (Usinas Solar - Ouro Energia) é automaticamente partilhado de acordo com as seguintes cota-partes:
-            </p>
-            
-            <div className="divide-y divide-slate-100 text-xs">
-              {[
-                { name: 'Marlene', share: '30%', color: 'border-emerald-500' },
-                { name: 'João B.', share: '30%', color: 'border-blue-500' },
-                { name: 'Demarco', share: '25%', color: 'border-amber-500' },
-                { name: 'Nei Rigo', share: '10%', color: 'border-purple-500' },
-                { name: 'Gilmar T.', share: '5%', color: 'border-rose-500' }
-              ].map((socio, idx) => (
-                <div key={idx} className="flex justify-between items-center py-2.5">
-                  <div className="flex items-center gap-2">
-                    <div className={`w-2 h-2 rounded-full bg-slate-900 border-l-4 ${socio.color}`} />
-                    <span className="font-bold text-slate-700">{socio.name}</span>
+            {loading ? (
+              <div className="space-y-2">
+                {[0, 1, 2].map(i => <div key={i} className="h-8 bg-slate-100 animate-pulse rounded" />)}
+              </div>
+            ) : (
+              <div className="divide-y divide-slate-100 text-xs">
+                {[
+                  { label: 'Vigentes', value: stats.cursosVigentes, colorDot: 'border-emerald-500', colorBadge: 'bg-emerald-50 text-emerald-700' },
+                  { label: 'Próximos ao Vencimento', value: stats.cursosProximos, colorDot: 'border-amber-500', colorBadge: 'bg-amber-50 text-amber-700' },
+                  { label: 'Vencidos', value: stats.cursosVencidos, colorDot: 'border-rose-500', colorBadge: 'bg-rose-50 text-rose-700' }
+                ].map((item, idx) => (
+                  <div key={idx} className="flex justify-between items-center py-2.5">
+                    <div className="flex items-center gap-2">
+                      <div className={`w-2 h-2 rounded-full bg-slate-900 border-l-4 ${item.colorDot}`} />
+                      <span className="font-bold text-slate-700">{item.label}</span>
+                    </div>
+                    <span className={`${item.colorBadge} font-extrabold px-2 py-0.5 rounded text-[10px]`}>
+                      {item.value}
+                    </span>
                   </div>
-                  <span className="bg-slate-100 text-slate-800 font-extrabold px-2 py-0.5 rounded text-[10px]">
-                    {socio.share}
-                  </span>
-                </div>
-              ))}
-            </div>
+                ))}
+              </div>
+            )}
           </div>
         </div>
 
