@@ -91,7 +91,14 @@ function Dashboard({ alerts }) {
   ];
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-6 relative pb-28">
+
+      {/* Boneco / marca d'água */}
+      <img
+        src="/boneco-munaretto.png"
+        alt="Boneco Munaretto"
+        className="absolute bottom-0 right-0 h-40 w-auto object-contain opacity-90 pointer-events-none select-none"
+      />
       
       {/* Welcome Card */}
       <div className="bg-gradient-to-r from-slate-900 via-slate-800 to-primary-950 text-white rounded-2xl p-6 shadow-xl relative overflow-hidden">
