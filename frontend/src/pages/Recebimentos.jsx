@@ -416,52 +416,52 @@ function Recebimentos() {
       </div>
 
       {/* Resumo de Totais */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-4 print-full-width">
-        <div className="bg-white p-5 rounded-2xl border border-slate-100 shadow-sm flex items-center gap-4">
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-[repeat(5,minmax(0,1fr))] gap-4 print-full-width">
+        <div className="bg-white p-5 rounded-2xl border border-slate-100 shadow-sm flex items-center gap-4 min-w-0">
           <div className="w-12 h-12 rounded-xl bg-emerald-50 border border-emerald-100 flex items-center justify-center text-emerald-600 shrink-0">
             <FileCheck2 size={24} />
           </div>
-          <div>
+          <div className="min-w-0">
             <span className="block text-[10px] text-slate-400 font-bold uppercase tracking-wider">Clientes com Emissão NF</span>
             <span className="block text-xl font-extrabold text-emerald-700">{formatCurrency(totalComNF)}</span>
             <span className="block text-xs text-slate-400 font-semibold">{qtdComNF} cliente(s)</span>
           </div>
         </div>
-        <div className="bg-white p-5 rounded-2xl border border-slate-100 shadow-sm flex items-center gap-4">
+        <div className="bg-white p-5 rounded-2xl border border-slate-100 shadow-sm flex items-center gap-4 min-w-0">
           <div className="w-12 h-12 rounded-xl bg-amber-50 border border-amber-100 flex items-center justify-center text-amber-600 shrink-0">
             <FileX2 size={24} />
           </div>
-          <div>
+          <div className="min-w-0">
             <span className="block text-[10px] text-slate-400 font-bold uppercase tracking-wider">Clientes sem Emissão NF</span>
             <span className="block text-xl font-extrabold text-amber-700">{formatCurrency(totalSemNF)}</span>
             <span className="block text-xs text-slate-400 font-semibold">{qtdSemNF} cliente(s)</span>
           </div>
         </div>
-        <div className="bg-white p-5 rounded-2xl border border-slate-100 shadow-sm flex items-center gap-4">
+        <div className="bg-white p-5 rounded-2xl border border-slate-100 shadow-sm flex items-center gap-4 min-w-0">
           <div className="w-12 h-12 rounded-xl bg-rose-50 border border-rose-100 flex items-center justify-center text-rose-600 shrink-0">
             <Undo2 size={24} />
           </div>
-          <div>
+          <div className="min-w-0">
             <span className="block text-[10px] text-slate-400 font-bold uppercase tracking-wider">Total Valor Devolução</span>
             <span className="block text-xl font-extrabold text-rose-700">{formatCurrency(totalDevolucao)}</span>
             <span className="block text-xs text-slate-400 font-semibold">{qtdTotal} recebimento(s)</span>
           </div>
         </div>
-        <div className="bg-white p-5 rounded-2xl border border-slate-100 shadow-sm flex items-center gap-4">
+        <div className="bg-white p-5 rounded-2xl border border-slate-100 shadow-sm flex items-center gap-4 min-w-0">
           <div className="w-12 h-12 rounded-xl bg-emerald-50 border border-emerald-100 flex items-center justify-center text-emerald-600 shrink-0">
             <Wallet size={24} />
           </div>
-          <div>
+          <div className="min-w-0">
             <span className="block text-[10px] text-slate-400 font-bold uppercase tracking-wider">Total Pag. Clientes</span>
             <span className="block text-xl font-extrabold text-emerald-700">{formatCurrency(totalPagClientes)}</span>
             <span className="block text-xs text-slate-400 font-semibold">{qtdTotal} recebimento(s)</span>
           </div>
         </div>
-        <div className="bg-white p-5 rounded-2xl border border-slate-100 shadow-sm flex items-center gap-4 print-full-width">
+        <div className="bg-white p-5 rounded-2xl border border-slate-100 shadow-sm flex items-center gap-4 print-full-width min-w-0">
           <div className="w-12 h-12 rounded-xl bg-primary-50 border border-primary-100 flex items-center justify-center text-primary-700 shrink-0">
             <Wallet size={24} />
           </div>
-          <div>
+          <div className="min-w-0">
             <span className="block text-[10px] text-slate-400 font-bold uppercase tracking-wider">Total a Receber</span>
             <span className="block text-xl font-extrabold text-primary-700">{formatCurrency(totalAReceber)}</span>
             <span className="block text-xs text-slate-400 font-semibold">{qtdTotal} recebimento(s)</span>
