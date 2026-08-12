@@ -12,6 +12,7 @@ function Dashboard({ alerts }) {
     cursosProximos: 0,
     cursosVencidos: 0
   });
+  const [dashboardAlerts, setDashboardAlerts] = useState([]);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
@@ -21,47 +22,36 @@ function Dashboard({ alerts }) {
   const fetchStats = async () => {
     try {
       setLoading(true);
-      // Busca total de funcionários cadastrados
-      const funcRes = await apiFetch(`${API_URL}/funcionarios/stats`);
-      const funcData = funcRes.ok ? await funcRes.json() : { total: 0 };
-
-      // Busca férias
-      const ferRes = await apiFetch(`${API_URL}/ferias/`);
-      const ferData = ferRes.ok ? await ferRes.json() : [];
-
-      // Busca resumo de conformidade SST (ASOs e cursos vencidos/próximos)
-      let asoVencidos = 0;
-      let asoProximos = 0;
-      let cursosVigentes = 0;
-      let cursosProximos = 0;
-      let cursosVencidos = 0;
-      const sstRes = await apiFetch(`${API_URL}/sst/alertas`);
-      if (sstRes.ok) {
-        const sstData = await sstRes.json();
-        const asos = sstData.resumo?.asos || {};
-        asoVencidos = asos['Vencido'] || 0;
-        asoProximos = asos['Próximo ao Vencimento'] || 0;
-        const cursos = sstData.resumo?.treinamentos || {};
-        cursosVigentes = cursos['Vigente'] || 0;
-        cursosProximos = cursos['Próximo ao Vencimento'] || 0;
-        cursosVencidos = cursos['Vencido'] || 0;
+      const res = await apiFetch(`${API_URL}/dashboard/resumo`);
+      if (!res.ok) {
+        setLoading(false);
+        return;
       }
+      const data = await res.json();
+
+      const asos = data.asos || {};
+      const cursos = data.cursos || {};
 
       setStats({
-        funcionarios: funcData.total ?? 0,
-        ferias: ferData.filter(f => f.status === 'Agendado' || f.status === 'Em Férias').length,
-        asoVencidos,
-        asoProximos,
-        cursosVigentes,
-        cursosProximos,
-        cursosVencidos
+        funcionarios: data.funcionarios?.total ?? 0,
+        ferias: data.ferias?.ativas ?? 0,
+        asoVencidos: asos['Vencido'] || 0,
+        asoProximos: asos['Próximo ao Vencimento'] || 0,
+        cursosVigentes: cursos['Vigente'] || 0,
+        cursosProximos: cursos['Próximo ao Vencimento'] || 0,
+        cursosVencidos: cursos['Vencido'] || 0
       });
+      setDashboardAlerts(data.alertas_ferias || []);
     } catch (err) {
       console.error('Erro ao buscar estatísticas do dashboard:', err);
     } finally {
       setLoading(false);
     }
   };
+
+  // Mantém compatibilidade com o prop de alertas (App.jsx) misturando
+  // os alertas de férias do resumo agregado.
+  const allAlerts = [...(alerts || []), ...dashboardAlerts];
 
   const statCards = [
     {
@@ -150,19 +140,19 @@ function Dashboard({ alerts }) {
               Notificações e Prazos de Férias
             </h4>
             <span className="text-xs bg-rose-50 text-rose-600 px-2.5 py-0.5 rounded-full font-bold">
-              {alerts.length} Alertas
+              {allAlerts.length} Alertas
             </span>
           </div>
 
           <div className="space-y-3 max-h-[300px] overflow-y-auto pr-1">
-            {alerts.length === 0 ? (
+            {allAlerts.length === 0 ? (
               <div className="text-center py-12 text-slate-400 space-y-2">
                 <span className="text-3xl">🎉</span>
                 <p className="text-sm font-semibold">Tudo em ordem!</p>
                 <p className="text-xs">Não há nenhuma data limite de férias próxima do vencimento.</p>
               </div>
             ) : (
-              alerts.slice(0, 5).map((alert, idx) => (
+              allAlerts.slice(0, 5).map((alert, idx) => (
                 <div 
                   key={idx} 
                   className={`p-3.5 rounded-xl border flex gap-3 text-xs justify-between items-start transition-all ${

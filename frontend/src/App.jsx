@@ -297,16 +297,16 @@ function App() {
     };
   }, [atualizarUsuarioAtual]);
 
-  // O Dashboard não é um módulo validado no backend; ele agrega dados de clientes,
-  // férias e usinas. Só é exibido se o usuário tiver acesso a pelo menos um deles.
+  // O Dashboard é um módulo próprio liberado pelo administrador na aba
+  // Configurações. Quem tiver a permissão "dashboard" tem acesso total aos
+  // dados agregados (funcionários, férias, ASOs e cursos).
   const permissoes = usuario?.permissoes || [];
-  const modulosDoDashboard = ['clientes', 'ferias', 'fluxo'];
-  const podeDashboard = modulosDoDashboard.some((m) => permissoes.includes(m));
+  const podeDashboard = permissoes.includes('dashboard');
 
   const tabs = [
     ...(podeDashboard ? [{ id: 'dashboard', label: 'Dashboard', icon: LayoutDashboard, component: Dashboard }] : []),
     ...MODULOS
-      .filter(m => permissoes.includes(m.id))
+      .filter(m => m.id !== 'dashboard' && permissoes.includes(m.id))
       .map(m => ({
         id: m.id,
         label: m.label,

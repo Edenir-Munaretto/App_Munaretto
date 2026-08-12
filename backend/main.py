@@ -3,7 +3,7 @@ import uvicorn
 from dotenv import load_dotenv
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
-from routers import clientes, ferias, fluxo_caixa, documentos, comprovantes, recebimentos, usuarios, notificacoes, funcionarios, sst, certificados
+from routers import clientes, ferias, fluxo_caixa, documentos, comprovantes, recebimentos, usuarios, notificacoes, funcionarios, sst, certificados, dashboard
 
 load_dotenv()
 
@@ -43,6 +43,7 @@ app.include_router(notificacoes.router, prefix="/api/notificacoes", tags=["Notif
 app.include_router(funcionarios.router, prefix="/api/funcionarios", tags=["Funcionários"])
 app.include_router(sst.router, prefix="/api/sst", tags=["Segurança do Trabalho (SST)"])
 app.include_router(certificados.router, prefix="/api/certificados", tags=["Certificados"])
+app.include_router(dashboard.router, prefix="/api/dashboard", tags=["Dashboard"])
 
 @app.get("/health", tags=["Geral"])
 def health_check():
