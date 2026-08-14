@@ -200,10 +200,30 @@ class ComprovanteResponse(ComprovanteCreate):
 
 @router.get("/", response_model=List[ComprovanteResponse])
 def listar_comprovantes(db = Depends(get_supabase)):
-    """Lista todos os lançamentos de comprovantes registrados."""
+    """Lista todos os lançamentos de comprovantes registrados.
+
+    O Supabase limita cada requisição a 1000 linhas, então a listagem é
+    paginada internamente (em blocos de 1000) e retorna o resultado completo.
+    """
     try:
-        response = db.table("comprovantes").select("*").order("data_registro", desc=True).execute()
-        return response.data
+        todos = []
+        offset = 0
+        bloco = 1000
+        while True:
+            response = (
+                db.table("comprovantes")
+                .select("*")
+                .order("data_registro", desc=True)
+                .range(offset, offset + bloco - 1)
+                .execute()
+            )
+            if not response.data:
+                break
+            todos.extend(response.data)
+            if len(response.data) < bloco:
+                break
+            offset += bloco
+        return todos
     except Exception as e:
         logger.exception("Erro ao buscar comprovantes")
         raise HTTPException(status_code=500, detail="Erro ao buscar comprovantes")
@@ -362,10 +382,12 @@ def importar_planilha(
     importados = 0
     erros = []
     total = 0
+    ignoradas = 0
 
     for num, linha in enumerate(dados, start=2):
-        # Ignora linhas totalmente vazias
+        # Linhas totalmente vazias são contadas e ignoradas (aparecem no relatório)
         if all(celula is None or str(celula).strip() == "" for celula in linha):
+            ignoradas += 1
             continue
         total += 1
 
@@ -424,13 +446,14 @@ def importar_planilha(
             logger.exception("Erro ao importar linha %d", num)
             erros.append({"linha": num, "mensagem": "Falha ao salvar no banco."})
 
-    if importados == 0 and not erros:
+    if importados == 0 and not erros and ignoradas == 0:
         raise HTTPException(status_code=400, detail="Nenhuma linha com dados foi encontrada na planilha.")
 
     return {
         "importados": importados,
         "erros": erros,
         "total": total,
+        "ignoradas": ignoradas,
         "simular": simular,
     }
 

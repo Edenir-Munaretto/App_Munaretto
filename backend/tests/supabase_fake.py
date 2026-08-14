@@ -21,12 +21,13 @@ class _Resposta:
 
 
 class _Query:
-    def __init__(self, tabela, dados, filtros=None, ordenacao=None, limite=None):
+    def __init__(self, tabela, dados, filtros=None, ordenacao=None, limite=None, range_=None):
         self.tabela = tabela
         self.dados = dados
         self.filtros = filtros or []
         self.ordenacao = ordenacao
         self.limite = limite
+        self.range_ = range_
         self._update_payload = None
         self._delete = False
 
@@ -51,6 +52,10 @@ class _Query:
 
     def limit(self, n):
         self.limite = n
+        return self
+
+    def range(self, inicio, fim):
+        self.range_ = (inicio, fim)
         return self
 
     def order(self, coluna, **kwargs):
@@ -87,6 +92,9 @@ class _Query:
             )
         if self.limite is not None:
             linhas = linhas[: self.limite]
+        if self.range_ is not None:
+            inicio, fim = self.range_
+            linhas = linhas[inicio : fim + 1]
         return list(linhas)
 
     def insert(self, payload):

@@ -29,9 +29,10 @@ def _montar_planilha(linhas):
     ]
     wb = Workbook()
     ws = wb.active
-    ws.append(cabecalhos)
-    for linha in linhas:
-        ws.append(linha)
+    for r, linha in enumerate([cabecalhos] + linhas, start=1):
+        for c, valor in enumerate(linha, start=1):
+            # ws.cell com valor None ainda materializa a linha (como o Excel faz)
+            ws.cell(row=r, column=c, value=valor)
     buffer = io.BytesIO()
     wb.save(buffer)
     buffer.seek(0)
@@ -165,3 +166,37 @@ def test_importar_simulacao_nao_grava(comprovante_client, db_fake):
     assert data["erros"] == []
     # Nada deve ter sido gravado no banco fake
     assert "comprovantes" not in db_fake._dados or db_fake._dados["comprovantes"] == []
+
+
+def test_importar_conta_linhas_vazias_ignoradas(comprovante_client, db_fake):
+    """Linhas totalmente vazias são contadas como 'ignoradas' no relatório."""
+    buffer = _montar_planilha([
+        ["Boleto", "Energia", "00.000.000/0001-00", None, None,
+         "15/08/2026", "16/08/2026", "Conta de energia", None,
+         None, None, None, None, "1500,00", "0,00", None, "boleto"],
+        ["", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", ""],
+        ["", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", ""],
+    ])
+    resp = comprovante_client.post(
+        "/api/comprovantes/importar",
+        files={"file": ("planilha.xlsx", buffer, "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")},
+    )
+    assert resp.status_code == 200, resp.text
+    data = resp.json()
+    assert data["importados"] == 1
+    assert data["ignoradas"] == 2
+    assert data["total"] == 1
+
+
+def test_listagem_paginada_interna(comprovante_client, db_fake):
+    """A listagem retorna todos os registros mesmo com mais de 1000 linhas."""
+    db_fake._dados["comprovantes"] = [
+        {"id": i, "tipo_documento": "Boleto", "nome": None, "descricao": f"Registro {i}",
+         "data_registro": f"2026-08-14T00:00:0{i % 10}.000Z"}
+        for i in range(1, 2005)
+    ]
+    resp = comprovante_client.get("/api/comprovantes/")
+    assert resp.status_code == 200, resp.text
+    data = resp.json()
+    assert isinstance(data, list)
+    assert len(data) == 2004

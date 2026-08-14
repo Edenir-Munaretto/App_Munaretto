@@ -798,7 +798,7 @@ function Comprovantes() {
                 Nada foi gravado ainda — confira o resultado abaixo antes de confirmar.
               </p>
 
-              <div className="grid grid-cols-3 gap-3">
+              <div className="grid grid-cols-4 gap-3">
                 <div className="bg-emerald-50 border border-emerald-100 rounded-xl p-4 text-center">
                   <span className="block text-2xl font-extrabold text-emerald-700">{preview.data.importados}</span>
                   <span className="block text-[10px] text-slate-500 font-bold uppercase tracking-wider mt-1">Serão importados</span>
@@ -810,6 +810,10 @@ function Comprovantes() {
                 <div className="bg-slate-50 border border-slate-100 rounded-xl p-4 text-center">
                   <span className="block text-2xl font-extrabold text-slate-700">{preview.data.total}</span>
                   <span className="block text-[10px] text-slate-500 font-bold uppercase tracking-wider mt-1">Linhas com dados</span>
+                </div>
+                <div className="bg-slate-100 border border-slate-200 rounded-xl p-4 text-center">
+                  <span className="block text-2xl font-extrabold text-slate-500">{preview.data.ignoradas || 0}</span>
+                  <span className="block text-[10px] text-slate-500 font-bold uppercase tracking-wider mt-1">Vazias ignoradas</span>
                 </div>
               </div>
 
