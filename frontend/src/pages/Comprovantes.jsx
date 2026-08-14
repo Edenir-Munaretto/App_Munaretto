@@ -1,5 +1,5 @@
-﻿import React, { useState, useEffect } from 'react';
-import { FileText, Plus, Trash2, Edit2, Search, X, Check, AlertTriangle, DollarSign, Calendar, Printer } from 'lucide-react';
+﻿import React, { useState, useEffect, useRef } from 'react';
+import { FileText, Plus, Trash2, Edit2, Search, X, Check, AlertTriangle, DollarSign, Calendar, Printer, Download, Upload } from 'lucide-react';
 import { API_URL, apiFetch, erroDaResposta } from '../api';
 
 function Comprovantes() {
@@ -10,6 +10,8 @@ function Comprovantes() {
   const [tipoFiltro, setTipoFiltro] = useState('');
   const [loading, setLoading] = useState(true);
   const [toast, setToast] = useState(null);
+  const fileInputRef = useRef(null);
+  const [preview, setPreview] = useState(null); // { data, file, importing } da simulação
 
   // Modal State
   const [showModal, setShowModal] = useState(false);
@@ -81,6 +83,109 @@ function Comprovantes() {
       showToast('Erro ao buscar comprovantes.', 'error');
     } finally {
       setLoading(false);
+    }
+  };
+
+  const baixarModelo = async () => {
+    try {
+      const res = await apiFetch(`${API_URL}/comprovantes/modelo`);
+      if (!res.ok) {
+        showToast('Erro ao baixar o modelo.', 'error');
+        return;
+      }
+      const blob = await res.blob();
+      const url = window.URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = 'modelo_comprovantes.xlsx';
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      window.URL.revokeObjectURL(url);
+    } catch (err) {
+      console.error(err);
+      showToast('Erro de conexão ao baixar o modelo.', 'error');
+    }
+  };
+
+  const importarPlanilha = async (e) => {
+    const file = e.target.files[0];
+    if (!file) return;
+
+    if (!file.name.toLowerCase().endsWith('.xlsx')) {
+      showToast('Apenas arquivos .xlsx são permitidos.', 'error');
+      e.target.value = '';
+      return;
+    }
+
+    try {
+      // 1ª etapa: simula a importação (não grava nada no banco)
+      const formData = new FormData();
+      formData.append('file', file);
+      formData.append('simular', 'true');
+
+      const res = await apiFetch(`${API_URL}/comprovantes/importar`, {
+        method: 'POST',
+        body: formData
+      });
+
+      const data = await res.json();
+
+      if (!res.ok) {
+        showToast(erroDaResposta(data, 'Erro ao validar planilha.'), 'error');
+        return;
+      }
+
+      if (data.importados === 0 && (data.erros || []).length === 0) {
+        showToast('Nenhuma linha com dados foi encontrada na planilha.', 'error');
+        return;
+      }
+
+      setPreview({ data, file });
+    } catch (err) {
+      console.error(err);
+      showToast('Erro de conexão ao validar planilha.', 'error');
+    } finally {
+      e.target.value = '';
+    }
+  };
+
+  const confirmarImportacao = async () => {
+    if (!preview) return;
+    const { data, file } = preview;
+
+    try {
+      setPreview(prev => ({ ...prev, importing: true }));
+      const formData = new FormData();
+      formData.append('file', file);
+      formData.append('simular', 'false');
+
+      const res = await apiFetch(`${API_URL}/comprovantes/importar`, {
+        method: 'POST',
+        body: formData
+      });
+
+      const resData = await res.json();
+
+      if (res.ok) {
+        const numErros = (resData.erros || []).length;
+        if (resData.importados > 0 && numErros === 0) {
+          showToast(`${resData.importados} lançamento(s) importado(s) com sucesso!`);
+        } else if (resData.importados > 0 && numErros > 0) {
+          showToast(`${resData.importados} importado(s), ${numErros} com erro. Confira o relatório.`, 'error');
+        } else {
+          showToast('Nenhum lançamento importado. Verifique os erros.', 'error');
+        }
+        fetchComprovantes();
+        setPreview(null);
+      } else {
+        showToast(erroDaResposta(resData, 'Erro ao importar planilha.'), 'error');
+      }
+    } catch (err) {
+      console.error(err);
+      showToast('Erro de conexão ao importar planilha.', 'error');
+    } finally {
+      setPreview(prev => (prev ? { ...prev, importing: false } : prev));
     }
   };
 
@@ -365,6 +470,29 @@ function Comprovantes() {
           </div>
           <div className="flex flex-wrap items-center gap-3 w-full md:w-auto">
             <button
+              onClick={baixarModelo}
+              className="flex items-center justify-center gap-2 px-4 py-2.5 bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold text-sm rounded-xl transition-all border border-slate-200 cursor-pointer w-full sm:w-auto"
+              title="Baixar modelo .xlsx para preenchimento"
+            >
+              <Download size={16} />
+              Baixar modelo
+            </button>
+            <button
+              onClick={() => fileInputRef.current && fileInputRef.current.click()}
+              className="flex items-center justify-center gap-2 px-4 py-2.5 bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold text-sm rounded-xl transition-all border border-slate-200 cursor-pointer w-full sm:w-auto"
+              title="Enviar planilha preenchida para lançamento em lote"
+            >
+              <Upload size={16} />
+              Importar
+            </button>
+            <input
+              ref={fileInputRef}
+              type="file"
+              accept=".xlsx"
+              className="hidden"
+              onChange={importarPlanilha}
+            />
+            <button
               onClick={() => window.print()}
               className="flex items-center justify-center gap-2 px-4 py-2.5 bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold text-sm rounded-xl transition-all border border-slate-200 cursor-pointer w-full sm:w-auto"
             >
@@ -643,6 +771,94 @@ function Comprovantes() {
               <div className="hidden lg:block"></div>
             </div>
           )}
+        </div>
+      )}
+
+      {/* Modal Pré-visualização da Importação */}
+      {preview && (
+        <div className="fixed inset-0 bg-slate-900/40 backdrop-blur-sm flex items-center justify-center z-50 p-4 overflow-y-auto">
+          <div className="bg-white rounded-2xl shadow-2xl max-w-2xl w-full border border-slate-100 overflow-hidden animate-in fade-in zoom-in duration-200 my-8">
+            <div className="bg-slate-900 text-white p-5 flex items-center justify-between">
+              <h3 className="font-bold text-base flex items-center gap-2">
+                <Upload className="text-primary-400" />
+                Pré-visualizar Importação
+              </h3>
+              <button
+                onClick={() => setPreview(null)}
+                disabled={preview.importing}
+                className="text-slate-400 hover:text-white text-xl font-bold p-1 cursor-pointer disabled:opacity-40"
+              >
+                <X size={20} />
+              </button>
+            </div>
+
+            <div className="p-6 space-y-5">
+              <p className="text-sm text-slate-600">
+                A planilha <span className="font-bold text-slate-800">{preview.file.name}</span> foi validada.
+                Nada foi gravado ainda — confira o resultado abaixo antes de confirmar.
+              </p>
+
+              <div className="grid grid-cols-3 gap-3">
+                <div className="bg-emerald-50 border border-emerald-100 rounded-xl p-4 text-center">
+                  <span className="block text-2xl font-extrabold text-emerald-700">{preview.data.importados}</span>
+                  <span className="block text-[10px] text-slate-500 font-bold uppercase tracking-wider mt-1">Serão importados</span>
+                </div>
+                <div className="bg-amber-50 border border-amber-100 rounded-xl p-4 text-center">
+                  <span className="block text-2xl font-extrabold text-amber-700">{(preview.data.erros || []).length}</span>
+                  <span className="block text-[10px] text-slate-500 font-bold uppercase tracking-wider mt-1">Com erro</span>
+                </div>
+                <div className="bg-slate-50 border border-slate-100 rounded-xl p-4 text-center">
+                  <span className="block text-2xl font-extrabold text-slate-700">{preview.data.total}</span>
+                  <span className="block text-[10px] text-slate-500 font-bold uppercase tracking-wider mt-1">Linhas com dados</span>
+                </div>
+              </div>
+
+              {(preview.data.erros || []).length > 0 && (
+                <div className="bg-rose-50 border border-rose-100 rounded-xl p-4">
+                  <p className="text-xs font-bold text-rose-700 uppercase tracking-wider mb-2 flex items-center gap-1.5">
+                    <AlertTriangle size={14} /> Linhas com erro
+                  </p>
+                  <ul className="space-y-1.5 max-h-40 overflow-y-auto">
+                    {(preview.data.erros || []).map((erro, i) => (
+                      <li key={i} className="text-xs text-rose-800 flex gap-2">
+                        <span className="font-bold shrink-0">Linha {erro.linha}:</span>
+                        <span>{erro.mensagem}</span>
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              )}
+
+              <div className="flex justify-end gap-3 pt-4 border-t border-slate-100">
+                <button
+                  type="button"
+                  onClick={() => setPreview(null)}
+                  disabled={preview.importing}
+                  className="px-4 py-2 border border-slate-200 text-slate-600 rounded-xl text-sm font-semibold hover:bg-slate-50 transition-all cursor-pointer disabled:opacity-40"
+                >
+                  Cancelar
+                </button>
+                <button
+                  type="button"
+                  onClick={confirmarImportacao}
+                  disabled={preview.importing || preview.data.importados === 0}
+                  className="px-5 py-2 bg-primary-600 text-white rounded-xl text-sm font-semibold hover:bg-primary-700 transition-all shadow-md shadow-primary-900/10 cursor-pointer disabled:opacity-40 flex items-center gap-2"
+                >
+                  {preview.importing ? (
+                    <>
+                      <span className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />
+                      Importando...
+                    </>
+                  ) : (
+                    <>
+                      <Check size={16} />
+                      Confirmar e Importar
+                    </>
+                  )}
+                </button>
+              </div>
+            </div>
+          </div>
         </div>
       )}
 
