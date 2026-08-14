@@ -199,12 +199,18 @@ class ComprovanteResponse(ComprovanteCreate):
     data_registro: str
 
 @router.get("/", response_model=List[ComprovanteResponse])
-def listar_comprovantes(db = Depends(get_supabase)):
+def listar_comprovantes(
+    ordenar_por: str = Query("data_registro", description="Campo de ordenação: data_registro ou data_pagamento"),
+    db = Depends(get_supabase),
+):
     """Lista todos os lançamentos de comprovantes registrados.
 
     O Supabase limita cada requisição a 1000 linhas, então a listagem é
     paginada internamente (em blocos de 1000) e retorna o resultado completo.
+    Ordenação decrescente (mais recente primeiro) por `data_registro` ou
+    `data_pagamento`.
     """
+    campo_ordem = ordenar_por if ordenar_por in ("data_registro", "data_pagamento") else "data_registro"
     try:
         todos = []
         offset = 0
@@ -213,7 +219,7 @@ def listar_comprovantes(db = Depends(get_supabase)):
             response = (
                 db.table("comprovantes")
                 .select("*")
-                .order("data_registro", desc=True)
+                .order(campo_ordem, desc=True)
                 .range(offset, offset + bloco - 1)
                 .execute()
             )

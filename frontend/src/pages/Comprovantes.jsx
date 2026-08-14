@@ -8,6 +8,7 @@ function Comprovantes() {
   const [dataInicio, setDataInicio] = useState('');
   const [dataFim, setDataFim] = useState('');
   const [tipoFiltro, setTipoFiltro] = useState('');
+  const [ordenarPor, setOrdenarPor] = useState('data_registro');
   const [loading, setLoading] = useState(true);
   const [toast, setToast] = useState(null);
   const fileInputRef = useRef(null);
@@ -63,7 +64,7 @@ function Comprovantes() {
 
   useEffect(() => {
     fetchComprovantes();
-  }, []);
+  }, [ordenarPor]);
 
   const showToast = (message, type = 'success') => {
     setToast({ message, type });
@@ -73,7 +74,7 @@ function Comprovantes() {
   const fetchComprovantes = async () => {
     try {
       setLoading(true);
-      const res = await apiFetch(`${API_URL}/comprovantes/`);
+      const res = await apiFetch(`${API_URL}/comprovantes/?ordenar_por=${ordenarPor}`);
       if (res.ok) {
         const data = await res.json();
         setComprovantes(data);
@@ -524,6 +525,15 @@ function Comprovantes() {
               <option value="Diversas">Diversas</option>
               <option value="Aluguel">Aluguel</option>
               <option value="Imposto">Imposto</option>
+            </select>
+            <span className="text-xs font-bold text-slate-500 uppercase tracking-wider">Ordenar:</span>
+            <select
+              value={ordenarPor}
+              onChange={(e) => setOrdenarPor(e.target.value)}
+              className="px-3 py-1.5 border border-slate-200 rounded-xl text-xs font-semibold focus:outline-none focus:ring-2 focus:ring-primary-500/20 focus:border-primary-500"
+            >
+              <option value="data_registro">Data de Lançamento (mais recente)</option>
+              <option value="data_pagamento">Data de Pagamento (mais recente)</option>
             </select>
             <span className="text-xs font-bold text-slate-500 uppercase tracking-wider">Filtrar Período:</span>
           <div className="flex items-center gap-2">
