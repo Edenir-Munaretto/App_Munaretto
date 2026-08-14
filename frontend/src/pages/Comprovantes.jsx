@@ -66,6 +66,13 @@ function Comprovantes() {
     fetchComprovantes();
   }, [ordenarPor]);
 
+  // Quando o tipo selecionado é Nota Fiscal, ordena por data de emissão automaticamente
+  useEffect(() => {
+    if (tipoFiltro === 'Nota Fiscal') {
+      setOrdenarPor('data_emissao');
+    }
+  }, [tipoFiltro]);
+
   const showToast = (message, type = 'success') => {
     setToast({ message, type });
     setTimeout(() => setToast(null), 4000);
@@ -534,6 +541,7 @@ function Comprovantes() {
             >
               <option value="data_registro">Data de Lançamento (mais recente)</option>
               <option value="data_pagamento">Data de Pagamento (mais recente)</option>
+              <option value="data_emissao">Data de Emissão (mais recente)</option>
             </select>
             <span className="text-xs font-bold text-slate-500 uppercase tracking-wider">Filtrar Período:</span>
           <div className="flex items-center gap-2">

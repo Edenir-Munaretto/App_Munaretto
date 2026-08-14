@@ -215,3 +215,18 @@ def test_listagem_ordena_por_data_pagamento(comprovante_client, db_fake):
     data = resp.json()
     assert data[0]["id"] == 2  # mais recente primeiro
     assert data[1]["id"] == 1
+
+
+def test_listagem_ordena_por_data_emissao(comprovante_client, db_fake):
+    """Com ordenar_por=data_emissao, notas fiscais mais recentes vêm primeiro."""
+    db_fake._dados["comprovantes"] = [
+        {"id": 1, "tipo_documento": "Nota Fiscal", "nome": None, "descricao": "Antiga",
+         "data_emissao": "2026-01-10", "data_registro": "2026-08-01T10:00:00Z"},
+        {"id": 2, "tipo_documento": "Nota Fiscal", "nome": None, "descricao": "Recente",
+         "data_emissao": "2026-08-14", "data_registro": "2026-08-01T11:00:00Z"},
+    ]
+    resp = comprovante_client.get("/api/comprovantes/?ordenar_por=data_emissao")
+    assert resp.status_code == 200, resp.text
+    data = resp.json()
+    assert data[0]["id"] == 2  # emissão mais recente primeiro
+    assert data[1]["id"] == 1

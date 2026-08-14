@@ -207,10 +207,10 @@ def listar_comprovantes(
 
     O Supabase limita cada requisição a 1000 linhas, então a listagem é
     paginada internamente (em blocos de 1000) e retorna o resultado completo.
-    Ordenação decrescente (mais recente primeiro) por `data_registro` ou
-    `data_pagamento`.
+    Ordenação decrescente (mais recente primeiro) por `data_registro`,
+    `data_pagamento` ou `data_emissao`.
     """
-    campo_ordem = ordenar_por if ordenar_por in ("data_registro", "data_pagamento") else "data_registro"
+    campo_ordem = ordenar_por if ordenar_por in ("data_registro", "data_pagamento", "data_emissao") else "data_registro"
     try:
         todos = []
         offset = 0
