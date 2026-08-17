@@ -8,46 +8,24 @@ exibidos (funcionários, férias, ASOs e cursos).
 Depende apenas de leitura sobre as tabelas compartilhadas dos demais módulos.
 """
 import logging
-from datetime import date, datetime
+import time
 
 from fastapi import APIRouter, HTTPException, Depends
 
 from supabase_client import get_supabase
 from auth import require_qualquer_permisao
+from utils.date_helpers import hoje as _hoje, parse_data as _parse_data, status_vencimento as _status_vencimento
+from utils.date_helpers import STATUS_VIGENTE, STATUS_PROXIMO, STATUS_VENCIDO, STATUS_SEM_VALIDADE
 
 router = APIRouter(dependencies=[Depends(require_qualquer_permisao(["dashboard", "configuracoes"]))])
 
 logger = logging.getLogger(__name__)
 
-DIAS_AVISO = 30
-STATUS_VIGENTE = "Vigente"
-STATUS_PROXIMO = "Próximo ao Vencimento"
-STATUS_VENCIDO = "Vencido"
-STATUS_SEM_VALIDADE = "Sem validade"
 STATUS_FERIAS_ATIVAS = {"Agendado", "Em Férias"}
 
-
-def _hoje() -> date:
-    return date.today()
-
-
-def _parse_data(valor) -> date | None:
-    try:
-        return datetime.strptime(str(valor), "%Y-%m-%d").date()
-    except (TypeError, ValueError):
-        return None
-
-
-def _status_vencimento(data_validade, dias_aviso: int = DIAS_AVISO) -> str:
-    d = _parse_data(data_validade)
-    if d is None:
-        return STATUS_SEM_VALIDADE
-    dias = (d - _hoje()).days
-    if dias < 0:
-        return STATUS_VENCIDO
-    if dias <= dias_aviso:
-        return STATUS_PROXIMO
-    return STATUS_VIGENTE
+# Cache simples em memória com TTL de 60 segundos
+_cache: dict = {"data": None, "ts": 0.0}
+_CACHE_TTL = 60  # segundos
 
 
 def _contar_status(registros: list) -> dict:
@@ -120,7 +98,16 @@ def _alertas_ferias(registros: list) -> list:
 
 @router.get("/resumo")
 def resumo_dashboard(db=Depends(get_supabase)):
-    """Retorna todos os dados exibidos no Dashboard em uma única chamada."""
+    """Retorna todos os dados exibidos no Dashboard em uma única chamada.
+    
+    Resultado cacheado por 60 segundos para reduzir queries ao Supabase
+    em chamadas frequentes (ex: window.focus do frontend).
+    """
+    global _cache
+    agora = time.monotonic()
+    if _cache["data"] is not None and (agora - _cache["ts"]) < _CACHE_TTL:
+        return _cache["data"]
+
     try:
         # Funcionários: total sem excluídos (ativos + inativos)
         funcs = db.table("funcionarios").select("ativo", "excluido").eq("excluido", False).execute()
@@ -148,13 +135,16 @@ def resumo_dashboard(db=Depends(get_supabase)):
             t["status"] = _status_vencimento(t.get("data_validade"))
         cursos_resumo = _contar_status(treinos)
 
-        return {
+        resultado = {
             "funcionarios": {"total": total_funcionarios},
             "ferias": {"ativas": ferias_ativas},
             "asos": aso_resumo,
             "cursos": cursos_resumo,
             "alertas_ferias": alertas_ferias,
         }
+        _cache["data"] = resultado
+        _cache["ts"] = time.monotonic()
+        return resultado
     except Exception as e:
         logger.exception("Erro ao buscar resumo do dashboard")
         raise HTTPException(status_code=500, detail="Erro ao buscar resumo do dashboard")

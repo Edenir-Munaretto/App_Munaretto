@@ -1,4 +1,5 @@
 import logging
+import re
 from fastapi import APIRouter, HTTPException, Query, Depends
 from pydantic import BaseModel, Field
 from typing import List, Optional
@@ -32,21 +33,16 @@ def listar_clientes(
 ):
     """Lista todos os clientes ativos. Se um termo de busca for fornecido, filtra os resultados."""
     try:
-        base = lambda: db.table("clientes").select("*").eq("ativo", True)
+        query = db.table("clientes").select("*").eq("ativo", True)
 
         if busca:
-            # Busca segura por coluna (parametrizada); sem interpolação no filtro do PostgREST
-            consolidado = {}
-            for coluna in ("nome", "cpf_cnpj"):
-                resposta = base().ilike(coluna, f"%{busca}%").execute()
-                for linha in resposta.data:
-                    consolidado[linha["id"]] = linha
-            dados = list(consolidado.values())
-        else:
-            dados = base().execute().data
+            # OR nativo do PostgREST — uma única query em vez de duas separadas
+            # Remove caracteres que o PostgREST interpreta como sintaxe de filtro
+            termo = re.sub(r"[%_*,()=;<>]", "", busca)
+            query = query.or_(f"nome.ilike.%{termo}%,cpf_cnpj.ilike.%{termo}%")
 
-        dados.sort(key=lambda x: str(x.get("nome", "")))
-        return dados
+        response = query.order("nome").execute()
+        return response.data
     except Exception as e:
         logger.exception("Erro ao buscar clientes")
         raise HTTPException(status_code=500, detail="Erro ao buscar clientes")

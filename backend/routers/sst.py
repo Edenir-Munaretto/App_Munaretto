@@ -11,7 +11,7 @@ Regras de vencimento consideradas:
 import logging
 import os
 import tempfile
-from datetime import date, datetime
+from datetime import date
 from typing import List, Optional
 
 from fastapi import APIRouter, HTTPException, Query, Depends
@@ -20,17 +20,21 @@ from pydantic import BaseModel, Field
 
 from supabase_client import get_supabase
 from auth import require_permisao
+from utils.date_helpers import (
+    hoje as _hoje,
+    parse_data as _parse_data,
+    status_vencimento as _status_vencimento,
+    STATUS_VIGENTE,
+    STATUS_PROXIMO,
+    STATUS_VENCIDO,
+    STATUS_SEM_VALIDADE,
+)
 
 router = APIRouter(dependencies=[Depends(require_permisao("sst"))])
 
 logger = logging.getLogger(__name__)
 
 DIAS_AVISO = 30
-
-STATUS_VIGENTE = "Vigente"
-STATUS_PROXIMO = "Próximo ao Vencimento"
-STATUS_VENCIDO = "Vencido"
-STATUS_SEM_VALIDADE = "Sem validade"
 
 STATUS_ASO_VALIDOS = {
     "admissional",
@@ -41,33 +45,9 @@ STATUS_ASO_VALIDOS = {
 }
 RESULTADO_ASO_VALIDOS = {"apto", "apto_com_restricao", "inapto"}
 
-
 # ---------------------------------------------------------------------------
-# Helpers
+# Helpers (status de vencimento importados de utils.date_helpers)
 # ---------------------------------------------------------------------------
-def _hoje() -> date:
-    return date.today()
-
-
-def _parse_data(valor) -> Optional[date]:
-    try:
-        return datetime.strptime(str(valor), "%Y-%m-%d").date()
-    except (TypeError, ValueError):
-        return None
-
-
-def _status_vencimento(data_validade, dias_aviso: int = DIAS_AVISO) -> str:
-    """Classifica a situação de um documento/prazo a partir da data de validade."""
-    d = _parse_data(data_validade)
-    if d is None:
-        return STATUS_SEM_VALIDADE
-    dias = (d - _hoje()).days
-    if dias < 0:
-        return STATUS_VENCIDO
-    if dias <= dias_aviso:
-        return STATUS_PROXIMO
-    return STATUS_VIGENTE
-
 
 def _status_ca(ca_validade) -> str:
     """Classifica a situação do Certificado de Aprovação (CA) de um EPI."""

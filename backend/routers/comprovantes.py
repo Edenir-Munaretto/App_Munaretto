@@ -200,10 +200,13 @@ class ComprovanteResponse(ComprovanteCreate):
 
 @router.get("/", response_model=List[ComprovanteResponse])
 def listar_comprovantes(
-    ordenar_por: str = Query("data_registro", description="Campo de ordenação: data_registro ou data_pagamento"),
+    ordenar_por: str = Query("data_registro", description="Campo de ordenação: data_registro, data_pagamento ou data_emissao"),
+    tipo_documento: Optional[str] = Query(None, description="Filtrar por tipo: Nota Fiscal, Boleto, Pix, Diversas, Aluguel, Imposto"),
+    data_inicio: Optional[str] = Query(None, description="Data início do filtro (YYYY-MM-DD) — filtra data_emissao ou data_pagamento"),
+    data_fim: Optional[str] = Query(None, description="Data fim do filtro (YYYY-MM-DD)"),
     db = Depends(get_supabase),
 ):
-    """Lista todos os lançamentos de comprovantes registrados.
+    """Lista lançamentos de comprovantes. Suporta filtro por tipo e período.
 
     O Supabase limita cada requisição a 1000 linhas, então a listagem é
     paginada internamente (em blocos de 1000) e retorna o resultado completo.
@@ -211,18 +214,51 @@ def listar_comprovantes(
     `data_pagamento` ou `data_emissao`.
     """
     campo_ordem = ordenar_por if ordenar_por in ("data_registro", "data_pagamento", "data_emissao") else "data_registro"
+
+    # Validações antecipadas (fora do try para não virarem erro 500)
+    if tipo_documento and tipo_documento not in TIPOS_VALIDOS:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Tipo de documento inválido. Valores válidos: {', '.join(TIPOS_VALIDOS)}.",
+        )
+    if data_inicio:
+        d = _parse_data(data_inicio)
+        if d is None:
+            raise HTTPException(status_code=400, detail="data_inicio inválida. Use YYYY-MM-DD (ou dd/mm/aaaa).")
+        data_inicio = d
+    if data_fim:
+        d = _parse_data(data_fim)
+        if d is None:
+            raise HTTPException(status_code=400, detail="data_fim inválida. Use YYYY-MM-DD (ou dd/mm/aaaa).")
+        data_fim = d
+
     try:
         todos = []
         offset = 0
         bloco = 1000
         while True:
-            response = (
+            query = (
                 db.table("comprovantes")
                 .select("*")
                 .order(campo_ordem, desc=True)
                 .range(offset, offset + bloco - 1)
-                .execute()
             )
+            # Filtro por tipo de documento
+            if tipo_documento:
+                query = query.eq("tipo_documento", tipo_documento)
+            # Filtro por período: casa data_emissao OU data_pagamento dentro do intervalo
+            if data_inicio or data_fim:
+                condicoes = []
+                for campo in ("data_emissao", "data_pagamento"):
+                    partes = []
+                    if data_inicio:
+                        partes.append(f"{campo}.gte.{data_inicio}")
+                    if data_fim:
+                        partes.append(f"{campo}.lte.{data_fim}")
+                    condicoes.append("and(" + ",".join(partes) + ")")
+                query = query.or_(",".join(condicoes))
+
+            response = query.execute()
             if not response.data:
                 break
             todos.extend(response.data)
@@ -233,6 +269,7 @@ def listar_comprovantes(
     except Exception as e:
         logger.exception("Erro ao buscar comprovantes")
         raise HTTPException(status_code=500, detail="Erro ao buscar comprovantes")
+
 
 @router.get("/modelo")
 def baixar_modelo_importacao():

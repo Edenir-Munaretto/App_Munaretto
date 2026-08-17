@@ -1,4 +1,4 @@
-﻿import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import {
   LayoutDashboard,
   Users,
@@ -284,11 +284,18 @@ function App() {
     }
   }, []);
 
-  // Ao carregar, ao focar a janela e a cada minuto, sincroniza as permissões.
+  // Ao carregar, ao focar a janela (com debounce de 30s) e a cada minuto, sincroniza as permissões.
   useEffect(() => {
     if (!getToken()) return;
     atualizarUsuarioAtual();
-    const onFocus = () => atualizarUsuarioAtual();
+    let ultimoFocus = 0;
+    const onFocus = () => {
+      const agora = Date.now();
+      // Ignora eventos de foco se a última atualização foi há menos de 30 segundos
+      if (agora - ultimoFocus < 30000) return;
+      ultimoFocus = agora;
+      atualizarUsuarioAtual();
+    };
     window.addEventListener('focus', onFocus);
     const interval = setInterval(atualizarUsuarioAtual, 60000);
     return () => {
