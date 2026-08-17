@@ -1,5 +1,5 @@
 import logging
-from fastapi import APIRouter, HTTPException, Depends
+from fastapi import APIRouter, HTTPException, Query, Depends
 from pydantic import BaseModel, Field
 from typing import List, Optional
 from supabase_client import get_supabase
@@ -24,10 +24,19 @@ class RecebimentoResponse(RecebimentoCreate):
     data_registro: str
 
 @router.get("/", response_model=List[RecebimentoResponse])
-def listar_recebimentos(db = Depends(get_supabase)):
-    """Lista todos os recebimentos registrados."""
+def listar_recebimentos(
+    data_inicio_de: Optional[str] = Query(None, description="Filtrar registros com data_inicio >= esta data (YYYY-MM-DD)"),
+    data_inicio_ate: Optional[str] = Query(None, description="Filtrar registros com data_inicio <= esta data (YYYY-MM-DD)"),
+    db = Depends(get_supabase)
+):
+    """Lista recebimentos registrados. Suporta filtro por intervalo de data de início."""
     try:
-        response = db.table("controle_recebimentos").select("*").order("data_inicio", desc=True).execute()
+        query = db.table("controle_recebimentos").select("*")
+        if data_inicio_de:
+            query = query.gte("data_inicio", data_inicio_de)
+        if data_inicio_ate:
+            query = query.lte("data_inicio", data_inicio_ate)
+        response = query.order("data_inicio", desc=True).execute()
         return response.data
     except Exception as e:
         logger.exception("Erro ao buscar recebimentos")

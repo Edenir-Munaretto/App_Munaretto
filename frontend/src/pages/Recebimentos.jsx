@@ -1,4 +1,4 @@
-﻿import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import { Search, Plus, Edit2, Trash2, X, Check, AlertTriangle, Printer, FileCheck2, FileX2, Undo2, Wallet } from 'lucide-react';
 import { API_URL, apiFetch, erroDaResposta } from '../api';
 
@@ -32,17 +32,23 @@ function Recebimentos() {
   useEffect(() => {
     fetchRecebimentos();
     fetchClientes();
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
 
   const showToast = (message, type = 'success') => {
     setToast({ message, type });
     setTimeout(() => setToast(null), 4000);
   };
 
-  const fetchRecebimentos = async () => {
+  const fetchRecebimentos = useCallback(async (de = '', ate = '') => {
     try {
       setLoading(true);
-      const res = await apiFetch(`${API_URL}/recebimentos/`);
+      const params = new URLSearchParams();
+      if (de) params.append('data_inicio_de', de);
+      if (ate) params.append('data_inicio_ate', ate);
+      const query = params.toString() ? `?${params.toString()}` : '';
+      const res = await apiFetch(`${API_URL}/recebimentos/${query}`);
       if (res.ok) {
         const data = await res.json();
         setRecebimentos(data);
@@ -53,7 +59,7 @@ function Recebimentos() {
     } finally {
       setLoading(false);
     }
-  };
+  }, []);
 
   const fetchClientes = async () => {
     try {
@@ -215,44 +221,54 @@ function Recebimentos() {
     return dateStr;
   };
 
-  const filteredRecebimentos = recebimentos.filter(r => {
+  // Filtro memoizado — só recalcula quando os dados ou filtros mudarem
+  const filteredRecebimentos = useMemo(() => {
     const searchLower = busca.toLowerCase();
-    const nameMatch = (r.nome_cliente || '').toLowerCase().includes(searchLower);
-    const notaPsMatch = (r.nota_ps || '').toLowerCase().includes(searchLower);
-    if (!(nameMatch || notaPsMatch)) return false;
+    return recebimentos.filter(r => {
+      const nameMatch = (r.nome_cliente || '').toLowerCase().includes(searchLower);
+      const notaPsMatch = (r.nota_ps || '').toLowerCase().includes(searchLower);
+      if (!(nameMatch || notaPsMatch)) return false;
 
-    // Filtro por Emissão NF
-    if (filtroNF === 'com' && !r.emissao_nf) return false;
-    if (filtroNF === 'sem' && r.emissao_nf) return false;
+      // Filtro por Emissão NF
+      if (filtroNF === 'com' && !r.emissao_nf) return false;
+      if (filtroNF === 'sem' && r.emissao_nf) return false;
 
-    // Filtro por Cessão
-    if (filtroCessao === 'com' && r.cessao !== 'sim') return false;
-    if (filtroCessao === 'sem' && r.cessao === 'sim') return false;
+      // Filtro por Cessão
+      if (filtroCessao === 'com' && r.cessao !== 'sim') return false;
+      if (filtroCessao === 'sem' && r.cessao === 'sim') return false;
 
-    // Filtro por Período de Início
-    if (dataInicio && r.data_inicio && r.data_inicio < dataInicio) return false;
-    if (dataFim && r.data_inicio && r.data_inicio > dataFim) return false;
-    return true;
-  });
+      // Filtro por Período de Início
+      if (dataInicio && r.data_inicio && r.data_inicio < dataInicio) return false;
+      if (dataFim && r.data_inicio && r.data_inicio > dataFim) return false;
+      return true;
+    });
+  }, [recebimentos, busca, filtroNF, filtroCessao, dataInicio, dataFim]);
 
-  // Totais calculados sobre a lista FILTRADA, para refletir o filtro ativo
-  const qtdTotal = filteredRecebimentos.length;
-  const totalComNF = filteredRecebimentos
-    .filter(r => r.emissao_nf)
-    .reduce((s, r) => s + (parseFloat(r.valor_da_obra) || 0), 0);
-  const totalSemNF = filteredRecebimentos
-    .filter(r => !r.emissao_nf)
-    .reduce((s, r) => s + (parseFloat(r.valor_da_obra) || 0), 0);
-  const qtdComNF = filteredRecebimentos.filter(r => r.emissao_nf).length;
-  const qtdSemNF = filteredRecebimentos.filter(r => !r.emissao_nf).length;
+  // Totais memoizados sobre a lista FILTRADA — evita recálculo a cada render
+  const totais = useMemo(() => {
+    const comNF = filteredRecebimentos.filter(r => r.emissao_nf);
+    const semNF = filteredRecebimentos.filter(r => !r.emissao_nf);
+    const totalComNF = comNF.reduce((s, r) => s + (parseFloat(r.valor_da_obra) || 0), 0);
+    const totalSemNF = semNF.reduce((s, r) => s + (parseFloat(r.valor_da_obra) || 0), 0);
+    const totalDevolucao = filteredRecebimentos.reduce(
+      (s, r) => s + (parseFloat(r.valor_de_devolucao) || 0), 0
+    );
+    const totalPagClientes = filteredRecebimentos.reduce(
+      (s, r) => s + ((parseFloat(r.valor_da_obra) || 0) - (parseFloat(r.valor_de_devolucao) || 0)), 0
+    );
+    return {
+      qtdTotal: filteredRecebimentos.length,
+      totalComNF,
+      totalSemNF,
+      qtdComNF: comNF.length,
+      qtdSemNF: semNF.length,
+      totalDevolucao,
+      totalPagClientes,
+      totalAReceber: totalDevolucao + totalPagClientes,
+    };
+  }, [filteredRecebimentos]);
 
-  const totalDevolucao = filteredRecebimentos.reduce(
-    (s, r) => s + (parseFloat(r.valor_de_devolucao) || 0), 0
-  );
-  const totalPagClientes = filteredRecebimentos.reduce(
-    (s, r) => s + ((parseFloat(r.valor_da_obra) || 0) - (parseFloat(r.valor_de_devolucao) || 0)), 0
-  );
-  const totalAReceber = totalDevolucao + totalPagClientes;
+  const { qtdTotal, totalComNF, totalSemNF, qtdComNF, qtdSemNF, totalDevolucao, totalPagClientes, totalAReceber } = totais;
 
   return (
     <div className="space-y-6">
@@ -386,7 +402,11 @@ function Recebimentos() {
           <input
             type="date"
             value={dataInicio}
-            onChange={(e) => setDataInicio(e.target.value)}
+            onChange={(e) => {
+              const novaData = e.target.value;
+              setDataInicio(novaData);
+              fetchRecebimentos(novaData, dataFim);
+            }}
             className="px-3 py-1.5 border border-slate-200 rounded-xl text-xs font-semibold focus:outline-none focus:ring-2 focus:ring-primary-500/20 focus:border-primary-500"
           />
         </div>
@@ -395,7 +415,11 @@ function Recebimentos() {
           <input
             type="date"
             value={dataFim}
-            onChange={(e) => setDataFim(e.target.value)}
+            onChange={(e) => {
+              const novaData = e.target.value;
+              setDataFim(novaData);
+              fetchRecebimentos(dataInicio, novaData);
+            }}
             className="px-3 py-1.5 border border-slate-200 rounded-xl text-xs font-semibold focus:outline-none focus:ring-2 focus:ring-primary-500/20 focus:border-primary-500"
           />
         </div>
@@ -407,6 +431,7 @@ function Recebimentos() {
               setFiltroCessao('');
               setDataInicio('');
               setDataFim('');
+              fetchRecebimentos();
             }}
             className="text-xs font-bold text-primary-600 hover:text-primary-700 hover:underline cursor-pointer"
           >
