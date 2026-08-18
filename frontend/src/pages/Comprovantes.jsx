@@ -648,7 +648,7 @@ function Comprovantes() {
 
       {/* Modal Pré-visualização da Importação */}
       {preview && (
-        <div className="fixed inset-0 bg-slate-900/40 backdrop-blur-sm flex items-center justify-center z-50 p-4 overflow-y-auto">
+<div className="fixed inset-0 bg-slate-900/40 flex items-center justify-center z-50 p-4 overflow-y-auto">
           <div className="bg-white rounded-2xl shadow-2xl max-w-2xl w-full border border-slate-100 overflow-hidden animate-in fade-in zoom-in duration-200 my-8">
             <div className="bg-slate-900 text-white p-5 flex items-center justify-between">
               <h3 className="font-bold text-base flex items-center gap-2">
@@ -1025,7 +1025,7 @@ function ModalLancamento({ aberto, comprovante, onFechar, onSalvo, mostrarToast 
   };
 
   return (
-    <div className="fixed inset-0 bg-slate-900/40 backdrop-blur-sm flex items-center justify-center z-50 p-4 overflow-y-auto">
+    <div className="fixed inset-0 bg-slate-900/40 flex items-center justify-center z-50 p-4 overflow-y-auto">
       <div className="bg-white rounded-2xl shadow-2xl max-w-2xl w-full border border-slate-100 overflow-hidden animate-in fade-in zoom-in duration-200 my-8">
         <div className="bg-slate-900 text-white p-5 flex items-center justify-between">
           <h3 className="font-bold text-base flex items-center gap-2">
