@@ -447,7 +447,7 @@ function App() {
           {sidebarOpen ? (
             <>
               <span>v1.0.0 Web</span>
-              <span>Desenvolvido com ❤️</span>
+              <span>Desenvolvido por Munaretto & Co. Tecnologia</span>
             </>
           ) : (
             <span className="mx-auto">❤️</span>
