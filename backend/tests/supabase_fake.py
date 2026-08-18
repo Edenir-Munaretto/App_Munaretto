@@ -111,6 +111,31 @@ class _Query:
             criados.append(novo)
         return _Resposta(criados)
 
+    def upsert(self, payload, on_conflict=None):
+        """Insere ou atualiza linhas com base na chave de conflito."""
+        if isinstance(payload, dict):
+            payload = [payload]
+        self.dados[self.tabela] = self.dados.get(self.tabela, [])
+        atualizados = []
+        for item in payload:
+            alvo = None
+            if on_conflict:
+                for r in self.dados[self.tabela]:
+                    if r.get(on_conflict) == item.get(on_conflict):
+                        alvo = r
+                        break
+            if alvo is not None:
+                alvo.update(item)
+                atualizados.append(alvo)
+            else:
+                novo = dict(item)
+                novo["id"] = max(
+                    (r["id"] for r in self.dados[self.tabela]), default=0
+                ) + 1
+                self.dados[self.tabela].append(novo)
+                atualizados.append(novo)
+        return _Resposta(atualizados)
+
     def update(self, payload):
         self._update_payload = payload
         return self

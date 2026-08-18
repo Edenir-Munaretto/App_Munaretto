@@ -73,6 +73,8 @@ def listar_ferias(
     busca: Optional[str] = Query(None, description="Nome do colaborador para buscar"),
     proximo_mes: Optional[bool] = Query(False, description="Filtrar apenas férias do próximo mês"),
     status: Optional[str] = Query(None, description="Filtrar por status exato (ex: Programado, Agendado)"),
+    limit: Optional[int] = Query(None, ge=1, le=10000, description="Máximo de registros a retornar (paginação)"),
+    offset: Optional[int] = Query(0, ge=0, description="Registros a pular (paginação)"),
     db = Depends(get_supabase)
 ):
     """Lista o histórico de férias. Permite busca por nome, filtro por status e férias no próximo mês."""
@@ -99,7 +101,10 @@ def listar_ferias(
             query = query.gte("data_inicio", primeiro_dia_prox_mes.strftime("%Y-%m-%d"))
             query = query.lte("data_inicio", ultimo_dia_prox_mes.strftime("%Y-%m-%d"))
             
-        response = query.order("data_inicio", desc=True).execute()
+        query = query.order("data_inicio", desc=True)
+        if limit is not None:
+            query = query.range(offset, offset + limit - 1)
+        response = query.execute()
         
         # Atualiza status dinamicamente antes de retornar
         result = []

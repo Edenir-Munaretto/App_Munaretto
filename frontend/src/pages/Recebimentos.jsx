@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useMemo, useCallback } from 'react';
-import { Search, Plus, Edit2, Trash2, X, Check, AlertTriangle, Printer, FileCheck2, FileX2, Undo2, Wallet } from 'lucide-react';
+import { Search, Plus, Edit2, Trash2, X, Check, AlertTriangle, Printer, FileCheck2, FileX2, Undo2, Wallet, ChevronLeft, ChevronRight } from 'lucide-react';
 import { API_URL, apiFetch, erroDaResposta } from '../api';
+import ModalConfirmacao from '../components/ModalConfirmacao';
 
 function Recebimentos() {
   const [recebimentos, setRecebimentos] = useState([]);
@@ -16,6 +17,7 @@ function Recebimentos() {
   // Modal State
   const [showModal, setShowModal] = useState(false);
   const [editingId, setEditingId] = useState(null);
+  const [submitting, setSubmitting] = useState(false);
   const [buscaCliente, setBuscaCliente] = useState('');
   const [sugestoesAbertas, setSugestoesAbertas] = useState(false);
   const [formData, setFormData] = useState({
@@ -28,6 +30,14 @@ function Recebimentos() {
     nota_ps: '',
     cessao: 'nao'
   });
+
+  // Exclusão com confirmação customizada
+  const [excluindo, setExcluindo] = useState(null); // { id, nome }
+  const [deleting, setDeleting] = useState(false);
+
+  // Paginação visual (50 por página)
+  const REGISTROS_POR_PAGINA = 50;
+  const [paginaAtual, setPaginaAtual] = useState(1);
 
   useEffect(() => {
     fetchRecebimentos();
@@ -167,6 +177,7 @@ function Recebimentos() {
     };
 
     try {
+      setSubmitting(true);
       const method = editingId ? 'PUT' : 'POST';
       const url = editingId ? `${API_URL}/recebimentos/${editingId}` : `${API_URL}/recebimentos/`;
 
@@ -188,14 +199,16 @@ function Recebimentos() {
     } catch (err) {
       console.error(err);
       showToast('Erro de conexão ao salvar recebimento.', 'error');
+    } finally {
+      setSubmitting(false);
     }
   };
 
-  const handleDelete = async (id, nome) => {
-    if (!window.confirm(`Tem certeza que deseja excluir o recebimento de "${nome}"?`)) return;
-
+  const handleDelete = async () => {
+    if (!excluindo) return;
     try {
-      const res = await apiFetch(`${API_URL}/recebimentos/${id}`, { method: 'DELETE' });
+      setDeleting(true);
+      const res = await apiFetch(`${API_URL}/recebimentos/${excluindo.id}`, { method: 'DELETE' });
       if (res.ok) {
         showToast('Recebimento excluído com sucesso.');
         fetchRecebimentos();
@@ -205,6 +218,9 @@ function Recebimentos() {
     } catch (err) {
       console.error(err);
       showToast('Erro de conexão ao excluir recebimento.', 'error');
+    } finally {
+      setDeleting(false);
+      setExcluindo(null);
     }
   };
 
@@ -269,6 +285,18 @@ function Recebimentos() {
   }, [filteredRecebimentos]);
 
   const { qtdTotal, totalComNF, totalSemNF, qtdComNF, qtdSemNF, totalDevolucao, totalPagClientes, totalAReceber } = totais;
+
+  // Paginação visual
+  const totalPaginas = Math.max(1, Math.ceil(filteredRecebimentos.length / REGISTROS_POR_PAGINA));
+  const paginaAtualSegura = Math.min(paginaAtual, totalPaginas);
+  const recebimentosPagina = useMemo(() => {
+    const inicio = (paginaAtualSegura - 1) * REGISTROS_POR_PAGINA;
+    return filteredRecebimentos.slice(inicio, inicio + REGISTROS_POR_PAGINA);
+  }, [filteredRecebimentos, paginaAtualSegura]);
+
+  useEffect(() => {
+    setPaginaAtual(1);
+  }, [busca, filtroNF, filtroCessao, dataInicio, dataFim]);
 
   return (
     <div className="space-y-6">
@@ -530,7 +558,7 @@ function Recebimentos() {
                   </td>
                 </tr>
               ) : (
-                filteredRecebimentos.map((r) => {
+                recebimentosPagina.map((r) => {
                   const pag = (parseFloat(r.valor_da_obra) || 0) - (parseFloat(r.valor_de_devolucao) || 0);
                   return (
                     <tr key={r.id} className="hover:bg-slate-50/50 transition-colors">
@@ -560,7 +588,7 @@ function Recebimentos() {
                             <Edit2 size={15} />
                           </button>
                           <button
-                            onClick={() => handleDelete(r.id, r.nome_cliente)}
+                            onClick={() => setExcluindo({ id: r.id, nome: r.nome_cliente })}
                             className="p-2 rounded bg-slate-50 hover:bg-rose-50 text-slate-500 hover:text-rose-700 border border-slate-100 transition-colors"
                             title="Excluir"
                           >
@@ -576,6 +604,38 @@ function Recebimentos() {
           </table>
         </div>
       </div>
+
+      {/* Paginação */}
+      {!loading && filteredRecebimentos.length > REGISTROS_POR_PAGINA && (
+        <div className="flex flex-col sm:flex-row items-center justify-between gap-3 bg-white p-4 rounded-2xl border border-slate-100 shadow-sm print:hidden">
+          <p className="text-xs text-slate-500 font-semibold">
+            Mostrando {((paginaAtualSegura - 1) * REGISTROS_POR_PAGINA) + 1}–
+            {Math.min(paginaAtualSegura * REGISTROS_POR_PAGINA, filteredRecebimentos.length)} de{' '}
+            {filteredRecebimentos.length} registro(s)
+          </p>
+          <div className="flex items-center gap-2">
+            <button
+              onClick={() => setPaginaAtual(p => Math.max(1, p - 1))}
+              disabled={paginaAtualSegura === 1}
+              className="px-3 py-1.5 border border-slate-200 rounded-xl text-xs font-bold text-slate-600 hover:bg-slate-50 transition-all cursor-pointer disabled:opacity-40 flex items-center gap-1"
+            >
+              <ChevronLeft size={14} />
+              Anterior
+            </button>
+            <span className="text-xs font-bold text-slate-600 px-2">
+              {paginaAtualSegura} / {totalPaginas}
+            </span>
+            <button
+              onClick={() => setPaginaAtual(p => Math.min(totalPaginas, p + 1))}
+              disabled={paginaAtualSegura === totalPaginas}
+              className="px-3 py-1.5 border border-slate-200 rounded-xl text-xs font-bold text-slate-600 hover:bg-slate-50 transition-all cursor-pointer disabled:opacity-40 flex items-center gap-1"
+            >
+              Próximo
+              <ChevronRight size={14} />
+            </button>
+          </div>
+        </div>
+      )}
 
       {/* Modal */}
       {showModal && (
@@ -745,15 +805,33 @@ function Recebimentos() {
                 </button>
                 <button
                   type="submit"
-                  className="px-5 py-2 bg-primary-600 text-white rounded-xl text-sm font-semibold hover:bg-primary-700 transition-all shadow-md shadow-primary-900/10 cursor-pointer"
+                  disabled={submitting}
+                  className="px-5 py-2 bg-primary-600 text-white rounded-xl text-sm font-semibold hover:bg-primary-700 transition-all shadow-md shadow-primary-900/10 cursor-pointer disabled:opacity-50 flex items-center gap-2"
                 >
-                  {editingId ? 'Salvar Alterações' : 'Cadastrar Recebimento'}
+                  {submitting ? (
+                    <>
+                      <span className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />
+                      Salvando...
+                    </>
+                  ) : (
+                    editingId ? 'Salvar Alterações' : 'Cadastrar Recebimento'
+                  )}
                 </button>
               </div>
             </form>
           </div>
         </div>
       )}
+
+      {/* Modal de confirmação de exclusão */}
+      <ModalConfirmacao
+        aberto={excluindo != null}
+        titulo="Excluir recebimento"
+        mensagem={excluindo ? `Tem certeza que deseja excluir o recebimento de "${excluindo.nome}"? Esta ação não pode ser desfeita.` : ''}
+        loading={deleting}
+        onConfirmar={handleDelete}
+        onCancelar={() => setExcluindo(null)}
+      />
     </div>
   );
 }

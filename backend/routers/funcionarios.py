@@ -53,6 +53,8 @@ def estatisticas_funcionarios(db = Depends(get_supabase)):
 def listar_funcionarios(
     busca: Optional[str] = Query(None, description="Termo de busca (nome ou CPF)"),
     status: Optional[str] = Query("ativos", description="Filtro de status: ativos, inativos ou todos"),
+    limit: Optional[int] = Query(None, ge=1, le=10000, description="Máximo de registros a retornar (paginação)"),
+    offset: Optional[int] = Query(0, ge=0, description="Registros a pular (paginação)"),
     db = Depends(get_supabase),
 ):
     """Lista funcionários filtrados por status (exclui os excluídos). Filtra por nome ou CPF se informado."""
@@ -75,9 +77,15 @@ def listar_funcionarios(
                     consolidado[linha["id"]] = linha
             dados = list(consolidado.values())
         else:
-            dados = base().execute().data
+            query = base().order("nome")
+            if limit is not None:
+                query = query.range(offset, offset + limit - 1)
+            dados = query.execute().data
 
         dados.sort(key=lambda x: str(x.get("nome", "")).lower())
+        # Quando há busca, aplica paginação em memória (busca já consolidou tudo)
+        if busca and limit is not None:
+            dados = dados[offset:offset + limit]
         return dados
     except Exception as e:
         logger.exception("Erro ao buscar funcionários")

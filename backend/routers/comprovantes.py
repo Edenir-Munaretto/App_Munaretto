@@ -204,12 +204,15 @@ def listar_comprovantes(
     tipo_documento: Optional[str] = Query(None, description="Filtrar por tipo: Nota Fiscal, Boleto, Pix, Diversas, Aluguel, Imposto"),
     data_inicio: Optional[str] = Query(None, description="Data início do filtro (YYYY-MM-DD) — filtra data_emissao ou data_pagamento"),
     data_fim: Optional[str] = Query(None, description="Data fim do filtro (YYYY-MM-DD)"),
+    limit: Optional[int] = Query(None, ge=1, le=10000, description="Máximo de registros a retornar (paginação)"),
+    offset: Optional[int] = Query(0, ge=0, description="Registros a pular (paginação)"),
     db = Depends(get_supabase),
 ):
     """Lista lançamentos de comprovantes. Suporta filtro por tipo e período.
 
     O Supabase limita cada requisição a 1000 linhas, então a listagem é
-    paginada internamente (em blocos de 1000) e retorna o resultado completo.
+    paginada internamente (em blocos de 1000) e retorna o resultado completo,
+    salvo quando `limit` é informado (paginação explícita).
     Ordenação decrescente (mais recente primeiro) por `data_registro`,
     `data_pagamento` ou `data_emissao`.
     """
@@ -234,14 +237,24 @@ def listar_comprovantes(
 
     try:
         todos = []
-        offset = 0
+        offset_atual = offset
         bloco = 1000
         while True:
+            # Se houver limit, respeita o teto final da resposta
+            teto = None
+            if limit is not None:
+                teto = offset + limit
+                if offset_atual >= teto:
+                    break
+                tamanho_bloco = min(bloco, teto - offset_atual)
+            else:
+                tamanho_bloco = bloco
+
             query = (
                 db.table("comprovantes")
                 .select("*")
                 .order(campo_ordem, desc=True)
-                .range(offset, offset + bloco - 1)
+                .range(offset_atual, offset_atual + tamanho_bloco - 1)
             )
             # Filtro por tipo de documento
             if tipo_documento:
@@ -262,13 +275,90 @@ def listar_comprovantes(
             if not response.data:
                 break
             todos.extend(response.data)
-            if len(response.data) < bloco:
+            if len(response.data) < tamanho_bloco:
                 break
-            offset += bloco
+            offset_atual += tamanho_bloco
         return todos
     except Exception as e:
         logger.exception("Erro ao buscar comprovantes")
         raise HTTPException(status_code=500, detail="Erro ao buscar comprovantes")
+
+
+@router.get("/exportar")
+def exportar_comprovantes(
+    ordenar_por: str = Query("data_registro", description="Campo de ordenação: data_registro, data_pagamento ou data_emissao"),
+    tipo_documento: Optional[str] = Query(None, description="Filtrar por tipo: Nota Fiscal, Boleto, Pix, Diversas, Aluguel, Imposto"),
+    data_inicio: Optional[str] = Query(None, description="Data início do filtro (YYYY-MM-DD)"),
+    data_fim: Optional[str] = Query(None, description="Data fim do filtro (YYYY-MM-DD)"),
+    db = Depends(get_supabase),
+):
+    """Exporta os comprovantes filtrados para um arquivo .xlsx (openpyxl)."""
+    # Reutiliza a mesma listagem com paginação ampla (sem limit = retorna tudo)
+    registros = listar_comprovantes(
+        ordenar_por=ordenar_por,
+        tipo_documento=tipo_documento,
+        data_inicio=data_inicio,
+        data_fim=data_fim,
+        limit=None,
+        offset=0,
+        db=db,
+    )
+
+    wb = Workbook()
+    ws = wb.active
+    ws.title = "Comprovantes"
+
+    colunas = [
+        ("tipo_documento", "Tipo do Documento"),
+        ("nome", "Nome"),
+        ("cnpj", "CNPJ/CPF"),
+        ("numero_nf", "Número NF"),
+        ("data_emissao", "Data de Emissão"),
+        ("data_vencimento", "Data de Vencimento"),
+        ("data_pagamento", "Data de Pagamento"),
+        ("descricao", "Descrição"),
+        ("valor_total", "Valor Total"),
+        ("base_calculo", "Base de Cálculo"),
+        ("valor_inss", "Valor INSS"),
+        ("valor_iss", "Valor ISS"),
+        ("valor_liquido", "Valor Líquido"),
+        ("valor_pago", "Valor Pago"),
+        ("valor_juros", "Valor Juros"),
+        ("local_servico", "Local de Serviço"),
+        ("forma_pagamento", "Forma de Pagamento"),
+        ("data_registro", "Data de Registro"),
+    ]
+
+    fonte_cabecalho = Font(bold=True, color="FFFFFF")
+    fill_cabecalho = PatternFill(start_color="1E293B", end_color="1E293B", fill_type="solid")
+    borda = Border(*[Side(style="thin", color="CBD5E1")] * 4)
+
+    for col, (_, rotulo) in enumerate(colunas, start=1):
+        celula = ws.cell(row=1, column=col, value=rotulo)
+        celula.font = fonte_cabecalho
+        celula.fill = fill_cabecalho
+        celula.alignment = Alignment(horizontal="center", vertical="center")
+        celula.border = borda
+
+    for i, reg in enumerate(registros, start=2):
+        for col, (campo, _) in enumerate(colunas, start=1):
+            celula = ws.cell(row=i, column=col, value=reg.get(campo))
+            celula.border = borda
+
+    ws.freeze_panes = "A2"
+    for col, (_, rotulo) in enumerate(colunas, start=1):
+        letra = ws.cell(row=1, column=col).column_letter
+        ws.column_dimensions[letra].width = max(16, len(rotulo) + 4)
+
+    buffer = io.BytesIO()
+    wb.save(buffer)
+    buffer.seek(0)
+
+    return Response(
+        content=buffer.getvalue(),
+        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        headers={"Content-Disposition": 'attachment; filename="comprovantes.xlsx"'},
+    )
 
 
 @router.get("/modelo")

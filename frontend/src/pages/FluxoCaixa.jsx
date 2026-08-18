@@ -1,12 +1,20 @@
 ﻿import React, { useState, useEffect } from 'react';
-import { LineChart, Plus, Trash2, FileDown, Check, AlertTriangle, Calculator, UserCheck } from 'lucide-react';
+import { LineChart, Plus, Trash2, FileDown, Check, AlertTriangle, Calculator, UserCheck, ChevronLeft, ChevronRight } from 'lucide-react';
 import { API_URL, apiFetch } from '../api';
+import ModalConfirmacao from '../components/ModalConfirmacao';
 
 function FluxoCaixa() {
   const [closings, setClosings] = useState([]);
   const [selectedId, setSelectedId] = useState(null);
   const [loading, setLoading] = useState(true);
   const [toast, setToast] = useState(null);
+  const [submitting, setSubmitting] = useState(false);
+  const [excluirId, setExcluirId] = useState(null);
+  const [deleting, setDeleting] = useState(false);
+
+  // Paginação visual (50 por página)
+  const REGISTROS_POR_PAGINA = 50;
+  const [paginaAtual, setPaginaAtual] = useState(1);
 
   // Form Fields State
   const [formData, setFormData] = useState({
@@ -72,6 +80,14 @@ function FluxoCaixa() {
     { name: 'Gilmar T.', pct: 0.05, share: totalLiquido * 0.05 },
   ];
 
+  // Paginação visual
+  const totalPaginas = Math.max(1, Math.ceil(closings.length / REGISTROS_POR_PAGINA));
+  const paginaAtualSegura = Math.min(paginaAtual, totalPaginas);
+  const closingsPagina = closings.slice(
+    (paginaAtualSegura - 1) * REGISTROS_POR_PAGINA,
+    paginaAtualSegura * REGISTROS_POR_PAGINA
+  );
+
   const handleSelectClosing = (item) => {
     setSelectedId(item.id);
     setFormData({
@@ -87,6 +103,7 @@ function FluxoCaixa() {
       despesa_taxa: item.despesa_taxa,
       despesa_diversas: item.despesa_diversas
     });
+    setPaginaAtual(1);
   };
 
   const handleClearForm = () => {
@@ -114,6 +131,7 @@ function FluxoCaixa() {
     }
 
     try {
+      setSubmitting(true);
       const method = selectedId ? 'PUT' : 'POST';
       const url = selectedId ? `${API_URL}/fluxo-caixa/${selectedId}` : `${API_URL}/fluxo-caixa/`;
 
@@ -133,18 +151,20 @@ function FluxoCaixa() {
     } catch (err) {
       console.error(err);
       showToast('Erro de conexão ao salvar fluxo.', 'error');
+    } finally {
+      setSubmitting(false);
     }
   };
 
   const handleDelete = async () => {
-    if (!selectedId) return;
-    if (!window.confirm(`Tem certeza que deseja deletar o fechamento de "${formData.mes_referencia}"?`)) return;
+    if (excluirId == null) return;
 
     try {
-      const res = await apiFetch(`${API_URL}/fluxo-caixa/${selectedId}`, { method: 'DELETE' });
+      setDeleting(true);
+      const res = await apiFetch(`${API_URL}/fluxo-caixa/${excluirId}`, { method: 'DELETE' });
       if (res.ok) {
         showToast('Fechamento excluído com sucesso.');
-        handleClearForm();
+        if (selectedId === excluirId) handleClearForm();
         fetchClosings();
       } else {
         showToast('Erro ao excluir fechamento.', 'error');
@@ -152,6 +172,9 @@ function FluxoCaixa() {
     } catch (err) {
       console.error(err);
       showToast('Erro ao excluir fechamento.', 'error');
+    } finally {
+      setDeleting(false);
+      setExcluirId(null);
     }
   };
 
@@ -314,7 +337,7 @@ function FluxoCaixa() {
                 {selectedId && (
                   <button
                     type="button"
-                    onClick={handleDelete}
+                    onClick={() => setExcluirId(selectedId)}
                     className="flex-1 sm:flex-initial flex items-center justify-center gap-1.5 px-4 py-2 border border-rose-800 text-rose-400 font-semibold text-xs rounded-lg hover:bg-rose-950/20 hover:text-rose-300 transition-all cursor-pointer"
                   >
                     <Trash2 size={14} />
@@ -323,9 +346,17 @@ function FluxoCaixa() {
                 )}
                 <button
                   type="submit"
-                  className="flex-1 sm:flex-initial flex items-center justify-center gap-1.5 px-6 py-2.5 bg-primary-600 text-white font-semibold text-xs rounded-lg hover:bg-primary-700 transition-all shadow-md shadow-primary-950/20 cursor-pointer"
+                  disabled={submitting}
+                  className="flex-1 sm:flex-initial flex items-center justify-center gap-1.5 px-6 py-2.5 bg-primary-600 text-white font-semibold text-xs rounded-lg hover:bg-primary-700 transition-all shadow-md shadow-primary-950/20 cursor-pointer disabled:opacity-50"
                 >
-                  Salvar Fechamento
+                  {submitting ? (
+                    <>
+                      <span className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />
+                      Salvando...
+                    </>
+                  ) : (
+                    'Salvar Fechamento'
+                  )}
                 </button>
               </div>
             </div>
@@ -372,7 +403,7 @@ function FluxoCaixa() {
               ) : closings.length === 0 ? (
                 <p className="text-center text-slate-400 text-xs py-8">Nenhum fechamento registrado.</p>
               ) : (
-                closings.map((c) => (
+                closingsPagina.map((c) => (
                   <div 
                     key={c.id} 
                     className={`p-3.5 rounded-xl border transition-all ${
@@ -417,10 +448,46 @@ function FluxoCaixa() {
                 ))
               )}
             </div>
+
+            {!loading && closings.length > REGISTROS_POR_PAGINA && (
+              <div className="flex items-center justify-between gap-2 pt-3 border-t border-slate-100 mt-3">
+                <p className="text-[10px] font-bold text-slate-500">
+                  {((paginaAtualSegura - 1) * REGISTROS_POR_PAGINA) + 1}–
+                  {Math.min(paginaAtualSegura * REGISTROS_POR_PAGINA, closings.length)} de {closings.length}
+                </p>
+                <div className="flex items-center gap-1.5">
+                  <button
+                    onClick={() => setPaginaAtual(p => Math.max(1, p - 1))}
+                    disabled={paginaAtualSegura === 1}
+                    className="p-1.5 rounded-lg border border-slate-200 text-slate-600 hover:bg-slate-50 transition-all cursor-pointer disabled:opacity-40"
+                  >
+                    <ChevronLeft size={14} />
+                  </button>
+                  <span className="text-[10px] font-bold text-slate-600 px-1">{paginaAtualSegura} / {totalPaginas}</span>
+                  <button
+                    onClick={() => setPaginaAtual(p => Math.min(totalPaginas, p + 1))}
+                    disabled={paginaAtualSegura === totalPaginas}
+                    className="p-1.5 rounded-lg border border-slate-200 text-slate-600 hover:bg-slate-50 transition-all cursor-pointer disabled:opacity-40"
+                  >
+                    <ChevronRight size={14} />
+                  </button>
+                </div>
+              </div>
+            )}
           </div>
         </div>
 
       </div>
+
+      {/* Modal de confirmação de exclusão */}
+      <ModalConfirmacao
+        aberto={excluirId != null}
+        titulo="Excluir fechamento"
+        mensagem={`Tem certeza que deseja excluir o fechamento de "${formData.mes_referencia}"? Esta ação não pode ser desfeita.`}
+        loading={deleting}
+        onConfirmar={handleDelete}
+        onCancelar={() => setExcluirId(null)}
+      />
 
     </div>
   );

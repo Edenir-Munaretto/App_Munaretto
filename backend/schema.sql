@@ -443,3 +443,22 @@ ALTER TABLE IF EXISTS certificados ENABLE ROW LEVEL SECURITY;
 DROP POLICY IF EXISTS "service_role_full_certificados" ON certificados;
 CREATE POLICY "service_role_full_certificados" ON certificados
     FOR ALL TO service_role USING (true) WITH CHECK (true);
+
+-- ============================================================================
+-- TABELA: login_tentativas (rate limiting persistente do login)
+-- Persiste os contadores do LoginRateLimiter no banco para sobreviver a
+-- reinícios do servidor (comum no Render free tier) e a múltiplas instâncias.
+-- `janela_inicio` guarda o timestamp (epoch seconds) do início da janela.
+-- ============================================================================
+CREATE TABLE IF NOT EXISTS login_tentativas (
+    chave VARCHAR(255) PRIMARY KEY,
+    contador INTEGER NOT NULL DEFAULT 0,
+    janela_inicio DOUBLE PRECISION NOT NULL,
+    atualizado_em TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+);
+
+ALTER TABLE IF EXISTS login_tentativas ENABLE ROW LEVEL SECURITY;
+
+DROP POLICY IF EXISTS "service_role_full_login_tentativas" ON login_tentativas;
+CREATE POLICY "service_role_full_login_tentativas" ON login_tentativas
+    FOR ALL TO service_role USING (true) WITH CHECK (true);

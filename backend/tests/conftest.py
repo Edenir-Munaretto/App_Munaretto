@@ -56,6 +56,7 @@ def _montar_dados_banco():
         "epis": [],
         "funcionario_epis": [],
         "certificados": [],
+        "login_tentativas": [],
     }
 
 

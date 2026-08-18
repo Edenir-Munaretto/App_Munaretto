@@ -1,6 +1,7 @@
-﻿import React, { useState, useEffect, useRef } from 'react';
-import { FileText, Plus, Trash2, Edit2, Search, X, Check, AlertTriangle, DollarSign, Calendar, Printer, Download, Upload } from 'lucide-react';
+import React, { useState, useEffect, useRef, useMemo, useCallback } from 'react';
+import { FileText, Plus, Trash2, Edit2, Search, X, Check, AlertTriangle, DollarSign, Calendar, Printer, Download, Upload, ChevronLeft, ChevronRight, FileSpreadsheet } from 'lucide-react';
 import { API_URL, apiFetch, erroDaResposta } from '../api';
+import ModalConfirmacao from '../components/ModalConfirmacao';
 
 function Comprovantes() {
   const [comprovantes, setComprovantes] = useState([]);
@@ -17,6 +18,16 @@ function Comprovantes() {
   // Modal State
   const [showModal, setShowModal] = useState(false);
   const [editingId, setEditingId] = useState(null);
+  const [submitting, setSubmitting] = useState(false);
+
+  // Exclusão com confirmação customizada
+  const [excluindoId, setExcluindoId] = useState(null);
+  const [deleting, setDeleting] = useState(false);
+
+  // Paginação visual (50 registros por página)
+  const REGISTROS_POR_PAGINA = 50;
+  const [paginaAtual, setPaginaAtual] = useState(1);
+  const [exportando, setExportando] = useState(false);
 
   // Erros de validação por campo (campo obrigatório não preenchido)
   const [erros, setErros] = useState({});
@@ -62,26 +73,22 @@ function Comprovantes() {
     valor_juros: 0
   });
 
-  useEffect(() => {
-    fetchComprovantes();
-  }, [ordenarPor]);
-
-  // Quando o tipo selecionado é Nota Fiscal, ordena por data de emissão automaticamente
-  useEffect(() => {
-    if (tipoFiltro === 'Nota Fiscal') {
-      setOrdenarPor('data_emissao');
-    }
-  }, [tipoFiltro]);
-
   const showToast = (message, type = 'success') => {
     setToast({ message, type });
     setTimeout(() => setToast(null), 4000);
   };
 
-  const fetchComprovantes = async () => {
+  const fetchComprovantes = useCallback(async (tipo = tipoFiltro, inicio = dataInicio, fim = dataFim) => {
     try {
       setLoading(true);
-      const res = await apiFetch(`${API_URL}/comprovantes/?ordenar_por=${ordenarPor}`);
+      const params = new URLSearchParams();
+      params.append('ordenar_por', ordenarPor);
+      if (tipo) params.append('tipo_documento', tipo);
+      if (inicio) params.append('data_inicio', inicio);
+      if (fim) params.append('data_fim', fim);
+      
+      const query = params.toString() ? `?${params.toString()}` : '';
+      const res = await apiFetch(`${API_URL}/comprovantes/${query}`);
       if (res.ok) {
         const data = await res.json();
         setComprovantes(data);
@@ -92,7 +99,18 @@ function Comprovantes() {
     } finally {
       setLoading(false);
     }
-  };
+  }, [ordenarPor, tipoFiltro, dataInicio, dataFim]);
+
+  useEffect(() => {
+    fetchComprovantes();
+  }, [fetchComprovantes]);
+
+  // Quando o tipo selecionado é Nota Fiscal, ordena por data de emissão automaticamente
+  useEffect(() => {
+    if (tipoFiltro === 'Nota Fiscal') {
+      setOrdenarPor('data_emissao');
+    }
+  }, [tipoFiltro]);
 
   const baixarModelo = async () => {
     try {
@@ -305,6 +323,7 @@ function Comprovantes() {
     };
 
     try {
+      setSubmitting(true);
       const method = editingId ? 'PUT' : 'POST';
       const url = editingId ? `${API_URL}/comprovantes/${editingId}` : `${API_URL}/comprovantes/`;
 
@@ -325,14 +344,16 @@ function Comprovantes() {
     } catch (err) {
       console.error(err);
       showToast('Erro de conexão ao salvar comprovante.', 'error');
+    } finally {
+      setSubmitting(false);
     }
   };
 
-  const handleDelete = async (id) => {
-    if (!window.confirm('Tem certeza que deseja excluir este lançamento?')) return;
-
+  const handleDelete = async () => {
+    if (excluindoId == null) return;
     try {
-      const res = await apiFetch(`${API_URL}/comprovantes/${id}`, { method: 'DELETE' });
+      setDeleting(true);
+      const res = await apiFetch(`${API_URL}/comprovantes/${excluindoId}`, { method: 'DELETE' });
       if (res.ok) {
         showToast('Lançamento excluído com sucesso.');
         fetchComprovantes();
@@ -342,6 +363,42 @@ function Comprovantes() {
     } catch (err) {
       console.error(err);
       showToast('Erro de rede ao excluir lançamento.', 'error');
+    } finally {
+      setDeleting(false);
+      setExcluindoId(null);
+    }
+  };
+
+  const exportarXlsx = async () => {
+    try {
+      setExportando(true);
+      const params = new URLSearchParams();
+      params.append('ordenar_por', ordenarPor);
+      if (tipoFiltro) params.append('tipo_documento', tipoFiltro);
+      if (dataInicio) params.append('data_inicio', dataInicio);
+      if (dataFim) params.append('data_fim', dataFim);
+      const query = params.toString() ? `?${params.toString()}` : '';
+
+      const res = await apiFetch(`${API_URL}/comprovantes/exportar${query}`);
+      if (!res.ok) {
+        showToast('Erro ao exportar comprovantes.', 'error');
+        return;
+      }
+      const blob = await res.blob();
+      const url = window.URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = 'comprovantes.xlsx';
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      window.URL.revokeObjectURL(url);
+      showToast('Exportação concluída!');
+    } catch (err) {
+      console.error(err);
+      showToast('Erro de conexão ao exportar.', 'error');
+    } finally {
+      setExportando(false);
     }
   };
 
@@ -359,35 +416,53 @@ function Comprovantes() {
   };
 
   // Filtragem local
-  const filteredComprovantes = comprovantes.filter(c => {
+  const filteredComprovantes = useMemo(() => {
     const searchLower = busca.toLowerCase();
-    const typeMatch = c.tipo_documento.toLowerCase().includes(searchLower);
-    const nameMatch = (c.nome || '').toLowerCase().includes(searchLower);
-    const descMatch = (c.descricao || '').toLowerCase().includes(searchLower);
-    const nfMatch = (c.numero_nf || '').toLowerCase().includes(searchLower);
-    const textMatch = typeMatch || nameMatch || descMatch || nfMatch;
+    return comprovantes.filter(c => {
+      const typeMatch = c.tipo_documento.toLowerCase().includes(searchLower);
+      const nameMatch = (c.nome || '').toLowerCase().includes(searchLower);
+      const descMatch = (c.descricao || '').toLowerCase().includes(searchLower);
+      const nfMatch = (c.numero_nf || '').toLowerCase().includes(searchLower);
+      const textMatch = typeMatch || nameMatch || descMatch || nfMatch;
 
-    if (!textMatch) return false;
+      if (!textMatch) return false;
 
-    // Filtro por tipo
-    if (tipoFiltro && c.tipo_documento !== tipoFiltro) return false;
+      // Filtro por tipo
+      if (tipoFiltro && c.tipo_documento !== tipoFiltro) return false;
 
-    // Filtragem por período
-    const itemDate = c.tipo_documento === 'Nota Fiscal' ? c.data_emissao : c.data_pagamento || c.data_vencimento;
-    if (dataInicio && itemDate && itemDate < dataInicio) return false;
-    if (dataFim && itemDate && itemDate > dataFim) return false;
-    return true;
-  });
+      // Filtragem por período
+      const itemDate = c.tipo_documento === 'Nota Fiscal' ? c.data_emissao : c.data_pagamento || c.data_vencimento;
+      if (dataInicio && itemDate && itemDate < dataInicio) return false;
+      if (dataFim && itemDate && itemDate > dataFim) return false;
+      return true;
+    });
+  }, [comprovantes, busca, tipoFiltro, dataInicio, dataFim]);
 
   // Totais do tipo filtrado (somente quando um tipo específico está selecionado)
-  const totaisTipo = tipoFiltro ? filteredComprovantes.reduce((acc, c) => ({
-    base_calculo: acc.base_calculo + (c.base_calculo || 0),
-    valor_inss: acc.valor_inss + (c.valor_inss || 0),
-    valor_iss: acc.valor_iss + (c.valor_iss || 0),
-    valor_liquido: acc.valor_liquido + (c.valor_liquido || 0),
-    valor_pago: acc.valor_pago + (c.valor_pago || 0),
-    valor_juros: acc.valor_juros + (c.valor_juros || 0),
-  }), { base_calculo: 0, valor_inss: 0, valor_iss: 0, valor_liquido: 0, valor_pago: 0, valor_juros: 0 }) : null;
+  const totaisTipo = useMemo(() => {
+    if (!tipoFiltro) return null;
+    return filteredComprovantes.reduce((acc, c) => ({
+      base_calculo: acc.base_calculo + (c.base_calculo || 0),
+      valor_inss: acc.valor_inss + (c.valor_inss || 0),
+      valor_iss: acc.valor_iss + (c.valor_iss || 0),
+      valor_liquido: acc.valor_liquido + (c.valor_liquido || 0),
+      valor_pago: acc.valor_pago + (c.valor_pago || 0),
+      valor_juros: acc.valor_juros + (c.valor_juros || 0),
+    }), { base_calculo: 0, valor_inss: 0, valor_iss: 0, valor_liquido: 0, valor_pago: 0, valor_juros: 0 });
+  }, [tipoFiltro, filteredComprovantes]);
+
+  // Paginação visual: corta a lista filtrada em páginas de 50 registros
+  const totalPaginas = Math.max(1, Math.ceil(filteredComprovantes.length / REGISTROS_POR_PAGINA));
+  const paginaAtualSegura = Math.min(paginaAtual, totalPaginas);
+  const comprovantesPagina = useMemo(() => {
+    const inicio = (paginaAtualSegura - 1) * REGISTROS_POR_PAGINA;
+    return filteredComprovantes.slice(inicio, inicio + REGISTROS_POR_PAGINA);
+  }, [filteredComprovantes, paginaAtualSegura]);
+
+  // Ao filtrar/buscar, volta para a primeira página
+  useEffect(() => {
+    setPaginaAtual(1);
+  }, [busca, tipoFiltro, dataInicio, dataFim, comprovantes]);
 
   return (
     <div className="space-y-6 print:space-y-2">
@@ -477,6 +552,15 @@ function Comprovantes() {
             />
           </div>
           <div className="flex flex-wrap items-center gap-3 w-full md:w-auto">
+            <button
+              onClick={exportarXlsx}
+              disabled={exportando}
+              className="flex items-center justify-center gap-2 px-4 py-2.5 bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold text-sm rounded-xl transition-all border border-slate-200 cursor-pointer w-full sm:w-auto disabled:opacity-50"
+              title="Exportar comprovantes filtrados para .xlsx"
+            >
+              <FileSpreadsheet size={16} />
+              {exportando ? 'Exportando...' : 'Exportar'}
+            </button>
             <button
               onClick={baixarModelo}
               className="flex items-center justify-center gap-2 px-4 py-2.5 bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold text-sm rounded-xl transition-all border border-slate-200 cursor-pointer w-full sm:w-auto"
@@ -587,7 +671,7 @@ function Comprovantes() {
             Nenhum comprovante encontrado.
           </div>
         ) : (
-          filteredComprovantes.map((c) => {
+          comprovantesPagina.map((c) => {
             const isNF = c.tipo_documento === 'Nota Fiscal';
             const isImposto = c.tipo_documento === 'Imposto';
             
@@ -635,7 +719,7 @@ function Comprovantes() {
                       <Edit2 size={14} />
                     </button>
                     <button
-                      onClick={() => handleDelete(c.id)}
+                      onClick={() => setExcluindoId(c.id)}
                       className="p-1 text-slate-400 hover:text-rose-600 rounded hover:bg-slate-50 transition-all cursor-pointer"
                     >
                       <Trash2 size={14} />
@@ -730,6 +814,38 @@ function Comprovantes() {
           })
         )}
       </div>
+
+      {/* Paginação visual */}
+      {!loading && filteredComprovantes.length > REGISTROS_POR_PAGINA && (
+        <div className="flex flex-col sm:flex-row items-center justify-between gap-3 bg-white p-4 rounded-2xl border border-slate-100 shadow-sm print:hidden">
+          <p className="text-xs text-slate-500 font-semibold">
+            Mostrando {((paginaAtualSegura - 1) * REGISTROS_POR_PAGINA) + 1}–
+            {Math.min(paginaAtualSegura * REGISTROS_POR_PAGINA, filteredComprovantes.length)} de{' '}
+            {filteredComprovantes.length} registro(s)
+          </p>
+          <div className="flex items-center gap-2">
+            <button
+              onClick={() => setPaginaAtual(p => Math.max(1, p - 1))}
+              disabled={paginaAtualSegura === 1}
+              className="px-3 py-1.5 border border-slate-200 rounded-xl text-xs font-bold text-slate-600 hover:bg-slate-50 transition-all cursor-pointer disabled:opacity-40 flex items-center gap-1"
+            >
+              <ChevronLeft size={14} />
+              Anterior
+            </button>
+            <span className="text-xs font-bold text-slate-600 px-2">
+              {paginaAtualSegura} / {totalPaginas}
+            </span>
+            <button
+              onClick={() => setPaginaAtual(p => Math.min(totalPaginas, p + 1))}
+              disabled={paginaAtualSegura === totalPaginas}
+              className="px-3 py-1.5 border border-slate-200 rounded-xl text-xs font-bold text-slate-600 hover:bg-slate-50 transition-all cursor-pointer disabled:opacity-40 flex items-center gap-1"
+            >
+              Próximo
+              <ChevronRight size={14} />
+            </button>
+          </div>
+        </div>
+      )}
 
       {/* Totais do Tipo Filtrado */}
       {totaisTipo && filteredComprovantes.length > 0 && (
@@ -1146,9 +1262,17 @@ function Comprovantes() {
                 </button>
                 <button
                   type="submit"
-                  className="px-5 py-2 bg-primary-600 hover:bg-primary-700 text-white font-bold text-xs rounded-xl transition-all shadow-md shadow-primary-900/10 cursor-pointer"
+                  disabled={submitting}
+                  className="px-5 py-2 bg-primary-600 hover:bg-primary-700 text-white font-bold text-xs rounded-xl transition-all shadow-md shadow-primary-900/10 cursor-pointer disabled:opacity-50 flex items-center gap-2"
                 >
-                  {editingId ? 'Atualizar Lançamento' : 'Salvar Lançamento'}
+                  {submitting ? (
+                    <>
+                      <span className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />
+                      Salvando...
+                    </>
+                  ) : (
+                    editingId ? 'Atualizar Lançamento' : 'Salvar Lançamento'
+                  )}
                 </button>
               </div>
 
@@ -1156,6 +1280,16 @@ function Comprovantes() {
           </div>
         </div>
       )}
+
+    {/* Modal de confirmação de exclusão */}
+      <ModalConfirmacao
+        aberto={excluindoId != null}
+        titulo="Excluir lançamento"
+        mensagem="Tem certeza que deseja excluir este lançamento? Esta ação não pode ser desfeita."
+        loading={deleting}
+        onConfirmar={handleDelete}
+        onCancelar={() => setExcluindoId(null)}
+      />
 
     </div>
   );

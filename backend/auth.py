@@ -3,6 +3,7 @@
 Fornece criação e validação de tokens de acesso usados pela API.
 A secret é lida da variável de ambiente JWT_SECRET.
 """
+import logging
 import os
 import threading
 import time
@@ -14,6 +15,8 @@ from fastapi import Depends, HTTPException, Request, status
 from fastapi.security import OAuth2PasswordBearer
 from pydantic import BaseModel
 from supabase_client import get_supabase
+
+logger = logging.getLogger(__name__)
 
 ALGORITMO = "HS256"
 
@@ -130,7 +133,14 @@ def require_qualquer_permisao(modulos: list):
 
 
 class LoginRateLimiter:
-    """Limita tentativas de login por chave (janela deslizante simples, em memória)."""
+    """Limita tentativas de login por chave (janela deslizante simples).
+
+    Os contadores são persistidos na tabela ``login_tentativas`` do Supabase
+    para sobreviver a reinícios do servidor e a múltiplas instâncias. Um cache
+    em memória funciona como fallback quando o banco está indisponível.
+    """
+
+    TABELA = "login_tentativas"
 
     def __init__(self, limite: int = 5, janela_segundos: int = 60):
         self._lock = threading.Lock()
@@ -138,25 +148,71 @@ class LoginRateLimiter:
         self._janela_segundos = janela_segundos
         self._janelas: dict = {}
 
+    # --- Fallback em memória -------------------------------------------------
     def _janela_atual(self, chave: str, agora: float):
         inicio, contador = self._janelas.get(chave, (0, 0))
         if agora - inicio >= self._janela_segundos:
             return agora, 0
         return inicio, contador
 
-    def bloqueado(self, chave: str) -> bool:
+    # --- Persistência no Supabase --------------------------------------------
+    def _ler_banco(self, db, chave: str) -> Optional[dict]:
+        resp = db.table(self.TABELA).select("*").eq("chave", chave).limit(1).execute()
+        if not resp.data:
+            return None
+        return resp.data[0]
+
+    def _gravar_banco(self, db, chave: str, inicio: float, contador: int) -> None:
+        db.table(self.TABELA).upsert(
+            {"chave": chave, "contador": contador, "janela_inicio": inicio},
+            on_conflict="chave",
+        ).execute()
+
+    def _apagar_banco(self, db, chave: str) -> None:
+        db.table(self.TABELA).delete().eq("chave", chave).execute()
+
+    # --- API pública ----------------------------------------------------------
+    def bloqueado(self, chave: str, db=None) -> bool:
+        agora = time.time()
+        if db is not None:
+            try:
+                reg = self._ler_banco(db, chave)
+                if reg is not None:
+                    if agora - reg["janela_inicio"] >= self._janela_segundos:
+                        return False
+                    return reg["contador"] >= self._limite
+            except Exception:
+                logger.exception("Erro ao ler rate limit do banco; usando memória")
+
         with self._lock:
-            _, contador = self._janela_atual(chave, time.monotonic())
+            _, contador = self._janela_atual(chave, agora)
             return contador >= self._limite
 
-    def registrar(self, chave: str) -> None:
+    def registrar(self, chave: str, db=None) -> None:
+        agora = time.time()
+        if db is not None:
+            try:
+                reg = self._ler_banco(db, chave)
+                if reg is not None and agora - reg["janela_inicio"] < self._janela_segundos:
+                    self._gravar_banco(db, chave, reg["janela_inicio"], reg["contador"] + 1)
+                else:
+                    self._gravar_banco(db, chave, agora, 1)
+                return
+            except Exception:
+                logger.exception("Erro ao registrar tentativa no banco; usando memória")
+
         with self._lock:
-            inicio, contador = self._janela_atual(chave, time.monotonic())
+            inicio, contador = self._janela_atual(chave, agora)
             self._janelas[chave] = (inicio, contador + 1)
 
-    def restaurar(self, chave: str) -> None:
+    def restaurar(self, chave: str, db=None) -> None:
         with self._lock:
             self._janelas.pop(chave, None)
+        if db is not None:
+            try:
+                self._apagar_banco(db, chave)
+            except Exception:
+                logger.exception("Erro ao restaurar rate limit no banco")
 
 
 limite_login = LoginRateLimiter()

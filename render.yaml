@@ -7,9 +7,34 @@ services:
     dockerContext: ./backend
     region: oregon
     envVars:
+      # Ambiente de produção: desabilita o Swagger (/docs) e o schema OpenAPI.
+      - key: APP_ENV
+        value: production
+      # Nível de log (JSON em produção).
+      - key: LOG_LEVEL
+        value: INFO
       - key: PYTHONUNBUFFERED
         value: "1"
       - key: PYTHONDONTWRITEBYTECODE
         value: "1"
       - key: CORS_ORIGINS
-        value: "http://localhost:5173,http://127.0.0.1:5173,https://app-munaretto-sand.vercel.app"
+        value: "https://app-munaretto-sand.vercel.app"
+      # --- Segredos: defina os valores no painel do Render (não versionar) ---
+      # sync: false evita que o Blueprint sobrescreva valores do painel no deploy.
+      - key: SUPABASE_URL
+        sync: false
+      - key: SUPABASE_KEY
+        sync: false
+      - key: JWT_SECRET
+        sync: false
+      # --- Backblaze B2 (bucket PRIVADO para certificados) ---
+      - key: B2_ENDPOINT
+        sync: false
+      - key: B2_KEY_ID
+        sync: false
+      - key: B2_APPLICATION_KEY
+        sync: false
+      - key: B2_BUCKET_NAME
+        sync: false
+      - key: B2_REGION
+        sync: false

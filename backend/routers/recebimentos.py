@@ -27,6 +27,8 @@ class RecebimentoResponse(RecebimentoCreate):
 def listar_recebimentos(
     data_inicio_de: Optional[str] = Query(None, description="Filtrar registros com data_inicio >= esta data (YYYY-MM-DD)"),
     data_inicio_ate: Optional[str] = Query(None, description="Filtrar registros com data_inicio <= esta data (YYYY-MM-DD)"),
+    limit: Optional[int] = Query(None, ge=1, le=10000, description="Máximo de registros a retornar (paginação)"),
+    offset: Optional[int] = Query(0, ge=0, description="Registros a pular (paginação)"),
     db = Depends(get_supabase)
 ):
     """Lista recebimentos registrados. Suporta filtro por intervalo de data de início."""
@@ -36,7 +38,10 @@ def listar_recebimentos(
             query = query.gte("data_inicio", data_inicio_de)
         if data_inicio_ate:
             query = query.lte("data_inicio", data_inicio_ate)
-        response = query.order("data_inicio", desc=True).execute()
+        query = query.order("data_inicio", desc=True)
+        if limit is not None:
+            query = query.range(offset, offset + limit - 1)
+        response = query.execute()
         return response.data
     except Exception as e:
         logger.exception("Erro ao buscar recebimentos")

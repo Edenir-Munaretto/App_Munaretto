@@ -6,7 +6,7 @@ import secrets
 from typing import List, Optional
 
 from fastapi import APIRouter, HTTPException, Depends, Request
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, EmailStr, Field, field_validator
 from supabase_client import get_supabase, supabase
 from auth import criar_token_acesso, secret_esta_configurada, get_current_user, UsuarioAutenticado, require_permisao, limite_login, obter_ip_cliente
 
@@ -25,9 +25,25 @@ def hash_senha(senha: str) -> str:
     hash_value = hashlib.pbkdf2_hmac(
         "sha256", senha.encode("utf-8"), bytes.fromhex(salt), 100000
     ).hex()
-    return f"{salt}${hash_value}"
+    # Prefixo com algoritmo/iterações permite migração futura (bcrypt/argon2)
+    return f"pbkdf2$sha256$100000${salt}${hash_value}"
 
 def verificar_senha(senha: str, armazenada: str) -> bool:
+    if not armazenada:
+        return False
+    partes = armazenada.split("$")
+    if len(partes) == 5 and partes[0] == "pbkdf2":
+        # Formato novo: pbkdf2$sha256$100000$salt$hash
+        _, _, iteracoes, salt, hash_armazenado = partes
+        try:
+            iteracoes = int(iteracoes)
+        except ValueError:
+            return False
+        hash_calculado = hashlib.pbkdf2_hmac(
+            "sha256", senha.encode("utf-8"), bytes.fromhex(salt), iteracoes
+        ).hex()
+        return hmac.compare_digest(hash_calculado, hash_armazenado)
+    # Formato legado: salt$hash (aceito para compatibilidade com hashes antigos)
     try:
         salt, hash_armazenado = armazenada.split("$")
         hash_calculado = hashlib.pbkdf2_hmac(
@@ -43,14 +59,14 @@ def verificar_senha(senha: str, armazenada: str) -> bool:
 
 class UsuarioCreate(BaseModel):
     nome: str = Field(..., min_length=2, description="Nome do usuário")
-    email: str = Field(..., description="E-mail de acesso")
+    email: EmailStr = Field(..., description="E-mail de acesso")
     senha: str = Field(..., min_length=SENHA_MIN_LENGTH, description=f"Senha de acesso (mínimo {SENHA_MIN_LENGTH} caracteres)")
     permissoes: List[str] = Field(default_factory=list, description="IDs dos módulos acessíveis")
     ativo: bool = True
 
 class UsuarioUpdate(BaseModel):
     nome: str = Field(..., min_length=2)
-    email: str = Field(...)
+    email: EmailStr = Field(...)
     senha: Optional[str] = Field(None, min_length=SENHA_MIN_LENGTH)
     permissoes: List[str] = Field(default_factory=list)
     ativo: bool = True
@@ -74,7 +90,7 @@ class UsuarioResponse(BaseModel):
     created_at: Optional[str] = None
 
 class LoginRequest(BaseModel):
-    email: str = Field(...)
+    email: EmailStr = Field(...)
     senha: str = Field(...)
 
 class LoginResponse(UsuarioResponse):
@@ -233,7 +249,7 @@ def login(credenciais: LoginRequest, request: Request, db = Depends(get_supabase
         ip = obter_ip_cliente(request)
         chave_email = credenciais.email.strip().lower()
 
-        if limite_login.bloqueado(chave_email) or limite_login.bloqueado(ip):
+        if limite_login.bloqueado(chave_email, db=db) or limite_login.bloqueado(ip, db=db):
             raise HTTPException(
                 status_code=429,
                 detail="Muitas tentativas de login. Aguarde um pouco e tente novamente.",
@@ -241,22 +257,22 @@ def login(credenciais: LoginRequest, request: Request, db = Depends(get_supabase
 
         response = db.table("usuarios").select("*").eq("email", credenciais.email).limit(1).execute()
         if not response.data:
-            limite_login.registrar(chave_email)
-            limite_login.registrar(ip)
+            limite_login.registrar(chave_email, db=db)
+            limite_login.registrar(ip, db=db)
             raise HTTPException(status_code=401, detail="E-mail ou senha inválidos.")
 
         user = response.data[0]
         if not verificar_senha(credenciais.senha, user.get("senha", "")):
-            limite_login.registrar(chave_email)
-            limite_login.registrar(ip)
+            limite_login.registrar(chave_email, db=db)
+            limite_login.registrar(ip, db=db)
             raise HTTPException(status_code=401, detail="E-mail ou senha inválidos.")
 
         if not user.get("ativo", True):
             raise HTTPException(status_code=403, detail="Usuário inativo. Contate o administrador.")
 
         # Login bem-sucedido: zera os contadores do usuário e do IP
-        limite_login.restaurar(chave_email)
-        limite_login.restaurar(ip)
+        limite_login.restaurar(chave_email, db=db)
+        limite_login.restaurar(ip, db=db)
 
         token = criar_token_acesso(user["id"], user["email"])
         return {**_user_sem_senha(user), "token": token}
@@ -304,6 +320,37 @@ def trocar_senha(
     except Exception as e:
         logger.exception("Erro ao trocar senha")
         raise HTTPException(status_code=500, detail="Erro ao trocar senha")
+
+
+@router.post("/refresh", response_model=LoginResponse)
+def renovar_sessao(
+    usuario: UsuarioAutenticado = Depends(get_current_user),
+    db=Depends(get_supabase),
+):
+    """Renova a sessão emitindo um novo token para o usuário autenticado.
+
+    Requer um token válido (o `get_current_user` já o valida). Usado pelo
+    frontend pouco antes da expiração para evitar deslogar o usuário.
+    """
+    try:
+        if not secret_esta_configurada():
+            raise HTTPException(
+                status_code=500,
+                detail="Servidor mal configurado: JWT_SECRET não definido. Contate o administrador.",
+            )
+        response = db.table("usuarios").select("*").eq("id", usuario.id).limit(1).execute()
+        if not response.data:
+            raise HTTPException(status_code=404, detail="Usuário não encontrado.")
+        user = response.data[0]
+        if not user.get("ativo", True):
+            raise HTTPException(status_code=403, detail="Usuário inativo. Contate o administrador.")
+        token = criar_token_acesso(user["id"], user["email"])
+        return {**_user_sem_senha(user), "token": token}
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.exception("Erro ao renovar sessão")
+        raise HTTPException(status_code=500, detail="Erro ao renovar sessão")
 
 
 # Garante a existência de um usuário admin padrão no primeiro acesso

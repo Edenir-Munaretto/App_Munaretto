@@ -31,7 +31,8 @@ import Sst from './pages/Sst';
 import Configuracoes from './pages/Configuracoes';
 import Login from './pages/Login';
 import { MODULOS } from './modules';
-import { API_URL, apiFetch, getToken, setToken, clearToken } from './api';
+import { API_URL, apiFetch, getToken, setToken, clearToken, segundosAteExpiracao, renovarSessao } from './api';
+import ModalConfirmacao from './components/ModalConfirmacao';
 
 const ICONES = {
   dashboard: LayoutDashboard,
@@ -106,6 +107,8 @@ function App() {
   const [notificacoes, setNotificacoes] = useState([]);
   const [notifErro, setNotifErro] = useState('');
   const [showNotifPanel, setShowNotifPanel] = useState(false);
+  const [notifExcluir, setNotifExcluir] = useState(null); // id da notificação a excluir
+  const [excluindoNotif, setExcluindoNotif] = useState(false);
   const [usuario, setUsuario] = useState(() => {
     try {
       return JSON.parse(localStorage.getItem('munaretto_usuario') || 'null');
@@ -114,6 +117,47 @@ function App() {
     }
   });
   const [sessaoExpirada, setSessaoExpirada] = useState(false);
+  const [segundosRestantes, setSegundosRestantes] = useState(null);
+  const [renovando, setRenovando] = useState(false);
+
+  // Monitora a expiração do token e avisa 10 minutos antes (item 3.3 do plano).
+  useEffect(() => {
+    if (!getToken()) return;
+    const atualizarTempo = () => {
+      const seg = segundosAteExpiracao();
+      if (seg <= 0) return; // expirou: o apiFetch já trata com 401
+      setSegundosRestantes(seg);
+    };
+    atualizarTempo();
+    const interval = setInterval(atualizarTempo, 15000); // a cada 15s
+    return () => clearInterval(interval);
+  }, [usuario]);
+
+  const handleRenovarSessao = async () => {
+    if (renovando) return;
+    setRenovando(true);
+    try {
+      const resultado = await renovarSessao();
+      if (resultado.ok) {
+        const dados = resultado.data;
+        const { token, ...dadosUsuario } = dados;
+        localStorage.setItem('munaretto_usuario', JSON.stringify(dadosUsuario));
+        setUsuario(dadosUsuario);
+        setSegundosRestantes(segundosAteExpiracao());
+      } else {
+        setSessaoExpirada(true);
+        setUsuario(null);
+        clearToken();
+        localStorage.removeItem('munaretto_usuario');
+      }
+    } catch (err) {
+      console.error('Erro ao renovar sessão:', err);
+    } finally {
+      setRenovando(false);
+    }
+  };
+
+  const avisoExpiracao = segundosRestantes != null && segundosRestantes > 0 && segundosRestantes <= 600;
 
   // Encerra a sessão automaticamente quando o token expira (401)
   useEffect(() => {
@@ -214,8 +258,9 @@ function App() {
   };
 
   const excluirNotif = async (id) => {
-    if (!window.confirm('Excluir esta notificação?')) return;
+    if (id == null) return;
     try {
+      setExcluindoNotif(true);
       const res = await apiFetch(`${API_URL}/notificacoes/${id}`, { method: 'DELETE' });
       if (res.ok) {
         setNotificacoes(prev => prev.filter(n => n.id !== id));
@@ -225,6 +270,9 @@ function App() {
     } catch (err) {
       console.error('Erro ao excluir notificação:', err);
       mostrarNotifErro('Erro de conexão ao excluir a notificação.');
+    } finally {
+      setExcluindoNotif(false);
+      setNotifExcluir(null);
     }
   };
 
@@ -409,7 +457,33 @@ function App() {
 
       {/* MAIN CONTENT AREA */}
       <main className="flex-1 flex flex-col overflow-hidden">
-        
+
+        {/* Aviso de sessão prestes a expirar */}
+        {avisoExpiracao && (
+          <div className="bg-amber-50 border-b border-amber-200 px-4 md:px-6 py-2.5 flex items-center justify-between gap-3">
+            <p className="text-xs font-semibold text-amber-800 flex items-center gap-2">
+              <span>⏰</span>
+              Sua sessão expira em{' '}
+              <span className="font-bold">{Math.ceil(segundosRestantes / 60)} minuto(s)</span>.
+              Clique em "Renovar sessão" para continuar sem perder o que está fazendo.
+            </p>
+            <button
+              onClick={handleRenovarSessao}
+              disabled={renovando}
+              className="px-3 py-1.5 bg-amber-600 hover:bg-amber-700 text-white text-xs font-bold rounded-lg transition-all cursor-pointer disabled:opacity-50 flex items-center gap-1.5 shrink-0"
+            >
+              {renovando ? (
+                <>
+                  <span className="w-3 h-3 border-2 border-white border-t-transparent rounded-full animate-spin" />
+                  Renovando...
+                </>
+              ) : (
+                'Renovar sessão'
+              )}
+            </button>
+          </div>
+        )}
+
         {/* HEADER */}
         <header className="h-16 bg-white border-b border-slate-200 flex items-center justify-between px-4 md:px-6 z-10">
           
@@ -506,7 +580,7 @@ function App() {
                               </button>
                             )}
                             <button
-                              onClick={(e) => { e.stopPropagation(); excluirNotif(n.id); }}
+                              onClick={(e) => { e.stopPropagation(); setNotifExcluir(n.id); }}
                               className="p-1.5 rounded-lg text-slate-300 hover:text-rose-600 hover:bg-rose-50 transition-colors shrink-0 cursor-pointer"
                               title="Excluir notificação"
                             >
@@ -610,6 +684,16 @@ function App() {
         </div>
       </main>
       </div>
+
+      {/* Modal de confirmação de exclusão de notificação */}
+      <ModalConfirmacao
+        aberto={notifExcluir != null}
+        titulo="Excluir notificação"
+        mensagem="Tem certeza que deseja excluir esta notificação? Esta ação não pode ser desfeita."
+        loading={excluindoNotif}
+        onConfirmar={() => excluirNotif(notifExcluir)}
+        onCancelar={() => setNotifExcluir(null)}
+      />
     </ErrorBoundary>
   );
 }

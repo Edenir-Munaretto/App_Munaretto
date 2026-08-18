@@ -1,6 +1,7 @@
 ﻿import React, { useState, useEffect } from 'react';
-import { Search, Plus, Edit2, Trash2, Check, AlertTriangle, Users } from 'lucide-react';
+import { Search, Plus, Edit2, Trash2, Check, AlertTriangle, Users, ChevronLeft, ChevronRight } from 'lucide-react';
 import { API_URL, apiFetch, erroDaResposta } from '../api';
+import ModalConfirmacao from '../components/ModalConfirmacao';
 
 function Clientes() {
   const [clientes, setClientes] = useState([]);
@@ -11,6 +12,7 @@ function Clientes() {
   // Modal State
   const [showModal, setShowModal] = useState(false);
   const [editingId, setEditingId] = useState(null);
+  const [submitting, setSubmitting] = useState(false);
   const [formData, setFormData] = useState({
     nome: '',
     cpf_cnpj: '',
@@ -21,6 +23,14 @@ function Clientes() {
     valor_da_obra: '',
     valor_de_devolucao: ''
   });
+
+  // Exclusão com confirmação customizada
+  const [excluindo, setExcluindo] = useState(null); // { id, nome }
+  const [deleting, setDeleting] = useState(false);
+
+  // Paginação visual (50 por página)
+  const REGISTROS_POR_PAGINA = 50;
+  const [paginaAtual, setPaginaAtual] = useState(1);
 
   useEffect(() => {
     fetchClientes();
@@ -91,6 +101,7 @@ function Clientes() {
     }
 
     try {
+      setSubmitting(true);
       const method = editingId ? 'PUT' : 'POST';
       const url = editingId ? `${API_URL}/clientes/${editingId}` : `${API_URL}/clientes/`;
 
@@ -112,14 +123,16 @@ function Clientes() {
     } catch (err) {
       console.error(err);
       showToast('Erro ao salvar cliente.', 'error');
+    } finally {
+      setSubmitting(false);
     }
   };
 
-  const handleDelete = async (id, nome) => {
-    if (!window.confirm(`Tem certeza que deseja inativar o cliente "${nome}"?`)) return;
-
+  const handleDelete = async () => {
+    if (!excluindo) return;
     try {
-      const res = await apiFetch(`${API_URL}/clientes/${id}`, { method: 'DELETE' });
+      setDeleting(true);
+      const res = await apiFetch(`${API_URL}/clientes/${excluindo.id}`, { method: 'DELETE' });
       if (res.ok) {
         showToast('Cliente excluído com sucesso.');
         fetchClientes();
@@ -129,8 +142,23 @@ function Clientes() {
     } catch (err) {
       console.error(err);
       showToast('Erro de conexão ao excluir cliente.', 'error');
+    } finally {
+      setDeleting(false);
+      setExcluindo(null);
     }
   };
+
+  // Paginação visual
+  const totalPaginas = Math.max(1, Math.ceil(clientes.length / REGISTROS_POR_PAGINA));
+  const paginaAtualSegura = Math.min(paginaAtual, totalPaginas);
+  const clientesPagina = clientes.slice(
+    (paginaAtualSegura - 1) * REGISTROS_POR_PAGINA,
+    paginaAtualSegura * REGISTROS_POR_PAGINA
+  );
+
+  useEffect(() => {
+    setPaginaAtual(1);
+  }, [busca]);
 
   return (
     <div className="space-y-6 relative">
@@ -209,7 +237,7 @@ function Clientes() {
                   </td>
                 </tr>
               ) : (
-                clientes.map((c) => (
+                clientesPagina.map((c) => (
                   <tr key={c.id} className="hover:bg-slate-50/50 transition-colors">
                     <td className="px-3 py-3 md:px-6 md:py-4 font-bold text-slate-900">{c.nome}</td>
                     <td className="px-3 py-3 md:px-6 md:py-4 font-mono text-xs">{c.cpf_cnpj}</td>
@@ -226,7 +254,7 @@ function Clientes() {
                           <Edit2 size={15} />
                         </button>
                         <button
-                          onClick={() => handleDelete(c.id, c.nome)}
+                          onClick={() => setExcluindo({ id: c.id, nome: c.nome })}
                           className="p-2 rounded bg-slate-50 hover:bg-rose-50 text-slate-500 hover:text-rose-700 border border-slate-100 transition-colors"
                           title="Excluir"
                         >
@@ -241,6 +269,37 @@ function Clientes() {
           </table>
         </div>
       </div>
+
+      {/* Paginação */}
+      {!loading && clientes.length > REGISTROS_POR_PAGINA && (
+        <div className="flex flex-col sm:flex-row items-center justify-between gap-3 bg-white p-4 rounded-2xl border border-slate-100 shadow-sm">
+          <p className="text-xs text-slate-500 font-semibold">
+            Mostrando {((paginaAtualSegura - 1) * REGISTROS_POR_PAGINA) + 1}–
+            {Math.min(paginaAtualSegura * REGISTROS_POR_PAGINA, clientes.length)} de {clientes.length} cliente(s)
+          </p>
+          <div className="flex items-center gap-2">
+            <button
+              onClick={() => setPaginaAtual(p => Math.max(1, p - 1))}
+              disabled={paginaAtualSegura === 1}
+              className="px-3 py-1.5 border border-slate-200 rounded-xl text-xs font-bold text-slate-600 hover:bg-slate-50 transition-all cursor-pointer disabled:opacity-40 flex items-center gap-1"
+            >
+              <ChevronLeft size={14} />
+              Anterior
+            </button>
+            <span className="text-xs font-bold text-slate-600 px-2">
+              {paginaAtualSegura} / {totalPaginas}
+            </span>
+            <button
+              onClick={() => setPaginaAtual(p => Math.min(totalPaginas, p + 1))}
+              disabled={paginaAtualSegura === totalPaginas}
+              className="px-3 py-1.5 border border-slate-200 rounded-xl text-xs font-bold text-slate-600 hover:bg-slate-50 transition-all cursor-pointer disabled:opacity-40 flex items-center gap-1"
+            >
+              Próximo
+              <ChevronRight size={14} />
+            </button>
+          </div>
+        </div>
+      )}
 
       {/* CRUD MODAL */}
       {showModal && (
@@ -395,9 +454,17 @@ function Clientes() {
                 </button>
                 <button
                   type="submit"
-                  className="px-5 py-2 bg-primary-600 text-white rounded-xl text-sm font-semibold hover:bg-primary-700 transition-all shadow-md shadow-primary-900/10 cursor-pointer"
+                  disabled={submitting}
+                  className="px-5 py-2 bg-primary-600 text-white rounded-xl text-sm font-semibold hover:bg-primary-700 transition-all shadow-md shadow-primary-900/10 cursor-pointer disabled:opacity-50 flex items-center gap-2"
                 >
-                  {editingId ? 'Salvar Alterações' : 'Cadastrar Cliente'}
+                  {submitting ? (
+                    <>
+                      <span className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />
+                      Salvando...
+                    </>
+                  ) : (
+                    editingId ? 'Salvar Alterações' : 'Cadastrar Cliente'
+                  )}
                 </button>
               </div>
 
@@ -406,6 +473,16 @@ function Clientes() {
           </div>
         </div>
       )}
+
+      {/* Modal de confirmação de exclusão */}
+      <ModalConfirmacao
+        aberto={excluindo != null}
+        titulo="Inativar cliente"
+        mensagem={excluindo ? `Tem certeza que deseja inativar o cliente "${excluindo.nome}"? Esta ação não pode ser desfeita.` : ''}
+        loading={deleting}
+        onConfirmar={handleDelete}
+        onCancelar={() => setExcluindo(null)}
+      />
 
     </div>
   );
