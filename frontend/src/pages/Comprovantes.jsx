@@ -951,10 +951,7 @@ function ModalLancamento({ aberto, comprovante, onFechar, onSalvo, mostrarToast 
 
   const handleInputChange = (e) => {
     const { name, value } = e.target;
-    setFormData(prev => ({
-      ...prev,
-      [name]: NUMERIC_FIELDS.includes(name) ? parseFloat(value) || 0 : value
-    }));
+    setFormData(prev => ({ ...prev, [name]: value }));
     setErros(prev => {
       if (!(name in prev)) return prev;
       const novos = { ...prev };
@@ -990,7 +987,14 @@ function ModalLancamento({ aberto, comprovante, onFechar, onSalvo, mostrarToast 
 
     const dataSanitizada = {};
     Object.keys(formData).forEach(key => {
-      dataSanitizada[key] = formData[key] === "" ? null : formData[key];
+      let v = formData[key];
+      if (NUMERIC_FIELDS.includes(key)) {
+        const num = parseFloat(String(v).replace(',', '.'));
+        v = isNaN(num) ? 0 : num;
+      } else {
+        v = v === "" ? null : v;
+      }
+      dataSanitizada[key] = v;
     });
 
     const payload = {
