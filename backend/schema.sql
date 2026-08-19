@@ -273,6 +273,50 @@ CREATE INDEX IF NOT EXISTS idx_aso_funcionario ON aso (funcionario_id);
 CREATE INDEX IF NOT EXISTS idx_fepi_funcionario ON funcionario_epis (funcionario_id);
 
 -- ============================================================================
+-- MÓDULO: MANUTENÇÃO
+-- ============================================================================
+-- Controle da frota: cadastro de veículos (modelo e placa), acompanhamento
+-- individual de manutenções (o que foi feito, em qual data e em qual oficina)
+-- e lista de equipamentos de cada veículo (checklist).
+
+-- TABELA: veiculos (cadastro da frota)
+CREATE TABLE IF NOT EXISTS veiculos (
+    id SERIAL PRIMARY KEY,
+    modelo VARCHAR(255) NOT NULL,
+    placa VARCHAR(20) NOT NULL UNIQUE,
+    observacao TEXT,
+    ativo BOOLEAN DEFAULT TRUE,
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+);
+
+-- TABELA: manutencoes (histórico de serviços por veículo)
+CREATE TABLE IF NOT EXISTS manutencoes (
+    id SERIAL PRIMARY KEY,
+    veiculo_id INTEGER NOT NULL REFERENCES veiculos(id) ON DELETE CASCADE,
+    tipo VARCHAR(100) NOT NULL,          -- Manutenção | Troca de pneus | Revisão | etc.
+    descricao TEXT,                      -- o que foi feito
+    data_servico DATE NOT NULL,
+    oficina VARCHAR(255),
+    valor NUMERIC(12, 2) DEFAULT 0.00,
+    km_odometro INTEGER,
+    observacao TEXT,
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+);
+
+-- TABELA: veiculo_equipamentos (checklist de equipamentos por veículo)
+CREATE TABLE IF NOT EXISTS veiculo_equipamentos (
+    id SERIAL PRIMARY KEY,
+    veiculo_id INTEGER NOT NULL REFERENCES veiculos(id) ON DELETE CASCADE,
+    equipamento VARCHAR(255) NOT NULL,   -- ex.: macaco, estepe, triângulo, extintor...
+    quantidade INTEGER DEFAULT 1,
+    observacao TEXT,
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE INDEX IF NOT EXISTS idx_manutencao_veiculo ON manutencoes (veiculo_id);
+CREATE INDEX IF NOT EXISTS idx_vequi_veiculo ON veiculo_equipamentos (veiculo_id);
+
+-- ============================================================================
 -- ROW LEVEL SECURITY (RLS)
 -- ============================================================================
 -- O backend acessa o Supabase com a chave de service role, que por definição
@@ -307,6 +351,9 @@ ALTER TABLE IF EXISTS funcionario_treinamentos ENABLE ROW LEVEL SECURITY;
 ALTER TABLE IF EXISTS aso                ENABLE ROW LEVEL SECURITY;
 ALTER TABLE IF EXISTS epis               ENABLE ROW LEVEL SECURITY;
 ALTER TABLE IF EXISTS funcionario_epis   ENABLE ROW LEVEL SECURITY;
+ALTER TABLE IF EXISTS veiculos           ENABLE ROW LEVEL SECURITY;
+ALTER TABLE IF EXISTS manutencoes        ENABLE ROW LEVEL SECURITY;
+ALTER TABLE IF EXISTS veiculo_equipamentos ENABLE ROW LEVEL SECURITY;
 
 -- ============================================================================
 -- POLÍTICAS RLS PARA service_role
@@ -380,6 +427,18 @@ CREATE POLICY "service_role_full_epis" ON epis
 
 DROP POLICY IF EXISTS "service_role_full_funcionario_epis" ON funcionario_epis;
 CREATE POLICY "service_role_full_funcionario_epis" ON funcionario_epis
+    FOR ALL TO service_role USING (true) WITH CHECK (true);
+
+DROP POLICY IF EXISTS "service_role_full_veiculos" ON veiculos;
+CREATE POLICY "service_role_full_veiculos" ON veiculos
+    FOR ALL TO service_role USING (true) WITH CHECK (true);
+
+DROP POLICY IF EXISTS "service_role_full_manutencoes" ON manutencoes;
+CREATE POLICY "service_role_full_manutencoes" ON manutencoes
+    FOR ALL TO service_role USING (true) WITH CHECK (true);
+
+DROP POLICY IF EXISTS "service_role_full_veiculo_equipamentos" ON veiculo_equipamentos;
+CREATE POLICY "service_role_full_veiculo_equipamentos" ON veiculo_equipamentos
     FOR ALL TO service_role USING (true) WITH CHECK (true);
 
 -- ============================================================================

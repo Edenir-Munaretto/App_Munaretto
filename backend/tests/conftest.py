@@ -56,6 +56,9 @@ def _montar_dados_banco():
         "epis": [],
         "funcionario_epis": [],
         "certificados": [],
+        "veiculos": [],
+        "manutencoes": [],
+        "veiculo_equipamentos": [],
         "login_tentativas": [],
     }
 
@@ -96,6 +99,30 @@ def sst_client(client, db_fake):
     resp = client.post(
         "/api/usuarios/login",
         json={"email": "sst@munaretto.com", "senha": "senhaSST123"},
+    )
+    assert resp.status_code == 200, resp.text
+    token = resp.json()["token"]
+    client.headers.update({"Authorization": f"Bearer {token}"})
+    return client
+
+
+@pytest.fixture
+def manutencao_client(client, db_fake):
+    """Cliente autenticado com permissão de módulo 'manutencao'."""
+    db_fake._dados["usuarios"].append(
+        {
+            "id": 88,
+            "nome": "Frota",
+            "email": "frota@munaretto.com",
+            "senha": _hash_senha("senhaFrota123"),
+            "permissoes": ["manutencao"],
+            "ativo": True,
+            "precisa_trocar_senha": False,
+        }
+    )
+    resp = client.post(
+        "/api/usuarios/login",
+        json={"email": "frota@munaretto.com", "senha": "senhaFrota123"},
     )
     assert resp.status_code == 200, resp.text
     token = resp.json()["token"]

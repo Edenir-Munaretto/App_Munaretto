@@ -16,6 +16,7 @@ import {
   ShieldCheck,
   Check,
   Trash2,
+  Wrench,
 } from 'lucide-react';
 
 // Importando as páginas
@@ -27,6 +28,7 @@ import FluxoCaixa from './pages/FluxoCaixa';
 import GeradorDocumentos from './pages/GeradorDocumentos';
 import Comprovantes from './pages/Comprovantes';
 import Recebimentos from './pages/Recebimentos';
+import Manutencao from './pages/Manutencao';
 import Sst from './pages/Sst';
 import Configuracoes from './pages/Configuracoes';
 import Login from './pages/Login';
@@ -43,6 +45,7 @@ const ICONES = {
   documentos: FileText,
   comprovantes: Receipt,
   recebimentos: Banknote,
+  manutencao: Wrench,
   sst: ShieldCheck,
   configuracoes: Settings,
 };
@@ -56,6 +59,7 @@ const COMPONENTES = {
   documentos: GeradorDocumentos,
   comprovantes: Comprovantes,
   recebimentos: Recebimentos,
+  manutencao: Manutencao,
   sst: Sst,
   configuracoes: Configuracoes,
 };
