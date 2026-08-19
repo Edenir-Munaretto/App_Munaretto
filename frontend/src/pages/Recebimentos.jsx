@@ -524,7 +524,7 @@ function Recebimentos() {
 
       {/* Tabela */}
       <div className="bg-white rounded-2xl border border-slate-100 shadow-sm overflow-hidden print-full-width">
-        <div className="overflow-x-auto">
+        <div className="hidden md:block overflow-x-auto">
           <table className="w-full text-left border-collapse text-sm">
             <thead>
               <tr className="bg-slate-50 border-b border-slate-100 text-slate-400 font-bold text-xs uppercase tracking-wider">
@@ -582,14 +582,14 @@ function Recebimentos() {
                         <div className="flex justify-center items-center gap-2">
                           <button
                             onClick={() => openEditModal(r)}
-                            className="p-2 rounded bg-slate-50 hover:bg-amber-50 text-slate-500 hover:text-amber-700 border border-slate-100 transition-colors"
+                            className="w-11 h-11 flex items-center justify-center p-0 rounded bg-slate-50 hover:bg-amber-50 text-slate-500 hover:text-amber-700 border border-slate-100 transition-colors"
                             title="Editar"
                           >
                             <Edit2 size={15} />
                           </button>
                           <button
                             onClick={() => setExcluindo({ id: r.id, nome: r.nome_cliente })}
-                            className="p-2 rounded bg-slate-50 hover:bg-rose-50 text-slate-500 hover:text-rose-700 border border-slate-100 transition-colors"
+                            className="w-11 h-11 flex items-center justify-center p-0 rounded bg-slate-50 hover:bg-rose-50 text-slate-500 hover:text-rose-700 border border-slate-100 transition-colors"
                             title="Excluir"
                           >
                             <Trash2 size={15} />
@@ -602,6 +602,82 @@ function Recebimentos() {
               )}
             </tbody>
           </table>
+        </div>
+
+        {/* Lista em cartões (mobile) */}
+        <div className="md:hidden divide-y divide-slate-100">
+          {loading ? (
+            <div className="flex flex-col items-center justify-center gap-3 py-12">
+              <div className="w-8 h-8 border-4 border-primary-500 border-t-transparent rounded-full animate-spin" />
+              <p className="text-xs">Carregando recebimentos...</p>
+            </div>
+          ) : filteredRecebimentos.length === 0 ? (
+            <div className="text-center py-12 text-slate-400">
+              <span className="text-3xl">💰</span>
+              <p className="font-semibold mt-2">Nenhum recebimento encontrado.</p>
+              <p className="text-xs mt-1">Cadastre um novo recebimento no botão acima.</p>
+            </div>
+          ) : (
+            recebimentosPagina.map((r) => {
+              const pag = (parseFloat(r.valor_da_obra) || 0) - (parseFloat(r.valor_de_devolucao) || 0);
+              return (
+                <div key={r.id} className="px-4 py-3">
+                  <div className="flex items-center justify-between gap-3">
+                    <p className="font-bold text-slate-900 text-sm truncate min-w-0 flex-1">{r.nome_cliente}</p>
+                    <span className={`shrink-0 inline-block px-2.5 py-1 rounded-full text-[10px] font-bold border ${
+                      r.cessao === 'sim'
+                        ? 'bg-emerald-50 text-emerald-700 border-emerald-100'
+                        : 'bg-slate-50 text-slate-500 border-slate-200'
+                    }`}>
+                      {r.cessao === 'sim' ? 'Sim' : 'Não'}
+                    </span>
+                  </div>
+                  <div className="grid grid-cols-2 gap-x-3 gap-y-1 mt-2 text-xs">
+                    <div>
+                      <span className="block text-[9px] text-slate-400 font-bold uppercase tracking-wider">Data Início</span>
+                      <span className="text-slate-700">{formatDate(r.data_inicio)}</span>
+                    </div>
+                    <div>
+                      <span className="block text-[9px] text-slate-400 font-bold uppercase tracking-wider">Emissão NF</span>
+                      <span className="text-slate-700">{formatDate(r.emissao_nf)}</span>
+                    </div>
+                    <div>
+                      <span className="block text-[9px] text-slate-400 font-bold uppercase tracking-wider">Valor da Obra</span>
+                      <span className="font-semibold text-slate-800">{formatCurrency(r.valor_da_obra)}</span>
+                    </div>
+                    <div>
+                      <span className="block text-[9px] text-slate-400 font-bold uppercase tracking-wider">Valor Devolução</span>
+                      <span className="text-amber-600 font-semibold">{formatCurrency(r.valor_de_devolucao)}</span>
+                    </div>
+                    <div>
+                      <span className="block text-[9px] text-slate-400 font-bold uppercase tracking-wider">Pag. Cliente</span>
+                      <span className="text-emerald-600 font-bold">{formatCurrency(pag)}</span>
+                    </div>
+                    <div>
+                      <span className="block text-[9px] text-slate-400 font-bold uppercase tracking-wider">Nota PS</span>
+                      <span className="text-slate-700">{r.nota_ps || '-'}</span>
+                    </div>
+                  </div>
+                  <div className="flex items-center justify-end gap-2 mt-3">
+                    <button
+                      onClick={() => openEditModal(r)}
+                      className="w-11 h-11 flex items-center justify-center rounded bg-slate-50 hover:bg-amber-50 text-slate-500 hover:text-amber-700 border border-slate-100 transition-colors"
+                      title="Editar"
+                    >
+                      <Edit2 size={15} />
+                    </button>
+                    <button
+                      onClick={() => setExcluindo({ id: r.id, nome: r.nome_cliente })}
+                      className="w-11 h-11 flex items-center justify-center rounded bg-slate-50 hover:bg-rose-50 text-slate-500 hover:text-rose-700 border border-slate-100 transition-colors"
+                      title="Excluir"
+                    >
+                      <Trash2 size={15} />
+                    </button>
+                  </div>
+                </div>
+              );
+            })
+          )}
         </div>
       </div>
 
@@ -617,7 +693,7 @@ function Recebimentos() {
             <button
               onClick={() => setPaginaAtual(p => Math.max(1, p - 1))}
               disabled={paginaAtualSegura === 1}
-              className="px-3 py-1.5 border border-slate-200 rounded-xl text-xs font-bold text-slate-600 hover:bg-slate-50 transition-all cursor-pointer disabled:opacity-40 flex items-center gap-1"
+              className="px-3 py-1.5 min-h-11 border border-slate-200 rounded-xl text-xs font-bold text-slate-600 hover:bg-slate-50 transition-all cursor-pointer disabled:opacity-40 flex items-center gap-1"
             >
               <ChevronLeft size={14} />
               Anterior
@@ -628,7 +704,7 @@ function Recebimentos() {
             <button
               onClick={() => setPaginaAtual(p => Math.min(totalPaginas, p + 1))}
               disabled={paginaAtualSegura === totalPaginas}
-              className="px-3 py-1.5 border border-slate-200 rounded-xl text-xs font-bold text-slate-600 hover:bg-slate-50 transition-all cursor-pointer disabled:opacity-40 flex items-center gap-1"
+              className="px-3 py-1.5 min-h-11 border border-slate-200 rounded-xl text-xs font-bold text-slate-600 hover:bg-slate-50 transition-all cursor-pointer disabled:opacity-40 flex items-center gap-1"
             >
               Próximo
               <ChevronRight size={14} />

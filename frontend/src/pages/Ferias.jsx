@@ -1,4 +1,4 @@
-﻿import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { Calendar, Search, Trash2, ShieldAlert, Plus, Check, X, AlertTriangle, Clock } from 'lucide-react';
 import { API_URL, apiFetch, erroDaResposta } from '../api';
 
@@ -507,14 +507,14 @@ function Ferias({ fetchAlerts, fetchNotifications, usuarioAtual }) {
                         <>
                           <button
                             onClick={() => handleConfirm(r)}
-                            className="flex items-center gap-1 px-2.5 py-1.5 text-[10px] font-bold bg-emerald-50 hover:bg-emerald-100 text-emerald-700 border border-emerald-200 rounded-lg transition-colors"
+                            className="flex items-center gap-1 px-2.5 py-1.5 min-h-11 text-[10px] font-bold bg-emerald-50 hover:bg-emerald-100 text-emerald-700 border border-emerald-200 rounded-lg transition-colors"
                             title="Confirmar agendamento (mover para a aba principal)"
                           >
                             <Check size={11} /> Confirmar
                           </button>
                           <button
                             onClick={() => handleStatusChange(r.id, 'Cancelado')}
-                            className="px-2.5 py-1.5 text-[10px] font-bold bg-slate-50 hover:bg-slate-100 text-slate-500 border border-slate-200 rounded-lg transition-colors"
+                            className="px-2.5 py-1.5 min-h-11 text-[10px] font-bold bg-slate-50 hover:bg-slate-100 text-slate-500 border border-slate-200 rounded-lg transition-colors"
                             title="Cancelar esta programação"
                           >
                             Cancelar
@@ -525,14 +525,14 @@ function Ferias({ fetchAlerts, fetchNotifications, usuarioAtual }) {
                         <>
                           <button
                             onClick={() => handleStatusChange(r.id, 'Gozadas')}
-                            className="flex items-center gap-1 px-2.5 py-1.5 text-[10px] font-bold bg-emerald-50 hover:bg-emerald-100 text-emerald-700 border border-emerald-200 rounded-lg transition-colors"
+                            className="flex items-center gap-1 px-2.5 py-1.5 min-h-11 text-[10px] font-bold bg-emerald-50 hover:bg-emerald-100 text-emerald-700 border border-emerald-200 rounded-lg transition-colors"
                             title="Marcar como Gozadas"
                           >
                             <Check size={11} /> Concluir
                           </button>
                           <button
                             onClick={() => handleStatusChange(r.id, 'Cancelado')}
-                            className="px-2.5 py-1.5 text-[10px] font-bold bg-slate-50 hover:bg-slate-100 text-slate-500 border border-slate-200 rounded-lg transition-colors"
+                            className="px-2.5 py-1.5 min-h-11 text-[10px] font-bold bg-slate-50 hover:bg-slate-100 text-slate-500 border border-slate-200 rounded-lg transition-colors"
                             title="Marcar como Cancelado"
                           >
                             Cancelar
@@ -541,7 +541,7 @@ function Ferias({ fetchAlerts, fetchNotifications, usuarioAtual }) {
                       )}
                       <button
                         onClick={() => handleDelete(r.id, r.nome)}
-                        className="p-1.5 rounded bg-slate-50 hover:bg-rose-50 text-slate-400 hover:text-rose-700 border border-slate-100 transition-colors"
+                        className="w-11 h-11 flex items-center justify-center p-0 rounded bg-slate-50 hover:bg-rose-50 text-slate-400 hover:text-rose-700 border border-slate-100 transition-colors"
                         title="Deletar"
                       >
                         <Trash2 size={13} />

@@ -1,4 +1,4 @@
-﻿import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect } from 'react';
 import { Search, Plus, Edit2, Trash2, Check, AlertTriangle, Users, ChevronLeft, ChevronRight } from 'lucide-react';
 import { API_URL, apiFetch, erroDaResposta } from '../api';
 import ModalConfirmacao from '../components/ModalConfirmacao';
@@ -206,7 +206,7 @@ function Clientes() {
 
       {/* List / Table */}
       <div className="bg-white rounded-2xl border border-slate-100 shadow-sm overflow-hidden">
-        <div className="overflow-x-auto">
+        <div className="hidden md:block overflow-x-auto">
           <table className="w-full text-left border-collapse text-sm">
             <thead>
               <tr className="bg-slate-50 border-b border-slate-100 text-slate-400 font-bold text-xs uppercase tracking-wider">
@@ -248,14 +248,14 @@ function Clientes() {
                       <div className="flex justify-center items-center gap-2">
                         <button
                           onClick={() => openEditModal(c)}
-                          className="p-2 rounded bg-slate-50 hover:bg-amber-50 text-slate-500 hover:text-amber-700 border border-slate-100 transition-colors"
+                          className="w-11 h-11 flex items-center justify-center p-0 rounded bg-slate-50 hover:bg-amber-50 text-slate-500 hover:text-amber-700 border border-slate-100 transition-colors"
                           title="Editar"
                         >
                           <Edit2 size={15} />
                         </button>
                         <button
                           onClick={() => setExcluindo({ id: c.id, nome: c.nome })}
-                          className="p-2 rounded bg-slate-50 hover:bg-rose-50 text-slate-500 hover:text-rose-700 border border-slate-100 transition-colors"
+                          className="w-11 h-11 flex items-center justify-center p-0 rounded bg-slate-50 hover:bg-rose-50 text-slate-500 hover:text-rose-700 border border-slate-100 transition-colors"
                           title="Excluir"
                         >
                           <Trash2 size={15} />
@@ -267,6 +267,56 @@ function Clientes() {
               )}
             </tbody>
           </table>
+        </div>
+
+        {/* Lista em cartões (mobile) */}
+        <div className="md:hidden divide-y divide-slate-100">
+          {loading ? (
+            <div className="flex flex-col items-center justify-center gap-3 py-12">
+              <div className="w-8 h-8 border-4 border-primary-500 border-t-transparent rounded-full animate-spin" />
+              <p className="text-xs">Buscando clientes...</p>
+            </div>
+          ) : clientes.length === 0 ? (
+            <div className="text-center py-12 text-slate-400">
+              <Users className="mx-auto mb-3 text-slate-300" size={40} />
+              <p className="font-semibold mt-2">Nenhum cliente ativo encontrado.</p>
+              <p className="text-xs mt-1">Cadastre um novo cliente no botão acima para iniciar.</p>
+            </div>
+          ) : (
+            clientesPagina.map((c) => (
+              <div key={c.id} className="px-4 py-3 flex items-center justify-between gap-3">
+                <div className="min-w-0 flex-1">
+                  <p className="font-bold text-slate-900 text-sm truncate">{c.nome}</p>
+                  <p className="font-mono text-xs text-slate-500 mt-0.5">{c.cpf_cnpj}</p>
+                  {c.endereco && (
+                    <p className="text-xs text-slate-600 mt-1 truncate">{c.endereco}</p>
+                  )}
+                  <div className="flex flex-wrap items-center gap-x-3 gap-y-1 mt-1.5 text-xs">
+                    {c.cidade && <span className="text-slate-500">📍 {c.cidade}</span>}
+                    <span className="text-emerald-600 font-semibold">
+                      {c.valor_da_obra ? `R$ ${c.valor_da_obra}` : '-'}
+                    </span>
+                  </div>
+                </div>
+                <div className="flex items-center gap-2 shrink-0">
+                  <button
+                    onClick={() => openEditModal(c)}
+                    className="w-11 h-11 flex items-center justify-center rounded bg-slate-50 hover:bg-amber-50 text-slate-500 hover:text-amber-700 border border-slate-100 transition-colors"
+                    title="Editar"
+                  >
+                    <Edit2 size={15} />
+                  </button>
+                  <button
+                    onClick={() => setExcluindo({ id: c.id, nome: c.nome })}
+                    className="w-11 h-11 flex items-center justify-center rounded bg-slate-50 hover:bg-rose-50 text-slate-500 hover:text-rose-700 border border-slate-100 transition-colors"
+                    title="Excluir"
+                  >
+                    <Trash2 size={15} />
+                  </button>
+                </div>
+              </div>
+            ))
+          )}
         </div>
       </div>
 
@@ -281,7 +331,7 @@ function Clientes() {
             <button
               onClick={() => setPaginaAtual(p => Math.max(1, p - 1))}
               disabled={paginaAtualSegura === 1}
-              className="px-3 py-1.5 border border-slate-200 rounded-xl text-xs font-bold text-slate-600 hover:bg-slate-50 transition-all cursor-pointer disabled:opacity-40 flex items-center gap-1"
+              className="px-3 py-1.5 min-h-11 border border-slate-200 rounded-xl text-xs font-bold text-slate-600 hover:bg-slate-50 transition-all cursor-pointer disabled:opacity-40 flex items-center gap-1"
             >
               <ChevronLeft size={14} />
               Anterior
@@ -292,7 +342,7 @@ function Clientes() {
             <button
               onClick={() => setPaginaAtual(p => Math.min(totalPaginas, p + 1))}
               disabled={paginaAtualSegura === totalPaginas}
-              className="px-3 py-1.5 border border-slate-200 rounded-xl text-xs font-bold text-slate-600 hover:bg-slate-50 transition-all cursor-pointer disabled:opacity-40 flex items-center gap-1"
+              className="px-3 py-1.5 min-h-11 border border-slate-200 rounded-xl text-xs font-bold text-slate-600 hover:bg-slate-50 transition-all cursor-pointer disabled:opacity-40 flex items-center gap-1"
             >
               Próximo
               <ChevronRight size={14} />

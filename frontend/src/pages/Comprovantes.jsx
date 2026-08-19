@@ -565,7 +565,7 @@ function Comprovantes() {
             <button
               onClick={() => setPaginaAtual(p => Math.max(1, p - 1))}
               disabled={paginaAtualSegura === 1}
-              className="px-3 py-1.5 border border-slate-200 rounded-xl text-xs font-bold text-slate-600 hover:bg-slate-50 transition-all cursor-pointer disabled:opacity-40 flex items-center gap-1"
+              className="px-3 py-1.5 min-h-11 border border-slate-200 rounded-xl text-xs font-bold text-slate-600 hover:bg-slate-50 transition-all cursor-pointer disabled:opacity-40 flex items-center gap-1"
             >
               <ChevronLeft size={14} />
               Anterior
@@ -576,7 +576,7 @@ function Comprovantes() {
             <button
               onClick={() => setPaginaAtual(p => Math.min(totalPaginas, p + 1))}
               disabled={paginaAtualSegura === totalPaginas}
-              className="px-3 py-1.5 border border-slate-200 rounded-xl text-xs font-bold text-slate-600 hover:bg-slate-50 transition-all cursor-pointer disabled:opacity-40 flex items-center gap-1"
+              className="px-3 py-1.5 min-h-11 border border-slate-200 rounded-xl text-xs font-bold text-slate-600 hover:bg-slate-50 transition-all cursor-pointer disabled:opacity-40 flex items-center gap-1"
             >
               Próximo
               <ChevronRight size={14} />
@@ -804,13 +804,13 @@ const ComprovanteCard = React.memo(({ c, onEditar, onExcluir }) => {
         <div className="flex gap-1 print:hidden">
           <button
             onClick={onEditar}
-            className="p-1 text-slate-400 hover:text-primary-600 rounded hover:bg-slate-50 transition-all cursor-pointer"
+            className="w-10 h-10 flex items-center justify-center text-slate-400 hover:text-primary-600 rounded hover:bg-slate-50 transition-all cursor-pointer"
           >
             <Edit2 size={14} />
           </button>
           <button
             onClick={onExcluir}
-            className="p-1 text-slate-400 hover:text-rose-600 rounded hover:bg-slate-50 transition-all cursor-pointer"
+            className="w-10 h-10 flex items-center justify-center text-slate-400 hover:text-rose-600 rounded hover:bg-slate-50 transition-all cursor-pointer"
           >
             <Trash2 size={14} />
           </button>

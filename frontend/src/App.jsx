@@ -479,7 +479,7 @@ function App() {
             <button
               onClick={handleRenovarSessao}
               disabled={renovando}
-              className="px-3 py-1.5 bg-amber-600 hover:bg-amber-700 text-white text-xs font-bold rounded-lg transition-all cursor-pointer disabled:opacity-50 flex items-center gap-1.5 shrink-0"
+              className="px-3 py-1.5 min-h-11 bg-amber-600 hover:bg-amber-700 text-white text-xs font-bold rounded-lg transition-all cursor-pointer disabled:opacity-50 flex items-center gap-1.5 shrink-0"
             >
               {renovando ? (
                 <>
@@ -499,7 +499,7 @@ function App() {
           <div className="flex items-center gap-2">
             <button
               onClick={() => setMobileMenuOpen(true)}
-              className="lg:hidden p-2 rounded-lg hover:bg-slate-100 text-slate-600"
+              className="lg:hidden w-11 h-11 flex items-center justify-center rounded-lg hover:bg-slate-100 text-slate-600"
               title="Abrir menu"
             >
               <Menu size={22} />
@@ -515,7 +515,7 @@ function App() {
             <div className="relative">
               <button 
                 onClick={() => setShowNotifPanel(!showNotifPanel)} 
-                className="p-2 rounded-full hover:bg-slate-100 text-slate-600 relative transition-all"
+                className="w-11 h-11 flex items-center justify-center rounded-full hover:bg-slate-100 text-slate-600 relative transition-all"
                 title="Notificações e alertas"
               >
                 <Bell size={20} />
@@ -588,7 +588,7 @@ function App() {
                             {!n.lida && (
                               <button
                                 onClick={(e) => { e.stopPropagation(); marcarNotifLida(n.id); }}
-                                className="flex items-center gap-1 px-2.5 py-1.5 rounded-lg bg-white text-primary-600 border border-primary-200 text-[10px] font-bold hover:bg-primary-50 transition-colors shrink-0 cursor-pointer"
+                                className="flex items-center gap-1 px-2.5 py-1.5 min-h-11 rounded-lg bg-white text-primary-600 border border-primary-200 text-[10px] font-bold hover:bg-primary-50 transition-colors shrink-0 cursor-pointer"
                                 title="Marcar como lida"
                               >
                                 <Check size={12} />
@@ -597,7 +597,7 @@ function App() {
                             )}
                             <button
                               onClick={(e) => { e.stopPropagation(); setNotifExcluir(n.id); }}
-                              className="p-1.5 rounded-lg text-slate-300 hover:text-rose-600 hover:bg-rose-50 transition-colors shrink-0 cursor-pointer"
+                              className="w-10 h-10 flex items-center justify-center rounded-lg text-slate-300 hover:text-rose-600 hover:bg-rose-50 transition-colors shrink-0 cursor-pointer"
                               title="Excluir notificação"
                             >
                               <Trash2 size={14} />
@@ -680,7 +680,7 @@ function App() {
               <button
                 onClick={handleLogout}
                 title="Sair"
-                className="p-2 rounded-lg hover:bg-rose-50 text-slate-500 hover:text-rose-600 transition-all cursor-pointer"
+                className="w-11 h-11 flex items-center justify-center rounded-lg hover:bg-rose-50 text-slate-500 hover:text-rose-600 transition-all cursor-pointer"
               >
                 <LogOut size={18} />
               </button>

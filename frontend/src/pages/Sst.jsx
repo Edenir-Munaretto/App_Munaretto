@@ -1,4 +1,4 @@
-﻿import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   Search, Plus, Edit2, Trash2, X, Check, AlertTriangle,
   HardHat, GraduationCap, Stethoscope, Link2, Unlink, Briefcase, FileText, User, Printer, ListChecks, BookOpen, Download, Upload
@@ -1059,7 +1059,7 @@ function Sst() {
               <h3 className="text-sm font-extrabold text-slate-700 uppercase tracking-wider">Cargos / Funções</h3>
               <button
                 onClick={openAddCargo}
-                className="flex items-center gap-1 px-2.5 py-1.5 bg-primary-600 hover:bg-primary-700 text-white rounded-lg text-xs font-bold transition-all cursor-pointer"
+                className="flex items-center gap-1 px-2.5 py-1.5 min-h-11 bg-primary-600 hover:bg-primary-700 text-white rounded-lg text-xs font-bold transition-all cursor-pointer"
               >
                 <Plus size={14} /> Novo
               </button>
@@ -1084,14 +1084,14 @@ function Sst() {
                   <div className="flex items-center gap-1 shrink-0">
                     <span
                       onClick={(e) => { e.stopPropagation(); openEditCargo(c); }}
-                      className="p-1.5 rounded bg-slate-50 text-slate-500 hover:text-amber-700 hover:bg-amber-50 border border-slate-100"
+                      className="w-11 h-11 flex items-center justify-center p-0 rounded bg-slate-50 text-slate-500 hover:text-amber-700 hover:bg-amber-50 border border-slate-100"
                       title="Editar"
                     >
                       <Edit2 size={13} />
                     </span>
                     <span
                       onClick={(e) => { e.stopPropagation(); handleDeleteCargo(c.id, c.nome); }}
-                      className="p-1.5 rounded bg-slate-50 text-slate-500 hover:text-rose-700 hover:bg-rose-50 border border-slate-100"
+                      className="w-11 h-11 flex items-center justify-center p-0 rounded bg-slate-50 text-slate-500 hover:text-rose-700 hover:bg-rose-50 border border-slate-100"
                       title="Excluir"
                     >
                       <Trash2 size={13} />
@@ -1116,14 +1116,14 @@ function Sst() {
               <div className="flex items-center gap-2">
                 <button
                   onClick={() => setShowCatalogoModal(true)}
-                  className="flex items-center gap-1.5 px-3 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-xl text-xs font-bold transition-all cursor-pointer border border-slate-200"
+                  className="flex items-center gap-1.5 px-3 py-2 min-h-11 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-xl text-xs font-bold transition-all cursor-pointer border border-slate-200"
                 >
                   <FileText size={14} /> Gerenciar Cursos
                 </button>
                 {cargoSelecionado && (
                   <button
                     onClick={openVincular}
-                    className="flex items-center gap-1.5 px-3 py-2 bg-primary-600 hover:bg-primary-700 text-white rounded-xl text-xs font-bold transition-all cursor-pointer"
+                    className="flex items-center gap-1.5 px-3 py-2 min-h-11 bg-primary-600 hover:bg-primary-700 text-white rounded-xl text-xs font-bold transition-all cursor-pointer"
                   >
                     <Link2 size={14} /> Vincular Curso
                   </button>
@@ -1157,7 +1157,7 @@ function Sst() {
                       </div>
                       <button
                         onClick={() => handleDesvincular(m.id, m.treinamento_nome)}
-                        className="p-2 rounded bg-slate-100 text-slate-500 hover:text-rose-700 hover:bg-rose-50 border border-slate-200 transition-colors shrink-0 cursor-pointer"
+                        className="w-11 h-11 flex items-center justify-center p-0 rounded bg-slate-100 text-slate-500 hover:text-rose-700 hover:bg-rose-50 border border-slate-200 transition-colors shrink-0 cursor-pointer"
                         title="Desvincular"
                       >
                         <Unlink size={15} />
@@ -1288,11 +1288,11 @@ function Sst() {
                         <td className="px-3 py-3 md:px-6 md:py-4">
                           <div className="flex justify-center items-center gap-2">
                             {r.tem_certificado ? (
-                              <button onClick={() => baixarCertificado(r)} className="p-2 rounded bg-primary-50 hover:bg-primary-100 text-primary-700 border border-primary-100 transition-colors" title={`Baixar certificado (${r.certificado_nome || ''})`}>
+                              <button onClick={() => baixarCertificado(r)} className="w-11 h-11 flex items-center justify-center p-0 rounded bg-primary-50 hover:bg-primary-100 text-primary-700 border border-primary-100 transition-colors" title={`Baixar certificado (${r.certificado_nome || ''})`}>
                                 <Download size={15} />
                               </button>
                             ) : (
-                              <button onClick={() => openEditFt(r)} className="p-2 rounded bg-slate-50 hover:bg-primary-50 text-slate-400 hover:text-primary-600 border border-slate-100 transition-colors" title="Anexar certificado">
+                              <button onClick={() => openEditFt(r)} className="w-11 h-11 flex items-center justify-center p-0 rounded bg-slate-50 hover:bg-primary-50 text-slate-400 hover:text-primary-600 border border-slate-100 transition-colors" title="Anexar certificado">
                                 <Upload size={15} />
                               </button>
                             )}
@@ -1300,10 +1300,10 @@ function Sst() {
                         </td>
                         <td className="px-3 py-3 md:px-6 md:py-4">
                           <div className="flex justify-center items-center gap-2">
-                            <button onClick={() => openEditFt(r)} className="p-2 rounded bg-slate-50 hover:bg-amber-50 text-slate-500 hover:text-amber-700 border border-slate-100 transition-colors" title="Editar">
+                            <button onClick={() => openEditFt(r)} className="w-11 h-11 flex items-center justify-center p-0 rounded bg-slate-50 hover:bg-amber-50 text-slate-500 hover:text-amber-700 border border-slate-100 transition-colors" title="Editar">
                               <Edit2 size={15} />
                             </button>
-                            <button onClick={() => handleDeleteFt(r.id, `${r.funcionario_nome} - ${r.treinamento_nome}`)} className="p-2 rounded bg-slate-50 hover:bg-rose-50 text-slate-500 hover:text-rose-700 border border-slate-100 transition-colors" title="Excluir">
+                            <button onClick={() => handleDeleteFt(r.id, `${r.funcionario_nome} - ${r.treinamento_nome}`)} className="w-11 h-11 flex items-center justify-center p-0 rounded bg-slate-50 hover:bg-rose-50 text-slate-500 hover:text-rose-700 border border-slate-100 transition-colors" title="Excluir">
                               <Trash2 size={15} />
                             </button>
                           </div>
@@ -1400,7 +1400,7 @@ function Sst() {
                             <div className="flex justify-center items-center gap-2">
                               <button
                                 onClick={() => abrirRegistroPendencia(p)}
-                                className="flex items-center gap-1.5 px-3 py-2 bg-primary-600 hover:bg-primary-700 text-white rounded-lg text-xs font-bold transition-all cursor-pointer"
+                                className="flex items-center gap-1.5 px-3 py-2 min-h-11 bg-primary-600 hover:bg-primary-700 text-white rounded-lg text-xs font-bold transition-all cursor-pointer"
                                 title="Registrar treinamento"
                               >
                                 <Plus size={13} /> Registrar
@@ -1511,11 +1511,11 @@ function Sst() {
                         <td className="px-3 py-3 md:px-6 md:py-4">
                           <div className="flex justify-center items-center gap-2">
                             {a.tem_documento ? (
-                              <button onClick={() => baixarDocumentoAso(a)} className="p-2 rounded bg-primary-50 hover:bg-primary-100 text-primary-700 border border-primary-100 transition-colors" title={`Baixar documento (${a.documento_nome || ''})`}>
+                              <button onClick={() => baixarDocumentoAso(a)} className="w-11 h-11 flex items-center justify-center p-0 rounded bg-primary-50 hover:bg-primary-100 text-primary-700 border border-primary-100 transition-colors" title={`Baixar documento (${a.documento_nome || ''})`}>
                                 <Download size={15} />
                               </button>
                             ) : (
-                              <button onClick={() => openEditAso(a)} className="p-2 rounded bg-slate-50 hover:bg-primary-50 text-slate-400 hover:text-primary-600 border border-slate-100 transition-colors" title="Anexar documento do ASO">
+                              <button onClick={() => openEditAso(a)} className="w-11 h-11 flex items-center justify-center p-0 rounded bg-slate-50 hover:bg-primary-50 text-slate-400 hover:text-primary-600 border border-slate-100 transition-colors" title="Anexar documento do ASO">
                                 <Upload size={15} />
                               </button>
                             )}
@@ -1523,10 +1523,10 @@ function Sst() {
                         </td>
                         <td className="px-3 py-3 md:px-6 md:py-4">
                           <div className="flex justify-center items-center gap-2">
-                            <button onClick={() => openEditAso(a)} className="p-2 rounded bg-slate-50 hover:bg-amber-50 text-slate-500 hover:text-amber-700 border border-slate-100 transition-colors" title="Editar">
+                            <button onClick={() => openEditAso(a)} className="w-11 h-11 flex items-center justify-center p-0 rounded bg-slate-50 hover:bg-amber-50 text-slate-500 hover:text-amber-700 border border-slate-100 transition-colors" title="Editar">
                               <Edit2 size={15} />
                             </button>
-                            <button onClick={() => handleDeleteAso(a.id, a.funcionario_nome)} className="p-2 rounded bg-slate-50 hover:bg-rose-50 text-slate-500 hover:text-rose-700 border border-slate-100 transition-colors" title="Excluir">
+                            <button onClick={() => handleDeleteAso(a.id, a.funcionario_nome)} className="w-11 h-11 flex items-center justify-center p-0 rounded bg-slate-50 hover:bg-rose-50 text-slate-500 hover:text-rose-700 border border-slate-100 transition-colors" title="Excluir">
                               <Trash2 size={15} />
                             </button>
                           </div>
@@ -1615,10 +1615,10 @@ function Sst() {
                         </td>
                         <td className="px-3 py-3 md:px-6 md:py-4">
                           <div className="flex justify-center items-center gap-2">
-                            <button onClick={() => openEditEpi(e)} className="p-2 rounded bg-slate-50 hover:bg-amber-50 text-slate-500 hover:text-amber-700 border border-slate-100 transition-colors" title="Editar">
+                            <button onClick={() => openEditEpi(e)} className="w-11 h-11 flex items-center justify-center p-0 rounded bg-slate-50 hover:bg-amber-50 text-slate-500 hover:text-amber-700 border border-slate-100 transition-colors" title="Editar">
                               <Edit2 size={15} />
                             </button>
-                            <button onClick={() => handleDeleteEpi(e.id, e.nome)} className="p-2 rounded bg-slate-50 hover:bg-rose-50 text-slate-500 hover:text-rose-700 border border-slate-100 transition-colors" title="Excluir">
+                            <button onClick={() => handleDeleteEpi(e.id, e.nome)} className="w-11 h-11 flex items-center justify-center p-0 rounded bg-slate-50 hover:bg-rose-50 text-slate-500 hover:text-rose-700 border border-slate-100 transition-colors" title="Excluir">
                               <Trash2 size={15} />
                             </button>
                           </div>
@@ -1699,13 +1699,13 @@ function Sst() {
                           </td>
                           <td className="px-3 py-3 md:px-6 md:py-4">
                             <div className="flex justify-center items-center gap-2">
-                              <button onClick={() => baixarPdfFicha(f.id)} className="p-2 rounded bg-slate-50 hover:bg-primary-50 text-slate-500 hover:text-primary-700 border border-slate-100 transition-colors" title="Baixar Ficha (PDF)">
+                              <button onClick={() => baixarPdfFicha(f.id)} className="w-11 h-11 flex items-center justify-center p-0 rounded bg-slate-50 hover:bg-primary-50 text-slate-500 hover:text-primary-700 border border-slate-100 transition-colors" title="Baixar Ficha (PDF)">
                                 <Printer size={15} />
                               </button>
-                              <button onClick={() => openEditFe(f)} className="p-2 rounded bg-slate-50 hover:bg-amber-50 text-slate-500 hover:text-amber-700 border border-slate-100 transition-colors" title="Editar">
+                              <button onClick={() => openEditFe(f)} className="w-11 h-11 flex items-center justify-center p-0 rounded bg-slate-50 hover:bg-amber-50 text-slate-500 hover:text-amber-700 border border-slate-100 transition-colors" title="Editar">
                                 <Edit2 size={15} />
                               </button>
-                              <button onClick={() => handleDeleteFe(f.id, `${f.funcionario_nome} - ${f.epi_nome}`)} className="p-2 rounded bg-slate-50 hover:bg-rose-50 text-slate-500 hover:text-rose-700 border border-slate-100 transition-colors" title="Excluir">
+                              <button onClick={() => handleDeleteFe(f.id, `${f.funcionario_nome} - ${f.epi_nome}`)} className="w-11 h-11 flex items-center justify-center p-0 rounded bg-slate-50 hover:bg-rose-50 text-slate-500 hover:text-rose-700 border border-slate-100 transition-colors" title="Excluir">
                                 <Trash2 size={15} />
                               </button>
                             </div>
@@ -1780,10 +1780,10 @@ function Sst() {
                     </div>
                   </div>
                   <div className="flex items-center gap-1.5 shrink-0">
-                    <button onClick={() => openEditTreinamento(t)} className="p-2 rounded bg-slate-50 hover:bg-amber-50 text-slate-500 hover:text-amber-700 border border-slate-100 transition-colors cursor-pointer" title="Editar">
+                    <button onClick={() => openEditTreinamento(t)} className="w-11 h-11 flex items-center justify-center p-0 rounded bg-slate-50 hover:bg-amber-50 text-slate-500 hover:text-amber-700 border border-slate-100 transition-colors cursor-pointer" title="Editar">
                       <Edit2 size={14} />
                     </button>
-                    <button onClick={() => handleDeleteTreinamento(t.id, t.nome)} className="p-2 rounded bg-slate-50 hover:bg-rose-50 text-slate-500 hover:text-rose-700 border border-slate-100 transition-colors cursor-pointer" title="Excluir">
+                    <button onClick={() => handleDeleteTreinamento(t.id, t.nome)} className="w-11 h-11 flex items-center justify-center p-0 rounded bg-slate-50 hover:bg-rose-50 text-slate-500 hover:text-rose-700 border border-slate-100 transition-colors cursor-pointer" title="Excluir">
                       <Trash2 size={14} />
                     </button>
                   </div>
@@ -1956,7 +1956,7 @@ function Sst() {
                         type="button"
                         key={sug.id}
                         onClick={() => adicionarSugestaoMatriz(sug)}
-                        className={`px-3 py-1.5 rounded-lg text-xs font-bold border transition-all cursor-pointer ${
+                        className={`px-3 py-1.5 min-h-11 rounded-lg text-xs font-bold border transition-all cursor-pointer ${
                           jaUsado
                             ? 'bg-primary-600 text-white border-primary-600'
                             : 'bg-white text-primary-700 border-primary-200 hover:bg-primary-100'

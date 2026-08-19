@@ -262,14 +262,14 @@ function Configuracoes({ usuarioAtual, onUsuarioAtualizado }) {
                       <div className="flex justify-center items-center gap-2">
                         <button
                           onClick={() => openEditModal(u)}
-                          className="p-2 rounded bg-slate-50 hover:bg-amber-50 text-slate-500 hover:text-amber-700 border border-slate-100 transition-colors"
+                          className="w-11 h-11 flex items-center justify-center p-0 rounded bg-slate-50 hover:bg-amber-50 text-slate-500 hover:text-amber-700 border border-slate-100 transition-colors"
                           title="Editar"
                         >
                           <Edit2 size={15} />
                         </button>
                         <button
                           onClick={() => handleDelete(u.id, u.nome)}
-                          className="p-2 rounded bg-slate-50 hover:bg-rose-50 text-slate-500 hover:text-rose-700 border border-slate-100 transition-colors"
+                          className="w-11 h-11 flex items-center justify-center p-0 rounded bg-slate-50 hover:bg-rose-50 text-slate-500 hover:text-rose-700 border border-slate-100 transition-colors"
                           title="Excluir"
                         >
                           <Trash2 size={15} />

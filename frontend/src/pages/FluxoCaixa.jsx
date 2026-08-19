@@ -1,4 +1,4 @@
-﻿import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect } from 'react';
 import { LineChart, Plus, Trash2, FileDown, Check, AlertTriangle, Calculator, UserCheck, ChevronLeft, ChevronRight } from 'lucide-react';
 import { API_URL, apiFetch } from '../api';
 import ModalConfirmacao from '../components/ModalConfirmacao';
@@ -238,7 +238,7 @@ function FluxoCaixa() {
             {selectedId && (
               <button
                 onClick={handleClearForm}
-                className="flex items-center gap-1 text-xs font-bold text-primary-600 hover:text-primary-700 bg-primary-50 px-3 py-1.5 rounded-lg cursor-pointer"
+                className="flex items-center gap-1 text-xs font-bold text-primary-600 hover:text-primary-700 bg-primary-50 px-3 py-1.5 min-h-11 rounded-lg cursor-pointer"
               >
                 <Plus size={14} />
                 Novo Lançamento
@@ -421,7 +421,7 @@ function FluxoCaixa() {
                       {/* Download PDF button */}
                       <button
                         onClick={() => triggerPdfDownload(c.id, c.mes_referencia)}
-                        className="p-2 rounded bg-slate-50 hover:bg-emerald-50 border border-slate-100 text-slate-500 hover:text-emerald-700 transition-colors"
+                        className="w-11 h-11 flex items-center justify-center p-0 rounded bg-slate-50 hover:bg-emerald-50 border border-slate-100 text-slate-500 hover:text-emerald-700 transition-colors"
                         title="Baixar Relatório Geral (PDF)"
                       >
                         <FileDown size={14} />
@@ -459,7 +459,7 @@ function FluxoCaixa() {
                   <button
                     onClick={() => setPaginaAtual(p => Math.max(1, p - 1))}
                     disabled={paginaAtualSegura === 1}
-                    className="p-1.5 rounded-lg border border-slate-200 text-slate-600 hover:bg-slate-50 transition-all cursor-pointer disabled:opacity-40"
+                    className="w-11 h-11 flex items-center justify-center p-0 rounded-lg border border-slate-200 text-slate-600 hover:bg-slate-50 transition-all cursor-pointer disabled:opacity-40"
                   >
                     <ChevronLeft size={14} />
                   </button>
@@ -467,7 +467,7 @@ function FluxoCaixa() {
                   <button
                     onClick={() => setPaginaAtual(p => Math.min(totalPaginas, p + 1))}
                     disabled={paginaAtualSegura === totalPaginas}
-                    className="p-1.5 rounded-lg border border-slate-200 text-slate-600 hover:bg-slate-50 transition-all cursor-pointer disabled:opacity-40"
+                    className="w-11 h-11 flex items-center justify-center p-0 rounded-lg border border-slate-200 text-slate-600 hover:bg-slate-50 transition-all cursor-pointer disabled:opacity-40"
                   >
                     <ChevronRight size={14} />
                   </button>

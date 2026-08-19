@@ -241,7 +241,7 @@ function Funcionarios({ usuarioAtual }) {
                 <button
                   key={f.key}
                   onClick={() => setFiltroStatus(f.key)}
-                  className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer ${
+                  className={`flex items-center gap-1.5 px-3 py-1.5 min-h-11 rounded-lg text-xs font-bold transition-all cursor-pointer ${
                     filtroStatus === f.key
                       ? 'bg-white text-primary-700 shadow-sm'
                       : 'text-slate-500 hover:text-slate-700'
@@ -266,7 +266,7 @@ function Funcionarios({ usuarioAtual }) {
 
       {/* Lista */}
       <div className="bg-white rounded-2xl border border-slate-100 shadow-sm overflow-hidden">
-        <div className="overflow-x-auto">
+        <div className="hidden md:block overflow-x-auto">
           <table className="w-full text-left border-collapse text-sm">
             <thead>
               <tr className="bg-slate-50 border-b border-slate-100 text-slate-400 font-bold text-xs uppercase tracking-wider">
@@ -335,14 +335,14 @@ function Funcionarios({ usuarioAtual }) {
                       <div className="flex justify-center items-center gap-2">
                         <button
                           onClick={() => openEditModal(f)}
-                          className="p-2 rounded bg-slate-50 hover:bg-amber-50 text-slate-500 hover:text-amber-700 border border-slate-100 transition-colors"
+                          className="w-11 h-11 flex items-center justify-center p-0 rounded bg-slate-50 hover:bg-amber-50 text-slate-500 hover:text-amber-700 border border-slate-100 transition-colors"
                           title="Editar"
                         >
                           <Edit2 size={15} />
                         </button>
                         <button
                           onClick={() => handleToggleStatus(f)}
-                          className={`p-2 rounded border transition-colors cursor-pointer ${
+                          className={`w-11 h-11 flex items-center justify-center p-0 rounded border transition-colors cursor-pointer ${
                             f.ativo
                               ? 'bg-slate-50 hover:bg-rose-50 text-slate-500 hover:text-rose-700 border-slate-100'
                               : 'bg-slate-50 hover:bg-emerald-50 text-slate-500 hover:text-emerald-700 border-slate-100'
@@ -353,7 +353,7 @@ function Funcionarios({ usuarioAtual }) {
                         </button>
                         <button
                           onClick={() => handleDelete(f.id, f.nome)}
-                          className="p-2 rounded bg-slate-50 hover:bg-rose-50 text-slate-500 hover:text-rose-700 border border-slate-100 transition-colors"
+                          className="w-11 h-11 flex items-center justify-center p-0 rounded bg-slate-50 hover:bg-rose-50 text-slate-500 hover:text-rose-700 border border-slate-100 transition-colors"
                           title="Excluir"
                         >
                           <Trash2 size={15} />
@@ -365,6 +365,85 @@ function Funcionarios({ usuarioAtual }) {
               )}
             </tbody>
           </table>
+        </div>
+
+        {/* Lista em cartões (mobile) */}
+        <div className="md:hidden divide-y divide-slate-100">
+          {loading ? (
+            <div className="flex flex-col items-center justify-center gap-3 py-12">
+              <div className="w-8 h-8 border-4 border-primary-500 border-t-transparent rounded-full animate-spin" />
+              <p className="text-xs">Buscando funcionários...</p>
+            </div>
+          ) : funcionarios.length === 0 ? (
+            <div className="text-center py-12 text-slate-400">
+              <Contact className="mx-auto mb-3 text-slate-300" size={40} />
+              <p className="font-semibold mt-2">Nenhum funcionário encontrado.</p>
+              <p className="text-xs mt-1">Cadastre funcionários para usar como lista ao lançar férias e no módulo SST.</p>
+            </div>
+          ) : (
+            funcionarios.map((f) => (
+              <div key={f.id} className={`px-4 py-3 flex items-center justify-between gap-3 ${!f.ativo ? 'opacity-60' : ''}`}>
+                <div className="min-w-0 flex-1">
+                  <p className="font-bold text-slate-900 text-sm truncate">{f.nome}</p>
+                  <p className="font-mono text-xs text-slate-500 mt-0.5">{f.cpf}</p>
+                  {temSst && (
+                    <div className="flex flex-wrap gap-1 mt-1.5">
+                      {f.cargo_id && (
+                        <span className="px-2 py-0.5 rounded-full bg-primary-50 text-primary-700 border border-primary-100 text-[10px] font-bold">
+                          {cargos.find(c => c.id === f.cargo_id)?.nome || 'Cargo'}
+                        </span>
+                      )}
+                      {f.cargo_id_2 && (
+                        <span className="px-2 py-0.5 rounded-full bg-violet-50 text-violet-700 border border-violet-100 text-[10px] font-bold">
+                          {cargos.find(c => c.id === f.cargo_id_2)?.nome || 'Cargo 2'}
+                        </span>
+                      )}
+                    </div>
+                  )}
+                  <div className="mt-1.5">
+                    {f.ativo ? (
+                      <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-emerald-50 text-emerald-700 border border-emerald-100 text-[10px] font-bold">
+                        <span className="w-1.5 h-1.5 rounded-full bg-emerald-500" />
+                        Ativo
+                      </span>
+                    ) : (
+                      <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-rose-50 text-rose-700 border border-rose-100 text-[10px] font-bold">
+                        <span className="w-1.5 h-1.5 rounded-full bg-rose-500" />
+                        Inativo
+                      </span>
+                    )}
+                  </div>
+                </div>
+                <div className="flex items-center gap-2 shrink-0">
+                  <button
+                    onClick={() => openEditModal(f)}
+                    className="w-11 h-11 flex items-center justify-center rounded bg-slate-50 hover:bg-amber-50 text-slate-500 hover:text-amber-700 border border-slate-100 transition-colors"
+                    title="Editar"
+                  >
+                    <Edit2 size={15} />
+                  </button>
+                  <button
+                    onClick={() => handleToggleStatus(f)}
+                    className={`w-11 h-11 flex items-center justify-center rounded border transition-colors cursor-pointer ${
+                      f.ativo
+                        ? 'bg-slate-50 hover:bg-rose-50 text-slate-500 hover:text-rose-700 border-slate-100'
+                        : 'bg-slate-50 hover:bg-emerald-50 text-slate-500 hover:text-emerald-700 border-slate-100'
+                    }`}
+                    title={f.ativo ? 'Inativar' : 'Reativar'}
+                  >
+                    {f.ativo ? <Power size={15} /> : <RotateCcw size={15} />}
+                  </button>
+                  <button
+                    onClick={() => handleDelete(f.id, f.nome)}
+                    className="w-11 h-11 flex items-center justify-center rounded bg-slate-50 hover:bg-rose-50 text-slate-500 hover:text-rose-700 border border-slate-100 transition-colors"
+                    title="Excluir"
+                  >
+                    <Trash2 size={15} />
+                  </button>
+                </div>
+              </div>
+            ))
+          )}
         </div>
       </div>
 
