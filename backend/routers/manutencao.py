@@ -136,6 +136,17 @@ def cadastrar_veiculo(veiculo: VeiculoCreate, db=Depends(get_supabase)):
         data = veiculo.model_dump()
         data["placa"] = _normalizar_placa(veiculo.placa)
         data["ativo"] = True
+
+        # Reativa um veículo excluído (soft delete) com a mesma placa em vez de
+        # inserir duplicado, pois a coluna `placa` tem constraint UNIQUE no banco.
+        inativo = db.table("veiculos").select("id").eq("placa", data["placa"]).eq("ativo", False).execute()
+        if inativo.data:
+            vid = inativo.data[0]["id"]
+            resp = db.table("veiculos").update(data).eq("id", vid).execute()
+            if not resp.data:
+                raise HTTPException(status_code=500, detail="Falha ao criar veículo.")
+            return resp.data[0]
+
         resp = db.table("veiculos").insert(data).execute()
         if not resp.data:
             raise HTTPException(status_code=500, detail="Falha ao criar veículo.")

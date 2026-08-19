@@ -88,6 +88,32 @@ def test_placa_duplicada(manutencao_client):
     assert "placa" in resp.json()["detail"].lower()
 
 
+def test_reativa_veiculo_inativo_com_mesma_placa(manutencao_client):
+    resp = manutencao_client.post(
+        "/api/manutencao/veiculos", json={"modelo": "Fiat Strada", "placa": "REA-1000"}
+    )
+    assert resp.status_code == 201
+    vid = resp.json()["id"]
+
+    resp = manutencao_client.delete(f"/api/manutencao/veiculos/{vid}")
+    assert resp.status_code == 200
+
+    # Re-registrar a mesma placa deve reativar o veículo excluído (não dar 500
+    # por violar a constraint UNIQUE da coluna placa).
+    resp = manutencao_client.post(
+        "/api/manutencao/veiculos",
+        json={"modelo": "Fiat Strada Adventure", "placa": "rea-1000"},
+    )
+    assert resp.status_code == 201, resp.text
+    assert resp.json()["id"] == vid
+    assert resp.json()["ativo"] is True
+    assert resp.json()["modelo"] == "Fiat Strada Adventure"
+
+    resp = manutencao_client.get("/api/manutencao/veiculos")
+    assert resp.status_code == 200
+    assert len(resp.json()) == 1
+
+
 def test_busca_veiculos(manutencao_client):
     manutencao_client.post("/api/manutencao/veiculos", json={"modelo": "Fiat Strada", "placa": "AAA-1111"})
     manutencao_client.post("/api/manutencao/veiculos", json={"modelo": "Mercedes Actros", "placa": "BBB-2222"})
