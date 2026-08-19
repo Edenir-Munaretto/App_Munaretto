@@ -102,6 +102,7 @@ class ErrorBoundary extends React.Component {
 function App() {
   const [activeTab, setActiveTab] = useState('dashboard');
   const [sidebarOpen, setSidebarOpen] = useState(true);
+  const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const [alerts, setAlerts] = useState([]);
   const [sstAlerts, setSstAlerts] = useState([]);
   const [notificacoes, setNotificacoes] = useState([]);
@@ -397,10 +398,18 @@ function App() {
 
   return (
     <ErrorBoundary>
-      <div className="flex h-screen bg-slate-50 overflow-hidden">
-      
-      {/* SIDEBAR */}
-      <aside className={`bg-slate-900 text-white flex flex-col transition-all duration-300 ${sidebarOpen ? 'w-64' : 'w-20'}`}>
+      <div className="flex h-dvh bg-slate-50 overflow-hidden">
+
+      {/* Overlay para fechar o menu no mobile */}
+      {mobileMenuOpen && (
+        <div
+          className="fixed inset-0 bg-slate-900/50 z-30 lg:hidden"
+          onClick={() => setMobileMenuOpen(false)}
+        />
+      )}
+
+      {/* SIDEBAR: drawer no mobile, coluna fixa no desktop */}
+      <aside className={`bg-slate-900 text-white flex flex-col transition-all duration-300 fixed inset-y-0 left-0 z-40 lg:static lg:translate-x-0 lg:shadow-none ${mobileMenuOpen ? 'translate-x-0 shadow-2xl max-lg:w-64' : '-translate-x-full'} ${sidebarOpen ? 'w-64' : 'w-20'}`}>
         
         {/* Logo/Header */}
         <div className="h-16 flex items-center justify-between px-4 border-b border-slate-800">
@@ -414,7 +423,7 @@ function App() {
           </div>
           <button 
             onClick={() => setSidebarOpen(!sidebarOpen)} 
-            className="p-1 rounded hover:bg-slate-800 text-slate-400 hover:text-white"
+            className="hidden lg:block p-1 rounded hover:bg-slate-800 text-slate-400 hover:text-white"
           >
             <Menu size={20} />
           </button>
@@ -428,7 +437,7 @@ function App() {
             return (
               <button
                 key={tab.id}
-                onClick={() => setActiveTab(tab.id)}
+                onClick={() => { setActiveTab(tab.id); setMobileMenuOpen(false); }}
                 className={`w-full flex items-center gap-3 px-3 py-3 rounded-lg text-sm font-semibold transition-all duration-200 ${
                   isActive 
                     ? 'bg-primary-600 text-white shadow-lg shadow-primary-900/20' 
@@ -487,8 +496,15 @@ function App() {
         {/* HEADER */}
         <header className="h-16 bg-white border-b border-slate-200 flex items-center justify-between px-4 md:px-6 z-10">
           
-          <div className="flex items-center gap-4">
-            <h1 className="text-xl font-bold text-slate-800 capitalize">
+          <div className="flex items-center gap-2">
+            <button
+              onClick={() => setMobileMenuOpen(true)}
+              className="lg:hidden p-2 rounded-lg hover:bg-slate-100 text-slate-600"
+              title="Abrir menu"
+            >
+              <Menu size={22} />
+            </button>
+            <h1 className="text-lg sm:text-xl font-bold text-slate-800 capitalize">
               {tabs.find(t => t.id === activeTab)?.label}
             </h1>
           </div>
