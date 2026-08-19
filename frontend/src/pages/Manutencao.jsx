@@ -64,6 +64,10 @@ function Manutencao() {
   const [manutForm, setManutForm] = useState(MANUTENCAO_INICIAL);
   const [submittingManut, setSubmittingManut] = useState(false);
 
+  // Filtro por período (relatório de manutenções)
+  const [dataInicio, setDataInicio] = useState('');
+  const [dataFim, setDataFim] = useState('');
+
   // Equipamentos
   const [equipamentos, setEquipamentos] = useState([]);
   const equipLista = useFetchState();
@@ -96,6 +100,15 @@ function Manutencao() {
     if (v == null || v === '') return '';
     return Number(v).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
   };
+
+  // Manutenções filtradas pelo período informado (data_servico em YYYY-MM-DD)
+  const manutencoesFiltradas = manutencoes.filter((m) => {
+    if (dataInicio && m.data_servico < dataInicio) return false;
+    if (dataFim && m.data_servico > dataFim) return false;
+    return true;
+  });
+  const totalPeriodo = manutencoesFiltradas.reduce((soma, m) => soma + (Number(m.valor) || 0), 0);
+  const periodoAtivo = Boolean(dataInicio || dataFim);
 
   // ---------------------------------------------------------------------------
   // Veículos
@@ -555,7 +568,7 @@ function Manutencao() {
               onClick={() => window.print()}
               className="px-4 py-2 min-h-11 flex items-center gap-2 bg-slate-900 hover:bg-slate-700 text-white rounded-xl text-sm font-semibold transition-all cursor-pointer"
             >
-              <Printer size={16} /> Imprimir Checklist
+              <Printer size={16} /> {aba === 'manutencoes' ? 'Imprimir Relatório' : 'Imprimir Checklist'}
             </button>
           </div>
 
@@ -573,7 +586,7 @@ function Manutencao() {
                 aba === 'manutencoes' ? 'text-primary-700 border-primary-600 bg-primary-50/50' : 'text-slate-500 border-transparent hover:text-slate-700'
               }`}
             >
-              <span className="flex items-center gap-2"><Wrench size={15} /> Manutenções ({manutencoes.length})</span>
+              <span className="flex items-center gap-2"><Wrench size={15} /> Manutenções ({periodoAtivo ? manutencoesFiltradas.length : manutencoes.length})</span>
             </button>
             <button
               onClick={() => setAba('equipamentos')}
@@ -588,13 +601,48 @@ function Manutencao() {
           {/* Aba Manutenções */}
           {aba === 'manutencoes' && (
             <div className="space-y-3">
-              <div className="flex justify-end">
-                <button
-                  onClick={openAddManut}
-                  className="px-4 py-2 min-h-11 flex items-center gap-2 bg-primary-600 hover:bg-primary-700 text-white rounded-xl text-sm font-semibold transition-all cursor-pointer"
-                >
-                  <Plus size={16} /> Nova Manutenção
-                </button>
+              <div className="bg-white rounded-2xl border border-slate-100 shadow-sm p-3 flex flex-col lg:flex-row items-stretch lg:items-end gap-3">
+                <div className="flex flex-col">
+                  <label className="block text-xs font-bold text-slate-700 mb-1.5">Data inicial</label>
+                  <input
+                    type="date"
+                    value={dataInicio}
+                    onChange={(e) => setDataInicio(e.target.value)}
+                    className={inputCls}
+                  />
+                </div>
+                <div className="flex flex-col">
+                  <label className="block text-xs font-bold text-slate-700 mb-1.5">Data final</label>
+                  <input
+                    type="date"
+                    value={dataFim}
+                    onChange={(e) => setDataFim(e.target.value)}
+                    className={inputCls}
+                  />
+                </div>
+                {periodoAtivo && (
+                  <button
+                    type="button"
+                    onClick={() => { setDataInicio(''); setDataFim(''); }}
+                    className="px-3 py-2.5 min-h-11 rounded-xl border border-slate-200 text-sm font-semibold text-slate-600 hover:bg-slate-50 transition-all cursor-pointer"
+                  >
+                    Limpar período
+                  </button>
+                )}
+                <div className="flex-1" />
+                <div className="flex items-center gap-2">
+                  {manutencoesFiltradas.length > 0 && (
+                    <span className="px-3 py-2 text-xs font-bold text-slate-600 bg-slate-50 rounded-xl whitespace-nowrap">
+                      {manutencoesFiltradas.length} registro(s) · {formatBRL(totalPeriodo)}
+                    </span>
+                  )}
+                  <button
+                    onClick={openAddManut}
+                    className="px-4 py-2 min-h-11 flex items-center gap-2 bg-primary-600 hover:bg-primary-700 text-white rounded-xl text-sm font-semibold transition-all cursor-pointer"
+                  >
+                    <Plus size={16} /> Nova Manutenção
+                  </button>
+                </div>
               </div>
 
               {manutLista.status === 'loading' ? (
@@ -612,8 +660,14 @@ function Manutencao() {
                   <p className="font-semibold mt-2">Nenhuma manutenção registrada.</p>
                   <p className="text-xs mt-1">Registre o que foi feito no veículo, a data e a oficina.</p>
                 </div>
+              ) : manutencoesFiltradas.length === 0 ? (
+                <div className="bg-white rounded-2xl border border-slate-100 shadow-sm p-10 text-center text-slate-400">
+                  <Wrench className="mx-auto mb-3 text-slate-300" size={40} />
+                  <p className="font-semibold mt-2">Nenhuma manutenção no período selecionado.</p>
+                  <p className="text-xs mt-1">Ajuste as datas ou limpe o filtro para ver o histórico completo.</p>
+                </div>
               ) : (
-                manutencoes.map((m) => (
+                manutencoesFiltradas.map((m) => (
                   <div key={m.id} className="bg-white rounded-xl shadow-md border border-slate-200 flex items-stretch overflow-hidden transition-all hover:shadow-lg">
                     <div className="w-1.5 shrink-0 bg-primary-500" />
                     <div className="p-4 flex-1 min-w-0">
@@ -732,8 +786,79 @@ function Manutencao() {
         </div>
       )}
 
+      {/* ============================= RELATÓRIO IMPRIMÍVEL (MANUTENÇÕES) ============================= */}
+      {veiculoSelecionado && aba === 'manutencoes' && (
+        <div className="hidden print:block">
+          <div className="mb-6 border-b border-slate-300 pb-4">
+            <div className="flex justify-between items-start">
+              <div>
+                <h2 className="text-2xl font-bold text-slate-800 uppercase tracking-wide">Relatório de Manutenções</h2>
+                <p className="text-sm text-slate-600 mt-1">Munaretto & Co. — Controle de frota</p>
+              </div>
+              <p className="text-sm text-slate-600">Emitido em: {new Date().toLocaleDateString('pt-BR')}</p>
+            </div>
+          </div>
+          <div className="mb-4 space-y-0.5">
+            <p className="text-sm"><span className="font-bold">Veículo:</span> {veiculoSelecionado.modelo}</p>
+            <p className="text-sm"><span className="font-bold">Placa:</span> {veiculoSelecionado.placa}</p>
+            <p className="text-sm">
+              <span className="font-bold">Período:</span>{' '}
+              {dataInicio ? formatDateBR(dataInicio) : 'Início'} até {dataFim ? formatDateBR(dataFim) : 'Hoje'}
+            </p>
+            {veiculoSelecionado.observacao && <p className="text-sm text-slate-600">{veiculoSelecionado.observacao}</p>}
+          </div>
+          <table className="w-full border-collapse text-sm">
+            <thead>
+              <tr className="border-b-2 border-slate-400 text-left">
+                <th className="py-2 pr-2 w-8">Nº</th>
+                <th className="py-2 pr-2 w-24">Data</th>
+                <th className="py-2 pr-2">Tipo / Serviço</th>
+                <th className="py-2 pr-2">Oficina</th>
+                <th className="py-2 pr-2 w-24 text-right">Valor</th>
+                <th className="py-2 w-20 text-right">Km</th>
+              </tr>
+            </thead>
+            <tbody>
+              {manutencoesFiltradas.length === 0 ? (
+                <tr>
+                  <td colSpan="6" className="py-4 text-center text-slate-400">Nenhuma manutenção no período.</td>
+                </tr>
+              ) : (
+                manutencoesFiltradas.map((m, i) => (
+                  <tr key={m.id} className="border-b border-slate-200 align-top">
+                    <td className="py-2">{i + 1}</td>
+                    <td className="py-2">{formatDateBR(m.data_servico)}</td>
+                    <td className="py-2">
+                      <span className="font-bold">{m.tipo}</span>
+                      {m.descricao && <div className="text-xs text-slate-600 mt-0.5">{m.descricao}</div>}
+                      {m.observacao && <div className="text-xs text-slate-400 italic">{m.observacao}</div>}
+                    </td>
+                    <td className="py-2">{m.oficina || '-'}</td>
+                    <td className="py-2 text-right">{formatBRL(m.valor)}</td>
+                    <td className="py-2 text-right">{m.km_odometro != null ? m.km_odometro : '-'}</td>
+                  </tr>
+                ))
+              )}
+            </tbody>
+            <tfoot>
+              <tr className="border-t-2 border-slate-400">
+                <td colSpan="4" className="py-2 text-right font-bold">Total no período:</td>
+                <td className="py-2 text-right font-bold">{formatBRL(totalPeriodo)}</td>
+                <td className="py-2" />
+              </tr>
+            </tfoot>
+          </table>
+          <div className="mt-8 text-sm">
+            <div className="flex flex-wrap justify-between gap-6">
+              <div>Responsável: ______________________________</div>
+              <div>Assinatura: ______________________________</div>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* ============================= CHECKLIST IMPRIMÍVEL ============================= */}
-      {veiculoSelecionado && (
+      {veiculoSelecionado && aba === 'equipamentos' && (
         <div className="hidden print:block">
           <div className="mb-6 border-b border-slate-300 pb-4">
             <div className="flex justify-between items-start">
