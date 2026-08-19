@@ -236,3 +236,65 @@ def test_crud_equipamentos(manutencao_client):
     resp = manutencao_client.get(f"/api/manutencao/veiculos/{veiculo_id}/equipamentos")
     assert resp.status_code == 200
     assert len(resp.json()) == 1
+
+
+# ---------------------------------------------------------------------------
+# Reposições de equipamentos (histórico)
+# ---------------------------------------------------------------------------
+def test_crud_reposicoes_equipamento(manutencao_client):
+    veiculo_id = _criar_veiculo(manutencao_client)
+
+    resp = manutencao_client.post(
+        "/api/manutencao/equipamentos",
+        json={"veiculo_id": veiculo_id, "equipamento": "Estepe", "quantidade": 1},
+    )
+    assert resp.status_code == 201
+    equip_id = resp.json()["id"]
+
+    # Sem histórico, última reposição é nula
+    resp = manutencao_client.get(f"/api/manutencao/veiculos/{veiculo_id}/equipamentos")
+    assert resp.status_code == 200
+    assert resp.json()[0]["ultima_reposicao"] is None
+
+    resp = manutencao_client.post(
+        "/api/manutencao/equipamentos/reposicoes",
+        json={"equipamento_id": equip_id, "data_reposicao": "2026-07-01", "quantidade": 2},
+    )
+    assert resp.status_code == 201, resp.text
+    assert resp.json()["veiculo_id"] == veiculo_id
+    rep_id = resp.json()["id"]
+
+    resp = manutencao_client.post(
+        "/api/manutencao/equipamentos/reposicoes",
+        json={
+            "equipamento_id": equip_id,
+            "data_reposicao": "2026-08-15",
+            "quantidade": 1,
+            "observacao": "Troca por desgaste",
+        },
+    )
+    assert resp.status_code == 201
+
+    # Última reposição = maior data
+    resp = manutencao_client.get(f"/api/manutencao/veiculos/{veiculo_id}/equipamentos")
+    assert resp.json()[0]["ultima_reposicao"] == "2026-08-15"
+
+    resp = manutencao_client.get(f"/api/manutencao/equipamentos/{equip_id}/reposicoes")
+    assert resp.status_code == 200
+    assert len(resp.json()) == 2
+    assert resp.json()[0]["data_reposicao"] == "2026-08-15"  # ordenado por data desc
+
+    resp = manutencao_client.delete(f"/api/manutencao/equipamentos/reposicoes/{rep_id}")
+    assert resp.status_code == 200
+    assert resp.json()["success"] is True
+
+    resp = manutencao_client.get(f"/api/manutencao/equipamentos/{equip_id}/reposicoes")
+    assert resp.status_code == 200
+    assert len(resp.json()) == 1
+
+    # Reposição para equipamento inexistente
+    resp = manutencao_client.post(
+        "/api/manutencao/equipamentos/reposicoes",
+        json={"equipamento_id": 999, "data_reposicao": "2026-08-15", "quantidade": 1},
+    )
+    assert resp.status_code == 404

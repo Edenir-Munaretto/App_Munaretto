@@ -59,6 +59,20 @@ class EquipamentoCreate(BaseModel):
 
 class EquipamentoResponse(EquipamentoCreate):
     id: int
+    ultima_reposicao: Optional[str] = None
+    created_at: Optional[str] = None
+
+
+class EquipamentoReposicaoCreate(BaseModel):
+    equipamento_id: int = Field(..., description="ID do equipamento (veiculo_equipamentos)")
+    data_reposicao: str = Field(..., description="Data da reposição (YYYY-MM-DD)")
+    quantidade: int = Field(1, ge=1, description="Quantidade reposta/substituída")
+    observacao: Optional[str] = None
+
+
+class EquipamentoReposicaoResponse(EquipamentoReposicaoCreate):
+    id: int
+    veiculo_id: int
     created_at: Optional[str] = None
 
 
@@ -279,11 +293,28 @@ def excluir_manutencao(registro_id: int, db=Depends(get_supabase)):
 # ---------------------------------------------------------------------------
 @router.get("/veiculos/{veiculo_id}/equipamentos", response_model=List[EquipamentoResponse])
 def listar_equipamentos(veiculo_id: int, db=Depends(get_supabase)):
-    """Lista os equipamentos/checklist de um veículo."""
+    """Lista os equipamentos/checklist de um veículo, com a data da última reposição."""
     try:
         if not _veiculo_existe(db, veiculo_id):
             raise HTTPException(status_code=404, detail="Veículo não encontrado")
         dados = db.table("veiculo_equipamentos").select("*").eq("veiculo_id", veiculo_id).execute().data
+
+        # Data da última reposição por equipamento (maior data no histórico).
+        ultimas = {}
+        try:
+            repos = db.table("equipamento_reposicoes").select("equipamento_id", "data_reposicao").eq("veiculo_id", veiculo_id).execute().data
+            for r in repos:
+                eid = r["equipamento_id"]
+                data = r.get("data_reposicao", "")
+                if eid not in ultimas or data > ultimas[eid]:
+                    ultimas[eid] = data
+        except Exception:
+            logger.warning("equipamento_reposicoes indisponível; sem última reposição", exc_info=True)
+            ultimas = {}
+
+        for e in dados:
+            e["ultima_reposicao"] = ultimas.get(e["id"])
+
         dados.sort(key=lambda e: str(e.get("equipamento", "")).lower())
         return dados
     except HTTPException:
@@ -347,3 +378,60 @@ def excluir_equipamento(registro_id: int, db=Depends(get_supabase)):
     except Exception:
         logger.exception("Erro ao excluir equipamento")
         raise HTTPException(status_code=500, detail="Erro ao excluir equipamento")
+
+
+# ---------------------------------------------------------------------------
+# Reposições de equipamentos (histórico por equipamento)
+# ---------------------------------------------------------------------------
+@router.get("/equipamentos/{registro_id}/reposicoes", response_model=List[EquipamentoReposicaoResponse])
+def listar_reposicoes(registro_id: int, db=Depends(get_supabase)):
+    """Lista o histórico de reposições/substituições de um equipamento (mais recentes primeiro)."""
+    try:
+        check = db.table("veiculo_equipamentos").select("id").eq("id", registro_id).execute()
+        if not check.data:
+            raise HTTPException(status_code=404, detail="Equipamento não encontrado")
+        dados = db.table("equipamento_reposicoes").select("*").eq("equipamento_id", registro_id).execute().data
+        dados.sort(key=lambda r: str(r.get("data_reposicao", "")), reverse=True)
+        return dados
+    except HTTPException:
+        raise
+    except Exception:
+        logger.exception("Erro ao listar reposições")
+        raise HTTPException(status_code=500, detail="Erro ao listar reposições")
+
+
+@router.post("/equipamentos/reposicoes", response_model=EquipamentoReposicaoResponse, status_code=201)
+def registrar_reposicao(rep: EquipamentoReposicaoCreate, db=Depends(get_supabase)):
+    """Registra uma reposição/substituição de equipamento."""
+    try:
+        check = db.table("veiculo_equipamentos").select("id", "veiculo_id").eq("id", rep.equipamento_id).execute()
+        if not check.data:
+            raise HTTPException(status_code=404, detail="Equipamento não encontrado")
+
+        data = rep.model_dump()
+        data["veiculo_id"] = check.data[0]["veiculo_id"]
+        resp = db.table("equipamento_reposicoes").insert(data).execute()
+        if not resp.data:
+            raise HTTPException(status_code=500, detail="Falha ao registrar reposição.")
+        return resp.data[0]
+    except HTTPException:
+        raise
+    except Exception:
+        logger.exception("Erro ao registrar reposição")
+        raise HTTPException(status_code=500, detail="Erro ao registrar reposição")
+
+
+@router.delete("/equipamentos/reposicoes/{reposicao_id}")
+def excluir_reposicao(reposicao_id: int, db=Depends(get_supabase)):
+    """Exclui uma reposição do histórico do equipamento."""
+    try:
+        check = db.table("equipamento_reposicoes").select("id").eq("id", reposicao_id).execute()
+        if not check.data:
+            raise HTTPException(status_code=404, detail="Reposição não encontrada")
+        db.table("equipamento_reposicoes").delete().eq("id", reposicao_id).execute()
+        return {"success": True, "message": "Reposição excluída com sucesso."}
+    except HTTPException:
+        raise
+    except Exception:
+        logger.exception("Erro ao excluir reposição")
+        raise HTTPException(status_code=500, detail="Erro ao excluir reposição")

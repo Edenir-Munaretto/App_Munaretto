@@ -316,6 +316,21 @@ CREATE TABLE IF NOT EXISTS veiculo_equipamentos (
 CREATE INDEX IF NOT EXISTS idx_manutencao_veiculo ON manutencoes (veiculo_id);
 CREATE INDEX IF NOT EXISTS idx_vequi_veiculo ON veiculo_equipamentos (veiculo_id);
 
+-- TABELA: equipamento_reposicoes (histórico de reposições/substituições de
+-- equipamentos por veículo: data, quantidade e observação de cada troca).
+CREATE TABLE IF NOT EXISTS equipamento_reposicoes (
+    id SERIAL PRIMARY KEY,
+    equipamento_id INTEGER NOT NULL REFERENCES veiculo_equipamentos(id) ON DELETE CASCADE,
+    veiculo_id INTEGER NOT NULL REFERENCES veiculos(id) ON DELETE CASCADE,
+    data_reposicao DATE NOT NULL,
+    quantidade INTEGER NOT NULL DEFAULT 1,
+    observacao TEXT,
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE INDEX IF NOT EXISTS idx_equip_reposicao_equipamento ON equipamento_reposicoes (equipamento_id);
+CREATE INDEX IF NOT EXISTS idx_equip_reposicao_veiculo ON equipamento_reposicoes (veiculo_id);
+
 -- ============================================================================
 -- ROW LEVEL SECURITY (RLS)
 -- ============================================================================
@@ -354,6 +369,7 @@ ALTER TABLE IF EXISTS funcionario_epis   ENABLE ROW LEVEL SECURITY;
 ALTER TABLE IF EXISTS veiculos           ENABLE ROW LEVEL SECURITY;
 ALTER TABLE IF EXISTS manutencoes        ENABLE ROW LEVEL SECURITY;
 ALTER TABLE IF EXISTS veiculo_equipamentos ENABLE ROW LEVEL SECURITY;
+ALTER TABLE IF EXISTS equipamento_reposicoes ENABLE ROW LEVEL SECURITY;
 
 -- ============================================================================
 -- POLÍTICAS RLS PARA service_role
@@ -439,6 +455,10 @@ CREATE POLICY "service_role_full_manutencoes" ON manutencoes
 
 DROP POLICY IF EXISTS "service_role_full_veiculo_equipamentos" ON veiculo_equipamentos;
 CREATE POLICY "service_role_full_veiculo_equipamentos" ON veiculo_equipamentos
+    FOR ALL TO service_role USING (true) WITH CHECK (true);
+
+DROP POLICY IF EXISTS "service_role_full_equipamento_reposicoes" ON equipamento_reposicoes;
+CREATE POLICY "service_role_full_equipamento_reposicoes" ON equipamento_reposicoes
     FOR ALL TO service_role USING (true) WITH CHECK (true);
 
 -- ============================================================================
