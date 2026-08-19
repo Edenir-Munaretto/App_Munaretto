@@ -2,12 +2,15 @@ import React, { useState, useEffect } from 'react';
 import { LineChart, Plus, Trash2, FileDown, Check, AlertTriangle, Calculator, UserCheck, ChevronLeft, ChevronRight } from 'lucide-react';
 import { API_URL, apiFetch } from '../api';
 import ModalConfirmacao from '../components/ModalConfirmacao';
+import ErroCarregamento from '../components/ErroCarregamento';
+import { useFetchState } from '../hooks/useFetchState';
 
 function FluxoCaixa() {
   const [closings, setClosings] = useState([]);
   const [selectedId, setSelectedId] = useState(null);
   const [loading, setLoading] = useState(true);
   const [toast, setToast] = useState(null);
+  const lista = useFetchState();
   const [submitting, setSubmitting] = useState(false);
   const [excluirId, setExcluirId] = useState(null);
   const [deleting, setDeleting] = useState(false);
@@ -43,14 +46,18 @@ function FluxoCaixa() {
   const fetchClosings = async () => {
     try {
       setLoading(true);
+      lista.iniciar();
       const res = await apiFetch(`${API_URL}/fluxo-caixa/`);
       if (res.ok) {
         const data = await res.json();
         setClosings(data);
+        lista.sucesso();
+      } else {
+        lista.falhar('Erro ao buscar lançamentos de fluxo.');
       }
     } catch (err) {
       console.error(err);
-      showToast('Erro ao buscar lançamentos de fluxo.', 'error');
+      lista.falhar('Erro de conexão ao buscar lançamentos de fluxo.');
     } finally {
       setLoading(false);
     }
@@ -400,6 +407,8 @@ function FluxoCaixa() {
                   <div className="w-6 h-6 border-2 border-primary-500 border-t-transparent rounded-full animate-spin" />
                   <p className="text-xs">Carregando histórico...</p>
                 </div>
+              ) : lista.status === 'error' ? (
+                <ErroCarregamento mensagem={lista.erro} onTentarNovamente={fetchClosings} />
               ) : closings.length === 0 ? (
                 <p className="text-center text-slate-400 text-xs py-8">Nenhum fechamento registrado.</p>
               ) : (

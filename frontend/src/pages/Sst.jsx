@@ -4,12 +4,37 @@ import {
   HardHat, GraduationCap, Stethoscope, Link2, Unlink, Briefcase, FileText, User, Printer, ListChecks, BookOpen, Download, Upload
 } from 'lucide-react';
 import { API_URL, apiFetch, erroDaResposta } from '../api';
+import ModalConfirmacao from '../components/ModalConfirmacao';
+import PaginacaoControle from '../components/PaginacaoControle';
+import ErroCarregamento from '../components/ErroCarregamento';
+import { usePaginacao } from '../hooks/usePaginacao';
+import { useFetchState } from '../hooks/useFetchState';
 
 const STATUS_STYLES = {
   'Vigente': 'bg-emerald-50 text-emerald-700 border-emerald-100',
   'Próximo ao Vencimento': 'bg-amber-50 text-amber-700 border-amber-100',
   'Vencido': 'bg-rose-50 text-rose-700 border-rose-100',
   'Sem validade': 'bg-slate-50 text-slate-500 border-slate-200',
+};
+
+const TITULOS_CONFIRMACAO = {
+  cargo: 'Excluir cargo',
+  curso: 'Excluir curso',
+  desvincular: 'Desvincular curso',
+  ft: 'Excluir registro',
+  aso: 'Excluir ASO',
+  epi: 'Excluir EPI',
+  fe: 'Excluir ficha de entrega',
+};
+
+const MENSAGENS_CONFIRMACAO = {
+  cargo: (n) => `Tem certeza que deseja excluir o cargo "${n}"?`,
+  curso: (n) => `Tem certeza que deseja excluir o curso "${n}"?`,
+  desvincular: (n) => `Desvincular "${n}" deste cargo?`,
+  ft: (n) => `Excluir o registro de "${n}"?`,
+  aso: (n) => `Excluir o ASO de "${n}"?`,
+  epi: (n) => `Tem certeza que deseja excluir o EPI "${n}"?`,
+  fe: (n) => `Excluir a ficha de entrega de "${n}"?`,
 };
 
 const RESULTADO_ASO = [
@@ -30,6 +55,11 @@ function Sst() {
   const [tab, setTab] = useState('matriz');
   const [toast, setToast] = useState(null);
   const [loading, setLoading] = useState(true);
+  const listaTrein = useFetchState();
+  const listaPend = useFetchState();
+  const listaAso = useFetchState();
+  const listaFe = useFetchState();
+  const [confirmarAcao, setConfirmarAcao] = useState(null);
 
   // ---- Dados compartilhados ----
   const [funcionarios, setFuncionarios] = useState([]);
@@ -186,11 +216,17 @@ function Sst() {
   const fetchFuncTreinamentos = async () => {
     try {
       setLoading(true);
+      listaTrein.iniciar();
       const res = await apiFetch(`${API_URL}/sst/funcionario-treinamentos`);
-      if (res.ok) setFuncTreinamentos(await res.json());
+      if (res.ok) {
+        setFuncTreinamentos(await res.json());
+        listaTrein.sucesso();
+      } else {
+        listaTrein.falhar('Erro ao carregar treinamentos.');
+      }
     } catch (err) {
       console.error(err);
-      showToast('Erro ao carregar treinamentos.', 'error');
+      listaTrein.falhar('Erro de conexão ao carregar treinamentos.');
     } finally {
       setLoading(false);
     }
@@ -198,22 +234,34 @@ function Sst() {
 
   const fetchPendencias = async () => {
     try {
+      listaPend.iniciar();
       const res = await apiFetch(`${API_URL}/sst/pendencias`);
-      if (res.ok) setPendencias(await res.json());
+      if (res.ok) {
+        setPendencias(await res.json());
+        listaPend.sucesso();
+      } else {
+        listaPend.falhar('Erro ao carregar pendências da matriz.');
+      }
     } catch (err) {
       console.error(err);
-      showToast('Erro ao carregar pendências da matriz.', 'error');
+      listaPend.falhar('Erro de conexão ao carregar pendências da matriz.');
     }
   };
 
   const fetchAsos = async () => {
     try {
       setLoading(true);
+      listaAso.iniciar();
       const res = await apiFetch(`${API_URL}/sst/aso`);
-      if (res.ok) setAsos(await res.json());
+      if (res.ok) {
+        setAsos(await res.json());
+        listaAso.sucesso();
+      } else {
+        listaAso.falhar('Erro ao carregar ASOs.');
+      }
     } catch (err) {
       console.error(err);
-      showToast('Erro ao carregar ASOs.', 'error');
+      listaAso.falhar('Erro de conexão ao carregar ASOs.');
     } finally {
       setLoading(false);
     }
@@ -231,11 +279,17 @@ function Sst() {
 
   const fetchFuncEpis = async () => {
     try {
+      listaFe.iniciar();
       const res = await apiFetch(`${API_URL}/sst/funcionario-epis`);
-      if (res.ok) setFuncEpis(await res.json());
+      if (res.ok) {
+        setFuncEpis(await res.json());
+        listaFe.sucesso();
+      } else {
+        listaFe.falhar('Erro ao carregar fichas de EPI.');
+      }
     } catch (err) {
       console.error(err);
-      showToast('Erro ao carregar fichas de EPI.', 'error');
+      listaFe.falhar('Erro de conexão ao carregar fichas de EPI.');
     }
   };
 
@@ -280,21 +334,8 @@ function Sst() {
     }
   };
 
-  const handleDeleteCargo = async (id, nome) => {
-    if (!window.confirm(`Tem certeza que deseja excluir o cargo "${nome}"?`)) return;
-    try {
-      const res = await apiFetch(`${API_URL}/sst/cargos/${id}`, { method: 'DELETE' });
-      if (res.ok) {
-        showToast('Cargo excluído com sucesso.');
-        if (cargoSelecionado === id) setCargoSelecionado(null);
-        fetchMatriz();
-      } else {
-        showToast('Erro ao excluir cargo.', 'error');
-      }
-    } catch (err) {
-      console.error(err);
-      showToast('Erro de conexão ao excluir cargo.', 'error');
-    }
+  const handleDeleteCargo = (id, nome) => {
+    setConfirmarAcao({ tipo: 'cargo', id, nome });
   };
 
   const openAddTreinamento = () => {
@@ -345,20 +386,8 @@ function Sst() {
     }
   };
 
-  const handleDeleteTreinamento = async (id, nome) => {
-    if (!window.confirm(`Tem certeza que deseja excluir o curso "${nome}"?`)) return;
-    try {
-      const res = await apiFetch(`${API_URL}/sst/treinamentos/${id}`, { method: 'DELETE' });
-      if (res.ok) {
-        showToast('Curso excluído com sucesso.');
-        fetchMatriz();
-      } else {
-        showToast('Erro ao excluir curso.', 'error');
-      }
-    } catch (err) {
-      console.error(err);
-      showToast('Erro de conexão ao excluir curso.', 'error');
-    }
+  const handleDeleteTreinamento = (id, nome) => {
+    setConfirmarAcao({ tipo: 'curso', id, nome });
   };
 
   const openVincular = () => {
@@ -392,20 +421,8 @@ function Sst() {
     }
   };
 
-  const handleDesvincular = async (vinculoId, cursoNome) => {
-    if (!window.confirm(`Desvincular "${cursoNome}" deste cargo?`)) return;
-    try {
-      const res = await apiFetch(`${API_URL}/sst/matriz/${vinculoId}`, { method: 'DELETE' });
-      if (res.ok) {
-        showToast('Curso desvinculado do cargo.');
-        fetchMatriz();
-      } else {
-        showToast('Erro ao desvincular curso.', 'error');
-      }
-    } catch (err) {
-      console.error(err);
-      showToast('Erro de conexão ao desvincular curso.', 'error');
-    }
+  const handleDesvincular = (vinculoId, cursoNome) => {
+    setConfirmarAcao({ tipo: 'desvincular', id: vinculoId, nome: cursoNome });
   };
 
   const cursosDoCargo = (cargoId) => matriz.filter(m => m.cargo_id === cargoId);
@@ -425,6 +442,8 @@ function Sst() {
     }
     return true;
   });
+
+  const pagFt = usePaginacao(filteredFuncTreinamentos, 50, [ftBusca, ftStatus, ftView]);
 
   const countsTreinamentos = {
     'Vigente': funcTreinamentos.filter(r => r.status === 'Vigente').length,
@@ -547,6 +566,8 @@ function Sst() {
       String(p.cargo_nome || '').toLowerCase().includes(termo);
   });
 
+  const pagPend = usePaginacao(filteredPendencias, 50, [pendBusca]);
+
   const qtdPendentes = pendencias.filter(p => p.situacao === 'Pendente').length;
   const qtdVencidos = pendencias.filter(p => p.situacao === 'Vencido').length;
 
@@ -629,21 +650,8 @@ function Sst() {
     }
   };
 
-  const handleDeleteFt = async (id, label) => {
-    if (!window.confirm(`Excluir o registro de "${label}"?`)) return;
-    try {
-      const res = await apiFetch(`${API_URL}/sst/funcionario-treinamentos/${id}`, { method: 'DELETE' });
-      if (res.ok) {
-        showToast('Registro excluído com sucesso.');
-        fetchFuncTreinamentos();
-        fetchPendencias();
-      } else {
-        showToast('Erro ao excluir registro.', 'error');
-      }
-    } catch (err) {
-      console.error(err);
-      showToast('Erro de conexão ao excluir registro.', 'error');
-    }
+  const handleDeleteFt = (id, label) => {
+    setConfirmarAcao({ tipo: 'ft', id, nome: label });
   };
 
   // ============================= Aba ASO =============================
@@ -653,6 +661,8 @@ function Sst() {
     if (asoBusca && !String(a.funcionario_nome || '').toLowerCase().includes(asoBusca.toLowerCase())) return false;
     return true;
   });
+
+  const pagAso = usePaginacao(filteredAsos, 50, [asoBusca, asoStatus, asoTipo]);
 
   const countsAsos = {
     'Vigente': asos.filter(a => a.status === 'Vigente').length,
@@ -794,20 +804,8 @@ function Sst() {
     }
   };
 
-  const handleDeleteAso = async (id, label) => {
-    if (!window.confirm(`Excluir o ASO de "${label}"?`)) return;
-    try {
-      const res = await apiFetch(`${API_URL}/sst/aso/${id}`, { method: 'DELETE' });
-      if (res.ok) {
-        showToast('ASO excluído com sucesso.');
-        fetchAsos();
-      } else {
-        showToast('Erro ao excluir ASO.', 'error');
-      }
-    } catch (err) {
-      console.error(err);
-      showToast('Erro de conexão ao excluir ASO.', 'error');
-    }
+  const handleDeleteAso = (id, label) => {
+    setConfirmarAcao({ tipo: 'aso', id, nome: label });
   };
 
   // ============================= Aba EPI =============================
@@ -855,20 +853,8 @@ function Sst() {
     }
   };
 
-  const handleDeleteEpi = async (id, nome) => {
-    if (!window.confirm(`Tem certeza que deseja excluir o EPI "${nome}"?`)) return;
-    try {
-      const res = await apiFetch(`${API_URL}/sst/epis/${id}`, { method: 'DELETE' });
-      if (res.ok) {
-        showToast('EPI excluído com sucesso.');
-        fetchEpis();
-      } else {
-        showToast('Erro ao excluir EPI.', 'error');
-      }
-    } catch (err) {
-      console.error(err);
-      showToast('Erro de conexão ao excluir EPI.', 'error');
-    }
+  const handleDeleteEpi = (id, nome) => {
+    setConfirmarAcao({ tipo: 'epi', id, nome });
   };
 
   const epiPorId = (id) => epis.find(e => e.id === Number(id));
@@ -933,19 +919,79 @@ function Sst() {
     }
   };
 
-  const handleDeleteFe = async (id, label) => {
-    if (!window.confirm(`Excluir a ficha de entrega de "${label}"?`)) return;
+  const handleDeleteFe = (id, label) => {
+    setConfirmarAcao({ tipo: 'fe', id, nome: label });
+  };
+
+  const confirmarExecucao = async () => {
+    if (!confirmarAcao) return;
+    const { tipo, id } = confirmarAcao;
     try {
-      const res = await apiFetch(`${API_URL}/sst/funcionario-epis/${id}`, { method: 'DELETE' });
-      if (res.ok) {
-        showToast('Ficha de EPI excluída com sucesso.');
-        fetchFuncEpis();
-      } else {
-        showToast('Erro ao excluir ficha de EPI.', 'error');
+      let res;
+      if (tipo === 'cargo') {
+        res = await apiFetch(`${API_URL}/sst/cargos/${id}`, { method: 'DELETE' });
+        if (res.ok) {
+          showToast('Cargo excluído com sucesso.');
+          if (cargoSelecionado === id) setCargoSelecionado(null);
+          fetchMatriz();
+        } else {
+          showToast('Erro ao excluir cargo.', 'error');
+        }
+      } else if (tipo === 'curso') {
+        res = await apiFetch(`${API_URL}/sst/treinamentos/${id}`, { method: 'DELETE' });
+        if (res.ok) {
+          showToast('Curso excluído com sucesso.');
+          fetchMatriz();
+        } else {
+          showToast('Erro ao excluir curso.', 'error');
+        }
+      } else if (tipo === 'desvincular') {
+        res = await apiFetch(`${API_URL}/sst/matriz/${id}`, { method: 'DELETE' });
+        if (res.ok) {
+          showToast('Curso desvinculado do cargo.');
+          fetchMatriz();
+        } else {
+          showToast('Erro ao desvincular curso.', 'error');
+        }
+      } else if (tipo === 'ft') {
+        res = await apiFetch(`${API_URL}/sst/funcionario-treinamentos/${id}`, { method: 'DELETE' });
+        if (res.ok) {
+          showToast('Registro excluído com sucesso.');
+          fetchFuncTreinamentos();
+          fetchPendencias();
+        } else {
+          showToast('Erro ao excluir registro.', 'error');
+        }
+      } else if (tipo === 'aso') {
+        res = await apiFetch(`${API_URL}/sst/aso/${id}`, { method: 'DELETE' });
+        if (res.ok) {
+          showToast('ASO excluído com sucesso.');
+          fetchAsos();
+        } else {
+          showToast('Erro ao excluir ASO.', 'error');
+        }
+      } else if (tipo === 'epi') {
+        res = await apiFetch(`${API_URL}/sst/epis/${id}`, { method: 'DELETE' });
+        if (res.ok) {
+          showToast('EPI excluído com sucesso.');
+          fetchEpis();
+        } else {
+          showToast('Erro ao excluir EPI.', 'error');
+        }
+      } else if (tipo === 'fe') {
+        res = await apiFetch(`${API_URL}/sst/funcionario-epis/${id}`, { method: 'DELETE' });
+        if (res.ok) {
+          showToast('Ficha de EPI excluída com sucesso.');
+          fetchFuncEpis();
+        } else {
+          showToast('Erro ao excluir ficha de EPI.', 'error');
+        }
       }
     } catch (err) {
       console.error(err);
-      showToast('Erro de conexão ao excluir ficha de EPI.', 'error');
+      showToast('Erro de conexão ao executar exclusão.', 'error');
+    } finally {
+      setConfirmarAcao(null);
     }
   };
 
@@ -981,6 +1027,8 @@ function Sst() {
     }
     return true;
   });
+
+  const pagFe = usePaginacao(filteredFuncEpis, 50, [feBusca, feStatus]);
 
   // ============================= UI =============================
   return (
@@ -1267,6 +1315,12 @@ function Sst() {
                         </div>
                       </td>
                     </tr>
+                  ) : listaTrein.status === 'error' ? (
+                    <tr>
+                      <td colSpan="7">
+                        <ErroCarregamento mensagem={listaTrein.erro} onTentarNovamente={fetchFuncTreinamentos} />
+                      </td>
+                    </tr>
                   ) : filteredFuncTreinamentos.length === 0 ? (
                     <tr>
                       <td colSpan="7" className="text-center py-16 text-slate-400">
@@ -1275,7 +1329,7 @@ function Sst() {
                       </td>
                     </tr>
                   ) : (
-                    filteredFuncTreinamentos.map(r => (
+                    pagFt.itensPagina.map(r => (
                       <tr key={r.id} className="hover:bg-slate-50/50 transition-colors">
                         <td className="px-3 py-3 md:px-6 md:py-4 font-bold text-slate-900">{r.funcionario_nome}</td>
                         <td className="px-3 py-3 md:px-6 md:py-4">
@@ -1313,6 +1367,12 @@ function Sst() {
                   )}
                 </tbody>
               </table>
+              <PaginacaoControle
+                paginaAtualSegura={pagFt.paginaAtualSegura}
+                totalPaginas={pagFt.totalPaginas}
+                onAnterior={() => pagFt.setPaginaAtual(p => Math.max(1, p - 1))}
+                onProximo={() => pagFt.setPaginaAtual(p => Math.min(pagFt.totalPaginas, p + 1))}
+              />
             </div>
           </div>
           </>
@@ -1369,6 +1429,12 @@ function Sst() {
                           </div>
                         </td>
                       </tr>
+                    ) : listaPend.status === 'error' ? (
+                      <tr>
+                        <td colSpan="6">
+                          <ErroCarregamento mensagem={listaPend.erro} onTentarNovamente={fetchPendencias} />
+                        </td>
+                      </tr>
                     ) : filteredPendencias.length === 0 ? (
                       <tr>
                         <td colSpan="6" className="text-center py-16 text-slate-400">
@@ -1377,7 +1443,7 @@ function Sst() {
                         </td>
                       </tr>
                     ) : (
-                      filteredPendencias.map((p, idx) => (
+                      pagPend.itensPagina.map((p, idx) => (
                         <tr key={`${p.funcionario_id}-${p.treinamento_id}-${idx}`} className="hover:bg-slate-50/50 transition-colors">
                           <td className="px-3 py-3 md:px-6 md:py-4 font-bold text-slate-900">{p.funcionario_nome}</td>
                           <td className="px-3 py-3 md:px-6 md:py-4">{p.cargo_nome}</td>
@@ -1412,6 +1478,12 @@ function Sst() {
                     )}
                   </tbody>
                 </table>
+                <PaginacaoControle
+                  paginaAtualSegura={pagPend.paginaAtualSegura}
+                  totalPaginas={pagPend.totalPaginas}
+                  onAnterior={() => pagPend.setPaginaAtual(p => Math.max(1, p - 1))}
+                  onProximo={() => pagPend.setPaginaAtual(p => Math.min(pagPend.totalPaginas, p + 1))}
+                />
               </div>
             </div>
           </>
@@ -1484,6 +1556,12 @@ function Sst() {
                         </div>
                       </td>
                     </tr>
+                  ) : listaAso.status === 'error' ? (
+                    <tr>
+                      <td colSpan="8">
+                        <ErroCarregamento mensagem={listaAso.erro} onTentarNovamente={fetchAsos} />
+                      </td>
+                    </tr>
                   ) : filteredAsos.length === 0 ? (
                     <tr>
                       <td colSpan="8" className="text-center py-16 text-slate-400">
@@ -1492,7 +1570,7 @@ function Sst() {
                       </td>
                     </tr>
                   ) : (
-                    filteredAsos.map(a => (
+                    pagAso.itensPagina.map(a => (
                       <tr key={a.id} className="hover:bg-slate-50/50 transition-colors">
                         <td className="px-3 py-3 md:px-6 md:py-4 font-bold text-slate-900">{a.funcionario_nome}</td>
                         <td className="px-3 py-3 md:px-6 md:py-4">{TIPOS_EXAME.find(t => t.value === a.tipo_exame)?.label || a.tipo_exame}</td>
@@ -1536,6 +1614,12 @@ function Sst() {
                   )}
                 </tbody>
               </table>
+              <PaginacaoControle
+                paginaAtualSegura={pagAso.paginaAtualSegura}
+                totalPaginas={pagAso.totalPaginas}
+                onAnterior={() => pagAso.setPaginaAtual(p => Math.max(1, p - 1))}
+                onProximo={() => pagAso.setPaginaAtual(p => Math.min(pagAso.totalPaginas, p + 1))}
+              />
             </div>
           </div>
         </>
@@ -1670,14 +1754,20 @@ function Sst() {
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-slate-100 text-slate-700">
-                      {filteredFuncEpis.length === 0 ? (
+                      {listaFe.status === 'error' ? (
+                        <tr>
+                          <td colSpan="8">
+                            <ErroCarregamento mensagem={listaFe.erro} onTentarNovamente={fetchFuncEpis} />
+                          </td>
+                        </tr>
+                      ) : filteredFuncEpis.length === 0 ? (
                         <tr>
                           <td colSpan="8" className="text-center py-16 text-slate-400">
                             <FileText className="mx-auto mb-3 text-slate-300" size={40} />
                             <p className="font-semibold">Nenhuma ficha de entrega encontrada.</p>
                           </td>
                         </tr>
-                      ) : filteredFuncEpis.map(f => (
+                      ) : pagFe.itensPagina.map(f => (
                         <tr key={f.id} className="hover:bg-slate-50/50 transition-colors">
                           <td className="px-3 py-3 md:px-6 md:py-4 font-bold text-slate-900">{f.funcionario_nome}</td>
                           <td className="px-3 py-3 md:px-6 md:py-4">
@@ -1714,6 +1804,12 @@ function Sst() {
                       ))}
                     </tbody>
                   </table>
+                  <PaginacaoControle
+                    paginaAtualSegura={pagFe.paginaAtualSegura}
+                    totalPaginas={pagFe.totalPaginas}
+                    onAnterior={() => pagFe.setPaginaAtual(p => Math.max(1, p - 1))}
+                    onProximo={() => pagFe.setPaginaAtual(p => Math.min(pagFe.totalPaginas, p + 1))}
+                  />
                 </div>
               </div>
             </>
@@ -2374,6 +2470,15 @@ function Sst() {
           </form>
         </ModalShell>
       )}
+
+      <ModalConfirmacao
+        aberto={confirmarAcao != null}
+        titulo={TITULOS_CONFIRMACAO[confirmarAcao?.tipo] || 'Confirmar exclusão'}
+        mensagem={confirmarAcao ? (MENSAGENS_CONFIRMACAO[confirmarAcao.tipo] || (() => ''))(confirmarAcao.nome) : ''}
+        confirmarTexto={confirmarAcao?.tipo === 'desvincular' ? 'Desvincular' : 'Excluir'}
+        onConfirmar={confirmarExecucao}
+        onCancelar={() => setConfirmarAcao(null)}
+      />
     </div>
   );
 }

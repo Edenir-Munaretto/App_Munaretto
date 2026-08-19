@@ -1,13 +1,18 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { Calendar, Search, Trash2, ShieldAlert, Plus, Check, X, AlertTriangle, Clock } from 'lucide-react';
 import { API_URL, apiFetch, erroDaResposta } from '../api';
+import ModalConfirmacao from '../components/ModalConfirmacao';
+import ErroCarregamento from '../components/ErroCarregamento';
+import { useFetchState } from '../hooks/useFetchState';
 
 function Ferias({ fetchAlerts, fetchNotifications, usuarioAtual }) {
   const [records, setRecords] = useState([]);
   const [busca, setBusca] = useState('');
   const [proximoMes, setProximoMes] = useState(false);
+  const [confirmarAcao, setConfirmarAcao] = useState(null);
   const [tab, setTab] = useState('confirmados');
   const [loading, setLoading] = useState(true);
+  const lista = useFetchState();
   const [toast, setToast] = useState(null);
   const [funcionarios, setFuncionarios] = useState([]);
   const [sugestoesAbertas, setSugestoesAbertas] = useState(false);
@@ -67,6 +72,7 @@ function Ferias({ fetchAlerts, fetchNotifications, usuarioAtual }) {
   const fetchRecords = async () => {
     try {
       setLoading(true);
+      lista.iniciar();
       let queryParams = [];
       if (busca) queryParams.push(`busca=${encodeURIComponent(busca)}`);
       if (proximoMes) queryParams.push(`proximo_mes=true`);
@@ -76,10 +82,13 @@ function Ferias({ fetchAlerts, fetchNotifications, usuarioAtual }) {
       if (res.ok) {
         const data = await res.json();
         setRecords(data);
+        lista.sucesso();
+      } else {
+        lista.falhar(erroDaResposta(await res.json().catch(() => null), 'Erro ao buscar registros de férias.'));
       }
     } catch (err) {
       console.error(err);
-      showToast('Erro ao buscar registros de férias.', 'error');
+      lista.falhar('Erro de conexão ao buscar registros de férias.');
     } finally {
       setLoading(false);
     }
@@ -141,22 +150,8 @@ function Ferias({ fetchAlerts, fetchNotifications, usuarioAtual }) {
     }
   };
 
-  const handleDelete = async (id, nome) => {
-    if (!window.confirm(`Deseja realmente deletar o agendamento de férias de "${nome}"?`)) return;
-
-    try {
-      const res = await apiFetch(`${API_URL}/ferias/${id}`, { method: 'DELETE' });
-      if (res.ok) {
-        showToast('Agendamento excluído com sucesso.');
-        fetchRecords();
-        fetchAlerts();
-      } else {
-        showToast('Erro ao excluir agendamento.', 'error');
-      }
-    } catch (err) {
-      console.error(err);
-      showToast('Erro de conexão ao excluir agendamento.', 'error');
-    }
+  const handleDelete = (id, nome) => {
+    setConfirmarAcao({ tipo: 'delete', id, nome });
   };
 
   const handleStatusChange = async (id, novoStatus) => {
@@ -175,10 +170,33 @@ function Ferias({ fetchAlerts, fetchNotifications, usuarioAtual }) {
     }
   };
 
-  const handleConfirm = async (r) => {
-    if (!window.confirm(`Confirmar o agendamento de férias de "${r.nome}" (início ${formatDateBR(r.data_inicio)})?`)) return;
-    await handleStatusChange(r.id, 'Agendado');
-    setTab('confirmados');
+  const handleConfirm = (r) => {
+    setConfirmarAcao({ tipo: 'confirm', record: r });
+  };
+
+  const confirmarExecucao = async () => {
+    if (!confirmarAcao) return;
+    if (confirmarAcao.tipo === 'delete') {
+      const { id, nome } = confirmarAcao;
+      try {
+        const res = await apiFetch(`${API_URL}/ferias/${id}`, { method: 'DELETE' });
+        if (res.ok) {
+          showToast('Agendamento excluído com sucesso.');
+          fetchRecords();
+          fetchAlerts();
+        } else {
+          showToast('Erro ao excluir agendamento.', 'error');
+        }
+      } catch (err) {
+        console.error(err);
+        showToast('Erro de conexão ao excluir agendamento.', 'error');
+      }
+    } else if (confirmarAcao.tipo === 'confirm') {
+      const r = confirmarAcao.record;
+      await handleStatusChange(r.id, 'Agendado');
+      setTab('confirmados');
+    }
+    setConfirmarAcao(null);
   };
 
   const formatDateBR = (isoStr) => {
@@ -425,6 +443,10 @@ function Ferias({ fetchAlerts, fetchNotifications, usuarioAtual }) {
                 <div className="w-8 h-8 border-4 border-primary-500 border-t-transparent rounded-full animate-spin" />
                 <p className="text-xs">Carregando férias...</p>
               </div>
+            ) : lista.status === 'error' ? (
+              <div className="bg-white rounded-2xl border border-slate-100 shadow-sm">
+                <ErroCarregamento mensagem={lista.erro} onTentarNovamente={fetchRecords} />
+              </div>
             ) : activeRecords.length === 0 ? (
               <div className="bg-white rounded-2xl border border-slate-100 shadow-sm p-10 text-center text-slate-400">
                 <span className="text-3xl">{tab === 'programados' ? '🕐' : '🌴'}</span>
@@ -557,6 +579,18 @@ function Ferias({ fetchAlerts, fetchNotifications, usuarioAtual }) {
         </div>
 
       </div>
+
+      <ModalConfirmacao
+        aberto={confirmarAcao != null}
+        titulo={confirmarAcao?.tipo === 'confirm' ? 'Confirmar agendamento' : 'Excluir agendamento'}
+        mensagem={confirmarAcao?.tipo === 'confirm'
+          ? `Confirmar o agendamento de férias de "${confirmarAcao?.record?.nome || ''}" (início ${formatDateBR(confirmarAcao?.record?.data_inicio)})?`
+          : `Deseja realmente deletar o agendamento de férias de "${confirmarAcao?.nome || ''}"? Esta ação não pode ser desfeita.`}
+        confirmarTexto={confirmarAcao?.tipo === 'confirm' ? 'Confirmar' : 'Excluir'}
+        perigo={confirmarAcao?.tipo !== 'confirm'}
+        onConfirmar={confirmarExecucao}
+        onCancelar={() => setConfirmarAcao(null)}
+      />
 
     </div>
   );

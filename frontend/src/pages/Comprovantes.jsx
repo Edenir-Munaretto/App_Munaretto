@@ -2,6 +2,8 @@ import React, { useState, useEffect, useRef, useMemo, useCallback } from 'react'
 import { FileText, Plus, Trash2, Edit2, Search, X, Check, AlertTriangle, Printer, Download, Upload, ChevronLeft, ChevronRight, FileSpreadsheet } from 'lucide-react';
 import { API_URL, apiFetch, erroDaResposta } from '../api';
 import ModalConfirmacao from '../components/ModalConfirmacao';
+import ErroCarregamento from '../components/ErroCarregamento';
+import { useFetchState } from '../hooks/useFetchState';
 
 const NUMERIC_FIELDS = [
   'valor_total', 'base_calculo', 'valor_inss', 'valor_iss', 'valor_liquido',
@@ -58,6 +60,7 @@ function Comprovantes() {
   const [tipoFiltro, setTipoFiltro] = useState('');
   const [ordenarPor, setOrdenarPor] = useState('data_registro');
   const [loading, setLoading] = useState(true);
+  const lista = useFetchState();
   const [toast, setToast] = useState(null);
   const fileInputRef = useRef(null);
   const [preview, setPreview] = useState(null); // { data, file, importing } da simulação
@@ -83,6 +86,7 @@ function Comprovantes() {
   const fetchComprovantes = useCallback(async (tipo = tipoFiltro, inicio = dataInicio, fim = dataFim) => {
     try {
       setLoading(true);
+      lista.iniciar();
       const params = new URLSearchParams();
       params.append('ordenar_por', ordenarPor);
       if (tipo) params.append('tipo_documento', tipo);
@@ -94,10 +98,13 @@ function Comprovantes() {
       if (res.ok) {
         const data = await res.json();
         setComprovantes(data);
+        lista.sucesso();
+      } else {
+        lista.falhar(erroDaResposta(await res.json().catch(() => null), 'Erro ao buscar comprovantes.'));
       }
     } catch (err) {
       console.error(err);
-      showToast('Erro ao buscar comprovantes.', 'error');
+      lista.falhar('Erro de conexão ao buscar comprovantes.');
     } finally {
       setLoading(false);
     }
@@ -536,6 +543,10 @@ function Comprovantes() {
         {loading ? (
           <div className="bg-white p-8 text-center text-slate-400 rounded-2xl border border-slate-100 shadow-sm">
             Carregando lançamentos...
+          </div>
+        ) : lista.status === 'error' ? (
+          <div className="bg-white rounded-2xl border border-slate-100 shadow-sm">
+            <ErroCarregamento mensagem={lista.erro} onTentarNovamente={fetchComprovantes} />
           </div>
         ) : filteredComprovantes.length === 0 ? (
           <div className="bg-white p-8 text-center text-slate-400 rounded-2xl border border-slate-100 shadow-sm">

@@ -1,6 +1,9 @@
 import React, { useState, useEffect } from 'react';
 import { Search, Plus, Edit2, Trash2, X, Check, AlertTriangle, Contact, Users, UserCheck, UserX, Power, RotateCcw } from 'lucide-react';
 import { API_URL, apiFetch, erroDaResposta } from '../api';
+import ModalConfirmacao from '../components/ModalConfirmacao';
+import ErroCarregamento from '../components/ErroCarregamento';
+import { useFetchState } from '../hooks/useFetchState';
 
 function Funcionarios({ usuarioAtual }) {
   const [funcionarios, setFuncionarios] = useState([]);
@@ -8,6 +11,7 @@ function Funcionarios({ usuarioAtual }) {
   const [filtroStatus, setFiltroStatus] = useState('ativos');
   const [busca, setBusca] = useState('');
   const [loading, setLoading] = useState(true);
+  const lista = useFetchState();
   const [toast, setToast] = useState(null);
 
   // Modal State
@@ -15,6 +19,7 @@ function Funcionarios({ usuarioAtual }) {
   const [editingId, setEditingId] = useState(null);
   const [form, setForm] = useState({ nome: '', cpf: '', cargo_id: '', cargo_id_2: '' });
   const [cargos, setCargos] = useState([]);
+  const [confirmarAcao, setConfirmarAcao] = useState(null);
 
   const temSst = (usuarioAtual?.permissoes || []).includes('sst');
 
@@ -52,6 +57,7 @@ function Funcionarios({ usuarioAtual }) {
   const fetchFuncionarios = async () => {
     try {
       setLoading(true);
+      lista.iniciar();
       const params = new URLSearchParams();
       if (busca) params.set('busca', busca);
       if (filtroStatus !== 'ativos') params.set('status', filtroStatus);
@@ -60,10 +66,13 @@ function Funcionarios({ usuarioAtual }) {
       const res = await apiFetch(url);
       if (res.ok) {
         setFuncionarios(await res.json());
+        lista.sucesso();
+      } else {
+        lista.falhar(erroDaResposta(await res.json().catch(() => null), 'Erro ao buscar funcionários.'));
       }
     } catch (err) {
       console.error('Erro ao buscar funcionários:', err);
-      showToast('Erro de conexão ao buscar funcionários', 'error');
+      lista.falhar('Erro de conexão ao buscar funcionários.');
     } finally {
       setLoading(false);
     }
@@ -126,47 +135,53 @@ function Funcionarios({ usuarioAtual }) {
     }
   };
 
-  const handleToggleStatus = async (f) => {
-    const novoStatus = !f.ativo;
-    const acao = novoStatus ? 'reativar' : 'inativar';
-    if (!window.confirm(`Tem certeza que deseja ${acao} o funcionário "${f.nome}"?`)) return;
-
-    try {
-      const res = await apiFetch(`${API_URL}/funcionarios/${f.id}/status`, {
-        method: 'PATCH',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ ativo: novoStatus })
-      });
-
-      if (res.ok) {
-        showToast(novoStatus ? 'Funcionário reativado com sucesso!' : 'Funcionário inativado com sucesso!');
-        fetchFuncionarios();
-        fetchStats();
-      } else {
-        showToast('Erro ao alterar o status do funcionário.', 'error');
-      }
-    } catch (err) {
-      console.error(err);
-      showToast('Erro de conexão ao alterar o status do funcionário.', 'error');
-    }
+  const handleToggleStatus = (f) => {
+    setConfirmarAcao({ tipo: 'toggle', funcionario: f, novoStatus: !f.ativo });
   };
 
-  const handleDelete = async (id, nome) => {
-    if (!window.confirm(`Tem certeza que deseja inativar o funcionário "${nome}"?`)) return;
+  const handleDelete = (id, nome) => {
+    setConfirmarAcao({ tipo: 'delete', id, nome });
+  };
 
-    try {
-      const res = await apiFetch(`${API_URL}/funcionarios/${id}`, { method: 'DELETE' });
-      if (res.ok) {
-        showToast('Funcionário excluído com sucesso.');
-        fetchFuncionarios();
-        fetchStats();
-      } else {
-        showToast('Erro ao excluir funcionário.', 'error');
+  const confirmarExecucao = async () => {
+    if (!confirmarAcao) return;
+    if (confirmarAcao.tipo === 'toggle') {
+      const f = confirmarAcao.funcionario;
+      const novoStatus = confirmarAcao.novoStatus;
+      try {
+        const res = await apiFetch(`${API_URL}/funcionarios/${f.id}/status`, {
+          method: 'PATCH',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ ativo: novoStatus })
+        });
+        if (res.ok) {
+          showToast(novoStatus ? 'Funcionário reativado com sucesso!' : 'Funcionário inativado com sucesso!');
+          fetchFuncionarios();
+          fetchStats();
+        } else {
+          showToast('Erro ao alterar o status do funcionário.', 'error');
+        }
+      } catch (err) {
+        console.error(err);
+        showToast('Erro de conexão ao alterar o status do funcionário.', 'error');
       }
-    } catch (err) {
-      console.error(err);
-      showToast('Erro de conexão ao excluir funcionário.', 'error');
+    } else {
+      const { id, nome } = confirmarAcao;
+      try {
+        const res = await apiFetch(`${API_URL}/funcionarios/${id}`, { method: 'DELETE' });
+        if (res.ok) {
+          showToast('Funcionário excluído com sucesso.');
+          fetchFuncionarios();
+          fetchStats();
+        } else {
+          showToast('Erro ao excluir funcionário.', 'error');
+        }
+      } catch (err) {
+        console.error(err);
+        showToast('Erro de conexão ao excluir funcionário.', 'error');
+      }
     }
+    setConfirmarAcao(null);
   };
 
   const filtros = [
@@ -287,6 +302,12 @@ function Funcionarios({ usuarioAtual }) {
                     </div>
                   </td>
                 </tr>
+              ) : lista.status === 'error' ? (
+                <tr>
+                  <td colSpan={temSst ? 5 : 4}>
+                    <ErroCarregamento mensagem={lista.erro} onTentarNovamente={fetchFuncionarios} />
+                  </td>
+                </tr>
               ) : funcionarios.length === 0 ? (
                 <tr>
                   <td colSpan={temSst ? 5 : 4} className="text-center py-16 text-slate-400">
@@ -374,6 +395,8 @@ function Funcionarios({ usuarioAtual }) {
               <div className="w-8 h-8 border-4 border-primary-500 border-t-transparent rounded-full animate-spin" />
               <p className="text-xs">Buscando funcionários...</p>
             </div>
+          ) : lista.status === 'error' ? (
+            <ErroCarregamento mensagem={lista.erro} onTentarNovamente={fetchFuncionarios} />
           ) : funcionarios.length === 0 ? (
             <div className="text-center py-12 text-slate-400">
               <Contact className="mx-auto mb-3 text-slate-300" size={40} />
@@ -545,6 +568,20 @@ function Funcionarios({ usuarioAtual }) {
           </div>
         </div>
       )}
+
+      <ModalConfirmacao
+        aberto={confirmarAcao != null}
+        titulo={confirmarAcao?.tipo === 'toggle'
+          ? (confirmarAcao?.novoStatus ? 'Reativar funcionário' : 'Inativar funcionário')
+          : 'Excluir funcionário'}
+        mensagem={confirmarAcao?.tipo === 'toggle'
+          ? `Tem certeza que deseja ${confirmarAcao?.novoStatus ? 'reativar' : 'inativar'} o funcionário "${confirmarAcao?.funcionario?.nome || ''}"?`
+          : `Tem certeza que deseja excluir o funcionário "${confirmarAcao?.nome || ''}"? Esta ação não pode ser desfeita.`}
+        confirmarTexto={confirmarAcao?.tipo === 'toggle' ? (confirmarAcao?.novoStatus ? 'Reativar' : 'Inativar') : 'Excluir'}
+        perigo={confirmarAcao?.tipo !== 'toggle'}
+        onConfirmar={confirmarExecucao}
+        onCancelar={() => setConfirmarAcao(null)}
+      />
     </div>
   );
 }

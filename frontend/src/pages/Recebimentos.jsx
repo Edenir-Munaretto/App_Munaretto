@@ -2,6 +2,8 @@ import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import { Search, Plus, Edit2, Trash2, X, Check, AlertTriangle, Printer, FileCheck2, FileX2, Undo2, Wallet, ChevronLeft, ChevronRight } from 'lucide-react';
 import { API_URL, apiFetch, erroDaResposta } from '../api';
 import ModalConfirmacao from '../components/ModalConfirmacao';
+import ErroCarregamento from '../components/ErroCarregamento';
+import { useFetchState } from '../hooks/useFetchState';
 
 function Recebimentos() {
   const [recebimentos, setRecebimentos] = useState([]);
@@ -13,6 +15,7 @@ function Recebimentos() {
   const [dataFim, setDataFim] = useState('');
   const [loading, setLoading] = useState(true);
   const [toast, setToast] = useState(null);
+  const lista = useFetchState();
 
   // Modal State
   const [showModal, setShowModal] = useState(false);
@@ -54,6 +57,7 @@ function Recebimentos() {
   const fetchRecebimentos = useCallback(async (de = '', ate = '') => {
     try {
       setLoading(true);
+      lista.iniciar();
       const params = new URLSearchParams();
       if (de) params.append('data_inicio_de', de);
       if (ate) params.append('data_inicio_ate', ate);
@@ -62,10 +66,13 @@ function Recebimentos() {
       if (res.ok) {
         const data = await res.json();
         setRecebimentos(data);
+        lista.sucesso();
+      } else {
+        lista.falhar(erroDaResposta(await res.json().catch(() => null), 'Erro ao buscar recebimentos.'));
       }
     } catch (err) {
       console.error(err);
-      showToast('Erro ao buscar recebimentos.', 'error');
+      lista.falhar('Erro de conexão ao buscar recebimentos.');
     } finally {
       setLoading(false);
     }
@@ -549,6 +556,12 @@ function Recebimentos() {
                     </div>
                   </td>
                 </tr>
+              ) : lista.status === 'error' ? (
+                <tr>
+                  <td colSpan="9">
+                    <ErroCarregamento mensagem={lista.erro} onTentarNovamente={fetchRecebimentos} />
+                  </td>
+                </tr>
               ) : filteredRecebimentos.length === 0 ? (
                 <tr>
                   <td colSpan="9" className="text-center py-16 text-slate-400">
@@ -611,6 +624,8 @@ function Recebimentos() {
               <div className="w-8 h-8 border-4 border-primary-500 border-t-transparent rounded-full animate-spin" />
               <p className="text-xs">Carregando recebimentos...</p>
             </div>
+          ) : lista.status === 'error' ? (
+            <ErroCarregamento mensagem={lista.erro} onTentarNovamente={fetchRecebimentos} />
           ) : filteredRecebimentos.length === 0 ? (
             <div className="text-center py-12 text-slate-400">
               <span className="text-3xl">💰</span>

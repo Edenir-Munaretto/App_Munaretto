@@ -2,11 +2,14 @@ import React, { useState, useEffect } from 'react';
 import { Search, Plus, Edit2, Trash2, Check, AlertTriangle, Users, ChevronLeft, ChevronRight } from 'lucide-react';
 import { API_URL, apiFetch, erroDaResposta } from '../api';
 import ModalConfirmacao from '../components/ModalConfirmacao';
+import ErroCarregamento from '../components/ErroCarregamento';
+import { useFetchState } from '../hooks/useFetchState';
 
 function Clientes() {
   const [clientes, setClientes] = useState([]);
   const [busca, setBusca] = useState('');
   const [loading, setLoading] = useState(true);
+  const lista = useFetchState();
   const [toast, setToast] = useState(null);
 
   // Modal State
@@ -42,17 +45,20 @@ function Clientes() {
   };
 
   const fetchClientes = async () => {
+    lista.iniciar();
     try {
-      setLoading(true);
       const url = busca ? `${API_URL}/clientes/?busca=${encodeURIComponent(busca)}` : `${API_URL}/clientes/`;
       const res = await apiFetch(url);
       if (res.ok) {
         const data = await res.json();
         setClientes(data);
+        lista.sucesso();
+      } else {
+        lista.falhar(erroDaResposta(await res.json().catch(() => null), 'Erro ao buscar clientes.'));
       }
     } catch (err) {
       console.error('Erro ao buscar clientes:', err);
-      showToast('Erro de conexão ao buscar clientes', 'error');
+      lista.falhar('Erro de conexão ao buscar clientes.');
     } finally {
       setLoading(false);
     }
@@ -228,6 +234,12 @@ function Clientes() {
                     </div>
                   </td>
                 </tr>
+) : lista.status === 'error' ? (
+                <tr>
+                  <td colSpan="6">
+                    <ErroCarregamento mensagem={lista.erro} onTentarNovamente={fetchClientes} />
+                  </td>
+                </tr>
               ) : clientes.length === 0 ? (
                 <tr>
                   <td colSpan="6" className="text-center py-16 text-slate-400">
@@ -276,6 +288,8 @@ function Clientes() {
               <div className="w-8 h-8 border-4 border-primary-500 border-t-transparent rounded-full animate-spin" />
               <p className="text-xs">Buscando clientes...</p>
             </div>
+          ) : lista.status === 'error' ? (
+            <ErroCarregamento mensagem={lista.erro} onTentarNovamente={fetchClientes} />
           ) : clientes.length === 0 ? (
             <div className="text-center py-12 text-slate-400">
               <Users className="mx-auto mb-3 text-slate-300" size={40} />

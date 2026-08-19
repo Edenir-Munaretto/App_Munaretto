@@ -2,16 +2,21 @@ import React, { useState, useEffect } from 'react';
 import { Search, Plus, Edit2, Trash2, X, Check, AlertTriangle, UserCog } from 'lucide-react';
 import { API_URL, apiFetch, erroDaResposta } from '../api';
 import { MODULOS } from '../modules';
+import ModalConfirmacao from '../components/ModalConfirmacao';
+import ErroCarregamento from '../components/ErroCarregamento';
+import { useFetchState } from '../hooks/useFetchState';
 
 function Configuracoes({ usuarioAtual, onUsuarioAtualizado }) {
   const [usuarios, setUsuarios] = useState([]);
   const [busca, setBusca] = useState('');
   const [loading, setLoading] = useState(true);
+  const lista = useFetchState();
   const [toast, setToast] = useState(null);
 
   // Modal State
   const [showModal, setShowModal] = useState(false);
   const [editingId, setEditingId] = useState(null);
+  const [confirmarExclusao, setConfirmarExclusao] = useState(null);
   const [formData, setFormData] = useState({
     nome: '',
     email: '',
@@ -32,13 +37,17 @@ function Configuracoes({ usuarioAtual, onUsuarioAtualizado }) {
   const fetchUsuarios = async () => {
     try {
       setLoading(true);
+      lista.iniciar();
       const res = await apiFetch(`${API_URL}/usuarios/`);
       if (res.ok) {
         setUsuarios(await res.json());
+        lista.sucesso();
+      } else {
+        lista.falhar('Erro ao buscar usuários.');
       }
     } catch (err) {
       console.error(err);
-      showToast('Erro ao buscar usuários.', 'error');
+      lista.falhar('Erro de conexão ao buscar usuários.');
     } finally {
       setLoading(false);
     }
@@ -132,15 +141,18 @@ function Configuracoes({ usuarioAtual, onUsuarioAtualizado }) {
     }
   };
 
-  const handleDelete = async (id, nome) => {
+  const handleDelete = (id, nome) => {
     if (usuarioAtual && usuarioAtual.id === id) {
       showToast('Você não pode excluir o próprio usuário logado.', 'error');
       return;
     }
-    if (!window.confirm(`Tem certeza que deseja excluir o usuário "${nome}"?`)) return;
+    setConfirmarExclusao({ id, nome });
+  };
 
+  const excluirUsuario = async () => {
+    if (!confirmarExclusao) return;
     try {
-      const res = await apiFetch(`${API_URL}/usuarios/${id}`, { method: 'DELETE' });
+      const res = await apiFetch(`${API_URL}/usuarios/${confirmarExclusao.id}`, { method: 'DELETE' });
       if (res.ok) {
         showToast('Usuário excluído com sucesso.');
         fetchUsuarios();
@@ -150,6 +162,8 @@ function Configuracoes({ usuarioAtual, onUsuarioAtualizado }) {
     } catch (err) {
       console.error(err);
       showToast('Erro de conexão ao excluir usuário.', 'error');
+    } finally {
+      setConfirmarExclusao(null);
     }
   };
 
@@ -217,6 +231,12 @@ function Configuracoes({ usuarioAtual, onUsuarioAtualizado }) {
                       <div className="w-8 h-8 border-4 border-primary-500 border-t-transparent rounded-full animate-spin" />
                       <p className="text-xs">Carregando usuários...</p>
                     </div>
+                  </td>
+                </tr>
+              ) : lista.status === 'error' ? (
+                <tr>
+                  <td colSpan="5">
+                    <ErroCarregamento mensagem={lista.erro} onTentarNovamente={fetchUsuarios} />
                   </td>
                 </tr>
               ) : filteredUsuarios.length === 0 ? (
@@ -399,6 +419,14 @@ function Configuracoes({ usuarioAtual, onUsuarioAtualizado }) {
           </div>
         </div>
       )}
+
+      <ModalConfirmacao
+        aberto={confirmarExclusao != null}
+        titulo="Excluir usuário"
+        mensagem={`Tem certeza que deseja excluir o usuário "${confirmarExclusao?.nome || ''}"? Esta ação não pode ser desfeita.`}
+        onConfirmar={excluirUsuario}
+        onCancelar={() => setConfirmarExclusao(null)}
+      />
     </div>
   );
 }
