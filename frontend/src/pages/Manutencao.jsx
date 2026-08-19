@@ -150,8 +150,8 @@ function Manutencao() {
       const method = veiculoEditingId ? 'PUT' : 'POST';
       const url = veiculoEditingId
         ? `${API_URL}/manutencao/veiculos/${veiculoEditingId}`
-        : `${API_URL}/manutencao/veiculos/`;
-      const res = await apiFetch(url, { method, body: JSON.stringify(veiculoForm) });
+        : `${API_URL}/manutencao/veiculos`;
+      const res = await apiFetch(url, { method, headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(veiculoForm) });
       if (res.ok) {
         setShowVeiculoModal(false);
         showToast(veiculoEditingId ? 'Veículo atualizado com sucesso!' : 'Veículo cadastrado com sucesso!');
@@ -259,8 +259,8 @@ function Manutencao() {
       const method = manutEditingId ? 'PUT' : 'POST';
       const url = manutEditingId
         ? `${API_URL}/manutencao/manutencoes/${manutEditingId}`
-        : `${API_URL}/manutencao/manutencoes/`;
-      const res = await apiFetch(url, { method, body: JSON.stringify(payload) });
+        : `${API_URL}/manutencao/manutencoes`;
+      const res = await apiFetch(url, { method, headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) });
       if (res.ok) {
         setShowManutModal(false);
         showToast(manutEditingId ? 'Manutenção atualizada!' : 'Manutenção registrada!');
@@ -312,8 +312,8 @@ function Manutencao() {
       const method = equipEditingId ? 'PUT' : 'POST';
       const url = equipEditingId
         ? `${API_URL}/manutencao/equipamentos/${equipEditingId}`
-        : `${API_URL}/manutencao/equipamentos/`;
-      const res = await apiFetch(url, { method, body: JSON.stringify(payload) });
+        : `${API_URL}/manutencao/equipamentos`;
+      const res = await apiFetch(url, { method, headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) });
       if (res.ok) {
         setShowEquipModal(false);
         showToast(equipEditingId ? 'Equipamento atualizado!' : 'Equipamento cadastrado!');
