@@ -18,6 +18,7 @@ class NotificacaoCreate(BaseModel):
     mensagem: str = Field(..., min_length=1, description="Descrição da notificação")
     destinatario: Optional[str] = Field(None, description="E-mail do usuário destinatário")
     ferias_id: Optional[int] = Field(None, description="ID do registro de férias relacionado")
+    veiculo_documento_id: Optional[int] = Field(None, description="ID do documento de veículo relacionado")
     criada_por: Optional[str] = Field(None, description="Usuário que originou a notificação")
 
 
@@ -27,7 +28,8 @@ class NotificacaoResponse(BaseModel):
     titulo: str
     mensagem: str
     destinatario: Optional[str]
-    ferias_id: Optional[int]
+    ferias_id: Optional[int] = None
+    veiculo_documento_id: Optional[int] = None
     lida: bool
     criada_por: Optional[str]
     created_at: Optional[str] = None
@@ -117,6 +119,105 @@ def _gerar_lembretes_ferias(db) -> None:
         logger.warning(f"Erro ao gerar lembretes de férias: {e}")
 
 
+def _gerar_lembretes_documentos_veiculos(db) -> None:
+    """Gera lembretes de vencimento dos documentos dos veículos (aba Documentos).
+
+    Para cada documento de veículo com data de validade, cria notificações para
+    os usuários com permissão 'manutencao':
+      - lembretes a cada 3 dias começando 30 dias antes do vencimento (mensagem
+        com os dias restantes), acompanhando o mesmo padrão das férias;
+      - 1 notificação de "Vencido" após a data (mensagem fixa, idempotente).
+
+    A geração é idempotente: verifica se já existe uma notificação com o mesmo
+    documento (veiculo_documento_id), destinatário, tipo e mensagem.
+    """
+    try:
+        docs = db.table("veiculo_documentos").select(
+            "id, tipo, data_validade, veiculo_id"
+        ).not_("data_validade", "is", None).execute()
+        if not docs.data:
+            return
+
+        veiculos = {
+            v["id"]: v
+            for v in db.table("veiculos").select("id, modelo, placa").execute().data
+        }
+
+        destinatarios = db.table("usuarios").select("email, permissoes").eq("ativo", True).execute()
+        alvos = [u["email"] for u in destinatarios.data if "manutencao" in (u.get("permissoes") or [])]
+        if not alvos:
+            return
+
+        hoje = datetime.now().date()
+
+        for d in docs.data:
+            try:
+                validade = datetime.strptime(d["data_validade"], "%Y-%m-%d").date()
+            except Exception:
+                continue
+
+            veiculo = veiculos.get(d["veiculo_id"], {})
+            rotulo = f"{veiculo.get('modelo', '')} - {veiculo.get('placa', '')}".strip()
+            if not rotulo:
+                rotulo = f"Veículo #{d['veiculo_id']}"
+            validade_br = validade.strftime("%d/%m/%Y")
+            doc_id = d["id"]
+
+            if validade < hoje:
+                titulo = f"Documento vencido: {d['tipo']}"
+                mensagem = (
+                    f"O documento \"{d['tipo']}\" do veículo {rotulo} "
+                    f"venceu em {validade_br} e está vencido."
+                )
+            else:
+                dias_total = (validade - hoje).days
+                if dias_total > 30:
+                    continue
+                # Passos de lembrete: 30 dias antes e depois a cada 3 dias até a data
+                datas_lembrete = []
+                passo = validade - timedelta(days=30)
+                while passo <= validade:
+                    datas_lembrete.append(passo)
+                    passo = passo + timedelta(days=3)
+                passo_atual = [dia for dia in datas_lembrete if dia <= hoje]
+                if not passo_atual:
+                    continue
+                dia = max(passo_atual)
+                dias_restantes = (validade - dia).days
+                if dias_restantes == 0:
+                    titulo = f"Documento vence hoje: {d['tipo']}"
+                    mensagem = (
+                        f"O documento \"{d['tipo']}\" do veículo {rotulo} "
+                        f"vence hoje ({validade_br})."
+                    )
+                else:
+                    titulo = f"Documento vence em {dias_restantes} dias"
+                    mensagem = (
+                        f"O documento \"{d['tipo']}\" do veículo {rotulo} "
+                        f"vence em {dias_restantes} dia(s) ({validade_br})."
+                    )
+
+            for alvo in alvos:
+                existe = db.table("notificacoes").select("id").eq(
+                    "destinatario", alvo
+                ).eq("veiculo_documento_id", doc_id).eq("tipo", "documento_veiculo").eq(
+                    "mensagem", mensagem
+                ).execute()
+                if existe.data:
+                    continue
+
+                db.table("notificacoes").insert({
+                    "tipo": "documento_veiculo",
+                    "titulo": titulo,
+                    "mensagem": mensagem,
+                    "destinatario": alvo,
+                    "veiculo_documento_id": doc_id,
+                    "criada_por": "Sistema",
+                }).execute()
+    except Exception as e:
+        logger.warning(f"Erro ao gerar lembretes de documentos de veículos: {e}")
+
+
 @router.get("/", response_model=List[NotificacaoResponse])
 def listar_notificacoes(
     lida: Optional[bool] = Query(None, description="Filtra por lida/não lida"),
@@ -126,6 +227,7 @@ def listar_notificacoes(
     """Lista apenas as notificações do usuário autenticado (e-mail derivado do token)."""
     try:
         _gerar_lembretes_ferias(db)
+        _gerar_lembretes_documentos_veiculos(db)
         query = db.table("notificacoes").select("*").order("created_at", desc=True)
 
         # Escopo obrigatório: ignora qualquer destinatário enviado pelo cliente

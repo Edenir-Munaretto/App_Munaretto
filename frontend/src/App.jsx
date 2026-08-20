@@ -287,6 +287,9 @@ function App() {
     if (n.tipo === 'ferias' && n.ferias_id) {
       setActiveTab('ferias');
     }
+    if (n.tipo === 'documento_veiculo' && n.veiculo_documento_id) {
+      setActiveTab('manutencao');
+    }
   };
 
   const formatDateBR = (isoStr) => {
@@ -587,6 +590,9 @@ function App() {
                               </span>
                               {n.tipo === 'ferias' && (
                                 <span className="text-lg">🌴</span>
+                              )}
+                              {n.tipo === 'documento_veiculo' && (
+                                <span className="text-lg">🚗</span>
                               )}
                             </button>
                             {!n.lida && (

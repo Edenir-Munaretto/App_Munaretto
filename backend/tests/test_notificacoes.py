@@ -150,3 +150,124 @@ def test_excluir_notificacao_de_outro_destinatario_negado(client, db_fake):
     assert resp.status_code == 404
     ids = {r["id"] for r in db_fake._dados["notificacoes"]}
     assert 4 in ids
+
+
+# ---------------------------------------------------------------------------
+# Lembretes de vencimento de documentos de veículos (aba Documentos)
+# ---------------------------------------------------------------------------
+MANUT_EMAIL = "frota@munaretto.com"
+
+
+def _injetar_usuario_manutencao(db_fake):
+    db_fake._dados["usuarios"].append(
+        {
+            "id": 91,
+            "nome": "Frota",
+            "email": MANUT_EMAIL,
+            "senha": _hash_senha("senhaFrota123"),
+            "permissoes": ["manutencao"],
+            "ativo": True,
+            "precisa_trocar_senha": False,
+        }
+    )
+
+
+def _login_manut(client):
+    resp = client.post("/api/usuarios/login", json={"email": MANUT_EMAIL, "senha": "senhaFrota123"})
+    assert resp.status_code == 200, resp.text
+    return resp.json()["token"]
+
+
+def _token_header_manut(client):
+    return {"Authorization": f"Bearer {_login_manut(client)}"}
+
+
+def _sembrar_documentos(db_fake, validade_proximo, validade_vencido, validade_longe, sem_validade=False):
+    db_fake._dados["veiculos"] = [
+        {"id": 1, "modelo": "Fiat Strada", "placa": "ABC1234", "ativo": True},
+    ]
+    db_fake._dados["veiculo_documentos"] = [
+        {
+            "id": 1, "veiculo_id": 1, "tipo": "CRLV",
+            "nome_original": "crlv.pdf", "tamanho_bytes": 10,
+            "mime_type": "application/pdf", "bucket_key": "k1",
+            "data_validade": validade_proximo, "observacao": None,
+        },
+        {
+            "id": 2, "veiculo_id": 1, "tipo": "Certificado do Cronotacógrafo",
+            "nome_original": "crono.pdf", "tamanho_bytes": 10,
+            "mime_type": "application/pdf", "bucket_key": "k2",
+            "data_validade": validade_vencido, "observacao": None,
+        },
+        {
+            "id": 3, "veiculo_id": 1, "tipo": "Seguro",
+            "nome_original": "seguro.pdf", "tamanho_bytes": 10,
+            "mime_type": "application/pdf", "bucket_key": "k3",
+            "data_validade": validade_longe, "observacao": None,
+        },
+        {
+            "id": 4, "veiculo_id": 1, "tipo": "IPVA",
+            "nome_original": "ipva.pdf", "tamanho_bytes": 10,
+            "mime_type": "application/pdf", "bucket_key": "k4",
+            "data_validade": None if sem_validade else "2026-09-01",
+            "observacao": None,
+        },
+    ]
+
+
+def test_gera_lembretes_documentos_manutencao(client, db_fake):
+    """Documento a vencer gera lembrete; vencido gera alerta; >30 dias ou sem
+    validade não geram nada. Apenas usuários com permissão 'manutencao'."""
+    _injetar_usuario_manutencao(db_fake)
+    _sembrar_documentos(
+        db_fake,
+        validade_proximo="2026-09-10",
+        validade_vencido="2026-01-05",
+        validade_longe="2030-01-01",
+        sem_validade=True,
+    )
+    resp = client.get("/api/notificacoes/", headers=_token_header_manut(client))
+    assert resp.status_code == 200, resp.text
+    notifs = resp.json()
+    tipos = {n["tipo"] for n in notifs}
+    assert "documento_veiculo" in tipos
+    # 1 lembrete (doc a vencer) + 1 vencido
+    assert len([n for n in notifs if n["tipo"] == "documento_veiculo"]) == 2
+    for n in notifs:
+        if n["tipo"] != "documento_veiculo":
+            continue
+        assert n["destinatario"] == MANUT_EMAIL
+        assert n["veiculo_documento_id"] in (1, 2)
+    # Sem validade (id 4) não gera notificação
+    assert all(n["veiculo_documento_id"] != 4 for n in notifs if n["tipo"] == "documento_veiculo")
+
+
+def test_lembretes_documentos_sao_idempotentes(client, db_fake):
+    _injetar_usuario_manutencao(db_fake)
+    _sembrar_documentos(
+        db_fake,
+        validade_proximo="2026-09-10",
+        validade_vencido="2026-01-05",
+        validade_longe="2030-01-01",
+        sem_validade=True,
+    )
+    client.get("/api/notificacoes/", headers=_token_header_manut(client))
+    resp = client.get("/api/notificacoes/", headers=_token_header_manut(client))
+    assert resp.status_code == 200
+    qtd = len([n for n in resp.json() if n["tipo"] == "documento_veiculo"])
+    assert qtd == 2  # mesma quantidade, sem duplicar
+
+
+def test_nao_gera_lembretes_sem_permissao(client, db_fake):
+    """Usuário sem 'manutencao' não recebe lembretes de documentos."""
+    _injetar_usuario(db_fake)  # permissoes = ["ferias"]
+    _sembrar_documentos(
+        db_fake,
+        validade_proximo="2026-09-10",
+        validade_vencido="2026-01-05",
+        validade_longe="2030-01-01",
+        sem_validade=True,
+    )
+    resp = client.get("/api/notificacoes/", headers=_token_header(client))
+    assert resp.status_code == 200
+    assert all(n["tipo"] != "documento_veiculo" for n in resp.json())

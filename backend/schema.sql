@@ -149,6 +149,10 @@ CREATE TABLE IF NOT EXISTS notificacoes (
     created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
 );
 
+-- Migração segura: adiciona a coluna somente se ainda não existir.
+-- Necessário porque "CREATE TABLE IF NOT EXISTS" é ignorado quando a tabela já existe.
+ALTER TABLE IF EXISTS notificacoes ADD COLUMN IF NOT EXISTS veiculo_documento_id INTEGER;
+
 CREATE INDEX IF NOT EXISTS idx_notificacoes_destinatario ON notificacoes (destinatario);
 CREATE INDEX IF NOT EXISTS idx_notificacoes_lida ON notificacoes (lida);
 
