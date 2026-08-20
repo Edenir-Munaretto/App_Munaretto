@@ -1,7 +1,8 @@
 import React, { useState, useEffect } from 'react';
 import {
   Car, Wrench, Plus, Edit2, Trash2, Search, Check, AlertTriangle,
-  Printer, ArrowLeft, MapPin, Banknote, Package, Backpack, Gauge, History, RefreshCcw
+  Printer, ArrowLeft, MapPin, Banknote, Package, Backpack, Gauge, History, RefreshCcw,
+  FileText, Upload, ExternalLink, CalendarClock
 } from 'lucide-react';
 import { API_URL, apiFetch, erroDaResposta } from '../api';
 import ModalConfirmacao from '../components/ModalConfirmacao';
@@ -39,6 +40,16 @@ const EQUIPAMENTO_INICIAL = {
   quantidade: 1,
   observacao: '',
 };
+
+const TIPOS_DOCUMENTO = [
+  'CRLV (documento do veículo)',
+  'Certificado do Cronotacógrafo',
+  'Seguro do veículo',
+  'IPVA',
+  'Licenciamento',
+  'Inspeção veicular',
+  'Outro',
+];
 
 function Manutencao() {
   const [veiculos, setVeiculos] = useState([]);
@@ -84,6 +95,15 @@ function Manutencao() {
   const [reposForm, setReposForm] = useState({ data_reposicao: '', quantidade: 1, observacao: '' });
   const [submittingRepos, setSubmittingRepos] = useState(false);
   const [removendoRepos, setRemovendoRepos] = useState(false);
+
+  // Documentos do veículo
+  const [documentos, setDocumentos] = useState([]);
+  const docLista = useFetchState();
+  const [showDocModal, setShowDocModal] = useState(false);
+  const [docForm, setDocForm] = useState({ tipo: '', data_validade: '', observacao: '' });
+  const [docArquivo, setDocArquivo] = useState(null);
+  const [submittingDoc, setSubmittingDoc] = useState(false);
+  const [removendoDoc, setRemovendoDoc] = useState(false);
 
   // Confirmação de exclusão
   const [confirmarAcao, setConfirmarAcao] = useState(null);
@@ -224,17 +244,47 @@ function Manutencao() {
     }
   };
 
+  const fetchDocumentos = async (veiculoId) => {
+    docLista.iniciar();
+    try {
+      const res = await apiFetch(`${API_URL}/manutencao/veiculos/${veiculoId}/documentos`);
+      if (res.ok) {
+        setDocumentos(await res.json());
+        docLista.sucesso();
+      } else {
+        docLista.falhar('Erro ao buscar documentos.');
+      }
+    } catch (err) {
+      console.error(err);
+      docLista.falhar('Erro de conexão ao buscar documentos.');
+    }
+  };
+
+  // Situação da validade de um documento
+  const situacaoValidade = (d) => {
+    if (!d.data_validade) return null;
+    const hoje = new Date();
+    hoje.setHours(0, 0, 0, 0);
+    const fim = new Date(d.data_validade + 'T00:00:00');
+    const dias = Math.ceil((fim - hoje) / 86400000);
+    if (dias < 0) return { status: 'vencido', dias };
+    if (dias <= 30) return { status: 'proximo', dias };
+    return { status: 'valido', dias };
+  };
+
   const abrirVeiculo = (v) => {
     setVeiculoSelecionado(v);
     setAba('manutencoes');
     fetchManutencoes(v.id);
     fetchEquipamentos(v.id);
+    fetchDocumentos(v.id);
   };
 
   const fecharVeiculo = () => {
     setVeiculoSelecionado(null);
     setManutencoes([]);
     setEquipamentos([]);
+    setDocumentos([]);
   };
 
   // ---------------------------------------------------------------------------
@@ -429,6 +479,93 @@ function Manutencao() {
       showToast('Erro de conexão ao excluir reposição.', 'error');
     } finally {
       setRemovendoRepos(false);
+    }
+  };
+
+  // ---------------------------------------------------------------------------
+  // Documentos do veículo
+  // ---------------------------------------------------------------------------
+  const MIMES_DOCUMENTO = ['application/pdf', 'image/jpeg', 'image/png', 'image/webp'];
+
+  const openAddDoc = () => {
+    setDocForm({ tipo: '', data_validade: '', observacao: '' });
+    setDocArquivo(null);
+    setShowDocModal(true);
+  };
+
+  const baixarDocumento = async (d) => {
+    try {
+      const res = await apiFetch(`${API_URL}/manutencao/documentos/${d.id}`);
+      if (!res.ok) {
+        const data = await res.json().catch(() => null);
+        showToast(erroDaResposta(data, 'Documento não disponível.'), 'error');
+        return;
+      }
+      const data = await res.json();
+      window.open(data.url_temporaria, '_blank');
+    } catch (err) {
+      console.error(err);
+      showToast('Erro de conexão ao obter documento.', 'error');
+    }
+  };
+
+  const handleSubmitDoc = async (e) => {
+    e.preventDefault();
+    if (!docForm.tipo.trim()) {
+      showToast('Informe o tipo do documento.', 'error');
+      return;
+    }
+    if (!docArquivo) {
+      showToast('Selecione o arquivo do documento.', 'error');
+      return;
+    }
+    if (!MIMES_DOCUMENTO.includes(docArquivo.type)) {
+      showToast('Documento deve ser PDF, JPG, PNG ou WEBP.', 'error');
+      return;
+    }
+    if (docArquivo.size > 15 * 1024 * 1024) {
+      showToast('Documento deve ter no máximo 15 MB.', 'error');
+      return;
+    }
+    setSubmittingDoc(true);
+    try {
+      const fd = new FormData();
+      fd.append('arquivo', docArquivo);
+      fd.append('tipo', docForm.tipo.trim());
+      fd.append('data_validade', docForm.data_validade || '');
+      fd.append('observacao', docForm.observacao || '');
+      const res = await apiFetch(`${API_URL}/manutencao/veiculos/${veiculoSelecionado.id}/documentos`, { method: 'POST', body: fd });
+      if (res.ok) {
+        setShowDocModal(false);
+        showToast('Documento anexado com sucesso!');
+        fetchDocumentos(veiculoSelecionado.id);
+      } else {
+        showToast(erroDaResposta(await res.json().catch(() => null), 'Erro ao anexar documento.'), 'error');
+      }
+    } catch (err) {
+      console.error(err);
+      showToast('Erro de conexão ao anexar documento.', 'error');
+    } finally {
+      setSubmittingDoc(false);
+    }
+  };
+
+  const excluirDocumento = async (d) => {
+    if (!window.confirm(`Excluir o documento "${d.tipo}"?`)) return;
+    setRemovendoDoc(true);
+    try {
+      const res = await apiFetch(`${API_URL}/manutencao/documentos/${d.id}`, { method: 'DELETE' });
+      if (res.ok) {
+        showToast('Documento excluído.');
+        fetchDocumentos(veiculoSelecionado.id);
+      } else {
+        showToast('Erro ao excluir documento.', 'error');
+      }
+    } catch (err) {
+      console.error(err);
+      showToast('Erro de conexão ao excluir documento.', 'error');
+    } finally {
+      setRemovendoDoc(false);
     }
   };
 
@@ -658,7 +795,7 @@ function Manutencao() {
               onClick={() => window.print()}
               className="px-4 py-2 min-h-11 flex items-center gap-2 bg-slate-900 hover:bg-slate-700 text-white rounded-xl text-sm font-semibold transition-all cursor-pointer"
             >
-              <Printer size={16} /> {aba === 'manutencoes' ? 'Imprimir Relatório' : 'Imprimir Checklist'}
+              <Printer size={16} /> {aba === 'manutencoes' ? 'Imprimir Relatório' : aba === 'equipamentos' ? 'Imprimir Checklist' : 'Imprimir Documentos'}
             </button>
           </div>
 
@@ -685,6 +822,14 @@ function Manutencao() {
               }`}
             >
               <span className="flex items-center gap-2"><Backpack size={15} /> Equipamentos ({equipamentos.length})</span>
+            </button>
+            <button
+              onClick={() => setAba('documentos')}
+              className={`px-4 py-2.5 text-sm font-bold rounded-t-lg border-b-2 transition-all cursor-pointer ${
+                aba === 'documentos' ? 'text-primary-700 border-primary-600 bg-primary-50/50' : 'text-slate-500 border-transparent hover:text-slate-700'
+              }`}
+            >
+              <span className="flex items-center gap-2"><FileText size={15} /> Documentos ({documentos.length})</span>
             </button>
           </div>
 
@@ -884,6 +1029,99 @@ function Manutencao() {
               )}
             </div>
           )}
+
+          {/* Aba Documentos */}
+          {aba === 'documentos' && (
+            <div className="space-y-3">
+              <div className="flex flex-wrap items-center justify-between gap-3">
+                <p className="text-xs text-slate-500">Anexe os documentos do veículo (CRLV, certificado do cronotacógrafo etc.) e acompanhe a data de validade de cada um.</p>
+                <button
+                  onClick={openAddDoc}
+                  className="px-4 py-2 min-h-11 flex items-center gap-2 bg-primary-600 hover:bg-primary-700 text-white rounded-xl text-sm font-semibold transition-all cursor-pointer"
+                >
+                  <Plus size={16} /> Anexar Documento
+                </button>
+              </div>
+
+              {docLista.status === 'loading' ? (
+                <div className="bg-white rounded-2xl border border-slate-100 shadow-sm p-10 flex flex-col items-center justify-center text-slate-400 gap-3">
+                  <div className="w-8 h-8 border-4 border-primary-500 border-t-transparent rounded-full animate-spin" />
+                  <p className="text-xs">Carregando documentos...</p>
+                </div>
+              ) : docLista.status === 'error' ? (
+                <div className="bg-white rounded-2xl border border-slate-100 shadow-sm">
+                  <ErroCarregamento mensagem={docLista.erro} onTentarNovamente={() => fetchDocumentos(veiculoSelecionado.id)} />
+                </div>
+              ) : documentos.length === 0 ? (
+                <div className="bg-white rounded-2xl border border-slate-100 shadow-sm p-10 text-center text-slate-400">
+                  <FileText className="mx-auto mb-3 text-slate-300" size={40} />
+                  <p className="font-semibold mt-2">Nenhum documento anexado.</p>
+                  <p className="text-xs mt-1">Anexe o documento do veículo e o certificado do cronotacógrafo para manter a documentação em dia.</p>
+                </div>
+              ) : (
+                documentos.map((d) => {
+                  const sit = situacaoValidade(d);
+                  const sitCls = !sit
+                    ? 'bg-slate-100 text-slate-600'
+                    : sit.status === 'vencido'
+                      ? 'bg-rose-100 text-rose-700 border border-rose-200'
+                      : sit.status === 'proximo'
+                        ? 'bg-amber-100 text-amber-700 border border-amber-200'
+                        : 'bg-emerald-100 text-emerald-700 border border-emerald-200';
+                  const sitLabel = !sit
+                    ? 'Sem validade'
+                    : sit.status === 'vencido'
+                      ? `Vencido em ${formatDateBR(d.data_validade)}`
+                      : sit.status === 'proximo'
+                        ? `Vence em ${sit.dias} dia(s) — ${formatDateBR(d.data_validade)}`
+                        : `Válido até ${formatDateBR(d.data_validade)}`;
+                  return (
+                    <div key={d.id} className="bg-white rounded-xl shadow-md border border-slate-200 p-4 transition-all hover:shadow-lg">
+                      <div className="flex flex-wrap items-start justify-between gap-3">
+                        <div className="min-w-0 flex-1">
+                          <div className="flex items-center gap-2 flex-wrap">
+                            <div className="w-10 h-10 flex items-center justify-center rounded-lg bg-primary-50 text-primary-700 border border-primary-100 shrink-0">
+                              <FileText size={18} />
+                            </div>
+                            <div className="min-w-0">
+                              <p className="font-bold text-slate-900 text-sm">{d.tipo}</p>
+                              <p className="text-xs text-slate-500 truncate">{d.nome_original}</p>
+                            </div>
+                          </div>
+                          <div className="mt-2 flex flex-wrap items-center gap-2">
+                            <span className={`px-2.5 py-1 rounded-full text-[11px] font-bold ${sitCls}`}>
+                              <span className="flex items-center gap-1.5">
+                                <CalendarClock size={13} />
+                                {sitLabel}
+                              </span>
+                            </span>
+                            {d.observacao && <span className="text-xs text-slate-400 italic">{d.observacao}</span>}
+                          </div>
+                        </div>
+                        <div className="flex items-center gap-1 shrink-0">
+                          <button
+                            onClick={() => baixarDocumento(d)}
+                            className="w-11 h-11 flex items-center justify-center p-0 rounded bg-slate-50 hover:bg-primary-50 text-slate-500 hover:text-primary-700 border border-slate-100 transition-colors"
+                            title="Abrir documento"
+                          >
+                            <ExternalLink size={15} />
+                          </button>
+                          <button
+                            onClick={() => excluirDocumento(d)}
+                            disabled={removendoDoc}
+                            className="w-11 h-11 flex items-center justify-center p-0 rounded bg-slate-50 hover:bg-rose-50 text-slate-500 hover:text-rose-700 border border-slate-100 transition-colors cursor-pointer disabled:opacity-50"
+                            title="Excluir documento"
+                          >
+                            <Trash2 size={15} />
+                          </button>
+                        </div>
+                      </div>
+                    </div>
+                  );
+                })
+              )}
+            </div>
+          )}
         </div>
       )}
 
@@ -1011,6 +1249,73 @@ function Manutencao() {
               </tr>
             </tbody>
           </table>
+        </div>
+      )}
+
+      {/* ============================= RELATÓRIO IMPRIMÍVEL (DOCUMENTOS) ============================= */}
+      {veiculoSelecionado && aba === 'documentos' && (
+        <div className="hidden print:block">
+          <div className="mb-6 border-b border-slate-300 pb-4">
+            <div className="flex justify-between items-start">
+              <div>
+                <h2 className="text-2xl font-bold text-slate-800 uppercase tracking-wide">Documentos do Veículo</h2>
+                <p className="text-sm text-slate-600 mt-1">Munaretto & Co. — Controle de frota</p>
+              </div>
+              <p className="text-sm text-slate-600">Emitido em: {new Date().toLocaleDateString('pt-BR')}</p>
+            </div>
+          </div>
+          <div className="mb-4 space-y-0.5">
+            <p className="text-sm"><span className="font-bold">Veículo:</span> {veiculoSelecionado.modelo}</p>
+            <p className="text-sm"><span className="font-bold">Placa:</span> {veiculoSelecionado.placa}</p>
+            {veiculoSelecionado.observacao && <p className="text-sm text-slate-600">{veiculoSelecionado.observacao}</p>}
+          </div>
+          <table className="w-full border-collapse text-sm">
+            <thead>
+              <tr className="border-b-2 border-slate-400 text-left">
+                <th className="py-2 pr-2 w-8">Nº</th>
+                <th className="py-2 pr-2">Documento</th>
+                <th className="py-2 pr-2">Arquivo</th>
+                <th className="py-2 pr-2 w-28">Validade</th>
+                <th className="py-2 w-24 text-center">Situação</th>
+              </tr>
+            </thead>
+            <tbody>
+              {documentos.length === 0 ? (
+                <tr>
+                  <td colSpan="5" className="py-4 text-center text-slate-400">Nenhum documento anexado.</td>
+                </tr>
+              ) : (
+                documentos.map((d, i) => {
+                  const sit = situacaoValidade(d);
+                  const sitLabel = !sit
+                    ? 'Sem validade'
+                    : sit.status === 'vencido'
+                      ? 'Vencido'
+                      : sit.status === 'proximo'
+                        ? 'Próximo ao vencimento'
+                        : 'Vigente';
+                  return (
+                    <tr key={d.id} className="border-b border-slate-200 align-top">
+                      <td className="py-2">{i + 1}</td>
+                      <td className="py-2">
+                        <span className="font-bold">{d.tipo}</span>
+                        {d.observacao && <div className="text-xs text-slate-600 mt-0.5">{d.observacao}</div>}
+                      </td>
+                      <td className="py-2">{d.nome_original}</td>
+                      <td className="py-2">{d.data_validade ? formatDateBR(d.data_validade) : '—'}</td>
+                      <td className="py-2 text-center">{sitLabel}</td>
+                    </tr>
+                  );
+                })
+              )}
+            </tbody>
+          </table>
+          <div className="mt-8 text-sm">
+            <div className="flex flex-wrap justify-between gap-6">
+              <div>Responsável: ______________________________</div>
+              <div>Assinatura: ______________________________</div>
+            </div>
+          </div>
         </div>
       )}
 
@@ -1441,6 +1746,110 @@ function Manutencao() {
                 )}
               </div>
             </div>
+          </div>
+        </div>
+      )}
+
+      {/* ============================= MODAL DOCUMENTO ============================= */}
+      {showDocModal && (
+        <div className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-2xl shadow-2xl max-w-2xl w-full overflow-hidden animate-in fade-in zoom-in duration-200">
+            <div className="bg-slate-900 text-white px-3 py-3 md:px-6 md:py-4 flex items-center justify-between">
+              <h3 className="font-bold text-lg">Anexar Documento</h3>
+              <button
+                onClick={() => setShowDocModal(false)}
+                className="text-slate-400 hover:text-white text-xl font-bold cursor-pointer"
+              >
+                &times;
+              </button>
+            </div>
+            <form onSubmit={handleSubmitDoc} className="p-6 space-y-6">
+              <div className="space-y-4">
+                <h4 className="text-xs font-bold text-slate-400 uppercase tracking-wider">
+                  {veiculoSelecionado.modelo} — {veiculoSelecionado.placa}
+                </h4>
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  <div className="col-span-1 md:col-span-2">
+                    <label className="block text-xs font-bold text-slate-700 mb-1.5">Tipo do documento *</label>
+                    <input
+                      type="text"
+                      list="sugestoes-documento"
+                      name="tipo"
+                      value={docForm.tipo}
+                      onChange={(e) => setDocForm(p => ({ ...p, tipo: e.target.value }))}
+                      placeholder="Ex.: CRLV, Certificado do Cronotacógrafo..."
+                      className={inputCls}
+                    />
+                    <datalist id="sugestoes-documento">
+                      {TIPOS_DOCUMENTO.map((t) => <option key={t} value={t} />)}
+                    </datalist>
+                  </div>
+                  <div className="col-span-1">
+                    <label className="block text-xs font-bold text-slate-700 mb-1.5">Data de validade</label>
+                    <input
+                      type="date"
+                      name="data_validade"
+                      value={docForm.data_validade}
+                      onChange={(e) => setDocForm(p => ({ ...p, data_validade: e.target.value }))}
+                      className={inputCls}
+                    />
+                  </div>
+                  <div className="col-span-1">
+                    <label className="block text-xs font-bold text-slate-700 mb-1.5">Observação</label>
+                    <input
+                      type="text"
+                      name="observacao"
+                      value={docForm.observacao}
+                      onChange={(e) => setDocForm(p => ({ ...p, observacao: e.target.value }))}
+                      placeholder="Ex.: Vencimento do CRLV"
+                      className={inputCls}
+                    />
+                  </div>
+                  <div className="col-span-1 md:col-span-2">
+                    <label className="block text-xs font-bold text-slate-700 mb-1.5">Arquivo * (PDF, JPG, PNG ou WEBP — máx. 15 MB)</label>
+                    <label className="flex flex-col items-center justify-center gap-2 border-2 border-dashed border-slate-300 rounded-xl px-4 py-6 cursor-pointer hover:border-primary-500 hover:bg-primary-50/40 transition-all text-center">
+                      <Upload size={20} className="text-slate-400" />
+                      {docArquivo ? (
+                        <span className="text-sm font-semibold text-primary-700">{docArquivo.name}</span>
+                      ) : (
+                        <span className="text-xs text-slate-500">Clique para selecionar o arquivo do documento</span>
+                      )}
+                      <input
+                        type="file"
+                        accept="application/pdf,image/jpeg,image/png,image/webp"
+                        onChange={(e) => setDocArquivo(e.target.files?.[0] || null)}
+                        className="hidden"
+                      />
+                    </label>
+                  </div>
+                </div>
+              </div>
+              <div className="flex gap-3 justify-end pt-2">
+                <button
+                  type="button"
+                  onClick={() => setShowDocModal(false)}
+                  className="px-4 py-2 min-h-11 border border-slate-200 rounded-xl text-sm font-semibold text-slate-600 hover:bg-slate-50 transition-all cursor-pointer"
+                >
+                  Cancelar
+                </button>
+                <button
+                  type="submit"
+                  disabled={submittingDoc}
+                  className="px-4 py-2 min-h-11 flex items-center gap-2 bg-primary-600 hover:bg-primary-700 text-white rounded-xl text-sm font-semibold transition-all cursor-pointer disabled:opacity-50"
+                >
+                  {submittingDoc ? (
+                    <>
+                      <span className="w-3 h-3 border-2 border-white border-t-transparent rounded-full animate-spin" />
+                      Enviando...
+                    </>
+                  ) : (
+                    <>
+                      <Upload size={16} /> Anexar Documento
+                    </>
+                  )}
+                </button>
+              </div>
+            </form>
           </div>
         </div>
       )}

@@ -298,3 +298,134 @@ def test_crud_reposicoes_equipamento(manutencao_client):
         json={"equipamento_id": 999, "data_reposicao": "2026-08-15", "quantidade": 1},
     )
     assert resp.status_code == 404
+
+
+# ---------------------------------------------------------------------------
+# Documentos de veículos (CRLV, cronotacógrafo, etc.)
+# ---------------------------------------------------------------------------
+class FakeS3:
+    """Simula as chamadas do boto3 usadas pelo router de manutenção."""
+
+    def __init__(self):
+        self.objetos = {}
+        self.removidos = []
+        self.put_chamadas = []
+        self.geradas = []
+
+    def put_object(self, **kwargs):
+        self.put_chamadas.append(kwargs)
+        self.objetos[kwargs["Key"]] = kwargs["Body"]
+        return {}
+
+    def delete_object(self, **kwargs):
+        self.objetos.pop(kwargs["Key"], None)
+        self.removidos.append(kwargs["Key"])
+        return {}
+
+    def generate_presigned_url(self, operacao, Params=None, ExpiresIn=None):
+        self.geradas.append(Params["Key"])
+        return f"https://presigned.invalido/{Params['Key']}?expires={ExpiresIn}"
+
+
+@pytest.fixture
+def s3_fake_manutencao(monkeypatch):
+    fake = FakeS3()
+
+    def _get_s3_client():
+        return fake
+
+    def _bucket():
+        return "bucket-teste"
+
+    monkeypatch.setattr("routers.manutencao.get_s3_client", _get_s3_client)
+    monkeypatch.setattr("routers.manutencao.bucket", _bucket)
+    monkeypatch.setattr("storage.get_s3_client", _get_s3_client)
+    monkeypatch.setattr("storage.bucket", _bucket)
+    return fake
+
+
+def _upload_documento(manutencao_client, veiculo_id, tipo="CRLV", data_validade="2026-12-31", nome="crlv.pdf", mime="application/pdf", conteudo=b"%PDF-1.4 crlv"):
+    return manutencao_client.post(
+        f"/api/manutencao/veiculos/{veiculo_id}/documentos",
+        data={"tipo": tipo, "data_validade": data_validade},
+        files={"arquivo": (nome, conteudo, mime)},
+    )
+
+
+def test_crud_documentos_veiculo(manutencao_client, s3_fake_manutencao):
+    veiculo_id = _criar_veiculo(manutencao_client)
+
+    resp = _upload_documento(manutencao_client, veiculo_id, tipo="CRLV", data_validade="2026-12-31")
+    assert resp.status_code == 201, resp.text
+    doc = resp.json()
+    assert doc["veiculo_id"] == veiculo_id
+    assert doc["tipo"] == "CRLV"
+    assert doc["data_validade"] == "2026-12-31"
+    assert doc["nome_original"] == "crlv.pdf"
+    assert doc["bucket_key"].startswith("documentos/veiculos/")
+
+    resp = _upload_documento(manutencao_client, veiculo_id, tipo="Certificado do Cronotacógrafo", data_validade="2026-11-15", nome="crono.pdf", conteudo=b"%PDF-1.4 crono")
+    assert resp.status_code == 201, resp.text
+
+    resp = manutencao_client.get(f"/api/manutencao/veiculos/{veiculo_id}/documentos")
+    assert resp.status_code == 200
+    assert len(resp.json()) == 2
+
+    # Download com presigned URL
+    doc_id = doc["id"]
+    resp = manutencao_client.get(f"/api/manutencao/documentos/{doc_id}")
+    assert resp.status_code == 200, resp.text
+    body = resp.json()
+    assert "https://presigned.invalido/" in body["url_temporaria"]
+    assert body["validade_segundos"] == 900
+    assert body["mime_type"] == "application/pdf"
+
+    # Exclusão remove o objeto do B2 e os metadados
+    resp = manutencao_client.delete(f"/api/manutencao/documentos/{doc_id}")
+    assert resp.status_code == 200
+    assert resp.json()["success"] is True
+    assert len(s3_fake_manutencao.removidos) == 1
+
+    resp = manutencao_client.get(f"/api/manutencao/documentos/{doc_id}")
+    assert resp.status_code == 404
+
+    resp = manutencao_client.get(f"/api/manutencao/veiculos/{veiculo_id}/documentos")
+    assert resp.status_code == 200
+    assert len(resp.json()) == 1
+
+
+def test_documento_veiculo_inexistente(manutencao_client, s3_fake_manutencao):
+    resp = _upload_documento(manutencao_client, 999)
+    assert resp.status_code == 404
+    assert len(s3_fake_manutencao.put_chamadas) == 0
+
+
+def test_documento_tipo_arquivo_invalido(manutencao_client, s3_fake_manutencao):
+    veiculo_id = _criar_veiculo(manutencao_client)
+    resp = manutencao_client.post(
+        f"/api/manutencao/veiculos/{veiculo_id}/documentos",
+        data={"tipo": "CRLV"},
+        files={"arquivo": ("virus.exe", b"MZ...", "application/x-msdownload")},
+    )
+    assert resp.status_code == 400
+    assert len(s3_fake_manutencao.put_chamadas) == 0
+
+
+def test_documento_sem_tipo(manutencao_client, s3_fake_manutencao):
+    veiculo_id = _criar_veiculo(manutencao_client)
+    resp = manutencao_client.post(
+        f"/api/manutencao/veiculos/{veiculo_id}/documentos",
+        files={"arquivo": ("crlv.pdf", b"%PDF-1.4", "application/pdf")},
+    )
+    assert resp.status_code == 422  # tipo é obrigatório
+
+
+def test_documento_sem_validade(manutencao_client, s3_fake_manutencao):
+    veiculo_id = _criar_veiculo(manutencao_client)
+    resp = manutencao_client.post(
+        f"/api/manutencao/veiculos/{veiculo_id}/documentos",
+        data={"tipo": "IPVA"},
+        files={"arquivo": ("ipva.pdf", b"%PDF-1.4", "application/pdf")},
+    )
+    assert resp.status_code == 201, resp.text
+    assert resp.json()["data_validade"] is None

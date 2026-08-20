@@ -331,6 +331,25 @@ CREATE TABLE IF NOT EXISTS equipamento_reposicoes (
 CREATE INDEX IF NOT EXISTS idx_equip_reposicao_equipamento ON equipamento_reposicoes (equipamento_id);
 CREATE INDEX IF NOT EXISTS idx_equip_reposicao_veiculo ON equipamento_reposicoes (veiculo_id);
 
+-- TABELA: veiculo_documentos (documentos de cada veículo da frota)
+-- O arquivo em si (PDF/imagem) NÃO fica no banco: é armazenado em um bucket
+-- privado no Backblaze B2. Aqui ficam apenas os metadados, a chave do objeto
+-- no bucket e a data de validade de cada documento (CRLV, cronotacógrafo, etc.).
+CREATE TABLE IF NOT EXISTS veiculo_documentos (
+    id SERIAL PRIMARY KEY,
+    veiculo_id INTEGER NOT NULL REFERENCES veiculos(id) ON DELETE CASCADE,
+    tipo VARCHAR(100) NOT NULL,            -- ex.: CRLV, Certificado do Cronotacógrafo
+    nome_original VARCHAR(500) NOT NULL,   -- nome do arquivo enviado
+    tamanho_bytes BIGINT NOT NULL,
+    mime_type VARCHAR(100) NOT NULL,
+    bucket_key TEXT NOT NULL UNIQUE,       -- chave do objeto no bucket B2
+    data_validade DATE,                    -- data de validade do documento
+    observacao TEXT,
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE INDEX IF NOT EXISTS idx_veic_doc_veiculo ON veiculo_documentos (veiculo_id);
+
 -- ============================================================================
 -- ROW LEVEL SECURITY (RLS)
 -- ============================================================================
@@ -370,6 +389,7 @@ ALTER TABLE IF EXISTS veiculos           ENABLE ROW LEVEL SECURITY;
 ALTER TABLE IF EXISTS manutencoes        ENABLE ROW LEVEL SECURITY;
 ALTER TABLE IF EXISTS veiculo_equipamentos ENABLE ROW LEVEL SECURITY;
 ALTER TABLE IF EXISTS equipamento_reposicoes ENABLE ROW LEVEL SECURITY;
+ALTER TABLE IF EXISTS veiculo_documentos ENABLE ROW LEVEL SECURITY;
 
 -- ============================================================================
 -- POLÍTICAS RLS PARA service_role
@@ -459,6 +479,10 @@ CREATE POLICY "service_role_full_veiculo_equipamentos" ON veiculo_equipamentos
 
 DROP POLICY IF EXISTS "service_role_full_equipamento_reposicoes" ON equipamento_reposicoes;
 CREATE POLICY "service_role_full_equipamento_reposicoes" ON equipamento_reposicoes
+    FOR ALL TO service_role USING (true) WITH CHECK (true);
+
+DROP POLICY IF EXISTS "service_role_full_veiculo_documentos" ON veiculo_documentos;
+CREATE POLICY "service_role_full_veiculo_documentos" ON veiculo_documentos
     FOR ALL TO service_role USING (true) WITH CHECK (true);
 
 -- ============================================================================

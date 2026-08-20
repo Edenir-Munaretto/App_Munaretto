@@ -59,6 +59,8 @@ def _montar_dados_banco():
         "veiculos": [],
         "manutencoes": [],
         "veiculo_equipamentos": [],
+        "equipamento_reposicoes": [],
+        "veiculo_documentos": [],
         "login_tentativas": [],
     }
 
