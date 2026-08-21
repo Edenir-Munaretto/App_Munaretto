@@ -78,6 +78,25 @@ function Comprovantes() {
   const [paginaAtual, setPaginaAtual] = useState(1);
   const [exportando, setExportando] = useState(false);
 
+  // Impressão de todos os registros filtrados
+  const [imprimindo, setImprimindo] = useState(false);
+
+  const handleImprimir = () => {
+    if (filteredComprovantes.length === 0) return;
+    setImprimindo(true);
+  };
+
+  useEffect(() => {
+    if (!imprimindo) return;
+    const afterPrint = () => setImprimindo(false);
+    window.addEventListener('afterprint', afterPrint);
+    const timer = setTimeout(() => window.print(), 100);
+    return () => {
+      clearTimeout(timer);
+      window.removeEventListener('afterprint', afterPrint);
+    };
+  }, [imprimindo]);
+
   const showToast = (message, type = 'success') => {
     setToast({ message, type });
     setTimeout(() => setToast(null), 4000);
@@ -463,7 +482,7 @@ function Comprovantes() {
               onChange={importarPlanilha}
             />
             <button
-              onClick={() => window.print()}
+              onClick={handleImprimir}
               className="flex items-center justify-center gap-2 px-4 py-2.5 bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold text-sm rounded-xl transition-all border border-slate-200 cursor-pointer w-full sm:w-auto"
             >
               <Printer size={16} />
@@ -553,7 +572,7 @@ function Comprovantes() {
             Nenhum comprovante encontrado.
           </div>
         ) : (
-          comprovantesPagina.map((c) => (
+          (imprimindo ? filteredComprovantes : comprovantesPagina).map((c) => (
             <ComprovanteCard
               key={c.id}
               c={c}

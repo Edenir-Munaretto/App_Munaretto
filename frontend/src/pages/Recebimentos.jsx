@@ -42,6 +42,25 @@ function Recebimentos() {
   const REGISTROS_POR_PAGINA = 50;
   const [paginaAtual, setPaginaAtual] = useState(1);
 
+  // Impressão de todos os registros filtrados
+  const [imprimindo, setImprimindo] = useState(false);
+
+  const handleImprimir = () => {
+    if (filteredRecebimentos.length === 0) return;
+    setImprimindo(true);
+  };
+
+  useEffect(() => {
+    if (!imprimindo) return;
+    const afterPrint = () => setImprimindo(false);
+    window.addEventListener('afterprint', afterPrint);
+    const timer = setTimeout(() => window.print(), 100);
+    return () => {
+      clearTimeout(timer);
+      window.removeEventListener('afterprint', afterPrint);
+    };
+  }, [imprimindo]);
+
   useEffect(() => {
     fetchRecebimentos();
     fetchClientes();
@@ -374,6 +393,10 @@ function Recebimentos() {
         <p className="text-xs text-slate-500 mt-1">
           Gerado em: {new Date().toLocaleDateString('pt-BR')}
           {busca && ` | Busca: "${busca}"`}
+          {filtroNF && ` | NF: ${filtroNF === 'com' ? 'Com Emissão' : 'Sem Emissão'}`}
+          {filtroCessao && ` | Cessão: ${filtroCessao === 'com' ? 'Com Cessão' : 'Sem Cessão'}`}
+          {(dataInicio || dataFim) && ` | Período: ${dataInicio ? formatDate(dataInicio) : '...'} a ${dataFim ? formatDate(dataFim) : '...'}`}
+          {' | '}{filteredRecebimentos.length} registro(s)
         </p>
       </div>
 
@@ -391,7 +414,7 @@ function Recebimentos() {
         </div>
         <div className="flex flex-wrap items-center gap-3 w-full md:w-auto">
           <button
-            onClick={() => window.print()}
+            onClick={handleImprimir}
             className="flex items-center justify-center gap-2 px-4 py-2.5 bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold text-sm rounded-xl transition-all border border-slate-200 cursor-pointer w-full sm:w-auto"
           >
             <Printer size={16} />
@@ -571,7 +594,7 @@ function Recebimentos() {
                   </td>
                 </tr>
               ) : (
-                recebimentosPagina.map((r) => {
+                (imprimindo ? filteredRecebimentos : recebimentosPagina).map((r) => {
                   const pag = (parseFloat(r.valor_da_obra) || 0) - (parseFloat(r.valor_de_devolucao) || 0);
                   return (
                     <tr key={r.id} className="hover:bg-slate-50/50 transition-colors">
@@ -633,7 +656,7 @@ function Recebimentos() {
               <p className="text-xs mt-1">Cadastre um novo recebimento no botão acima.</p>
             </div>
           ) : (
-            recebimentosPagina.map((r) => {
+            (imprimindo ? filteredRecebimentos : recebimentosPagina).map((r) => {
               const pag = (parseFloat(r.valor_da_obra) || 0) - (parseFloat(r.valor_de_devolucao) || 0);
               return (
                 <div key={r.id} className="px-4 py-3">
