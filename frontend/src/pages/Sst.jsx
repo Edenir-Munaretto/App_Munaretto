@@ -1040,11 +1040,14 @@ function Sst() {
           body { background-color: white !important; color: black !important; }
           aside, header, button, input, select, .print\\:hidden, .no-print { display: none !important; }
           main { padding: 0 !important; margin: 0 !important; }
+          html, body { height: auto !important; max-height: none !important; overflow: visible !important; }
           .flex-1.overflow-y-auto { overflow: visible !important; height: auto !important; max-height: none !important; }
-          .flex.h-screen.overflow-hidden, main { overflow: visible !important; height: auto !important; min-height: 0 !important; }
+          .flex.h-dvh.overflow-hidden,
+          .flex.h-screen.overflow-hidden,
+          main { overflow: visible !important; height: auto !important; max-height: none !important; min-height: 0 !important; }
           table { width: 100% !important; border-collapse: collapse !important; }
           th, td { border: 1px solid #cbd5e1 !important; padding: 4px 6px !important; font-size: 9px !important; }
-          .print-full-width { width: 100% !important; max-width: 100% !important; border: none !important; box-shadow: none !important; }
+          .print-full-width { width: 100% !important; max-width: 100% !important; border: none !important; box-shadow: none !important; overflow: visible !important; }
         }
       `}} />
 

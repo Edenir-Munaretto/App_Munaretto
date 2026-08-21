@@ -606,14 +606,26 @@ function Manutencao() {
     <div className="space-y-4">
       <style>{`
         @media print {
+          @page { margin: 8mm; }
+          body {
+            background-color: white !important;
+            color: black !important;
+          }
           aside, header, button, input, select, .print\\:hidden, .no-print {
             display: none !important;
           }
+          main { padding: 0 !important; margin: 0 !important; }
+          html, body { height: auto !important; max-height: none !important; overflow: visible !important; }
+          .flex-1.overflow-y-auto { overflow: visible !important; height: auto !important; max-height: none !important; }
+          .flex.h-dvh.overflow-hidden,
+          .flex.h-screen.overflow-hidden,
+          main { overflow: visible !important; height: auto !important; max-height: none !important; min-height: 0 !important; }
           .print-full-width {
             width: 100% !important;
             max-width: 100% !important;
             border: none !important;
             box-shadow: none !important;
+            overflow: visible !important;
           }
         }
       `}</style>
