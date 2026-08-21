@@ -344,15 +344,22 @@ function Recebimentos() {
             padding: 0 !important;
             margin: 0 !important;
           }
+          html, body {
+            height: auto !important;
+            max-height: none !important;
+            overflow: visible !important;
+          }
           .flex-1.overflow-y-auto {
             overflow: visible !important;
             height: auto !important;
             max-height: none !important;
           }
+          .flex.h-dvh.overflow-hidden,
           .flex.h-screen.overflow-hidden,
           main {
             overflow: visible !important;
             height: auto !important;
+            max-height: none !important;
             min-height: 0 !important;
           }
           .print-full-width {
@@ -360,6 +367,7 @@ function Recebimentos() {
             max-width: 100% !important;
             border: none !important;
             box-shadow: none !important;
+            overflow: visible !important;
           }
           table {
             width: 100% !important;
