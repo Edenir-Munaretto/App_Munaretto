@@ -13,6 +13,7 @@ function Recebimentos() {
   const [filtroCessao, setFiltroCessao] = useState('');
   const [dataInicio, setDataInicio] = useState('');
   const [dataFim, setDataFim] = useState('');
+  const [campoPeriodo, setCampoPeriodo] = useState('data_inicio');
   const [loading, setLoading] = useState(true);
   const [toast, setToast] = useState(null);
   const lista = useFetchState();
@@ -73,13 +74,14 @@ function Recebimentos() {
     setTimeout(() => setToast(null), 4000);
   };
 
-  const fetchRecebimentos = useCallback(async (de = '', ate = '') => {
+  const fetchRecebimentos = useCallback(async (de = '', ate = '', campo = 'data_inicio') => {
     try {
       setLoading(true);
       lista.iniciar();
       const params = new URLSearchParams();
-      if (de) params.append('data_inicio_de', de);
-      if (ate) params.append('data_inicio_ate', ate);
+      const prefixo = campo === 'emissao_nf' ? 'emissao_nf' : 'data_inicio';
+      if (de) params.append(`${prefixo}_de`, de);
+      if (ate) params.append(`${prefixo}_ate`, ate);
       const query = params.toString() ? `?${params.toString()}` : '';
       const res = await apiFetch(`${API_URL}/recebimentos/${query}`);
       if (res.ok) {
@@ -279,12 +281,13 @@ function Recebimentos() {
       if (filtroCessao === 'com' && r.cessao !== 'sim') return false;
       if (filtroCessao === 'sem' && r.cessao === 'sim') return false;
 
-      // Filtro por Período de Início
-      if (dataInicio && r.data_inicio && r.data_inicio < dataInicio) return false;
-      if (dataFim && r.data_inicio && r.data_inicio > dataFim) return false;
+      // Filtro por Período (Data Início ou Emissão NF)
+      const campo = campoPeriodo === 'emissao_nf' ? 'emissao_nf' : 'data_inicio';
+      if (dataInicio && r[campo] && r[campo] < dataInicio) return false;
+      if (dataFim && r[campo] && r[campo] > dataFim) return false;
       return true;
     });
-  }, [recebimentos, busca, filtroNF, filtroCessao, dataInicio, dataFim]);
+  }, [recebimentos, busca, filtroNF, filtroCessao, dataInicio, dataFim, campoPeriodo]);
 
   // Totais memoizados sobre a lista FILTRADA — evita recálculo a cada render
   const totais = useMemo(() => {
@@ -322,7 +325,7 @@ function Recebimentos() {
 
   useEffect(() => {
     setPaginaAtual(1);
-  }, [busca, filtroNF, filtroCessao, dataInicio, dataFim]);
+  }, [busca, filtroNF, filtroCessao, dataInicio, dataFim, campoPeriodo]);
 
   return (
     <div className="space-y-6">
@@ -403,7 +406,7 @@ function Recebimentos() {
           {busca && ` | Busca: "${busca}"`}
           {filtroNF && ` | NF: ${filtroNF === 'com' ? 'Com Emissão' : 'Sem Emissão'}`}
           {filtroCessao && ` | Cessão: ${filtroCessao === 'com' ? 'Com Cessão' : 'Sem Cessão'}`}
-          {(dataInicio || dataFim) && ` | Período: ${dataInicio ? formatDate(dataInicio) : '...'} a ${dataFim ? formatDate(dataFim) : '...'}`}
+          {(dataInicio || dataFim) && ` | Período por ${campoPeriodo === 'emissao_nf' ? 'Emissão NF' : 'Data Início'}: ${dataInicio ? formatDate(dataInicio) : '...'} a ${dataFim ? formatDate(dataFim) : '...'}`}
           {' | '}{filteredRecebimentos.length} registro(s)
         </p>
       </div>
@@ -462,7 +465,20 @@ function Recebimentos() {
           <option value="sem">Sem Cessão</option>
         </select>
 
-        <span className="text-xs font-bold text-slate-500 uppercase tracking-wider">Período Início:</span>
+        <span className="text-xs font-bold text-slate-500 uppercase tracking-wider">Período por:</span>
+        <select
+          value={campoPeriodo}
+          onChange={(e) => {
+            const novoCampo = e.target.value;
+            setCampoPeriodo(novoCampo);
+            fetchRecebimentos(dataInicio, dataFim, novoCampo);
+          }}
+          className="px-3 py-1.5 border border-slate-200 rounded-xl text-xs font-semibold focus:outline-none focus:ring-2 focus:ring-primary-500/20 focus:border-primary-500"
+        >
+          <option value="data_inicio">Data Início</option>
+          <option value="emissao_nf">Emissão NF</option>
+        </select>
+
         <div className="flex items-center gap-2">
           <label className="text-xs font-medium text-slate-500">De:</label>
           <input
@@ -471,7 +487,7 @@ function Recebimentos() {
             onChange={(e) => {
               const novaData = e.target.value;
               setDataInicio(novaData);
-              fetchRecebimentos(novaData, dataFim);
+              fetchRecebimentos(novaData, dataFim, campoPeriodo);
             }}
             className="px-3 py-1.5 border border-slate-200 rounded-xl text-xs font-semibold focus:outline-none focus:ring-2 focus:ring-primary-500/20 focus:border-primary-500"
           />
@@ -484,7 +500,7 @@ function Recebimentos() {
             onChange={(e) => {
               const novaData = e.target.value;
               setDataFim(novaData);
-              fetchRecebimentos(dataInicio, novaData);
+              fetchRecebimentos(dataInicio, novaData, campoPeriodo);
             }}
             className="px-3 py-1.5 border border-slate-200 rounded-xl text-xs font-semibold focus:outline-none focus:ring-2 focus:ring-primary-500/20 focus:border-primary-500"
           />
@@ -497,7 +513,7 @@ function Recebimentos() {
               setFiltroCessao('');
               setDataInicio('');
               setDataFim('');
-              fetchRecebimentos();
+              fetchRecebimentos('', '', campoPeriodo);
             }}
             className="text-xs font-bold text-primary-600 hover:text-primary-700 hover:underline cursor-pointer"
           >

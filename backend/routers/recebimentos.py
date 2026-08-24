@@ -27,17 +27,23 @@ class RecebimentoResponse(RecebimentoCreate):
 def listar_recebimentos(
     data_inicio_de: Optional[str] = Query(None, description="Filtrar registros com data_inicio >= esta data (YYYY-MM-DD)"),
     data_inicio_ate: Optional[str] = Query(None, description="Filtrar registros com data_inicio <= esta data (YYYY-MM-DD)"),
+    emissao_nf_de: Optional[str] = Query(None, description="Filtrar registros com emissao_nf >= esta data (YYYY-MM-DD)"),
+    emissao_nf_ate: Optional[str] = Query(None, description="Filtrar registros com emissao_nf <= esta data (YYYY-MM-DD)"),
     limit: Optional[int] = Query(None, ge=1, le=10000, description="Máximo de registros a retornar (paginação)"),
     offset: Optional[int] = Query(0, ge=0, description="Registros a pular (paginação)"),
     db = Depends(get_supabase)
 ):
-    """Lista recebimentos registrados. Suporta filtro por intervalo de data de início."""
+    """Lista recebimentos registrados. Suporta filtro por intervalo de data de início ou de emissão de NF."""
     try:
         query = db.table("controle_recebimentos").select("*")
         if data_inicio_de:
             query = query.gte("data_inicio", data_inicio_de)
         if data_inicio_ate:
             query = query.lte("data_inicio", data_inicio_ate)
+        if emissao_nf_de:
+            query = query.gte("emissao_nf", emissao_nf_de)
+        if emissao_nf_ate:
+            query = query.lte("emissao_nf", emissao_nf_ate)
         query = query.order("data_inicio", desc=True)
         if limit is not None:
             query = query.range(offset, offset + limit - 1)
