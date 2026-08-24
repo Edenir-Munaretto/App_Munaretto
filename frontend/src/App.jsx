@@ -462,7 +462,6 @@ function App() {
         <div className="p-4 border-t border-slate-800 flex items-center justify-between text-xs text-slate-500 overflow-hidden">
           {sidebarOpen ? (
             <>
-              <span>v1.0.0 Web</span>
               <span>Desenvolvido por Munaretto & Co. Tecnologia</span>
             </>
           ) : (
