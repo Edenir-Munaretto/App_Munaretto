@@ -459,15 +459,11 @@ function App() {
         </nav>
 
         {/* Footer Sidebar */}
-        <div className="p-4 border-t border-slate-800 flex items-center justify-between text-xs text-slate-500 overflow-hidden">
-          {sidebarOpen ? (
-            <>
-              <span>Desenvolvido por Munaretto & Co. Tecnologia</span>
-            </>
-          ) : (
-            <span className="mx-auto">❤️</span>
-          )}
-        </div>
+        {sidebarOpen && (
+          <div className="p-4 border-t border-slate-800 text-xs text-slate-500 overflow-hidden">
+            <span>Desenvolvido por Munaretto & Co. Tecnologia</span>
+          </div>
+        )}
       </aside>
 
       {/* MAIN CONTENT AREA */}
