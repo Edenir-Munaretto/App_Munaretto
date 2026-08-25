@@ -106,12 +106,48 @@ def test_reativa_veiculo_inativo_com_mesma_placa(manutencao_client):
     )
     assert resp.status_code == 201, resp.text
     assert resp.json()["id"] == vid
-    assert resp.json()["ativo"] is True
-    assert resp.json()["modelo"] == "Fiat Strada Adventure"
 
     resp = manutencao_client.get("/api/manutencao/veiculos")
     assert resp.status_code == 200
     assert len(resp.json()) == 1
+    assert resp.json()[0]["ativo"] is True
+    assert resp.json()[0]["modelo"] == "Fiat Strada Adventure"
+
+
+def test_listar_veiculos_com_pendencias_documentos(manutencao_client, db_fake):
+    """Lista de veículos traz contagem de documentos vencidos/próximos do vencimento."""
+    from datetime import date, timedelta
+
+    r1 = manutencao_client.post(
+        "/api/manutencao/veiculos", json={"modelo": "Vencido Truck", "placa": "PND-0001"}
+    )
+    vid1 = r1.json()["id"]
+    r2 = manutencao_client.post(
+        "/api/manutencao/veiculos", json={"modelo": "A Vencer Truck", "placa": "PND-0002"}
+    )
+    vid2 = r2.json()["id"]
+    r3 = manutencao_client.post(
+        "/api/manutencao/veiculos", json={"modelo": "Em Dia Truck", "placa": "PND-0003"}
+    )
+    vid3 = r3.json()["id"]
+
+    db_fake._dados["veiculo_documentos"] = [
+        {"id": 1, "veiculo_id": vid1, "data_validade": str(date.today() - timedelta(days=5))},
+        {"id": 2, "veiculo_id": vid2, "data_validade": str(date.today() + timedelta(days=10))},
+        # vigente (fora da janela de 30 dias) e sem data não contam como pendência
+        {"id": 3, "veiculo_id": vid3, "data_validade": str(date.today() + timedelta(days=90))},
+        {"id": 4, "veiculo_id": vid3, "data_validade": None},
+    ]
+
+    resp = manutencao_client.get("/api/manutencao/veiculos")
+    assert resp.status_code == 200
+    por_id = {v["id"]: v for v in resp.json()}
+    assert por_id[vid1]["docs_vencidos"] == 1
+    assert por_id[vid1]["docs_proximos_vencimento"] == 0
+    assert por_id[vid2]["docs_vencidos"] == 0
+    assert por_id[vid2]["docs_proximos_vencimento"] == 1
+    assert por_id[vid3]["docs_vencidos"] == 0
+    assert por_id[vid3]["docs_proximos_vencimento"] == 0
 
 
 def test_busca_veiculos(manutencao_client):

@@ -285,6 +285,35 @@ function Manutencao() {
     setManutencoes([]);
     setEquipamentos([]);
     setDocumentos([]);
+    // Atualiza os indicadores de pendências da lista principal
+    fetchVeiculos();
+  };
+
+  // Pior situação dos documentos de um veículo (para sinalizar na lista)
+  const pendenciaVeiculo = (v) => {
+    if ((v.docs_vencidos || 0) > 0) return { status: 'vencido', total: v.docs_vencidos };
+    if ((v.docs_proximos_vencimento || 0) > 0) return { status: 'proximo', total: v.docs_proximos_vencimento };
+    return null;
+  };
+
+  const pendenciaCls = (p) => !p
+    ? ''
+    : p.status === 'vencido'
+      ? 'bg-rose-100 text-rose-700 border border-rose-200'
+      : 'bg-amber-100 text-amber-700 border border-amber-200';
+
+  const pendenciaLabel = (p) => !p
+    ? ''
+    : p.status === 'vencido'
+      ? `${p.total} documento(s) vencido(s)`
+      : `${p.total} a vencer em até 30 dias`;
+
+  const linhaVeiculoCls = (v) => {
+    const p = pendenciaVeiculo(v);
+    if (!p) return 'hover:bg-slate-50/50 transition-colors cursor-pointer';
+    return p.status === 'vencido'
+      ? 'border-l-4 border-l-rose-500 bg-rose-50/30 hover:bg-rose-50/60 transition-colors cursor-pointer'
+      : 'border-l-4 border-l-amber-400 bg-amber-50/20 hover:bg-amber-50/40 transition-colors cursor-pointer';
   };
 
   // ---------------------------------------------------------------------------
@@ -644,6 +673,7 @@ function Manutencao() {
             <div>
               <h2 className="text-lg font-bold text-slate-800">Frota de Veículos</h2>
               <p className="text-xs text-slate-500 mt-0.5">Cadastre os veículos e acompanhe manutenções e equipamentos.</p>
+              <p className="text-xs text-slate-400 mt-0.5">Faixa <span className="text-rose-600 font-bold">vermelha</span> = documento vencido · <span className="text-amber-600 font-bold">amarela</span> = vence em até 30 dias.</p>
             </div>
             <button
               onClick={openAddVeiculo}
@@ -702,31 +732,47 @@ function Manutencao() {
                     </td>
                   </tr>
                 ) : (
-                  pagVeic.itensPagina.map((v) => (
-                    <tr key={v.id} className="hover:bg-slate-50/50 transition-colors cursor-pointer" onClick={() => abrirVeiculo(v)}>
-                      <td className="px-3 py-3 md:px-6 md:py-4 font-bold text-slate-900">{v.modelo}</td>
-                      <td className="px-3 py-3 md:px-6 md:py-4 font-mono text-xs font-bold tracking-widest">{v.placa}</td>
-                      <td className="px-3 py-3 md:px-6 md:py-4 truncate max-w-[220px] text-slate-600">{v.observacao || '-'}</td>
-                      <td className="px-3 py-3 md:px-6 md:py-4">
-                        <div className="flex justify-center items-center gap-2">
-                          <button
-                            onClick={(e) => { e.stopPropagation(); openEditVeiculo(v); }}
-                            className="w-11 h-11 flex items-center justify-center p-0 rounded bg-slate-50 hover:bg-amber-50 text-slate-500 hover:text-amber-700 border border-slate-100 transition-colors"
-                            title="Editar"
-                          >
-                            <Edit2 size={15} />
-                          </button>
-                          <button
-                            onClick={(e) => { e.stopPropagation(); setConfirmarAcao({ tipo: 'veiculo', id: v.id, nome: v.modelo }); }}
-                            className="w-11 h-11 flex items-center justify-center p-0 rounded bg-slate-50 hover:bg-rose-50 text-slate-500 hover:text-rose-700 border border-slate-100 transition-colors"
-                            title="Excluir"
-                          >
-                            <Trash2 size={15} />
-                          </button>
-                        </div>
-                      </td>
-                    </tr>
-                  ))
+                  pagVeic.itensPagina.map((v) => {
+                    const pend = pendenciaVeiculo(v);
+                    return (
+                      <tr key={v.id} className={linhaVeiculoCls(v)} onClick={() => abrirVeiculo(v)}>
+                        <td className="px-3 py-3 md:px-6 md:py-4 font-bold text-slate-900">
+                          <span className="flex items-center gap-2 flex-wrap">
+                            {v.modelo}
+                            {pend && (
+                              <span
+                                className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold whitespace-nowrap ${pendenciaCls(pend)}`}
+                                title={pendenciaLabel(pend)}
+                              >
+                                <AlertTriangle size={11} />
+                                {pend.status === 'vencido' ? 'Doc. vencido' : 'A vencer'} ({pend.total})
+                              </span>
+                            )}
+                          </span>
+                        </td>
+                        <td className="px-3 py-3 md:px-6 md:py-4 font-mono text-xs font-bold tracking-widest">{v.placa}</td>
+                        <td className="px-3 py-3 md:px-6 md:py-4 truncate max-w-[220px] text-slate-600">{v.observacao || '-'}</td>
+                        <td className="px-3 py-3 md:px-6 md:py-4">
+                          <div className="flex justify-center items-center gap-2">
+                            <button
+                              onClick={(e) => { e.stopPropagation(); openEditVeiculo(v); }}
+                              className="w-11 h-11 flex items-center justify-center p-0 rounded bg-slate-50 hover:bg-amber-50 text-slate-500 hover:text-amber-700 border border-slate-100 transition-colors"
+                              title="Editar"
+                            >
+                              <Edit2 size={15} />
+                            </button>
+                            <button
+                              onClick={(e) => { e.stopPropagation(); setConfirmarAcao({ tipo: 'veiculo', id: v.id, nome: v.modelo }); }}
+                              className="w-11 h-11 flex items-center justify-center p-0 rounded bg-slate-50 hover:bg-rose-50 text-slate-500 hover:text-rose-700 border border-slate-100 transition-colors"
+                              title="Excluir"
+                            >
+                              <Trash2 size={15} />
+                            </button>
+                          </div>
+                        </td>
+                      </tr>
+                    );
+                  })
                 )}
               </tbody>
             </table>
@@ -756,14 +802,22 @@ function Manutencao() {
                 <p className="text-xs mt-1">Cadastre um veículo no botão acima para iniciar.</p>
               </div>
             ) : (
-              pagVeic.itensPagina.map((v) => (
-                <div key={v.id} className="px-4 py-3 flex items-center justify-between gap-3" onClick={() => abrirVeiculo(v)}>
-                  <div className="min-w-0 flex-1">
-                    <p className="font-bold text-slate-900 text-sm truncate">{v.modelo}</p>
-                    <p className="font-mono text-xs text-slate-500 mt-0.5 font-bold tracking-widest">{v.placa}</p>
-                    {v.observacao && <p className="text-xs text-slate-600 mt-1 truncate">{v.observacao}</p>}
-                  </div>
-                  <div className="flex items-center gap-1 shrink-0">
+              pagVeic.itensPagina.map((v) => {
+                const pend = pendenciaVeiculo(v);
+                return (
+                  <div key={v.id} className={`px-4 py-3 flex items-center justify-between gap-3 ${linhaVeiculoCls(v)}`} onClick={() => abrirVeiculo(v)}>
+                    <div className="min-w-0 flex-1">
+                      <p className="font-bold text-slate-900 text-sm truncate">{v.modelo}</p>
+                      <p className="font-mono text-xs text-slate-500 mt-0.5 font-bold tracking-widest">{v.placa}</p>
+                      {pend && (
+                        <span className={`mt-1 inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold ${pendenciaCls(pend)}`}>
+                          <AlertTriangle size={11} />
+                          {pendenciaLabel(pend)}
+                        </span>
+                      )}
+                      {v.observacao && <p className="text-xs text-slate-600 mt-1 truncate">{v.observacao}</p>}
+                    </div>
+                    <div className="flex items-center gap-1 shrink-0">
                     <button
                       onClick={(e) => { e.stopPropagation(); openEditVeiculo(v); }}
                       className="w-11 h-11 flex items-center justify-center p-0 rounded bg-slate-50 hover:bg-amber-50 text-slate-500 hover:text-amber-700 border border-slate-100 transition-colors"
@@ -780,7 +834,8 @@ function Manutencao() {
                     </button>
                   </div>
                 </div>
-              ))
+                );
+              })
             )}
           </div>
         </>

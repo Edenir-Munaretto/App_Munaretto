@@ -20,6 +20,7 @@ from pydantic import BaseModel, Field
 from storage import bucket, get_s3_client
 from supabase_client import get_supabase
 from auth import require_permisao
+from utils.date_helpers import status_vencimento, STATUS_VENCIDO, STATUS_PROXIMO
 
 router = APIRouter(dependencies=[Depends(require_permisao("manutencao"))])
 
@@ -50,6 +51,9 @@ class VeiculoResponse(VeiculoCreate):
     id: int
     ativo: bool = True
     created_at: Optional[str] = None
+    # Resumo das pendências de documentos (CRLV, IPVA, etc.) deste veículo.
+    docs_vencidos: int = 0
+    docs_proximos_vencimento: int = 0
 
 
 class ManutencaoCreate(BaseModel):
@@ -146,6 +150,40 @@ def _remover_objeto(s3, chave: str) -> None:
         logger.exception("Erro ao remover objeto %s do B2", chave)
 
 
+def _pendencias_documentos(db, veiculo_ids: List[int]) -> dict:
+    """Conta documentos vencidos/próximos do vencimento por veículo.
+
+    Retorna {veiculo_id: {"vencidos": int, "proximos": int}} considerando apenas
+    documentos com data_validade preenchida.
+    """
+    resumo = {}
+    if not veiculo_ids:
+        return resumo
+    try:
+        docs = (
+            db.table("veiculo_documentos")
+            .select("veiculo_id, data_validade")
+            .execute()
+            .data
+        )
+    except Exception:
+        logger.warning("Não foi possível carregar pendências de documentos", exc_info=True)
+        return resumo
+    ids = set(veiculo_ids)
+    for doc in docs:
+        if doc.get("veiculo_id") not in ids:
+            continue
+        status = status_vencimento(doc.get("data_validade"))
+        if status not in (STATUS_VENCIDO, STATUS_PROXIMO):
+            continue
+        item = resumo.setdefault(doc["veiculo_id"], {"vencidos": 0, "proximos": 0})
+        if status == STATUS_VENCIDO:
+            item["vencidos"] += 1
+        else:
+            item["proximos"] += 1
+    return resumo
+
+
 def _com_url(meta: dict) -> dict:
     """Adiciona a presigned URL temporária aos metadados."""
     s3 = get_s3_client()
@@ -180,6 +218,11 @@ def listar_veiculos(
                 or termo in str(v.get("placa", "")).lower()
             ]
         dados.sort(key=lambda v: str(v.get("modelo", "")).lower())
+        pendencias = _pendencias_documentos(db, [v["id"] for v in dados])
+        for v in dados:
+            p = pendencias.get(v["id"], {})
+            v["docs_vencidos"] = p.get("vencidos", 0)
+            v["docs_proximos_vencimento"] = p.get("proximos", 0)
         return dados
     except Exception:
         logger.exception("Erro ao listar veículos")
