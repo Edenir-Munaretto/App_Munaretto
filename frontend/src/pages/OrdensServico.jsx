@@ -725,7 +725,7 @@ function PainelExecucao({ osId, obras, produtos, geolocalizacao, capturarGps, on
 
   if (erro) {
     return (
-      <div className={`fixed inset-0 lg:absolute lg:inset-y-0 lg:right-0 lg:w-[560px] xl:w-[680px] bg-white z-40 flex items-center justify-center`}>
+      <div className="fixed inset-0 w-full lg:left-auto lg:w-[560px] xl:w-[680px] bg-white z-40 flex items-center justify-center">
         <p className="text-sm text-rose-600">{erro}</p>
         <button onClick={onFechar} className="ml-3 text-sm text-primary-600 underline">Voltar</button>
       </div>
@@ -734,7 +734,7 @@ function PainelExecucao({ osId, obras, produtos, geolocalizacao, capturarGps, on
 
   if (!detalhe) {
     return (
-      <div className="fixed inset-0 lg:absolute lg:inset-y-0 lg:right-0 lg:w-[560px] xl:w-[680px] bg-white z-40 flex items-center justify-center">
+      <div className="fixed inset-0 w-full lg:left-auto lg:w-[560px] xl:w-[680px] bg-white z-40 flex items-center justify-center">
         <div className="w-8 h-8 border-4 border-primary-500 border-t-transparent rounded-full animate-spin" />
       </div>
     );
@@ -895,7 +895,7 @@ function PainelExecucao({ osId, obras, produtos, geolocalizacao, capturarGps, on
 
   // No mobile ocupa a tela inteira (modo campo); no gestor, drawer lateral.
   return (
-    <div className={`${ehMobile ? 'fixed inset-0 z-40 overflow-y-auto' : 'absolute inset-y-0 right-0 w-full lg:w-[560px] xl:w-[680px] overflow-y-auto shadow-2xl border-l border-slate-200'} bg-slate-50`}>
+    <div className={`${ehMobile ? 'fixed inset-0 z-40 overflow-y-auto' : 'fixed inset-0 z-40 overflow-y-auto shadow-2xl border-l border-slate-200 w-full lg:left-auto lg:w-[560px] xl:w-[680px]'} bg-slate-50`}>
       <div className="p-4 lg:p-6 space-y-4 pb-10">
         {cabecalho}
         {corpoAbas}
