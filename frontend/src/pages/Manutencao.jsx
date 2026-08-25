@@ -308,23 +308,6 @@ function Manutencao() {
       ? `${p.total} documento(s) vencido(s)`
       : `${p.total} a vencer em até 30 dias`;
 
-  // Fundo da linha/cartão conforme a pendência
-  const fundoVeiculoCls = (v) => {
-    const p = pendenciaVeiculo(v);
-    if (!p) return 'hover:bg-slate-50/50';
-    return p.status === 'vencido'
-      ? 'bg-rose-50/60 hover:bg-rose-50'
-      : 'bg-amber-50/50 hover:bg-amber-50';
-  };
-
-  // Faixa lateral colorida (aplicada na primeira célula — <tr> não renderiza
-  // bordas de forma confiável em todos os navegadores)
-  const faixaVeiculoCls = (v) => {
-    const p = pendenciaVeiculo(v);
-    if (!p) return '';
-    return p.status === 'vencido' ? 'border-l-4 border-l-rose-500' : 'border-l-4 border-l-amber-400';
-  };
-
   // ---------------------------------------------------------------------------
   // Manutenções
   // ---------------------------------------------------------------------------
@@ -682,7 +665,7 @@ function Manutencao() {
             <div>
               <h2 className="text-lg font-bold text-slate-800">Frota de Veículos</h2>
               <p className="text-xs text-slate-500 mt-0.5">Cadastre os veículos e acompanhe manutenções e equipamentos.</p>
-              <p className="text-xs text-slate-400 mt-0.5">Faixa <span className="text-rose-600 font-bold">vermelha</span> = documento vencido · <span className="text-amber-600 font-bold">amarela</span> = vence em até 30 dias.</p>
+              <p className="text-xs text-slate-400 mt-0.5">Barra <span className="text-rose-600 font-bold">vermelha</span> = documento vencido · <span className="text-amber-600 font-bold">amarela</span> = vence em até 30 dias.</p>
             </div>
             <button
               onClick={openAddVeiculo}
@@ -705,64 +688,81 @@ function Manutencao() {
             </div>
           </div>
 
-          {/* Tabela (desktop) */}
-          <div className="bg-white rounded-2xl border border-slate-100 shadow-sm overflow-hidden hidden md:block print:hidden">
-            <table className="w-full text-left border-collapse text-sm">
-              <thead>
-                <tr className="bg-slate-50 border-b border-slate-100 text-slate-400 font-bold text-xs uppercase tracking-wider">
-                  <th className="px-3 py-3 md:px-6 md:py-4">Modelo</th>
-                  <th className="px-3 py-3 md:px-6 md:py-4">Placa</th>
-                  <th className="px-3 py-3 md:px-6 md:py-4">Observação</th>
-                  <th className="px-3 py-3 md:px-6 md:py-4 text-center">Ações</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-slate-100 text-slate-700">
-                {lista.status === 'loading' ? (
-                  <tr>
-                    <td colSpan="4" className="text-center py-12 text-slate-400">
-                      <div className="flex flex-col items-center justify-center gap-3">
-                        <div className="w-8 h-8 border-4 border-primary-500 border-t-transparent rounded-full animate-spin" />
-                        <p className="text-xs">Buscando veículos...</p>
-                      </div>
-                    </td>
-                  </tr>
-                ) : lista.status === 'error' ? (
-                  <tr>
-                    <td colSpan="4">
-                      <ErroCarregamento mensagem={lista.erro} onTentarNovamente={fetchVeiculos} />
-                    </td>
-                  </tr>
-                ) : veiculos.length === 0 ? (
-                  <tr>
-                    <td colSpan="4" className="text-center py-16 text-slate-400">
-                      <Car className="mx-auto mb-3 text-slate-300" size={40} />
-                      <p className="font-semibold mt-2">Nenhum veículo encontrado.</p>
-                      <p className="text-xs mt-1">Cadastre um veículo no botão acima para iniciar.</p>
-                    </td>
-                  </tr>
-                ) : (
-                  pagVeic.itensPagina.map((v) => {
+          {/* Lista de veículos em cards (estilo Gestão de Férias) */}
+          <div className="print:hidden">
+            {lista.status === 'loading' ? (
+              <div className="bg-white rounded-2xl border border-slate-100 shadow-sm p-10 flex flex-col items-center justify-center text-slate-400 gap-3">
+                <div className="w-8 h-8 border-4 border-primary-500 border-t-transparent rounded-full animate-spin" />
+                <p className="text-xs">Buscando veículos...</p>
+              </div>
+            ) : lista.status === 'error' ? (
+              <div className="bg-white rounded-2xl border border-slate-100 shadow-sm">
+                <ErroCarregamento mensagem={lista.erro} onTentarNovamente={fetchVeiculos} />
+              </div>
+            ) : veiculos.length === 0 ? (
+              <div className="bg-white rounded-2xl border border-slate-100 shadow-sm p-10 text-center text-slate-400">
+                <Car className="mx-auto mb-3 text-slate-300" size={40} />
+                <p className="font-semibold mt-2">Nenhum veículo encontrado.</p>
+                <p className="text-xs mt-1">Cadastre um veículo no botão acima para iniciar.</p>
+              </div>
+            ) : (
+              <>
+                <div className="space-y-3">
+                  {pagVeic.itensPagina.map((v) => {
                     const pend = pendenciaVeiculo(v);
                     return (
-                      <tr key={v.id} className={`transition-colors cursor-pointer ${fundoVeiculoCls(v)}`} onClick={() => abrirVeiculo(v)}>
-                        <td className={`px-3 py-3 md:px-6 md:py-4 font-bold text-slate-900 ${faixaVeiculoCls(v)}`}>
-                          <span className="flex items-center gap-2 flex-wrap">
-                            {v.modelo}
-                            {pend && (
-                              <span
-                                className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold whitespace-nowrap ${pendenciaCls(pend)}`}
-                                title={pendenciaLabel(pend)}
-                              >
-                                <AlertTriangle size={11} />
-                                {pend.status === 'vencido' ? 'Doc. vencido' : 'A vencer'} ({pend.total})
+                      <div
+                        key={v.id}
+                        onClick={() => abrirVeiculo(v)}
+                        className="bg-white rounded-xl shadow-md border border-slate-200 flex items-stretch overflow-hidden transition-all hover:shadow-lg cursor-pointer"
+                      >
+                        {/* Barra lateral colorida por pendência de documentos */}
+                        <div className={`w-1.5 shrink-0 ${
+                          pend
+                            ? pend.status === 'vencido' ? 'bg-rose-500' : 'bg-amber-400'
+                            : 'bg-slate-200'
+                        }`} />
+
+                        <div className="flex-1 flex flex-col md:flex-row md:items-center gap-3 px-4 py-3">
+                          {/* Modelo + placa + situação dos documentos */}
+                          <div className="min-w-0 md:w-64 shrink-0">
+                            <p className="font-bold text-slate-900 truncate">{v.modelo}</p>
+                            <div className="flex items-center gap-1.5 mt-1.5 flex-wrap">
+                              <span className="font-mono text-[10px] font-extrabold tracking-widest px-2 py-1 rounded-full bg-slate-100 text-slate-600 border border-slate-200">
+                                {v.placa}
                               </span>
-                            )}
-                          </span>
-                        </td>
-                        <td className="px-3 py-3 md:px-6 md:py-4 font-mono text-xs font-bold tracking-widest">{v.placa}</td>
-                        <td className="px-3 py-3 md:px-6 md:py-4 truncate max-w-[220px] text-slate-600">{v.observacao || '-'}</td>
-                        <td className="px-3 py-3 md:px-6 md:py-4">
-                          <div className="flex justify-center items-center gap-2">
+                              {pend && (
+                                <span
+                                  className={`inline-flex items-center gap-1 px-2 py-1 rounded-full text-[10px] font-extrabold uppercase tracking-wider whitespace-nowrap ${pendenciaCls(pend)}`}
+                                  title={pendenciaLabel(pend)}
+                                >
+                                  <AlertTriangle size={11} />
+                                  {pend.status === 'vencido' ? 'Doc. vencido' : 'A vencer'} ({pend.total})
+                                </span>
+                              )}
+                            </div>
+                          </div>
+
+                          {/* Detalhes em colunas (rótulo em cima, valor embaixo) */}
+                          <div className="flex-1 grid grid-cols-2 gap-x-4 gap-y-2 text-xs">
+                            <div>
+                              <p className="text-[10px] text-slate-400 font-bold uppercase tracking-wider">Documentos</p>
+                              {pend ? (
+                                <p className={`mt-0.5 font-bold ${pend.status === 'vencido' ? 'text-rose-600' : 'text-amber-600'}`}>
+                                  {pendenciaLabel(pend)}
+                                </p>
+                              ) : (
+                                <p className="mt-0.5 font-bold text-emerald-600">Em dia</p>
+                              )}
+                            </div>
+                            <div className="min-w-0">
+                              <p className="text-[10px] text-slate-400 font-bold uppercase tracking-wider">Observação</p>
+                              <p className="mt-0.5 text-slate-600 truncate">{v.observacao || '-'}</p>
+                            </div>
+                          </div>
+
+                          {/* Ações */}
+                          <div className="flex items-center gap-1.5 shrink-0 md:ml-2">
                             <button
                               onClick={(e) => { e.stopPropagation(); openEditVeiculo(v); }}
                               className="w-11 h-11 flex items-center justify-center p-0 rounded bg-slate-50 hover:bg-amber-50 text-slate-500 hover:text-amber-700 border border-slate-100 transition-colors"
@@ -778,73 +778,23 @@ function Manutencao() {
                               <Trash2 size={15} />
                             </button>
                           </div>
-                        </td>
-                      </tr>
+                        </div>
+                      </div>
                     );
-                  })
-                )}
-              </tbody>
-            </table>
-            {veiculos.length > 0 && (
-              <PaginacaoControle
-                paginaAtualSegura={pagVeic.paginaAtualSegura}
-                totalPaginas={pagVeic.totalPaginas}
-                onAnterior={() => pagVeic.setPaginaAtual(p => Math.max(1, p - 1))}
-                onProximo={() => pagVeic.setPaginaAtual(p => Math.min(pagVeic.totalPaginas, p + 1))}
-              />
-            )}
-          </div>
-
-          {/* Lista em cartões (mobile) */}
-          <div className="md:hidden divide-y divide-slate-100 bg-white rounded-2xl border border-slate-100 shadow-sm print:hidden">
-            {lista.status === 'loading' ? (
-              <div className="flex flex-col items-center justify-center gap-3 py-12">
-                <div className="w-8 h-8 border-4 border-primary-500 border-t-transparent rounded-full animate-spin" />
-                <p className="text-xs">Buscando veículos...</p>
-              </div>
-            ) : lista.status === 'error' ? (
-              <ErroCarregamento mensagem={lista.erro} onTentarNovamente={fetchVeiculos} />
-            ) : veiculos.length === 0 ? (
-              <div className="text-center py-12 text-slate-400">
-                <Car className="mx-auto mb-3 text-slate-300" size={40} />
-                <p className="font-semibold mt-2">Nenhum veículo encontrado.</p>
-                <p className="text-xs mt-1">Cadastre um veículo no botão acima para iniciar.</p>
-              </div>
-            ) : (
-              pagVeic.itensPagina.map((v) => {
-                const pend = pendenciaVeiculo(v);
-                return (
-                  <div key={v.id} className={`px-4 py-3 flex items-center justify-between gap-3 transition-colors cursor-pointer ${fundoVeiculoCls(v)} ${faixaVeiculoCls(v)}`} onClick={() => abrirVeiculo(v)}>
-                    <div className="min-w-0 flex-1">
-                      <p className="font-bold text-slate-900 text-sm truncate">{v.modelo}</p>
-                      <p className="font-mono text-xs text-slate-500 mt-0.5 font-bold tracking-widest">{v.placa}</p>
-                      {pend && (
-                        <span className={`mt-1 inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold ${pendenciaCls(pend)}`}>
-                          <AlertTriangle size={11} />
-                          {pendenciaLabel(pend)}
-                        </span>
-                      )}
-                      {v.observacao && <p className="text-xs text-slate-600 mt-1 truncate">{v.observacao}</p>}
-                    </div>
-                    <div className="flex items-center gap-1 shrink-0">
-                    <button
-                      onClick={(e) => { e.stopPropagation(); openEditVeiculo(v); }}
-                      className="w-11 h-11 flex items-center justify-center p-0 rounded bg-slate-50 hover:bg-amber-50 text-slate-500 hover:text-amber-700 border border-slate-100 transition-colors"
-                      title="Editar"
-                    >
-                      <Edit2 size={15} />
-                    </button>
-                    <button
-                      onClick={(e) => { e.stopPropagation(); setConfirmarAcao({ tipo: 'veiculo', id: v.id, nome: v.modelo }); }}
-                      className="w-11 h-11 flex items-center justify-center p-0 rounded bg-slate-50 hover:bg-rose-50 text-slate-500 hover:text-rose-700 border border-slate-100 transition-colors"
-                      title="Excluir"
-                    >
-                      <Trash2 size={15} />
-                    </button>
-                  </div>
+                  })}
                 </div>
-                );
-              })
+
+                {pagVeic.totalPaginas > 1 && (
+                  <div className="mt-3 bg-white rounded-2xl border border-slate-100 shadow-sm overflow-hidden">
+                    <PaginacaoControle
+                      paginaAtualSegura={pagVeic.paginaAtualSegura}
+                      totalPaginas={pagVeic.totalPaginas}
+                      onAnterior={() => pagVeic.setPaginaAtual(p => Math.max(1, p - 1))}
+                      onProximo={() => pagVeic.setPaginaAtual(p => Math.min(pagVeic.totalPaginas, p + 1))}
+                    />
+                  </div>
+                )}
+              </>
             )}
           </div>
         </>
