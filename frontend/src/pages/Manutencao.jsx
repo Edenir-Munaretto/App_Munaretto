@@ -308,12 +308,21 @@ function Manutencao() {
       ? `${p.total} documento(s) vencido(s)`
       : `${p.total} a vencer em até 30 dias`;
 
-  const linhaVeiculoCls = (v) => {
+  // Fundo da linha/cartão conforme a pendência
+  const fundoVeiculoCls = (v) => {
     const p = pendenciaVeiculo(v);
-    if (!p) return 'hover:bg-slate-50/50 transition-colors cursor-pointer';
+    if (!p) return 'hover:bg-slate-50/50';
     return p.status === 'vencido'
-      ? 'border-l-4 border-l-rose-500 bg-rose-50/30 hover:bg-rose-50/60 transition-colors cursor-pointer'
-      : 'border-l-4 border-l-amber-400 bg-amber-50/20 hover:bg-amber-50/40 transition-colors cursor-pointer';
+      ? 'bg-rose-50/60 hover:bg-rose-50'
+      : 'bg-amber-50/50 hover:bg-amber-50';
+  };
+
+  // Faixa lateral colorida (aplicada na primeira célula — <tr> não renderiza
+  // bordas de forma confiável em todos os navegadores)
+  const faixaVeiculoCls = (v) => {
+    const p = pendenciaVeiculo(v);
+    if (!p) return '';
+    return p.status === 'vencido' ? 'border-l-4 border-l-rose-500' : 'border-l-4 border-l-amber-400';
   };
 
   // ---------------------------------------------------------------------------
@@ -735,8 +744,8 @@ function Manutencao() {
                   pagVeic.itensPagina.map((v) => {
                     const pend = pendenciaVeiculo(v);
                     return (
-                      <tr key={v.id} className={linhaVeiculoCls(v)} onClick={() => abrirVeiculo(v)}>
-                        <td className="px-3 py-3 md:px-6 md:py-4 font-bold text-slate-900">
+                      <tr key={v.id} className={`transition-colors cursor-pointer ${fundoVeiculoCls(v)}`} onClick={() => abrirVeiculo(v)}>
+                        <td className={`px-3 py-3 md:px-6 md:py-4 font-bold text-slate-900 ${faixaVeiculoCls(v)}`}>
                           <span className="flex items-center gap-2 flex-wrap">
                             {v.modelo}
                             {pend && (
@@ -805,7 +814,7 @@ function Manutencao() {
               pagVeic.itensPagina.map((v) => {
                 const pend = pendenciaVeiculo(v);
                 return (
-                  <div key={v.id} className={`px-4 py-3 flex items-center justify-between gap-3 ${linhaVeiculoCls(v)}`} onClick={() => abrirVeiculo(v)}>
+                  <div key={v.id} className={`px-4 py-3 flex items-center justify-between gap-3 transition-colors cursor-pointer ${fundoVeiculoCls(v)} ${faixaVeiculoCls(v)}`} onClick={() => abrirVeiculo(v)}>
                     <div className="min-w-0 flex-1">
                       <p className="font-bold text-slate-900 text-sm truncate">{v.modelo}</p>
                       <p className="font-mono text-xs text-slate-500 mt-0.5 font-bold tracking-widest">{v.placa}</p>
