@@ -438,6 +438,16 @@ def listar_os(
                 .execute()
                 .data
             )
+            fotos = (
+                db.table("os_fotos")
+                .select("os_id")
+                .in_("os_id", os_ids)
+                .execute()
+                .data
+            )
+            fotos_count = {}
+            for f in fotos or []:
+                fotos_count[f["os_id"]] = fotos_count.get(f["os_id"], 0) + 1
             custo_orcado = {}
             for i in orcados or []:
                 preco = float((i.get("produtos") or {}).get("preco_unitario") or 0)
@@ -453,6 +463,7 @@ def listar_os(
                 d["custo_materiais_orcado"] = orc
                 d["custo_materiais_aplicado"] = apl
                 d["perc_materiais"] = round(apl / orc * 100, 1) if orc > 0 else None
+                d["fotos_count"] = fotos_count.get(d["id"], 0)
 
         return dados
     except HTTPException:

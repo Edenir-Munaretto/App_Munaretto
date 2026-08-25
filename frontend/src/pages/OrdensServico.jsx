@@ -23,6 +23,17 @@ const COLUNAS = [
 
 const LABEL_STATUS = Object.fromEntries(COLUNAS.map(c => [c.id, c.label]));
 
+// Espelha a máquina de estados do backend — usada para bloquear visualmente
+// colunas de destino inválidas durante o drag-and-drop.
+const TRANSICOES_STATUS = {
+  rascunho:    new Set(['aberta', 'cancelada']),
+  aberta:      new Set(['em_andamento', 'impedida', 'cancelada']),
+  em_andamento: new Set(['impedida', 'concluida', 'cancelada']),
+  impedida:    new Set(['em_andamento']),
+  concluida:   new Set(),
+  cancelada:   new Set(),
+};
+
 const PRIORIDADES = {
   baixa: { label: 'Baixa', cor: 'bg-slate-100 text-slate-600 border-slate-200' },
   media: { label: 'Média', cor: 'bg-blue-50 text-blue-700 border-blue-200' },
@@ -159,6 +170,11 @@ function CardOS({ os, onClick, draggableProps = {} }) {
             <HardHat size={11} />{os.equipes.nome}
           </span>
         )}
+        {os.fotos_count > 0 && (
+          <span className="px-2 py-0.5 rounded-full bg-primary-50 border border-primary-200 text-[10px] font-bold text-primary-700 flex items-center gap-1" title={`${os.fotos_count} foto(s) anexada(s)`}>
+            <Camera size={11} />{os.fotos_count}
+          </span>
+        )}
       </div>
 
       <BarraMateriais os={os} />
@@ -174,6 +190,7 @@ function TabInsumos({ osDetalhe, produtos, onAtualizado, mostrarToast, podeEdita
   const [buscaProduto, setBuscaProduto] = useState('');
   const [qtd, setQtd] = useState(1);
   const [salvando, setSalvando] = useState(false);
+  const [estornandoId, setEstornandoId] = useState(null); // ID do lançamento aguardando confirmação
 
   // Autocompletar: filtra o catálogo local pelo que foi digitado/bipado.
   const sugestoes = useMemo(() => {
@@ -219,6 +236,8 @@ function TabInsumos({ osDetalhe, produtos, onAtualizado, mostrarToast, podeEdita
   };
 
   const estornar = async (id) => {
+    // Chamado só após confirmação no ModalConfirmacao
+    setEstornandoId(null);
     try {
       const res = await apiFetch(`${API_URL}/os/${osDetalhe.id}/materiais/${id}`, { method: 'DELETE' });
       if (res.ok) {
@@ -260,6 +279,12 @@ function TabInsumos({ osDetalhe, produtos, onAtualizado, mostrarToast, podeEdita
             ))}
           </div>
         )}
+        {/* Feedback explícito quando não há produtos encontrados */}
+        {!selecionado && buscaProduto.trim().length >= 2 && sugestoes.length === 0 && (
+          <div className="absolute z-20 left-0 right-0 mt-1 bg-white border border-slate-200 rounded-xl shadow-lg overflow-hidden">
+            <p className="px-3 py-3 text-xs text-slate-400 text-center">Nenhum produto encontrado para “{buscaProduto}”</p>
+          </div>
+        )}
       </div>
 
       {/* Seletor numérico grande "+" e "-" */}
@@ -298,11 +323,33 @@ function TabInsumos({ osDetalhe, produtos, onAtualizado, mostrarToast, podeEdita
           <Package size={18} />{salvando ? 'Salvando...' : 'Aplicar'}
         </button>
       </div>
-      {selecionado && (
-        <p className="text-xs text-slate-500 -mt-1">
-          Selecionado: <b>{selecionado.nome}</b> ({selecionado.unidade})
-        </p>
-      )}
+      {/* Saldo de material: mostra orçado / aplicado / saldo ao selecionar um produto */}
+      {selecionado && (() => {
+        const item = (osDetalhe.materiais?.itens || []).find(i => i.produto_id === selecionado.id);
+        const orcado = item?.orcado ?? null;
+        const aplicado = item?.aplicado ?? 0;
+        const saldo = orcado !== null ? orcado - aplicado : null;
+        const estourou = saldo !== null && saldo < 0;
+        return (
+          <div className={`rounded-xl border px-3 py-2 text-xs flex flex-wrap gap-3 items-center -mt-1 ${
+            estourou ? 'bg-rose-50 border-rose-200' : 'bg-slate-50 border-slate-100'
+          }`}>
+            <span className="text-slate-500">Selecionado: <b className="text-slate-700">{selecionado.nome}</b> ({selecionado.unidade})</span>
+            {orcado !== null && (
+              <>
+                <span className="text-slate-400">│</span>
+                <span className="text-slate-500">Orçado: <b>{orcado}</b></span>
+                <span className="text-slate-400">│</span>
+                <span className="text-slate-500">Aplicado: <b>{aplicado}</b></span>
+                <span className="text-slate-400">│</span>
+                <span className={`font-bold ${estourou ? 'text-rose-600' : 'text-emerald-600'}`}>
+                  {estourou ? `⚠️ Excedido em ${Math.abs(saldo).toFixed(2)}` : `Saldo: ${saldo.toFixed(2)}`}
+                </span>
+              </>
+            )}
+          </div>
+        );
+      })()}
 
       {/* Comparativo Aplicado vs Orçado */}
       <div className="bg-slate-50 rounded-xl border border-slate-100 divide-y divide-slate-100">
@@ -335,7 +382,7 @@ function TabInsumos({ osDetalhe, produtos, onAtualizado, mostrarToast, podeEdita
                 {fmtData(l.data_lancamento)} · {l.quantidade_usada} × {l.produtos?.nome || l.produto_nome || ''}
               </span>
               {podeEditar && (
-                <button onClick={() => estornar(l.id)} className="text-slate-300 hover:text-rose-600 cursor-pointer" title="Estornar">
+                <button onClick={() => setEstornandoId(l.id)} className="text-slate-300 hover:text-rose-600 cursor-pointer" title="Estornar">
                   <Trash2 size={14} />
                 </button>
               )}
@@ -346,6 +393,16 @@ function TabInsumos({ osDetalhe, produtos, onAtualizado, mostrarToast, podeEdita
           )}
         </div>
       </div>
+
+      {/* Confirmação de estorno */}
+      <ModalConfirmacao
+        aberto={estornandoId != null}
+        titulo="Estornar lançamento"
+        mensagem="Estornar este lançamento de material? Esta ação não pode ser desfeita."
+        confirmarTexto="Estornar"
+        onConfirmar={() => estornar(estornandoId)}
+        onCancelar={() => setEstornandoId(null)}
+      />
     </div>
   );
 }
@@ -353,6 +410,7 @@ function TabInsumos({ osDetalhe, produtos, onAtualizado, mostrarToast, podeEdita
 function TabEvidencias({ osDetalhe, onAtualizado, mostrarToast, podeEditar }) {
   const [fotos, setFotos] = useState([]);
   const [enviando, setEnviando] = useState(false);
+  const [fotoParaExcluir, setFotoParaExcluir] = useState(null); // ID aguardando confirmação
   const inputRef = useRef(null);
 
   const carregarFotos = useCallback(async () => {
@@ -387,9 +445,11 @@ function TabEvidencias({ osDetalhe, onAtualizado, mostrarToast, podeEditar }) {
   };
 
   const excluirFoto = async (id) => {
+    setFotoParaExcluir(null);
     try {
       const res = await apiFetch(`${API_URL}/os/${osDetalhe.id}/fotos/${id}`, { method: 'DELETE' });
       if (res.ok) { carregarFotos(); onAtualizado(); }
+      else mostrarToast(erroDaResposta(await res.json().catch(() => null), 'Erro ao excluir foto.'), 'error');
     } catch {
       mostrarToast('Erro ao excluir foto.', 'error');
     }
@@ -425,7 +485,7 @@ function TabEvidencias({ osDetalhe, onAtualizado, mostrarToast, podeEditar }) {
             <img src={f.url_temporaria} alt={f.nome_original} className="w-full h-full object-cover" loading="lazy" />
             {podeEditar && (
               <button
-                onClick={() => excluirFoto(f.id)}
+                onClick={() => setFotoParaExcluir(f.id)}
                 className="absolute top-1 right-1 w-7 h-7 rounded-full bg-black/60 text-white flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity cursor-pointer"
                 title="Excluir"
               >
@@ -441,6 +501,19 @@ function TabEvidencias({ osDetalhe, onAtualizado, mostrarToast, podeEditar }) {
           </div>
         )}
       </div>
+
+      {/* Confirmação de exclusão de evidência */}
+      <ModalConfirmacao
+        aberto={fotoParaExcluir != null}
+        titulo="Excluir evidência"
+        mensagem={
+          osDetalhe.status === 'impedida'
+            ? 'Esta O.S está IMPEDIDA — a foto pode ser a única evidência do impedimento. Excluir mesmo assim?'
+            : 'Excluir esta foto? Esta ação não pode ser desfeita.'
+        }
+        onConfirmar={() => excluirFoto(fotoParaExcluir)}
+        onCancelar={() => setFotoParaExcluir(null)}
+      />
     </div>
   );
 }
@@ -480,9 +553,34 @@ function TabTimeline({ historico }) {
 // Painel de execução (drawer do gestor e tela cheia no mobile)
 // ---------------------------------------------------------------------------
 
+// Formata segundos como HH:MM:SS
+function formatarTempo(segundos) {
+  const h = Math.floor(segundos / 3600);
+  const m = Math.floor((segundos % 3600) / 60);
+  const s = segundos % 60;
+  return `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}`;
+}
+
 function CronometroHH({ osDetalhe, geolocalizacao, capturarGps, onAtualizado, mostrarToast, podeEditar }) {
   const [processando, setProcessando] = useState(false);
+  const [segundosDecorridos, setSegundosDecorridos] = useState(0);
   const aberto = osDetalhe.cronometro_aberto;
+
+  // Atualiza o contador a cada segundo enquanto o cronômetro está ativo
+  useEffect(() => {
+    if (!aberto?.inicio) {
+      setSegundosDecorridos(0);
+      return;
+    }
+    const calcular = () => {
+      const inicio = new Date(aberto.inicio);
+      const agora = new Date();
+      setSegundosDecorridos(Math.max(0, Math.floor((agora - inicio) / 1000)));
+    };
+    calcular();
+    const intervalo = setInterval(calcular, 1000);
+    return () => clearInterval(intervalo);
+  }, [aberto?.inicio]);
 
   const acionar = async (acao) => {
     setProcessando(true);
@@ -513,19 +611,101 @@ function CronometroHH({ osDetalhe, geolocalizacao, capturarGps, onAtualizado, mo
   const desabilitado = ['rascunho', 'impedida', 'concluida', 'cancelada'].includes(osDetalhe.status);
 
   return (
-    <button
-      onClick={() => acionar(aberto ? 'pause' : 'play')}
-      disabled={desabilitado || processando}
-      className={`w-full h-16 rounded-2xl text-white font-extrabold text-base flex items-center justify-center gap-3 shadow-lg transition-all disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer ${
-        aberto ? 'bg-amber-500 hover:bg-amber-600 shadow-amber-900/20' : 'bg-emerald-600 hover:bg-emerald-700 shadow-emerald-900/20'
-      }`}
-    >
-      {aberto ? <><Pause size={26} /> PAUSAR TRABALHO</> : <><Play size={26} /> INICIAR TRABALHO</>}
-    </button>
+    <div className="space-y-2">
+      <button
+        onClick={() => acionar(aberto ? 'pause' : 'play')}
+        disabled={desabilitado || processando}
+        className={`w-full h-16 rounded-2xl text-white font-extrabold text-base flex items-center justify-center gap-3 shadow-lg transition-all disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer ${
+          aberto ? 'bg-amber-500 hover:bg-amber-600 shadow-amber-900/20' : 'bg-emerald-600 hover:bg-emerald-700 shadow-emerald-900/20'
+        }`}
+      >
+        {aberto ? <><Pause size={26} /> PAUSAR TRABALHO</> : <><Play size={26} /> INICIAR TRABALHO</>}
+      </button>
+      {/* Cronômetro visual em tempo real */}
+      {aberto && (
+        <div className="flex items-center justify-center gap-2 bg-amber-50 border border-amber-200 rounded-xl py-2">
+          <Clock size={14} className="text-amber-600 animate-pulse" />
+          <span className="font-mono text-lg font-extrabold text-amber-700 tabular-nums tracking-wider">
+            {formatarTempo(segundosDecorridos)}
+          </span>
+          <span className="text-xs text-amber-500 font-semibold">em andamento</span>
+        </div>
+      )}
+    </div>
   );
 }
 
-function PainelExecucao({ osId, obras, produtos, geolocalizacao, capturarGps, onFechar, recarregarLista, mostrarToast, ehMobile }) {
+// Botões de transição de status direto no painel — essencial no modo campo,
+// onde não há drag-and-drop. Transições irreversíveis pedem confirmação.
+function AcoesStatus({ detalhe, podeEditar, mudarStatus, aoAplicado }) {
+  const [destinoConfirmar, setDestinoConfirmar] = useState(null);
+  const [processando, setProcessando] = useState(false);
+
+  if (!podeEditar) return null;
+  const alvos = TRANSICOES_STATUS[detalhe.status] || new Set();
+  // 'impedida' fica fora dos botões: exige justificativa + fotos (modal dedicado do Kanban).
+  const principal = detalhe.status === 'rascunho' && alvos.has('aberta') ? 'aberta' : null;
+  const retomar = detalhe.status === 'impedida' && alvos.has('em_andamento');
+  const iniciar = detalhe.status === 'aberta' && alvos.has('em_andamento');
+
+  const aplicar = async () => {
+    setProcessando(true);
+    const ok = await mudarStatus(detalhe, destinoConfirmar);
+    setProcessando(false);
+    setDestinoConfirmar(null);
+    if (ok) aoAplicado();
+  };
+
+  if (!principal && !retomar && !iniciar && !alvos.has('concluida') && !alvos.has('cancelada')) return null;
+
+  return (
+    <div className="space-y-2">
+      {(principal || iniciar || retomar) && (
+        <button
+          onClick={() => mudarStatus(detalhe, principal || 'em_andamento').then(ok => ok && aoAplicado())}
+          className="w-full h-11 rounded-xl border border-primary-200 bg-primary-50 hover:bg-primary-100 text-primary-700 text-sm font-bold flex items-center justify-center gap-2 cursor-pointer transition-all"
+        >
+          <Play size={16} /> {principal ? 'Ativar O.S' : retomar ? 'Retomar Execução' : 'Iniciar Execução'}
+        </button>
+      )}
+      <div className={`grid ${alvos.has('concluida') && alvos.has('cancelada') ? 'grid-cols-2' : 'grid-cols-1'} gap-2`}>
+        {alvos.has('concluida') && (
+          <button
+            onClick={() => setDestinoConfirmar('concluida')}
+            className="h-11 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold flex items-center justify-center gap-1.5 cursor-pointer transition-all disabled:opacity-40"
+            disabled={processando}
+          >
+            <Check size={15} /> Concluir O.S
+          </button>
+        )}
+        {alvos.has('cancelada') && (
+          <button
+            onClick={() => setDestinoConfirmar('cancelada')}
+            className="h-11 rounded-xl border border-rose-200 bg-rose-50 hover:bg-rose-100 text-rose-600 text-xs font-bold flex items-center justify-center gap-1.5 cursor-pointer transition-all disabled:opacity-40"
+            disabled={processando}
+          >
+            <X size={15} /> Cancelar O.S
+          </button>
+        )}
+      </div>
+
+      <ModalConfirmacao
+        aberto={!!destinoConfirmar}
+        titulo={destinoConfirmar === 'concluida' ? 'Concluir O.S' : 'Cancelar O.S'}
+        mensagem={
+          destinoConfirmar === 'concluida'
+            ? `Confirmar a conclusão da O.S ${detalhe.codigo}? Esta ação encerra os cronômetros e não pode ser desfeita.`
+            : `Confirmar o cancelamento da O.S ${detalhe.codigo}? Esta ação não pode ser desfeita.`
+        }
+        loading={processando}
+        onConfirmar={aplicar}
+        onCancelar={() => setDestinoConfirmar(null)}
+      />
+    </div>
+  );
+}
+
+function PainelExecucao({ osId, obras, produtos, geolocalizacao, capturarGps, onFechar, recarregarLista, mostrarToast, ehMobile, mudarStatus }) {
   const [detalhe, setDetalhe] = useState(null);
   const [erro, setErro] = useState('');
   const [aba, setAba] = useState('insumos');
@@ -656,6 +836,27 @@ function PainelExecucao({ osId, obras, produtos, geolocalizacao, capturarGps, on
         </div>
       </div>
 
+      {/* Breakdown de horas por funcionário */}
+      {(mo.por_funcionario?.length > 0) && (
+        <details className="mt-2 group">
+          <summary className="text-[10px] font-bold text-slate-400 uppercase tracking-wide cursor-pointer flex items-center gap-1 select-none list-none">
+            <span className="group-open:rotate-90 transition-transform inline-block">▶</span>
+            Horas por funcionário
+          </summary>
+          <div className="mt-1.5 bg-slate-50 border border-slate-100 rounded-xl divide-y divide-slate-100">
+            {mo.por_funcionario.map((f, i) => (
+              <div key={i} className="flex items-center justify-between px-3 py-2">
+                <span className="text-xs text-slate-600 font-semibold truncate">{f.nome || 'Funcionário'}</span>
+                <div className="flex items-center gap-3 shrink-0">
+                  <span className="text-xs font-bold text-sky-700">{(f.minutos / 60).toFixed(1)} h</span>
+                  <span className="text-xs text-slate-400">{brl(f.custo)}</span>
+                </div>
+              </div>
+            ))}
+          </div>
+        </details>
+      )}
+
       {/* Ações rápidas */}
       <div className="space-y-2 mt-3">
         <CronometroHH
@@ -665,6 +866,12 @@ function PainelExecucao({ osId, obras, produtos, geolocalizacao, capturarGps, on
           onAtualizado={() => { carregar(); recarregarLista(); }}
           mostrarToast={mostrarToast}
           podeEditar={podeEditar}
+        />
+        <AcoesStatus
+          detalhe={detalhe}
+          podeEditar={podeEditar}
+          mudarStatus={mudarStatus}
+          aoAplicado={() => { carregar(); recarregarLista(); }}
         />
         <div className="grid grid-cols-2 gap-2">
           <button
@@ -714,6 +921,16 @@ function ModalNovaOS({ aberto, obras, equipes, produtos, onFechar, onCriada, mos
   const [salvando, setSalvando] = useState(false);
 
   useEffect(() => { if (aberto) { setForm(FORM_OS_INICIAL); setItens([]); } }, [aberto]);
+
+  // Totais calculados em tempo real: materiais orçados + custo de M.O.
+  const totalMateriais = useMemo(
+    () => itens.reduce((acc, i) => {
+      const prod = produtos.find(p => p.id === i.produto_id);
+      return acc + i.quantidade_orcada * Number(prod?.preco_unitario || 0);
+    }, 0),
+    [itens, produtos],
+  );
+  const totalGeral = totalMateriais + Number(form.custo_mo_orcado || 0);
 
   const addItem = () => {
     const pid = Number(produtoItem);
@@ -833,14 +1050,31 @@ function ModalNovaOS({ aberto, obras, equipes, produtos, onFechar, onCriada, mos
                 return (
                   <li key={i.produto_id} className="flex justify-between items-center text-xs bg-white rounded-lg px-2.5 py-1.5 border border-slate-100">
                     <span className="truncate">{prod?.nome} — {i.quantidade_orcada} {prod?.unidade}</span>
-                    <button type="button" onClick={() => setItens(itens.filter(x => x.produto_id !== i.produto_id))}
-                      className="text-slate-300 hover:text-rose-600 cursor-pointer"><Trash2 size={13} /></button>
+                    <span className="flex items-center gap-2 shrink-0">
+                      <b className="text-slate-500">{brl(i.quantidade_orcada * Number(prod?.preco_unitario || 0))}</b>
+                      <button type="button" onClick={() => setItens(itens.filter(x => x.produto_id !== i.produto_id))}
+                        className="text-slate-300 hover:text-rose-600 cursor-pointer"><Trash2 size={13} /></button>
+                    </span>
                   </li>
                 );
               })}
             </ul>
+            {/* Custo total em tempo real */}
+            {itens.length > 0 && (
+              <div className="mt-2 flex justify-between text-xs font-bold text-slate-600 bg-primary-50 border border-primary-100 rounded-lg px-2.5 py-1.5">
+                <span>Total de materiais orçados</span>
+                <span>{brl(totalMateriais)}</span>
+              </div>
+            )}
           </div>
         </div>
+        {/* Resumo do custo geral (materiais + M.O.) antes de criar */}
+        {(itens.length > 0 || Number(form.custo_mo_orcado) > 0) && (
+          <div className="mx-6 mb-3 rounded-xl bg-slate-900 text-white px-4 py-2.5 flex justify-between items-center">
+            <span className="text-xs font-semibold text-slate-300">Custo total previsto</span>
+            <span className="text-base font-extrabold">{brl(totalGeral)}</span>
+          </div>
+        )}
         <div className="px-6 py-4 border-t border-slate-100 flex justify-end gap-3 sticky bottom-0 bg-white">
           <button type="button" onClick={onFechar}
             className="px-4 py-2 border border-slate-200 text-slate-600 rounded-xl text-sm font-semibold hover:bg-slate-50 cursor-pointer">Cancelar</button>
@@ -854,12 +1088,41 @@ function ModalNovaOS({ aberto, obras, equipes, produtos, onFechar, onCriada, mos
   );
 }
 
-function ModalImpedimento({ aberto, osAlvo, fotosCount, onConfirmar, onCancelar, processando }) {
+function ModalImpedimento({ aberto, osAlvo, onConfirmar, onCancelar, processando }) {
   const [justificativa, setJustificativa] = useState('');
-  useEffect(() => { if (aberto) setJustificativa(''); }, [aberto]);
-  if (!aberto) return null;
+  const [fotos, setFotos] = useState([]);
+  const [enviandoFoto, setEnviandoFoto] = useState(false);
+  const inputFotoRef = useRef(null);
 
-  const valido = justificativa.trim().length >= 20 && fotosCount > 0;
+  useEffect(() => {
+    if (aberto) {
+      setJustificativa('');
+      setFotos([]);
+    }
+  }, [aberto]);
+
+  if (!aberto || !osAlvo) return null;
+
+  const enviarFotos = async (files) => {
+    setEnviandoFoto(true);
+    let novosFotoIds = [...fotos];
+    for (const arquivo of files) {
+      const fd = new FormData();
+      fd.append('arquivo', arquivo);
+      try {
+        const res = await apiFetch(`${API_URL}/os/${osAlvo.id}/fotos`, { method: 'POST', body: fd });
+        if (res.ok) {
+          const data = await res.json();
+          novosFotoIds = [...novosFotoIds, data.id];
+        }
+      } catch { /* continua */ }
+    }
+    setFotos(novosFotoIds);
+    setEnviandoFoto(false);
+  };
+
+  const valido = justificativa.trim().length >= 20 && fotos.length > 0;
+
   return (
     <div className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center z-50 p-4">
       <div className="bg-white rounded-2xl shadow-2xl max-w-md w-full overflow-hidden animate-in fade-in zoom-in duration-200">
@@ -868,31 +1131,79 @@ function ModalImpedimento({ aberto, osAlvo, fotosCount, onConfirmar, onCancelar,
           <h3 className="font-bold text-lg">Marcar O.S {osAlvo?.codigo} como IMPEDIDA</h3>
         </div>
         <div className="p-6 space-y-4">
-          <p className="text-xs text-slate-500">
-            Para registrar um impedimento é <b>obrigatório</b> descrever o motivo (mínimo 20 caracteres)
-            e ter ao menos uma foto de evidência anexada à O.S.
-          </p>
-          <textarea
-            rows={4}
-            value={justificativa}
-            onChange={(e) => setJustificativa(e.target.value)}
-            placeholder="Ex: Chuva intensa inviabilizou a concretagem na área externa; aguardando melhoria do tempo."
-            className="w-full px-3.5 py-2.5 border border-slate-200 rounded-xl text-sm focus:outline-none focus:border-orange-400"
-          />
-          <div className="flex items-center justify-between text-xs">
-            <span className={justificativa.trim().length >= 20 ? 'text-emerald-600 font-bold' : 'text-slate-400'}>
+          {/* Passo 1: Motivo */}
+          <div>
+            <p className="text-xs font-bold text-slate-600 mb-1.5 flex items-center gap-1">
+              <span className="w-4 h-4 rounded-full bg-orange-500 text-white text-[9px] font-black flex items-center justify-center">1</span>
+              Descreva o motivo do impedimento
+            </p>
+            <textarea
+              rows={4}
+              value={justificativa}
+              onChange={(e) => setJustificativa(e.target.value)}
+              placeholder="Ex: Chuva intensa inviabilizou a concretagem na área externa; aguardando melhoria do tempo."
+              className="w-full px-3.5 py-2.5 border border-slate-200 rounded-xl text-sm focus:outline-none focus:border-orange-400"
+            />
+            <span className={`text-xs font-semibold ${justificativa.trim().length >= 20 ? 'text-emerald-600' : 'text-slate-400'}`}>
               {justificativa.trim().length}/20 caracteres mínimos
             </span>
-            <span className={fotosCount > 0 ? 'text-emerald-600 font-bold flex items-center gap-1' : 'text-rose-600 font-bold flex items-center gap-1'}>
-              <Camera size={13} />{fotosCount > 0 ? `${fotosCount} foto(s) anexada(s)` : 'Nenhuma foto anexada'}
+          </div>
+
+          {/* Passo 2: Evidência fotográfica — upload direto aqui no modal */}
+          <div>
+            <p className="text-xs font-bold text-slate-600 mb-1.5 flex items-center gap-1">
+              <span className="w-4 h-4 rounded-full bg-orange-500 text-white text-[9px] font-black flex items-center justify-center">2</span>
+              Anexar foto de evidência
+            </p>
+            <button
+              type="button"
+              disabled={enviandoFoto}
+              onClick={() => inputFotoRef.current?.click()}
+              className={`w-full h-20 rounded-xl border-2 border-dashed font-bold flex flex-col items-center justify-center gap-1.5 transition-all cursor-pointer text-sm disabled:opacity-50 ${
+                fotos.length > 0
+                  ? 'border-emerald-400 bg-emerald-50 text-emerald-700'
+                  : 'border-orange-300 bg-orange-50 text-orange-700'
+              }`}
+            >
+              <Camera size={22} />
+              {enviandoFoto
+                ? 'Enviando...'
+                : fotos.length > 0
+                  ? `✓ ${fotos.length} foto(s) anexada(s) — adicionar mais`
+                  : 'Tirar / Escolher foto de evidência'
+              }
+            </button>
+            <input
+              ref={inputFotoRef}
+              type="file"
+              accept="image/*"
+              multiple
+              hidden
+              onChange={(e) => {
+                if (e.target.files?.length) enviarFotos(Array.from(e.target.files));
+                e.target.value = '';
+              }}
+            />
+          </div>
+
+          {/* Checklist de validação */}
+          <div className="flex gap-4 text-xs">
+            <span className={`flex items-center gap-1 font-semibold ${justificativa.trim().length >= 20 ? 'text-emerald-600' : 'text-slate-400'}`}>
+              <Check size={12} />{justificativa.trim().length >= 20 ? 'Motivo ok' : 'Motivo incompleto'}
+            </span>
+            <span className={`flex items-center gap-1 font-semibold ${fotos.length > 0 ? 'text-emerald-600' : 'text-slate-400'}`}>
+              <Camera size={12} />{fotos.length > 0 ? `${fotos.length} evidência(s)` : 'Sem evidência'}
             </span>
           </div>
         </div>
         <div className="px-6 py-4 border-t border-slate-100 flex justify-end gap-3">
           <button onClick={onCancelar}
             className="px-4 py-2 border border-slate-200 text-slate-600 rounded-xl text-sm font-semibold hover:bg-slate-50 cursor-pointer">Cancelar</button>
-          <button onClick={() => onConfirmar(justificativa.trim())} disabled={!valido || processando}
-            className="px-5 py-2 bg-orange-500 text-white rounded-xl text-sm font-semibold hover:bg-orange-600 disabled:opacity-40 cursor-pointer">
+          <button
+            onClick={() => onConfirmar(justificativa.trim(), fotos)}
+            disabled={!valido || processando || enviandoFoto}
+            className="px-5 py-2 bg-orange-500 text-white rounded-xl text-sm font-semibold hover:bg-orange-600 disabled:opacity-40 cursor-pointer"
+          >
             {processando ? 'Registrando...' : 'Confirmar impedimento'}
           </button>
         </div>
@@ -900,6 +1211,7 @@ function ModalImpedimento({ aberto, osAlvo, fotosCount, onConfirmar, onCancelar,
     </div>
   );
 }
+
 
 // ---------------------------------------------------------------------------
 // Página principal
@@ -920,6 +1232,7 @@ function OrdensServico({ usuarioAtual }) {
   const [processando, setProcessando] = useState(false);
   const [geolocalizacao, setGeolocalizacao] = useState(null);
   const [checkinInfo, setCheckinInfo] = useState(null);
+  const [draggingOsStatus, setDraggingOsStatus] = useState(null); // status do card sendo arrastado
 
   const [filtroBusca, setFiltroBusca] = useState('');
   const [filtroObra, setFiltroObra] = useState('');
@@ -997,7 +1310,13 @@ function OrdensServico({ usuarioAtual }) {
   }, [geolocalizacao, capturarGps, mostrarToast, recarregarLista]);
 
   // Drag-and-drop do Kanban com validação UX antes de chamar a API.
+  const aoArrastarInicio = (resultado) => {
+    const os = listaOs.find(o => String(o.id) === resultado.draggableId);
+    if (os) setDraggingOsStatus(os.status);
+  };
+
   const aoArrastarFim = (resultado) => {
+    setDraggingOsStatus(null);
     const { destination, source, draggableId } = resultado;
     if (!destination) return;
     if (destination.droppableId === source.droppableId) return;
@@ -1005,6 +1324,12 @@ function OrdensServico({ usuarioAtual }) {
     const os = listaOs.find(o => String(o.id) === draggableId);
     if (!os) return;
     const destino = destination.droppableId;
+
+    // Bloqueia transições inválidas com feedback claro ao usuário.
+    if (!TRANSICOES_STATUS[os.status]?.has(destino)) {
+      mostrarToast(`Transição não permitida: "${LABEL_STATUS[os.status]}" → "${LABEL_STATUS[destino]}".`, 'error');
+      return;
+    }
 
     // Regra crítica: impedir exige justificativa + fotos (modal dedicado).
     if (destino === 'impedida') {
@@ -1019,38 +1344,13 @@ function OrdensServico({ usuarioAtual }) {
     mudarStatus(os, destino);
   };
 
-  const confirmarImpedimento = async (justificativa) => {
+  const confirmarImpedimento = async (justificativa, fotosIds = []) => {
     const { os } = modalImpedimento;
-    // Envia os IDs das fotos JÁ anexadas como evidências (regra do backend:
-    // todas as fotos informadas precisam pertencer a esta O.S).
-    let fotosIds = [];
-    try {
-      const res = await apiFetch(`${API_URL}/os/${os.id}/fotos`);
-      if (res.ok) fotosIds = (await res.json()).map(f => f.id);
-    } catch {
-      /* segue vazio: backend rejeitará sem evidências */
-    }
+    // As fotos já foram enviadas pelo modal — só passamos os IDs para o backend validar.
     const ok = await mudarStatus(os, 'impedida', { justificativa, fotos_ids: fotosIds });
     if (ok) setModalImpedimento(null);
   };
 
-  const fotosDaOs = async (osId) => {
-    try {
-      const res = await apiFetch(`${API_URL}/os/${osId}/fotos`);
-      return res.ok ? (await res.json()).length : 0;
-    } catch {
-      return 0;
-    }
-  };
-
-  // Ao abrir o modal de impedimento já contamos as fotos existentes.
-  useEffect(() => {
-    if (modalImpedimento) {
-      fotosDaOs(modalImpedimento.os.id).then((total) => {
-        setModalImpedimento((prev) => (prev ? { ...prev, fotosCount: total } : prev));
-      });
-    }
-  }, [modalImpedimento?.os?.id]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // --- Check-in de campo ------------------------------------------------------
 
@@ -1129,8 +1429,22 @@ function OrdensServico({ usuarioAtual }) {
         <option value="">Todas as prioridades</option>
         {Object.entries(PRIORIDADES).map(([k, v]) => <option key={k} value={k}>{v.label}</option>)}
       </select>
+      {/* Botão limpar filtros — aparece só quando há filtros ativos */}
+      {(filtroBusca || filtroObra || filtroEquipe || filtroPrioridade) && (
+        <button
+          onClick={() => { setFiltroBusca(''); setFiltroObra(''); setFiltroEquipe(''); setFiltroPrioridade(''); }}
+          className="flex items-center gap-1.5 px-3 py-2 rounded-xl bg-rose-50 border border-rose-200 text-rose-600 text-xs font-bold hover:bg-rose-100 transition-colors cursor-pointer shrink-0"
+        >
+          <X size={13} />
+          Limpar filtros
+          <span className="bg-rose-500 text-white rounded-full w-4 h-4 flex items-center justify-center text-[9px] font-black">
+            {[filtroBusca, filtroObra, filtroEquipe, filtroPrioridade].filter(Boolean).length}
+          </span>
+        </button>
+      )}
     </div>
   );
+
 
   return (
     <div className="space-y-5 relative">
@@ -1158,43 +1472,58 @@ function OrdensServico({ usuarioAtual }) {
           {filtros}
 
           {/* ===== KANBAN (desktop) ===== */}
-          <DragDropContext onDragEnd={aoArrastarFim}>
+          <DragDropContext onDragStart={aoArrastarInicio} onDragEnd={aoArrastarFim}>
             <div className="hidden lg:grid grid-cols-6 gap-3 items-start relative">
-              {COLUNAS.map(col => (
-                <div key={col.id} className="bg-white/70 rounded-2xl border border-slate-100">
-                  <div className="px-3 pt-3 pb-2 flex items-center justify-between">
-                    <span className={`text-xs font-extrabold uppercase tracking-wide ${
-                      col.id === 'impedida' ? 'text-orange-600' : col.id === 'concluida' ? 'text-emerald-600' : col.id === 'cancelada' ? 'text-rose-500' : 'text-slate-500'
-                    }`}>{col.label}</span>
-                    <span className="text-[10px] font-bold bg-slate-100 text-slate-500 rounded-full px-2 py-0.5">
-                      {porColuna[col.id].length}
-                    </span>
+              {COLUNAS.map(col => {
+                // Durante o drag, calcula se esta coluna é um destino válido
+                const eDestinoInvalido = draggingOsStatus !== null
+                  && draggingOsStatus !== col.id
+                  && !TRANSICOES_STATUS[draggingOsStatus]?.has(col.id);
+
+                return (
+                  <div
+                    key={col.id}
+                    className={`bg-white/70 rounded-2xl border transition-all duration-200 ${
+                      eDestinoInvalido
+                        ? 'border-slate-200 opacity-40 grayscale pointer-events-none'
+                        : 'border-slate-100'
+                    }`}
+                  >
+                    <div className="px-3 pt-3 pb-2 flex items-center justify-between">
+                      <span className={`text-xs font-extrabold uppercase tracking-wide ${
+                        col.id === 'impedida' ? 'text-orange-600' : col.id === 'concluida' ? 'text-emerald-600' : col.id === 'cancelada' ? 'text-rose-500' : 'text-slate-500'
+                      }`}>{col.label}</span>
+                      <span className="text-[10px] font-bold bg-slate-100 text-slate-500 rounded-full px-2 py-0.5">
+                        {porColuna[col.id].length}
+                      </span>
+                    </div>
+                    <Droppable droppableId={col.id}>
+                      {(provided, snapshot) => (
+                        <div
+                          ref={provided.innerRef}
+                          {...provided.droppableProps}
+                          className={`px-2 pb-2 space-y-2 min-h-[120px] max-h-[calc(100vh-280px)] overflow-y-auto rounded-b-2xl transition-colors ${
+                            snapshot.isDraggingOver ? 'bg-primary-50/80 ring-2 ring-primary-300 ring-inset' : ''
+                          }`}
+                        >
+                          {porColuna[col.id].map((os, index) => (
+                            <Draggable key={os.id} draggableId={String(os.id)} index={index}>
+                              {(prov, snap) => (
+                                <div ref={prov.innerRef} {...prov.draggableProps} {...prov.dragHandleProps}
+                                  style={{ ...prov.draggableProps.style, opacity: snap.isDragging ? 0.85 : 1 }}>
+                                  <CardOS os={os} onClick={() => setOsSelecionada(os.id)} />
+                                </div>
+                              )}
+                            </Draggable>
+                          ))}
+                          {provided.placeholder}
+                        </div>
+                      )}
+                    </Droppable>
                   </div>
-                  <Droppable droppableId={col.id}>
-                    {(provided, snapshot) => (
-                      <div
-                        ref={provided.innerRef}
-                        {...provided.droppableProps}
-                        className={`px-2 pb-2 space-y-2 min-h-[120px] rounded-b-2xl transition-colors ${
-                          snapshot.isDraggingOver ? 'bg-primary-50/80 ring-2 ring-primary-300 ring-inset' : ''
-                        }`}
-                      >
-                        {porColuna[col.id].map((os, index) => (
-                          <Draggable key={os.id} draggableId={String(os.id)} index={index}>
-                            {(prov, snap) => (
-                              <div ref={prov.innerRef} {...prov.draggableProps} {...prov.dragHandleProps}
-                                style={{ ...prov.draggableProps.style, opacity: snap.isDragging ? 0.85 : 1 }}>
-                                <CardOS os={os} onClick={() => setOsSelecionada(os.id)} />
-                              </div>
-                            )}
-                          </Draggable>
-                        ))}
-                        {provided.placeholder}
-                      </div>
-                    )}
-                  </Droppable>
-                </div>
-              ))}
+                );
+              })}
+
 
               {/* Drawer de detalhes do gestor */}
               {osSelecionada != null && (
@@ -1208,6 +1537,7 @@ function OrdensServico({ usuarioAtual }) {
                   recarregarLista={recarregarLista}
                   mostrarToast={mostrarToast}
                   ehMobile={false}
+                  mudarStatus={mudarStatus}
                 />
               )}
             </div>
@@ -1231,6 +1561,7 @@ function OrdensServico({ usuarioAtual }) {
                   recarregarLista={recarregarLista}
                   mostrarToast={mostrarToast}
                   ehMobile
+                  mudarStatus={mudarStatus}
                 />
               </>
             ) : (
@@ -1238,8 +1569,22 @@ function OrdensServico({ usuarioAtual }) {
                 {listaOs.length === 0 && (
                   <p className="text-center text-sm text-slate-400 py-12">Nenhuma O.S encontrada.</p>
                 )}
-                {listaOs.map(os => (
-                  <CardOS key={os.id} os={os} onClick={() => setOsSelecionada(os.id)} />
+                {/* Agrupada por status para localizar rapidamente as O.S em execução */}
+                {COLUNAS.filter(col => porColuna[col.id].length > 0).map(col => (
+                  <div key={col.id} className="space-y-2">
+                    <div className="flex items-center gap-2 pt-1">
+                      <span className={`text-[10px] font-extrabold uppercase tracking-wider ${
+                        col.id === 'impedida' ? 'text-orange-600' : col.id === 'concluida' ? 'text-emerald-600' : col.id === 'cancelada' ? 'text-rose-500' : 'text-slate-500'
+                      }`}>{col.label}</span>
+                      <span className="text-[10px] font-bold bg-slate-100 text-slate-500 rounded-full px-2 py-0.5">
+                        {porColuna[col.id].length}
+                      </span>
+                      <div className="flex-1 h-px bg-slate-200" />
+                    </div>
+                    {porColuna[col.id].map(os => (
+                      <CardOS key={os.id} os={os} onClick={() => setOsSelecionada(os.id)} />
+                    ))}
+                  </div>
                 ))}
               </>
             )}
@@ -1265,11 +1610,11 @@ function OrdensServico({ usuarioAtual }) {
       <ModalImpedimento
         aberto={!!modalImpedimento}
         osAlvo={modalImpedimento?.os}
-        fotosCount={modalImpedimento?.fotosCount || 0}
         processando={processando}
         onConfirmar={confirmarImpedimento}
         onCancelar={() => setModalImpedimento(null)}
       />
+
 
       <ModalConfirmacao
         aberto={!!confirmacaoEncerrar}
