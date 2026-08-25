@@ -17,6 +17,7 @@ import {
   Check,
   Trash2,
   Wrench,
+  ClipboardList,
 } from 'lucide-react';
 
 // Importando as páginas
@@ -30,6 +31,7 @@ import Comprovantes from './pages/Comprovantes';
 import Recebimentos from './pages/Recebimentos';
 import Manutencao from './pages/Manutencao';
 import Sst from './pages/Sst';
+import OrdensServico from './pages/OrdensServico';
 import Configuracoes from './pages/Configuracoes';
 import Login from './pages/Login';
 import { MODULOS } from './modules';
@@ -47,6 +49,7 @@ const ICONES = {
   recebimentos: Banknote,
   manutencao: Wrench,
   sst: ShieldCheck,
+  os: ClipboardList,
   configuracoes: Settings,
 };
 
@@ -61,6 +64,7 @@ const COMPONENTES = {
   recebimentos: Recebimentos,
   manutencao: Manutencao,
   sst: Sst,
+  os: OrdensServico,
   configuracoes: Configuracoes,
 };
 

@@ -19,6 +19,11 @@ class FuncionarioCreate(BaseModel):
     cpf: str = Field(..., min_length=11, description="CPF do funcionário")
     cargo_id: Optional[int] = Field(None, description="ID do cargo/função (módulo SST)")
     cargo_id_2: Optional[int] = Field(None, description="ID da 2ª função (módulo SST)")
+    # Campos usados pelo módulo Controle de O.S:
+    # - email vincula o login (usuarios.email) ao funcionário (equipes/H.H.);
+    # - valor_hora alimenta o Custo Real de Mão de Obra dos apontamentos.
+    email: Optional[str] = Field(None, max_length=255, description="E-mail institucional (vincula o login ao funcionário)")
+    valor_hora: Optional[float] = Field(None, ge=0, description="Valor da hora p/ custo de mão de obra (O.S)")
 
 
 class FuncionarioResponse(FuncionarioCreate):

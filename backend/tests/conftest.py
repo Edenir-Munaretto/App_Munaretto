@@ -62,6 +62,17 @@ def _montar_dados_banco():
         "equipamento_reposicoes": [],
         "veiculo_documentos": [],
         "login_tentativas": [],
+        # Módulo Controle de O.S
+        "obras": [],
+        "equipes": [],
+        "equipe_membros": [],
+        "produtos": [],
+        "ordens_servico": [],
+        "os_itens_orcados": [],
+        "os_materiais": [],
+        "os_apontamentos": [],
+        "os_historico": [],
+        "os_fotos": [],
     }
 
 
@@ -130,3 +141,41 @@ def manutencao_client(client, db_fake):
     token = resp.json()["token"]
     client.headers.update({"Authorization": f"Bearer {token}"})
     return client
+
+
+def _criar_e_logar(client, db_fake, uid, nome, email, senha, permissoes):
+    """Helper dos fixtures do módulo O.S: cria usuário e retorna client logado."""
+    db_fake._dados["usuarios"].append(
+        {
+            "id": uid,
+            "nome": nome,
+            "email": email,
+            "senha": _hash_senha(senha),
+            "permissoes": permissoes,
+            "ativo": True,
+            "precisa_trocar_senha": False,
+        }
+    )
+    resp = client.post("/api/usuarios/login", json={"email": email, "senha": senha})
+    assert resp.status_code == 200, resp.text
+    token = resp.json()["token"]
+    client.headers.update({"Authorization": f"Bearer {token}"})
+    return client
+
+
+@pytest.fixture
+def os_gestor_client(client, db_fake):
+    """Gestor: permissão 'os' + 'dashboard' (visão completa do módulo)."""
+    return _criar_e_logar(
+        client, db_fake, 91, "Gestor OS", "gestor.os@munaretto.com",
+        "senhaGestor123", ["os", "dashboard"],
+    )
+
+
+@pytest.fixture
+def os_campo_client(client, db_fake):
+    """Usuário de campo: apenas 'os' (restrito às equipes em que atua)."""
+    return _criar_e_logar(
+        client, db_fake, 92, "Lider Campo", "campo@munaretto.com",
+        "senhaCampo123", ["os"],
+    )

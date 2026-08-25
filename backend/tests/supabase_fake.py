@@ -50,6 +50,28 @@ class _Query:
         self.filtros.append(("ilike", coluna, valor))
         return self
 
+    def like(self, coluna, valor):
+        self.filtros.append(("ilike", coluna, valor))
+        return self
+
+    def in_(self, coluna, valores):
+        self.filtros.append(("in", coluna, list(valores)))
+        return self
+
+    def is_(self, coluna, valor):
+        # No PostgREST o valor chega como string "null".
+        if isinstance(valor, str) and valor.lower() == "null":
+            self.filtros.append(("isnull", coluna, True))
+        else:
+            self.filtros.append(("eq", coluna, valor))
+        return self
+
+    def or_(self, expressao):
+        """Suporta o formato usado pelos routers: 'col.op.valor,col.op.valor'
+        com operadores ilike/eq (ex.: busca de clientes e de O.S)."""
+        self.filtros.append(("or", expressao))
+        return self
+
     def limit(self, n):
         self.limite = n
         return self
@@ -85,6 +107,26 @@ class _Query:
                     r for r in linhas
                     if termo in str(r.get(coluna, "")).lower()
                 ]
+            elif op == "in":
+                linhas = [r for r in linhas if r.get(coluna) in valor]
+            elif op == "isnull":
+                linhas = [r for r in linhas if r.get(coluna) is None]
+            elif op == "or":
+                termos = []
+                for parte in str(valor).split(","):
+                    pedacos = parte.split(".")
+                    if len(pedacos) != 3:
+                        continue
+                    col, operador, bruto = pedacos
+                    termo = bruto.replace("%", "").lower()
+                    termos.append((col, operador, termo))
+                if termos:
+                    def _casa_ou(r):
+                        for col, _, termo in termos:
+                            if termo in str(r.get(col, "")).lower():
+                                return True
+                        return False
+                    linhas = [r for r in linhas if _casa_ou(r)]
         if self.ordenacao:
             coluna, desc = self.ordenacao
             linhas = sorted(

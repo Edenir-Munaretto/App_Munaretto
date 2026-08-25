@@ -9,5 +9,6 @@ export const MODULOS = [
   { id: 'recebimentos', label: 'Controle Recebimentos' },
   { id: 'manutencao', label: 'Manutenção' },
   { id: 'sst', label: 'Segurança do Trabalho' },
+  { id: 'os', label: 'Controle de O.S' },
   { id: 'configuracoes', label: 'Configurações' },
 ];

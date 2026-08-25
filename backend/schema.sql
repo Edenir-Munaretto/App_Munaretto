@@ -552,6 +552,225 @@ CREATE POLICY "service_role_full_certificados" ON certificados
     FOR ALL TO service_role USING (true) WITH CHECK (true);
 
 -- ============================================================================
+-- MÓDULO: CONTROLE DE ORDENS DE SERVIÇO (O.S.)
+-- ============================================================================
+-- Gestão de Ordens de Serviço de obras: cadastro de obras (por cliente),
+-- equipes (com membros e líder), catálogo de produtos/insumos, a O.S em si
+-- (com itens orçados), lançamento de materiais aplicados, apontamentos de
+-- horas (H.H.) e histórico/linha do tempo de transições de status.
+--
+-- MÁQUINA DE ESTADOS (validada também no backend):
+--   rascunho     -> aberta | cancelada
+--   aberta       -> em_andamento | impedida | cancelada
+--   em_andamento -> impedida | concluida | cancelada
+--   impedida     -> em_andamento
+--   concluida    -> (terminal)
+--   cancelada    -> (terminal)
+-- Regra crítica: transição para 'impedida' EXIGE justificativa (>= 20
+-- caracteres) e pelo menos uma foto de evidência já anexada à O.S.
+
+-- Valor/hora do funcionário para cálculo do Custo Real de Mão de Obra (H.H.)
+-- e e-mail institucional usado para vincular o login (usuarios.email) ao
+-- registro do funcionário (equipes, apontamentos).
+ALTER TABLE IF EXISTS funcionarios ADD COLUMN IF NOT EXISTS valor_hora NUMERIC(10, 2);
+ALTER TABLE IF EXISTS funcionarios ADD COLUMN IF NOT EXISTS email VARCHAR(255);
+
+-- TABELA: obras (cada obra pertence a um cliente - relação 1:N)
+CREATE TABLE IF NOT EXISTS obras (
+    id SERIAL PRIMARY KEY,
+    cliente_id INTEGER NOT NULL REFERENCES clientes(id),
+    nome VARCHAR(255) NOT NULL,
+    endereco TEXT,
+    cidade VARCHAR(100),
+    ativo BOOLEAN DEFAULT TRUE,
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+);
+
+-- TABELA: equipes (grupos de trabalho que executam as O.S)
+CREATE TABLE IF NOT EXISTS equipes (
+    id SERIAL PRIMARY KEY,
+    nome VARCHAR(255) NOT NULL UNIQUE,
+    descricao TEXT,
+    ativa BOOLEAN DEFAULT TRUE,
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+);
+
+-- TABELA: equipe_membros (N:N entre equipes e funcionarios, com flag de líder)
+CREATE TABLE IF NOT EXISTS equipe_membros (
+    id SERIAL PRIMARY KEY,
+    equipe_id INTEGER NOT NULL REFERENCES equipes(id) ON DELETE CASCADE,
+    funcionario_id INTEGER NOT NULL REFERENCES funcionarios(id) ON DELETE CASCADE,
+    lider BOOLEAN DEFAULT FALSE,
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+    UNIQUE (equipe_id, funcionario_id)
+);
+
+-- TABELA: produtos (catálogo de materiais/insumos)
+CREATE TABLE IF NOT EXISTS produtos (
+    id SERIAL PRIMARY KEY,
+    codigo VARCHAR(50) UNIQUE,             -- opcional: código de barras/SKU p/ bipagem
+    nome VARCHAR(255) NOT NULL,
+    unidade VARCHAR(20) DEFAULT 'UN',      -- UN | m | m² | kg | L | saca ...
+    preco_unitario NUMERIC(12, 2) DEFAULT 0.00,
+    ativo BOOLEAN DEFAULT TRUE,
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+);
+
+-- TABELA: ordens_servico
+-- `codigo` é gerado no backend no formato OS-<ANO>-<NNNN> (sequencial por ano).
+CREATE TABLE IF NOT EXISTS ordens_servico (
+    id SERIAL PRIMARY KEY,
+    codigo VARCHAR(20) NOT NULL UNIQUE,
+    obra_id INTEGER NOT NULL REFERENCES obras(id),
+    equipe_id INTEGER REFERENCES equipes(id),
+    status VARCHAR(20) NOT NULL DEFAULT 'rascunho'
+        CHECK (status IN ('rascunho', 'aberta', 'em_andamento', 'impedida', 'concluida', 'cancelada')),
+    prioridade VARCHAR(10) NOT NULL DEFAULT 'media'
+        CHECK (prioridade IN ('baixa', 'media', 'alta', 'critica')),
+    data_abertura TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+    prazo_entrega DATE,
+    data_fim TIMESTAMP WITH TIME ZONE,
+    descricao_escopo TEXT,
+    custo_mo_orcado NUMERIC(12, 2) DEFAULT 0.00,   -- mão de obra prevista (R$)
+    criado_por VARCHAR(255),                        -- e-mail do usuário criador
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+);
+
+DROP TRIGGER IF EXISTS trg_update_os_updated_at ON ordens_servico;
+CREATE TRIGGER trg_update_os_updated_at
+    BEFORE UPDATE ON ordens_servico
+    FOR EACH ROW
+    EXECUTE FUNCTION update_updated_at_column();
+
+-- TABELA: os_itens_orcados (quantidade planejada por produto - base do
+-- comparativo "Aplicado vs. Orçado" exibido no Kanban)
+CREATE TABLE IF NOT EXISTS os_itens_orcados (
+    id SERIAL PRIMARY KEY,
+    os_id INTEGER NOT NULL REFERENCES ordens_servico(id) ON DELETE CASCADE,
+    produto_id INTEGER NOT NULL REFERENCES produtos(id),
+    quantidade_orcada NUMERIC(12, 3) NOT NULL CHECK (quantidade_orcada > 0),
+    UNIQUE (os_id, produto_id)
+);
+
+-- TABELA: os_materiais (lançamento de materiais/insumos aplicados em campo)
+CREATE TABLE IF NOT EXISTS os_materiais (
+    id SERIAL PRIMARY KEY,
+    os_id INTEGER NOT NULL REFERENCES ordens_servico(id) ON DELETE CASCADE,
+    produto_id INTEGER NOT NULL REFERENCES produtos(id),
+    quantidade_usada NUMERIC(12, 3) NOT NULL CHECK (quantidade_usada > 0),
+    data_lancamento TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+    usuario_email VARCHAR(255),
+    observacao TEXT
+);
+
+-- TABELA: os_apontamentos (H.H.: Play/Pause por membro da equipe)
+-- Cada linha é um bloco de trabalho: `inicio` no Play, `fim`/`minutos` no Pause.
+-- Custo Real de M.O. = SUM(minutos) x funcionarios.valor_hora / 60.
+CREATE TABLE IF NOT EXISTS os_apontamentos (
+    id SERIAL PRIMARY KEY,
+    os_id INTEGER NOT NULL REFERENCES ordens_servico(id) ON DELETE CASCADE,
+    funcionario_id INTEGER NOT NULL REFERENCES funcionarios(id),
+    inicio TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    fim TIMESTAMP WITH TIME ZONE,
+    minutos_trabalhados INTEGER,
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+);
+
+-- TABELA: os_historico (linha do tempo imutável das transições de status)
+CREATE TABLE IF NOT EXISTS os_historico (
+    id SERIAL PRIMARY KEY,
+    os_id INTEGER NOT NULL REFERENCES ordens_servico(id) ON DELETE CASCADE,
+    status_anterior VARCHAR(20),
+    status_novo VARCHAR(20) NOT NULL,
+    justificativa TEXT,                 -- obrigatória quando status_novo = 'impedida'
+    usuario_alteracao VARCHAR(255),     -- e-mail de quem executou a transição
+    geolocalizacao_log VARCHAR(100),    -- "lat,lng" capturada no dispositivo
+    criado_em TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+);
+
+-- TABELA: os_fotos (evidências fotográficas; binário fica no Backblaze B2,
+-- aqui ficam apenas metadados e a chave do objeto - acesso via presigned URL)
+CREATE TABLE IF NOT EXISTS os_fotos (
+    id SERIAL PRIMARY KEY,
+    os_id INTEGER NOT NULL REFERENCES ordens_servico(id) ON DELETE CASCADE,
+    nome_original VARCHAR(500) NOT NULL,
+    tamanho_bytes BIGINT NOT NULL,
+    mime_type VARCHAR(100) NOT NULL,
+    bucket_key TEXT NOT NULL UNIQUE,
+    enviado_por VARCHAR(255),
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+);
+
+-- Índices de integridade/performance (FKs consultadas com frequência)
+CREATE INDEX IF NOT EXISTS idx_obras_cliente ON obras (cliente_id);
+CREATE INDEX IF NOT EXISTS idx_equipe_membros_equipe ON equipe_membros (equipe_id);
+CREATE INDEX IF NOT EXISTS idx_equipe_membros_funcionario ON equipe_membros (funcionario_id);
+CREATE INDEX IF NOT EXISTS idx_os_obra ON ordens_servico (obra_id);
+CREATE INDEX IF NOT EXISTS idx_os_equipe ON ordens_servico (equipe_id);
+CREATE INDEX IF NOT EXISTS idx_os_status ON ordens_servico (status);
+CREATE INDEX IF NOT EXISTS idx_os_itens_os ON os_itens_orcados (os_id);
+CREATE INDEX IF NOT EXISTS idx_os_mat_os ON os_materiais (os_id);
+CREATE INDEX IF NOT EXISTS idx_os_mat_produto ON os_materiais (produto_id);
+CREATE INDEX IF NOT EXISTS idx_os_apont_os ON os_apontamentos (os_id);
+CREATE INDEX IF NOT EXISTS idx_os_apont_funcionario ON os_apontamentos (funcionario_id);
+CREATE INDEX IF NOT EXISTS idx_os_hist_os ON os_historico (os_id);
+CREATE INDEX IF NOT EXISTS idx_os_fotos_os ON os_fotos (os_id);
+
+-- RLS: mesmo padrão dos demais módulos (service_role tem acesso pleno;
+-- anon/authenticated ficam bloqueados - o frontend só fala com a FastAPI).
+ALTER TABLE IF EXISTS obras           ENABLE ROW LEVEL SECURITY;
+ALTER TABLE IF EXISTS equipes         ENABLE ROW LEVEL SECURITY;
+ALTER TABLE IF EXISTS equipe_membros  ENABLE ROW LEVEL SECURITY;
+ALTER TABLE IF EXISTS produtos        ENABLE ROW LEVEL SECURITY;
+ALTER TABLE IF EXISTS ordens_servico  ENABLE ROW LEVEL SECURITY;
+ALTER TABLE IF EXISTS os_itens_orcados ENABLE ROW LEVEL SECURITY;
+ALTER TABLE IF EXISTS os_materiais    ENABLE ROW LEVEL SECURITY;
+ALTER TABLE IF EXISTS os_apontamentos ENABLE ROW LEVEL SECURITY;
+ALTER TABLE IF EXISTS os_historico    ENABLE ROW LEVEL SECURITY;
+ALTER TABLE IF EXISTS os_fotos        ENABLE ROW LEVEL SECURITY;
+
+DROP POLICY IF EXISTS "service_role_full_obras" ON obras;
+CREATE POLICY "service_role_full_obras" ON obras
+    FOR ALL TO service_role USING (true) WITH CHECK (true);
+
+DROP POLICY IF EXISTS "service_role_full_equipes" ON equipes;
+CREATE POLICY "service_role_full_equipes" ON equipes
+    FOR ALL TO service_role USING (true) WITH CHECK (true);
+
+DROP POLICY IF EXISTS "service_role_full_equipe_membros" ON equipe_membros;
+CREATE POLICY "service_role_full_equipe_membros" ON equipe_membros
+    FOR ALL TO service_role USING (true) WITH CHECK (true);
+
+DROP POLICY IF EXISTS "service_role_full_produtos" ON produtos;
+CREATE POLICY "service_role_full_produtos" ON produtos
+    FOR ALL TO service_role USING (true) WITH CHECK (true);
+
+DROP POLICY IF EXISTS "service_role_full_ordens_servico" ON ordens_servico;
+CREATE POLICY "service_role_full_ordens_servico" ON ordens_servico
+    FOR ALL TO service_role USING (true) WITH CHECK (true);
+
+DROP POLICY IF EXISTS "service_role_full_os_itens_orcados" ON os_itens_orcados;
+CREATE POLICY "service_role_full_os_itens_orcados" ON os_itens_orcados
+    FOR ALL TO service_role USING (true) WITH CHECK (true);
+
+DROP POLICY IF EXISTS "service_role_full_os_materiais" ON os_materiais;
+CREATE POLICY "service_role_full_os_materiais" ON os_materiais
+    FOR ALL TO service_role USING (true) WITH CHECK (true);
+
+DROP POLICY IF EXISTS "service_role_full_os_apontamentos" ON os_apontamentos;
+CREATE POLICY "service_role_full_os_apontamentos" ON os_apontamentos
+    FOR ALL TO service_role USING (true) WITH CHECK (true);
+
+DROP POLICY IF EXISTS "service_role_full_os_historico" ON os_historico;
+CREATE POLICY "service_role_full_os_historico" ON os_historico
+    FOR ALL TO service_role USING (true) WITH CHECK (true);
+
+DROP POLICY IF EXISTS "service_role_full_os_fotos" ON os_fotos;
+CREATE POLICY "service_role_full_os_fotos" ON os_fotos
+    FOR ALL TO service_role USING (true) WITH CHECK (true);
+
+-- ============================================================================
 -- TABELA: login_tentativas (rate limiting persistente do login)
 -- Persiste os contadores do LoginRateLimiter no banco para sobreviver a
 -- reinícios do servidor (comum no Render free tier) e a múltiplas instâncias.
