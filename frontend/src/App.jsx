@@ -179,14 +179,6 @@ function App() {
     return () => window.removeEventListener('auth:unauthorized', handleUnauthorized);
   }, []);
 
-  // Busca alertas de férias ao carregar
-  useEffect(() => {
-    if (!usuario) return;
-    fetchAlerts();
-    const interval = setInterval(fetchAlerts, 100000); // 1.5 minutos
-    return () => clearInterval(interval);
-  }, [usuario, fetchAlerts]);
-
   const fetchAlerts = useCallback(async () => {
     try {
       const res = await apiFetch(`${API_URL}/ferias/alertas`);
@@ -209,6 +201,14 @@ function App() {
       console.error('Erro ao buscar alertas de SST:', err);
     }
   }, [usuario]);
+
+  // Busca alertas de férias ao carregar
+  useEffect(() => {
+    if (!usuario) return;
+    fetchAlerts();
+    const interval = setInterval(fetchAlerts, 100000); // 1.5 minutos
+    return () => clearInterval(interval);
+  }, [usuario, fetchAlerts]);
 
   const fetchNotifications = useCallback(async () => {
     if (!usuario?.email) return;
