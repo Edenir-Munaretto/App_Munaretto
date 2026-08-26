@@ -4,6 +4,7 @@ import {
   Plus, Search, X, Play, Pause, Camera, Package, ClipboardList, MapPin,
   AlertTriangle, Check, Clock, CalendarClock, Copy, FileDown, LayoutGrid,
   FolderKanban, HardHat, Boxes, Trash2, ChevronLeft, Image as ImageIcon,
+  Pencil, Building,
 } from 'lucide-react';
 import { API_URL, apiFetch, erroDaResposta } from '../api';
 import ModalConfirmacao from '../components/ModalConfirmacao';
@@ -1666,6 +1667,10 @@ function SecaoCadastro({ titulo, icone: Icone, children, acoes }) {
 function PainelCadastros({ obras, equipes, produtos, recarregar, mostrarToast }) {
   // Obras
   const [novaObra, setNovaObra] = useState({ nome: '', cliente_id: '', cidade: '', endereco: '' });
+  const [filtroObraLista, setFiltroObraLista] = useState('');
+  const [obraEmEdicao, setObraEmEdicao] = useState(null);
+  const [excluirObraAlvo, setExcluirObraAlvo] = useState(null);
+
   // Equipes
   const [novaEquipe, setNovaEquipe] = useState({ nome: '', membros: [], lider: '' });
   // Produtos
@@ -1674,6 +1679,19 @@ function PainelCadastros({ obras, equipes, produtos, recarregar, mostrarToast })
   const post = async (url, corpo, msgOk) => {
     try {
       const res = await apiFetch(url, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(corpo) });
+      const data = await res.json().catch(() => null);
+      if (res.ok) { mostrarToast(msgOk); recarregar(); return true; }
+      mostrarToast(erroDaResposta(data, 'Erro ao salvar.'), 'error');
+      return false;
+    } catch {
+      mostrarToast('Erro de conexão.', 'error');
+      return false;
+    }
+  };
+
+  const put = async (url, corpo, msgOk) => {
+    try {
+      const res = await apiFetch(url, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(corpo) });
       const data = await res.json().catch(() => null);
       if (res.ok) { mostrarToast(msgOk); recarregar(); return true; }
       mostrarToast(erroDaResposta(data, 'Erro ao salvar.'), 'error');
@@ -1695,33 +1713,171 @@ function PainelCadastros({ obras, equipes, produtos, recarregar, mostrarToast })
     }
   };
 
+  const obrasFiltradas = useMemo(() => {
+    if (!filtroObraLista) return obras;
+    const termo = filtroObraLista.toLowerCase();
+    return obras.filter(o =>
+      (o.nome || '').toLowerCase().includes(termo) ||
+      (o.clientes?.nome || '').toLowerCase().includes(termo) ||
+      (o.cidade || '').toLowerCase().includes(termo) ||
+      (o.endereco || '').toLowerCase().includes(termo)
+    );
+  }, [obras, filtroObraLista]);
+
   return (
     <div className="grid grid-cols-1 xl:grid-cols-3 gap-4">
 
       <SecaoCadastro titulo="Obras" icone={FolderKanban}>
-        <div className="space-y-2 mb-3">
-          {obras.map(o => (
-            <div key={o.id} className="flex items-center justify-between text-xs bg-slate-50 rounded-lg px-3 py-2 border border-slate-100">
-              <span className="truncate"><b>{o.nome}</b> <span className="text-slate-400">— {o.clientes?.nome || ''}</span></span>
-              <button onClick={() => inativar(`${API_URL}/os/obras/${o.id}`, 'Obra excluída.')}
-                className="text-slate-300 hover:text-rose-600 cursor-pointer"><Trash2 size={13} /></button>
-            </div>
-          ))}
+        {/* Barra de Busca */}
+        <div className="relative mb-2">
+          <input
+            type="text"
+            placeholder="Buscar obra..."
+            value={filtroObraLista}
+            onChange={e => setFiltroObraLista(e.target.value)}
+            className="w-full pl-8 pr-7 py-1.5 border border-slate-200 rounded-xl text-xs focus:outline-none focus:border-primary-500"
+          />
+          <Search size={12} className="absolute left-2.5 top-2.5 text-slate-400" />
+          {filtroObraLista && (
+            <button onClick={() => setFiltroObraLista('')} className="absolute right-2.5 top-2.5 text-slate-400 hover:text-slate-600">
+              <X size={12} />
+            </button>
+          )}
         </div>
+
+        {/* Listagem de Obras com Scroll delimitado */}
+        <div className="space-y-2 mb-3 max-h-72 overflow-y-auto pr-1">
+          {obrasFiltradas.length === 0 ? (
+            <p className="text-center text-xs text-slate-400 py-6">Nenhuma obra encontrada.</p>
+          ) : (
+            obrasFiltradas.map(o => (
+              <div key={o.id} className="group relative flex flex-col gap-1 text-xs bg-slate-50 hover:bg-slate-100/70 rounded-xl p-2.5 border border-slate-100 transition-all">
+                <div className="flex items-start justify-between gap-2">
+                  <span className="font-extrabold text-slate-800 break-words leading-tight">{o.nome}</span>
+                  <div className="flex items-center gap-1 opacity-60 group-hover:opacity-100 transition-opacity">
+                    <button
+                      onClick={() => {
+                        setObraEmEdicao(o);
+                        setNovaObra({
+                          nome: o.nome || '',
+                          cliente_id: String(o.cliente_id || ''),
+                          cidade: o.cidade || '',
+                          endereco: o.endereco || ''
+                        });
+                      }}
+                      className="text-slate-400 hover:text-primary-600 cursor-pointer p-0.5 rounded hover:bg-white border border-transparent hover:border-slate-200"
+                      title="Editar obra"
+                    >
+                      <Pencil size={11} />
+                    </button>
+                    <button
+                      onClick={() => setExcluirObraAlvo(o)}
+                      className="text-slate-400 hover:text-rose-600 cursor-pointer p-0.5 rounded hover:bg-white border border-transparent hover:border-slate-200"
+                      title="Excluir obra"
+                    >
+                      <Trash2 size={11} />
+                    </button>
+                  </div>
+                </div>
+                
+                <div className="flex items-center gap-1 text-slate-500 font-semibold mt-0.5">
+                  <Building size={11} className="text-slate-400 flex-shrink-0" />
+                  <span className="truncate">{o.clientes?.nome || 'Sem cliente'}</span>
+                </div>
+
+                {(o.cidade || o.endereco) && (
+                  <div className="flex items-start gap-1 text-slate-400 text-[10px] leading-tight">
+                    <MapPin size={10} className="text-slate-400 mt-0.5 flex-shrink-0" />
+                    <span className="break-words">
+                      {o.endereco ? `${o.endereco}` : ''}
+                      {o.endereco && o.cidade ? ' · ' : ''}
+                      {o.cidade ? `${o.cidade}` : ''}
+                    </span>
+                  </div>
+                )}
+              </div>
+            ))
+          )}
+        </div>
+
+        {/* Formulário Duplo Modo (Cadastro/Edição) */}
         <div className="space-y-2 border-t border-slate-100 pt-3">
+          <div className="flex items-center justify-between">
+            <h4 className="text-[11px] font-extrabold uppercase tracking-wider text-slate-500">
+              {obraEmEdicao ? `Editar Obra` : 'Nova Obra'}
+            </h4>
+            {obraEmEdicao && (
+              <span className="text-[10px] font-bold bg-amber-50 text-amber-700 rounded-full px-2 py-0.5 border border-amber-200 animate-pulse">
+                Modo Edição
+              </span>
+            )}
+          </div>
+          
           <CampoTexto label="Nome da obra *" value={novaObra.nome} onChange={e => setNovaObra({ ...novaObra, nome: e.target.value })} />
           <ClientesSelect value={novaObra.cliente_id} onChange={(v) => setNovaObra({ ...novaObra, cliente_id: v })} />
-          <CampoTexto label="Cidade" value={novaObra.cidade} onChange={e => setNovaObra({ ...novaObra, cidade: e.target.value })} />
-          <button
-            onClick={async () => {
-              if (!novaObra.nome || !novaObra.cliente_id) { mostrarToast('Informe nome e cliente da obra.', 'error'); return; }
-              const ok = await post(`${API_URL}/os/obras`, { ...novaObra, cliente_id: Number(novaObra.cliente_id) }, 'Obra criada.');
-              if (ok) setNovaObra({ nome: '', cliente_id: '', cidade: '', endereco: '' });
-            }}
-            className="w-full py-2 bg-primary-600 text-white rounded-xl text-xs font-bold hover:bg-primary-700 cursor-pointer">
-            Cadastrar Obra
-          </button>
+          
+          <div className="grid grid-cols-2 gap-2">
+            <CampoTexto label="Cidade" value={novaObra.cidade} onChange={e => setNovaObra({ ...novaObra, cidade: e.target.value })} />
+            <CampoTexto label="Endereço" value={novaObra.endereco} onChange={e => setNovaObra({ ...novaObra, endereco: e.target.value })} />
+          </div>
+
+          <div className="flex gap-2 pt-1">
+            {obraEmEdicao && (
+              <button
+                type="button"
+                onClick={() => {
+                  setObraEmEdicao(null);
+                  setNovaObra({ nome: '', cliente_id: '', cidade: '', endereco: '' });
+                }}
+                className="flex-1 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-xl text-xs font-bold transition-all cursor-pointer"
+              >
+                Cancelar
+              </button>
+            )}
+            <button
+              onClick={async () => {
+                if (!novaObra.nome || !novaObra.cliente_id) { mostrarToast('Informe nome e cliente da obra.', 'error'); return; }
+                const payload = {
+                  nome: novaObra.nome,
+                  cliente_id: Number(novaObra.cliente_id),
+                  cidade: novaObra.cidade || null,
+                  endereco: novaObra.endereco || null
+                };
+                
+                let ok;
+                if (obraEmEdicao) {
+                  ok = await put(`${API_URL}/os/obras/${obraEmEdicao.id}`, payload, 'Obra atualizada.');
+                } else {
+                  ok = await post(`${API_URL}/os/obras`, payload, 'Obra criada.');
+                }
+
+                if (ok) {
+                  setNovaObra({ nome: '', cliente_id: '', cidade: '', endereco: '' });
+                  setObraEmEdicao(null);
+                }
+              }}
+              className="flex-[2] py-2 bg-primary-600 text-white rounded-xl text-xs font-bold hover:bg-primary-700 transition-all cursor-pointer text-center">
+              {obraEmEdicao ? 'Salvar Alterações' : 'Cadastrar Obra'}
+            </button>
+          </div>
         </div>
+
+        {/* Modal de Confirmação local para exclusão de obras */}
+        <ModalConfirmacao
+          aberto={!!excluirObraAlvo}
+          titulo="Confirmar exclusão de obra"
+          mensagem={`Deseja realmente excluir ou inativar a obra "${excluirObraAlvo?.nome}"?`}
+          confirmarTexto="Excluir"
+          cancelarTexto="Cancelar"
+          perigo
+          onConfirmar={async () => {
+            if (excluirObraAlvo) {
+              await inativar(`${API_URL}/os/obras/${excluirObraAlvo.id}`, 'Obra excluída.');
+              setExcluirObraAlvo(null);
+            }
+          }}
+          onCancelar={() => setExcluirObraAlvo(null)}
+        />
       </SecaoCadastro>
 
       <SecaoCadastro titulo="Equipes" icone={HardHat}>
