@@ -760,23 +760,22 @@ function PainelExecucao({ osId, produtos, geolocalizacao, capturarGps, onFechar,
     }
   };
 
-  const baixarPdf = async (caminho, nomeArquivo) => {
+  const abrirPdf = async (caminho) => {
+    // Abre uma aba imediatamente (evita bloqueio de popup) e navega para o
+    // PDF gerado (o download exige o token, então usamos fetch + blob URL).
+    const janela = window.open('', '_blank');
     try {
       const res = await apiFetch(`${API_URL}${caminho}`);
       if (!res.ok) {
+        janela?.close();
         mostrarToast(erroDaResposta(await res.json().catch(() => null), 'Erro ao gerar o PDF.'), 'error');
         return;
       }
       const blob = await res.blob();
       const url = window.URL.createObjectURL(blob);
-      const a = document.createElement('a');
-      a.href = url;
-      a.download = nomeArquivo;
-      document.body.appendChild(a);
-      a.click();
-      a.remove();
-      window.URL.revokeObjectURL(url);
+      janela?.location.replace(url);
     } catch {
+      janela?.close();
       mostrarToast('Erro de conexão ao gerar o PDF.', 'error');
     }
   };
@@ -903,13 +902,13 @@ function PainelExecucao({ osId, produtos, geolocalizacao, capturarGps, onFechar,
             <Copy size={14} /> Duplicar
           </button>
           <button
-            onClick={() => baixarPdf(`/os/${detalhe.id}/imprimir`, `${detalhe.codigo}_modelo.pdf`)}
+            onClick={() => abrirPdf(`/os/${detalhe.id}/imprimir`)}
             className="h-11 rounded-xl bg-primary-600 text-white text-xs font-bold flex items-center justify-center gap-1.5 hover:bg-primary-700 cursor-pointer"
           >
             <Printer size={14} /> Imprimir O.S
           </button>
           <button
-            onClick={() => baixarPdf(`/os/${detalhe.id}/pdf`, `${detalhe.codigo}_relatorio.pdf`)}
+            onClick={() => abrirPdf(`/os/${detalhe.id}/pdf`)}
             className="h-11 rounded-xl border border-slate-200 text-slate-600 text-xs font-bold flex items-center justify-center gap-1.5 hover:bg-slate-50 cursor-pointer"
           >
             <FileDown size={14} /> Relatório
@@ -1020,23 +1019,21 @@ function ModalNovaOS({ aberto, obras, equipes, produtos, onFechar, onCriada, mos
 
   const imprimirModelo = async () => {
     if (!criada) return;
+    // Abre a aba antes do fetch (evita bloqueio de popup).
+    const janela = window.open('', '_blank');
     setImprimindo(true);
     try {
       const res = await apiFetch(`${API_URL}/os/${criada.id}/imprimir`);
       if (!res.ok) {
+        janela?.close();
         mostrarToast(erroDaResposta(await res.json().catch(() => null), 'Erro ao gerar o modelo.'), 'error');
         return;
       }
       const blob = await res.blob();
       const url = window.URL.createObjectURL(blob);
-      const a = document.createElement('a');
-      a.href = url;
-      a.download = `${criada.codigo}_modelo.pdf`;
-      document.body.appendChild(a);
-      a.click();
-      a.remove();
-      window.URL.revokeObjectURL(url);
+      janela?.location.replace(url);
     } catch {
+      janela?.close();
       mostrarToast('Erro de conexão ao gerar o modelo.', 'error');
     } finally {
       setImprimindo(false);
