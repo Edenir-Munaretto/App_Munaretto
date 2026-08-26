@@ -539,7 +539,7 @@ function TabTimeline({ historico }) {
               <span className="text-xs font-medium text-slate-400"> (de {LABEL_STATUS[h.status_anterior]?.toLowerCase() || h.status_anterior})</span>
             )}
           </p>
-          {h.justificativa && <p className="text-xs text-slate-500 mt-0.5 italic">"{h.justificativa}"</p>}
+          {h.justificativa && <p className="text-xs text-slate-500 mt-0.5 italic">&ldquo;{h.justificativa}&rdquo;</p>}
           <p className="text-[10px] text-slate-400 mt-0.5">
             {fmtData(h.criado_em)} · {h.usuario_alteracao || '-'}
             {h.geolocalizacao_log && ` · 📍 ${h.geolocalizacao_log}`}
@@ -706,7 +706,7 @@ function AcoesStatus({ detalhe, podeEditar, mudarStatus, aoAplicado }) {
   );
 }
 
-function PainelExecucao({ osId, obras, produtos, geolocalizacao, capturarGps, onFechar, recarregarLista, mostrarToast, ehMobile, mudarStatus }) {
+function PainelExecucao({ osId, produtos, geolocalizacao, capturarGps, onFechar, recarregarLista, mostrarToast, ehMobile, mudarStatus }) {
   const [detalhe, setDetalhe] = useState(null);
   const [erro, setErro] = useState('');
   const [aba, setAba] = useState('insumos');
@@ -1218,7 +1218,7 @@ function ModalImpedimento({ aberto, osAlvo, onConfirmar, onCancelar, processando
 // Página principal
 // ---------------------------------------------------------------------------
 
-function OrdensServico({ usuarioAtual }) {
+function OrdensServico() {
   const [listaOs, setListaOs] = useState([]);
   const [obras, setObras] = useState([]);
   const [equipes, setEquipes] = useState([]);
@@ -1650,20 +1650,6 @@ function CampoTexto({ label, ...props }) {
   );
 }
 
-function SecaoCadastro({ titulo, icone: Icone, children, acoes }) {
-  return (
-    <div className="bg-white rounded-2xl border border-slate-100 shadow-sm p-4">
-      <div className="flex items-center justify-between mb-3">
-        <h3 className="font-bold text-slate-800 flex items-center gap-2 text-sm">
-          <Icone size={17} className="text-primary-600" />{titulo}
-        </h3>
-        {acoes}
-      </div>
-      {children}
-    </div>
-  );
-}
-
 function PainelCadastros({ obras, equipes, produtos, recarregar, mostrarToast }) {
   const [abaAtiva, setAbaAtiva] = useState('obras');
 
@@ -1676,6 +1662,7 @@ function PainelCadastros({ obras, equipes, produtos, recarregar, mostrarToast })
   // Equipes
   const [novaEquipe, setNovaEquipe] = useState({ nome: '', membros: [], lider: '' });
   const [filtroEquipeLista, setFiltroEquipeLista] = useState('');
+  const [equipeEmEdicao, setEquipeEmEdicao] = useState(null);
   const [excluirEquipeAlvo, setExcluirEquipeAlvo] = useState(null);
 
   // Produtos
@@ -1958,13 +1945,29 @@ function PainelCadastros({ obras, equipes, produtos, recarregar, mostrarToast })
                         <HardHat size={14} className="text-primary-600 flex-shrink-0" />
                         <span className="font-extrabold text-slate-800 break-words leading-tight">{eq.nome}</span>
                       </div>
-                      <button
-                        onClick={() => setExcluirEquipeAlvo(eq)}
-                        className="text-slate-400 hover:text-rose-600 cursor-pointer p-1 rounded hover:bg-white border hover:border-slate-200 opacity-60 group-hover:opacity-100 transition-opacity"
-                        title="Excluir equipe"
-                      >
-                        <Trash2 size={11} />
-                      </button>
+                      <div className="flex items-center gap-1 opacity-60 group-hover:opacity-100 transition-opacity">
+                        <button
+                          onClick={() => {
+                            setEquipeEmEdicao(eq);
+                            setNovaEquipe({
+                              nome: eq.nome || '',
+                              membros: (eq.membros || []).map(m => String(m.funcionario_id)),
+                              lider: String((eq.membros || []).find(m => m.lider)?.funcionario_id || '')
+                            });
+                          }}
+                          className="text-slate-400 hover:text-primary-600 cursor-pointer p-1 rounded hover:bg-white border hover:border-slate-200"
+                          title="Editar equipe"
+                        >
+                          <Pencil size={11} />
+                        </button>
+                        <button
+                          onClick={() => setExcluirEquipeAlvo(eq)}
+                          className="text-slate-400 hover:text-rose-600 cursor-pointer p-1 rounded hover:bg-white border hover:border-slate-200"
+                          title="Excluir equipe"
+                        >
+                          <Trash2 size={11} />
+                        </button>
+                      </div>
                     </div>
 
                     <div className="flex flex-wrap gap-1 mt-1">
@@ -1995,7 +1998,16 @@ function PainelCadastros({ obras, equipes, produtos, recarregar, mostrarToast })
 
           {/* Direita: Formulário */}
           <div className="bg-slate-50/50 rounded-2xl border border-slate-100 p-5 space-y-4 h-fit">
-            <h4 className="text-xs font-extrabold uppercase tracking-wider text-slate-500">Nova Equipe</h4>
+            <div className="flex items-center justify-between">
+              <h4 className="text-xs font-extrabold uppercase tracking-wider text-slate-500">
+                {equipeEmEdicao ? 'Editar Equipe' : 'Nova Equipe'}
+              </h4>
+              {equipeEmEdicao && (
+                <span className="text-[9px] font-bold bg-amber-50 text-amber-700 rounded-full px-2 py-0.5 border border-amber-200 animate-pulse">
+                  Modo Edição
+                </span>
+              )}
+            </div>
             <div className="space-y-3">
               <CampoTexto label="Nome da equipe *" value={novaEquipe.nome} onChange={e => setNovaEquipe({ ...novaEquipe, nome: e.target.value })} />
               <MembrosEquipePicker
@@ -2005,19 +2017,39 @@ function PainelCadastros({ obras, equipes, produtos, recarregar, mostrarToast })
               />
             </div>
 
-            <button
-              onClick={async () => {
-                if (!novaEquipe.nome) { mostrarToast('Informe o nome da equipe.', 'error'); return; }
-                const ok = await post(`${API_URL}/os/equipes`, {
-                  nome: novaEquipe.nome,
-                  membro_ids: novaEquipe.membros.map(Number),
-                  lider_id: novaEquipe.lider ? Number(novaEquipe.lider) : null,
-                }, 'Equipe criada.');
-                if (ok) setNovaEquipe({ nome: '', membros: [], lider: '' });
-              }}
-              className="w-full py-2.5 bg-primary-600 text-white rounded-xl text-xs font-bold hover:bg-primary-700 transition-all cursor-pointer">
-              Cadastrar Equipe
-            </button>
+            <div className="flex gap-2 pt-2">
+              {equipeEmEdicao && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    setEquipeEmEdicao(null);
+                    setNovaEquipe({ nome: '', membros: [], lider: '' });
+                  }}
+                  className="flex-1 py-2.5 bg-white border border-slate-200 text-slate-700 rounded-xl text-xs font-bold transition-all cursor-pointer hover:bg-slate-50"
+                >
+                  Cancelar
+                </button>
+              )}
+              <button
+                onClick={async () => {
+                  if (!novaEquipe.nome) { mostrarToast('Informe o nome da equipe.', 'error'); return; }
+                  const payload = {
+                    nome: novaEquipe.nome,
+                    membro_ids: novaEquipe.membros.map(Number),
+                    lider_id: novaEquipe.lider ? Number(novaEquipe.lider) : null,
+                  };
+                  const ok = equipeEmEdicao
+                    ? await put(`${API_URL}/os/equipes/${equipeEmEdicao.id}`, payload, 'Equipe atualizada.')
+                    : await post(`${API_URL}/os/equipes`, payload, 'Equipe criada.');
+                  if (ok) {
+                    setNovaEquipe({ nome: '', membros: [], lider: '' });
+                    setEquipeEmEdicao(null);
+                  }
+                }}
+                className={`${equipeEmEdicao ? 'flex-[2]' : 'w-full'} py-2.5 bg-primary-600 text-white rounded-xl text-xs font-bold hover:bg-primary-700 transition-all cursor-pointer text-center`}>
+                {equipeEmEdicao ? 'Salvar Alterações' : 'Cadastrar Equipe'}
+              </button>
+            </div>
           </div>
         </div>
       )}
