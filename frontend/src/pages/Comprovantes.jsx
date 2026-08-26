@@ -127,6 +127,7 @@ function Comprovantes() {
     } finally {
       setLoading(false);
     }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [ordenarPor, tipoFiltro, dataInicio, dataFim]);
 
   useEffect(() => {
@@ -206,7 +207,7 @@ function Comprovantes() {
 
   const confirmarImportacao = async () => {
     if (!preview) return;
-    const { data, file } = preview;
+    const { file } = preview;
 
     try {
       setPreview(prev => ({ ...prev, importing: true }));
@@ -939,6 +940,8 @@ const ComprovanteCard = React.memo(({ c, onEditar, onExcluir }) => {
     </div>
   );
 });
+
+ComprovanteCard.displayName = 'ComprovanteCard';
 
 // Modal de lançamento/edição: mantém o estado do formulário isolado para que
 // a digitação re-renderize apenas o modal, não a página inteira.

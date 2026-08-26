@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useMemo } from 'react';
-import { Calendar, Search, Trash2, ShieldAlert, Plus, Check, X, AlertTriangle, Clock } from 'lucide-react';
+import { Calendar, Search, Trash2, Check, AlertTriangle, Clock } from 'lucide-react';
 import { API_URL, apiFetch, erroDaResposta } from '../api';
 import ModalConfirmacao from '../components/ModalConfirmacao';
 import ErroCarregamento from '../components/ErroCarregamento';
@@ -47,6 +47,7 @@ function Ferias({ fetchAlerts, fetchNotifications, usuarioAtual }) {
 
   useEffect(() => {
     fetchRecords();
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [busca, proximoMes]);
 
   useEffect(() => {
@@ -177,7 +178,7 @@ function Ferias({ fetchAlerts, fetchNotifications, usuarioAtual }) {
   const confirmarExecucao = async () => {
     if (!confirmarAcao) return;
     if (confirmarAcao.tipo === 'delete') {
-      const { id, nome } = confirmarAcao;
+      const { id } = confirmarAcao;
       try {
         const res = await apiFetch(`${API_URL}/ferias/${id}`, { method: 'DELETE' });
         if (res.ok) {

@@ -97,7 +97,6 @@ function Sst() {
   const [ftCertificado, setFtCertificado] = useState(null);
   const [ftCertificadoAtual, setFtCertificadoAtual] = useState(null);
   const [buscaFuncFt, setBuscaFuncFt] = useState('');
-  const [sugestoesFt, setSugestoesFt] = useState([]);
   const [sugestoesFtAbertas, setSugestoesFtAbertas] = useState(false);
   const [sugestoesMatriz, setSugestoesMatriz] = useState([]);
 
@@ -116,7 +115,6 @@ function Sst() {
   const [asoCertificado, setAsoCertificado] = useState(null);
   const [asoCertificadoAtual, setAsoCertificadoAtual] = useState(null);
   const [buscaFuncAso, setBuscaFuncAso] = useState('');
-  const [sugestoesAso, setSugestoesAso] = useState([]);
   const [sugestoesAsoAbertas, setSugestoesAsoAbertas] = useState(false);
 
   // ---- Aba EPI ----
@@ -137,7 +135,6 @@ function Sst() {
     quantidade: 1, observacao: ''
   });
   const [buscaFuncFe, setBuscaFuncFe] = useState('');
-  const [sugestoesFe, setSugestoesFe] = useState([]);
   const [sugestoesFeAbertas, setSugestoesFeAbertas] = useState(false);
 
   useEffect(() => {
@@ -146,6 +143,7 @@ function Sst() {
     if (tab === 'treinamentos') { fetchFuncTreinamentos(); fetchPendencias(); }
     if (tab === 'aso') fetchAsos();
     if (tab === 'epi') { fetchEpis(); fetchFuncEpis(); }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [tab]);
 
   // ============================= Helpers =============================
@@ -1192,7 +1190,7 @@ function Sst() {
                 <div className="text-center py-14 text-slate-400">
                   <Link2 className="mx-auto mb-3 text-slate-300" size={40} />
                   <p className="font-semibold text-sm">Nenhum curso vinculado a este cargo ainda.</p>
-                  <p className="text-xs mt-1">Clique em "Vincular Curso" para adicionar treinamentos obrigatórios.</p>
+                  <p className="text-xs mt-1">Clique em &quot;Vincular Curso&quot; para adicionar treinamentos obrigatórios.</p>
                 </div>
               ) : (
                 <div className="space-y-2">
@@ -1993,7 +1991,7 @@ function Sst() {
               </select>
               {cursosLivres(cargoSelecionado).length === 0 && (
                 <p className="text-[11px] text-amber-600 font-semibold mt-2">
-                  Todos os cursos já estão vinculados a este cargo. Cadastre novos cursos em "Gerenciar Cursos".
+                  Todos os cursos já estão vinculados a este cargo. Cadastre novos cursos em &quot;Gerenciar Cursos&quot;.
                 </p>
               )}
             </div>
@@ -2455,7 +2453,7 @@ function Sst() {
                   onChange={(e) => setFeForm(p => ({ ...p, data_devolucao: e.target.value }))}
                   className="w-full px-3.5 py-2 border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-primary-500/20 focus:border-primary-500 text-sm"
                 />
-                <p className="text-[10px] text-slate-400 mt-1 font-semibold">Preencha para marcar como "Devolvido".</p>
+                <p className="text-[10px] text-slate-400 mt-1 font-semibold">Preencha para marcar como &quot;Devolvido&quot;.</p>
               </div>
             </div>
             <div>

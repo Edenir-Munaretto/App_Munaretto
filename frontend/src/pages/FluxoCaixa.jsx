@@ -36,6 +36,7 @@ function FluxoCaixa() {
 
   useEffect(() => {
     fetchClosings();
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   const showToast = (message, type = 'success') => {

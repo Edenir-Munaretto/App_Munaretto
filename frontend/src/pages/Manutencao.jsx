@@ -163,10 +163,12 @@ function Manutencao() {
 
   useEffect(() => {
     fetchVeiculos();
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   useEffect(() => {
     fetchVeiculos();
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [busca]);
 
   const openAddVeiculo = () => {

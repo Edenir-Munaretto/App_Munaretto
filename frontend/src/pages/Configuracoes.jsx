@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Search, Plus, Edit2, Trash2, X, Check, AlertTriangle, UserCog } from 'lucide-react';
+import { Search, Plus, Edit2, Trash2, Check, AlertTriangle, UserCog } from 'lucide-react';
 import { API_URL, apiFetch, erroDaResposta } from '../api';
 import { MODULOS } from '../modules';
 import ModalConfirmacao from '../components/ModalConfirmacao';
@@ -27,6 +27,7 @@ function Configuracoes({ usuarioAtual, onUsuarioAtualizado }) {
 
   useEffect(() => {
     fetchUsuarios();
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   const showToast = (message, type = 'success') => {

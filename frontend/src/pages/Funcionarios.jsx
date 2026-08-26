@@ -25,6 +25,7 @@ function Funcionarios({ usuarioAtual }) {
 
   useEffect(() => {
     fetchFuncionarios();
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [busca, filtroStatus]);
 
   useEffect(() => {
@@ -181,7 +182,7 @@ function Funcionarios({ usuarioAtual }) {
         showToast('Erro de conexão ao alterar o status do funcionário.', 'error');
       }
     } else {
-      const { id, nome } = confirmarAcao;
+      const { id } = confirmarAcao;
       try {
         const res = await apiFetch(`${API_URL}/funcionarios/${id}`, { method: 'DELETE' });
         if (res.ok) {

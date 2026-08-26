@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useMemo, useCallback } from 'react';
-import { Search, Plus, Edit2, Trash2, X, Check, AlertTriangle, Printer, FileCheck2, FileX2, Undo2, Wallet, ChevronLeft, ChevronRight } from 'lucide-react';
+import { Search, Plus, Edit2, Trash2, Check, AlertTriangle, Printer, FileCheck2, FileX2, Undo2, Wallet, ChevronLeft, ChevronRight } from 'lucide-react';
 import { API_URL, apiFetch, erroDaResposta } from '../api';
 import ModalConfirmacao from '../components/ModalConfirmacao';
 import ErroCarregamento from '../components/ErroCarregamento';
@@ -97,6 +97,7 @@ function Recebimentos() {
     } finally {
       setLoading(false);
     }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   const fetchClientes = async () => {

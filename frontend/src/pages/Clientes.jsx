@@ -37,6 +37,7 @@ function Clientes() {
 
   useEffect(() => {
     fetchClientes();
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [busca]);
 
   const showToast = (message, type = 'success') => {

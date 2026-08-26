@@ -181,12 +181,13 @@ function App() {
 
   // Busca alertas de férias ao carregar
   useEffect(() => {
+    if (!usuario) return;
     fetchAlerts();
     const interval = setInterval(fetchAlerts, 100000); // 1.5 minutos
     return () => clearInterval(interval);
-  }, []);
+  }, [usuario, fetchAlerts]);
 
-  const fetchAlerts = async () => {
+  const fetchAlerts = useCallback(async () => {
     try {
       const res = await apiFetch(`${API_URL}/ferias/alertas`);
       if (res.ok) {
@@ -207,7 +208,7 @@ function App() {
     } catch (err) {
       console.error('Erro ao buscar alertas de SST:', err);
     }
-  };
+  }, [usuario]);
 
   const fetchNotifications = useCallback(async () => {
     if (!usuario?.email) return;
@@ -480,7 +481,7 @@ function App() {
               <span>⏰</span>
               Sua sessão expira em{' '}
               <span className="font-bold">{Math.ceil(segundosRestantes / 60)} minuto(s)</span>.
-              Clique em "Renovar sessão" para continuar sem perder o que está fazendo.
+              Clique em &quot;Renovar sessão&quot; para continuar sem perder o que está fazendo.
             </p>
             <button
               onClick={handleRenovarSessao}

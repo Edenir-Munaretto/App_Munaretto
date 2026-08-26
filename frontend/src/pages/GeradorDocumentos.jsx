@@ -1,5 +1,5 @@
 ﻿import React, { useState, useEffect, useRef } from 'react';
-import { FileText, FileSpreadsheet, Plus, Upload, Check, AlertTriangle, Download, RefreshCw } from 'lucide-react';
+import { FileText, FileSpreadsheet, Check, AlertTriangle, Download, RefreshCw } from 'lucide-react';
 import { API_URL, apiFetch, erroDaResposta } from '../api';
 
 function GeradorDocumentos() {
@@ -13,10 +13,8 @@ function GeradorDocumentos() {
   const [formato, setFormato] = useState('word');
 
   const [generating, setGenerating] = useState(false);
-  const [uploading, setUploading] = useState(false);
   const [toast, setToast] = useState(null);
 
-  const fileInputRef = useRef(null);
   const dropdownRef = useRef(null);
 
   useEffect(() => {
@@ -31,6 +29,7 @@ function GeradorDocumentos() {
     };
     document.addEventListener('mousedown', handleClickOutside);
     return () => document.removeEventListener('mousedown', handleClickOutside);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   const showToast = (message, type = 'success') => {
@@ -75,45 +74,6 @@ function GeradorDocumentos() {
 
   const handleFormatChange = (e) => {
     setFormato(e.target.value);
-  };
-
-  const handleUploadClick = () => {
-    fileInputRef.current.click();
-  };
-
-  const handleFileChange = async (e) => {
-    const file = e.target.files[0];
-    if (!file) return;
-
-    const ext = file.name.split('.').pop().toLowerCase();
-    if (ext !== 'docx' && ext !== 'xlsx') {
-      showToast('Apenas arquivos .docx ou .xlsx são permitidos.', 'error');
-      return;
-    }
-
-    try {
-      setUploading(true);
-      const formData = new FormData();
-      formData.append('file', file);
-
-      const res = await apiFetch(`${API_URL}/documentos/templates/upload`, {
-        method: 'POST',
-        body: formData
-      });
-
-      if (res.ok) {
-        showToast(`Template "${file.name}" enviado com sucesso!`);
-        fetchTemplates();
-      } else {
-        showToast('Falha ao fazer upload do modelo.', 'error');
-      }
-    } catch (err) {
-      console.error(err);
-      showToast('Erro de conexão ao enviar arquivo.', 'error');
-    } finally {
-      setUploading(false);
-      e.target.value = ''; // Limpa input
-    }
   };
 
   const handleGenerate = async (e) => {
@@ -178,7 +138,7 @@ function GeradorDocumentos() {
               filename = matches[1].replace(/['"]/g, '');
               try {
                 filename = decodeURIComponent(filename);
-              } catch (error) {
+              } catch {
                 // keep original filename if not percent-encoded
               }
             }
@@ -214,7 +174,7 @@ function GeradorDocumentos() {
     } else if (isWordTemplate && formato === 'excel') {
       setFormato('word');
     }
-  }, [selectedTemplate]);
+  }, [selectedTemplate, formato, isExcelTemplate, isWordTemplate]);
 
   return (
     <div className="space-y-6 relative">

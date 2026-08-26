@@ -28,7 +28,7 @@ export function decodificarToken(token) {
         .join('')
     );
     return JSON.parse(json);
-  } catch (e) {
+  } catch {
     return null;
   }
 }
@@ -58,7 +58,7 @@ export async function renovarSessao() {
         return { ok: true, data };
       }
       return { ok: false };
-    } catch (err) {
+    } catch {
       return { ok: false };
     } finally {
       renovacaoEmAndamento = null;
