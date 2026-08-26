@@ -6,8 +6,11 @@ Cobre as regras críticas:
 - Trava do status 'Impedida' (justificativa >= 20 caracteres + fotos);
 - Apontamento H.H. (play promove a O.S, pause calcula minutos);
 - Custo Real de Mão de Obra (minutos x valor_hora / 60);
-- Permissão granular (usuário de campo só acessa O.S da própria equipe).
+- Permissão granular (usuário de campo só acessa O.S da própria equipe);
+- Impressão do modelo oficial (CONSTRUÇÃO/LINHA VIVA).
 """
+
+import os
 
 from routers.os import TRANSICOES_STATUS
 
@@ -322,3 +325,62 @@ class TestMateriaisEPermissao:
         # Usuário sem nenhuma permissão em 'os' recebe 403 antes dos handlers.
         resp = client.get("/api/os/")
         assert resp.status_code == 401  # nem logado está (sem token)
+
+
+class TestModeloImpressao:
+    def test_criar_os_salva_dados_do_modelo(self, os_gestor_client, db_fake):
+        _seed_cenario(db_fake)
+        resp = _criar_os(
+            os_gestor_client,
+            tipo="linha_viva",
+            agencia="CDA 12",
+            municipio="Concórdia",
+            local_servico="Rua das Flores, 100",
+            bt_energizado=True,
+            at_energizado_bloqueio=False,
+            hora_desligar="08:00",
+            hora_religar="17:00",
+            alimentador="AL-01",
+            chave="CH-334",
+            obs="Portão aberto",
+        )
+        assert resp.status_code == 201, resp.text
+        dados = resp.json()
+        assert dados["tipo"] == "linha_viva"
+        assert dados["agencia"] == "CDA 12"
+        assert dados["municipio"] == "Concórdia"
+        assert dados["local_servico"] == "Rua das Flores, 100"
+        assert dados["bt_energizado"] is True
+        assert dados["at_energizado_bloqueio"] is False
+        assert dados["hora_desligar"] == "08:00"
+        assert dados["chave"] == "CH-334"
+
+    def test_tipo_invalido_e_rejeitado(self, os_gestor_client, db_fake):
+        _seed_cenario(db_fake)
+        resp = _criar_os(os_gestor_client, tipo="outro")
+        assert resp.status_code == 400
+
+    def test_imprimir_gera_pdf_do_modelo(self, os_gestor_client, db_fake, monkeypatch):
+        _seed_cenario(db_fake)
+        # Equipe A (id 100) ganha número e o líder de campo vira encarregado.
+        db_fake._dados["equipes"][0]["numero"] = "12204"
+        os_id = _criar_os(os_gestor_client, equipe_id=100, tipo="construcao").json()["id"]
+
+        def _converter_fake(docx_path, out_dir):
+            destino = os.path.join(out_dir, "modelo_fake.pdf")
+            with open(destino, "wb") as f:
+                f.write(b"%PDF-1.4 fake")
+            return destino
+
+        monkeypatch.setattr("utils.modelo_os.convert_docx_to_pdf", _converter_fake)
+
+        resp = os_gestor_client.get(f"/api/os/{os_id}/imprimir")
+        assert resp.status_code == 200, resp.text
+        assert resp.headers["content-type"] == "application/pdf"
+        assert resp.content.startswith(b"%PDF")
+
+        # Sem equipe vinculada o modelo ainda é gerado (capa mínima).
+        os_sem_equipe = _criar_os(os_gestor_client).json()["id"]
+        resp2 = os_gestor_client.get(f"/api/os/{os_sem_equipe}/imprimir")
+        assert resp2.status_code == 200, resp2.text
+        assert resp2.content.startswith(b"%PDF")

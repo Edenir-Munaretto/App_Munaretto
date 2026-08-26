@@ -4,7 +4,7 @@ import {
   Plus, Search, X, Play, Pause, Camera, Package, ClipboardList, MapPin,
   AlertTriangle, Check, Clock, CalendarClock, Copy, FileDown, LayoutGrid,
   FolderKanban, HardHat, Boxes, Trash2, ChevronLeft, Image as ImageIcon,
-  Pencil, Building,
+  Pencil, Building, Printer,
 } from 'lucide-react';
 import { API_URL, apiFetch, erroDaResposta } from '../api';
 import ModalConfirmacao from '../components/ModalConfirmacao';
@@ -760,6 +760,27 @@ function PainelExecucao({ osId, produtos, geolocalizacao, capturarGps, onFechar,
     }
   };
 
+  const baixarPdf = async (caminho, nomeArquivo) => {
+    try {
+      const res = await apiFetch(`${API_URL}${caminho}`);
+      if (!res.ok) {
+        mostrarToast(erroDaResposta(await res.json().catch(() => null), 'Erro ao gerar o PDF.'), 'error');
+        return;
+      }
+      const blob = await res.blob();
+      const url = window.URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = nomeArquivo;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      window.URL.revokeObjectURL(url);
+    } catch {
+      mostrarToast('Erro de conexão ao gerar o PDF.', 'error');
+    }
+  };
+
   const corpoAbas = (
     <>
       <div className="flex gap-1 bg-slate-100 rounded-xl p-1 mb-4">
@@ -874,21 +895,25 @@ function PainelExecucao({ osId, produtos, geolocalizacao, capturarGps, onFechar,
           mudarStatus={mudarStatus}
           aoAplicado={() => { carregar(); recarregarLista(); }}
         />
-        <div className="grid grid-cols-2 gap-2">
+        <div className="grid grid-cols-3 gap-2">
           <button
             onClick={duplicar}
             className="h-11 rounded-xl border border-slate-200 text-slate-600 text-xs font-bold flex items-center justify-center gap-1.5 hover:bg-slate-50 cursor-pointer"
           >
-            <Copy size={14} /> Duplicar O.S
+            <Copy size={14} /> Duplicar
           </button>
-          <a
-            href={`${API_URL}/os/${detalhe.id}/pdf`}
-            target="_blank"
-            rel="noreferrer"
+          <button
+            onClick={() => baixarPdf(`/os/${detalhe.id}/imprimir`, `${detalhe.codigo}_modelo.pdf`)}
+            className="h-11 rounded-xl bg-primary-600 text-white text-xs font-bold flex items-center justify-center gap-1.5 hover:bg-primary-700 cursor-pointer"
+          >
+            <Printer size={14} /> Imprimir O.S
+          </button>
+          <button
+            onClick={() => baixarPdf(`/os/${detalhe.id}/pdf`, `${detalhe.codigo}_relatorio.pdf`)}
             className="h-11 rounded-xl border border-slate-200 text-slate-600 text-xs font-bold flex items-center justify-center gap-1.5 hover:bg-slate-50 cursor-pointer"
           >
-            <FileDown size={14} /> Relatório PDF
-          </a>
+            <FileDown size={14} /> Relatório
+          </button>
         </div>
       </div>
     </>
@@ -912,6 +937,9 @@ function PainelExecucao({ osId, produtos, geolocalizacao, capturarGps, onFechar,
 const FORM_OS_INICIAL = {
   obra_id: '', equipe_id: '', prioridade: 'media', prazo_entrega: '',
   descricao_escopo: '', custo_mo_orcado: '',
+  tipo: 'construcao', agencia: '', municipio: '', local_servico: '',
+  bt_energizado: false, at_energizado_bloqueio: false,
+  hora_desligar: '', hora_religar: '', alimentador: '', chave: '', obs: '',
 };
 
 function ModalNovaOS({ aberto, obras, equipes, produtos, onFechar, onCriada, mostrarToast }) {
@@ -920,8 +948,10 @@ function ModalNovaOS({ aberto, obras, equipes, produtos, onFechar, onCriada, mos
   const [produtoItem, setProdutoItem] = useState('');
   const [qtdItem, setQtdItem] = useState(1);
   const [salvando, setSalvando] = useState(false);
+  const [criada, setCriada] = useState(null); // {id, codigo} ao salvar com sucesso
+  const [imprimindo, setImprimindo] = useState(false);
 
-  useEffect(() => { if (aberto) { setForm(FORM_OS_INICIAL); setItens([]); } }, [aberto]);
+  useEffect(() => { if (aberto) { setForm(FORM_OS_INICIAL); setItens([]); setCriada(null); } }, [aberto]);
 
   // Totais calculados em tempo real: materiais orçados + custo de M.O.
   const totalMateriais = useMemo(
@@ -960,13 +990,24 @@ function ModalNovaOS({ aberto, obras, equipes, produtos, onFechar, onCriada, mos
           descricao_escopo: form.descricao_escopo || null,
           custo_mo_orcado: Number(form.custo_mo_orcado || 0),
           itens_orcados: itens,
+          tipo: form.tipo,
+          agencia: form.agencia || null,
+          municipio: form.municipio || null,
+          local_servico: form.local_servico || null,
+          bt_energizado: form.bt_energizado,
+          at_energizado_bloqueio: form.at_energizado_bloqueio,
+          hora_desligar: form.hora_desligar || null,
+          hora_religar: form.hora_religar || null,
+          alimentador: form.alimentador || null,
+          chave: form.chave || null,
+          obs: form.obs || null,
         }),
       });
       const data = await res.json().catch(() => null);
       if (res.ok) {
         mostrarToast(`O.S ${data.codigo} criada como rascunho.`);
         onCriada();
-        onFechar();
+        setCriada(data);
       } else {
         mostrarToast(erroDaResposta(data, 'Erro ao criar O.S.'), 'error');
       }
@@ -977,7 +1018,63 @@ function ModalNovaOS({ aberto, obras, equipes, produtos, onFechar, onCriada, mos
     }
   };
 
+  const imprimirModelo = async () => {
+    if (!criada) return;
+    setImprimindo(true);
+    try {
+      const res = await apiFetch(`${API_URL}/os/${criada.id}/imprimir`);
+      if (!res.ok) {
+        mostrarToast(erroDaResposta(await res.json().catch(() => null), 'Erro ao gerar o modelo.'), 'error');
+        return;
+      }
+      const blob = await res.blob();
+      const url = window.URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `${criada.codigo}_modelo.pdf`;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      window.URL.revokeObjectURL(url);
+    } catch {
+      mostrarToast('Erro de conexão ao gerar o modelo.', 'error');
+    } finally {
+      setImprimindo(false);
+    }
+  };
+
   if (!aberto) return null;
+
+  // Etapa de sucesso: oferece imprimir o modelo antes de fechar.
+  if (criada) {
+    return (
+      <div className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center z-50 p-4">
+        <div className="bg-white rounded-2xl shadow-2xl max-w-md w-full p-8 text-center animate-in fade-in zoom-in duration-200">
+          <div className="w-16 h-16 mx-auto rounded-full bg-emerald-50 border border-emerald-100 flex items-center justify-center mb-4">
+            <Check size={28} className="text-emerald-600" />
+          </div>
+          <h3 className="text-lg font-extrabold text-slate-800">O.S {criada.codigo} criada!</h3>
+          <p className="text-xs text-slate-500 mt-1 mb-6">Deseja imprimir a ordem de serviço no modelo oficial?</p>
+          <div className="space-y-2">
+            <button
+              onClick={imprimirModelo}
+              disabled={imprimindo}
+              className="w-full py-3 bg-primary-600 text-white rounded-xl text-sm font-bold hover:bg-primary-700 disabled:opacity-50 cursor-pointer flex items-center justify-center gap-2"
+            >
+              <Printer size={16} /> {imprimindo ? 'Gerando PDF...' : 'Imprimir O.S'}
+            </button>
+            <button
+              onClick={() => { onFechar(); setCriada(null); }}
+              className="w-full py-2.5 border border-slate-200 text-slate-600 rounded-xl text-sm font-semibold hover:bg-slate-50 cursor-pointer"
+            >
+              Concluir
+            </button>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center z-50 p-4">
       <form onSubmit={salvar} className="bg-white rounded-2xl shadow-2xl max-w-lg w-full overflow-hidden max-h-[92vh] overflow-y-auto animate-in fade-in zoom-in duration-200">
@@ -988,10 +1085,26 @@ function ModalNovaOS({ aberto, obras, equipes, produtos, onFechar, onCriada, mos
         <div className="p-6 space-y-4">
           <div>
             <label className="block text-xs font-bold text-slate-700 mb-1.5">Obra *</label>
-            <select value={form.obra_id} onChange={(e) => setForm({ ...form, obra_id: e.target.value })}
+            <select value={form.obra_id} onChange={(e) => {
+              const obraSel = obras.find(o => o.id === Number(e.target.value));
+              setForm(f => ({
+                ...f,
+                obra_id: e.target.value,
+                municipio: f.municipio || obraSel?.cidade || '',
+                local_servico: f.local_servico || obraSel?.endereco || '',
+              }));
+            }}
               className="w-full px-3.5 py-2.5 border border-slate-200 rounded-xl text-sm font-semibold focus:outline-none focus:border-primary-500">
               <option value="">Selecione...</option>
               {obras.map(o => <option key={o.id} value={o.id}>{o.nome} — {o.clientes?.nome || ''}</option>)}
+            </select>
+          </div>
+          <div>
+            <label className="block text-xs font-bold text-slate-700 mb-1.5">Tipo de O.S</label>
+            <select value={form.tipo} onChange={(e) => setForm({ ...form, tipo: e.target.value })}
+              className="w-full px-3.5 py-2.5 border border-slate-200 rounded-xl text-sm font-semibold focus:outline-none focus:border-primary-500">
+              <option value="construcao">Construção</option>
+              <option value="linha_viva">Linha Viva</option>
             </select>
           </div>
           <div className="grid grid-cols-2 gap-4">
@@ -1029,6 +1142,71 @@ function ModalNovaOS({ aberto, obras, equipes, produtos, onFechar, onCriada, mos
             <textarea rows={3} value={form.descricao_escopo} onChange={(e) => setForm({ ...form, descricao_escopo: e.target.value })}
               placeholder="Descreva o serviço a ser executado..."
               className="w-full px-3.5 py-2 border border-slate-200 rounded-xl text-sm focus:outline-none focus:border-primary-500" />
+          </div>
+
+          {/* Dados do modelo de impressão */}
+          <div className="border border-slate-100 rounded-xl p-3 bg-slate-50 space-y-3">
+            <p className="text-xs font-extrabold text-slate-600 uppercase tracking-wide">Modelo de impressão</p>
+            <div className="grid grid-cols-2 gap-3">
+              <div>
+                <label className="block text-xs font-bold text-slate-700 mb-1">Agência CDA</label>
+                <input value={form.agencia} onChange={(e) => setForm({ ...form, agencia: e.target.value })}
+                  className="w-full px-3 py-2 border border-slate-200 rounded-xl text-sm focus:outline-none focus:border-primary-500" />
+              </div>
+              <div>
+                <label className="block text-xs font-bold text-slate-700 mb-1">Município</label>
+                <input value={form.municipio} onChange={(e) => setForm({ ...form, municipio: e.target.value })}
+                  className="w-full px-3 py-2 border border-slate-200 rounded-xl text-sm focus:outline-none focus:border-primary-500" />
+              </div>
+            </div>
+            <div>
+              <label className="block text-xs font-bold text-slate-700 mb-1">Local</label>
+              <input value={form.local_servico} onChange={(e) => setForm({ ...form, local_servico: e.target.value })}
+                className="w-full px-3 py-2 border border-slate-200 rounded-xl text-sm focus:outline-none focus:border-primary-500" />
+            </div>
+            <div className="flex flex-wrap gap-4">
+              <label className="flex items-center gap-2 text-xs font-bold text-slate-700 cursor-pointer">
+                <input type="checkbox" checked={form.bt_energizado}
+                  onChange={(e) => setForm({ ...form, bt_energizado: e.target.checked })}
+                  className="w-4 h-4 accent-primary-600" />
+                BT Energ.
+              </label>
+              <label className="flex items-center gap-2 text-xs font-bold text-slate-700 cursor-pointer">
+                <input type="checkbox" checked={form.at_energizado_bloqueio}
+                  onChange={(e) => setForm({ ...form, at_energizado_bloqueio: e.target.checked })}
+                  className="w-4 h-4 accent-primary-600" />
+                AT Energ. Bloqueio
+              </label>
+            </div>
+            <div className="grid grid-cols-2 gap-3">
+              <div>
+                <label className="block text-xs font-bold text-slate-700 mb-1">H. Desligar</label>
+                <input type="time" value={form.hora_desligar} onChange={(e) => setForm({ ...form, hora_desligar: e.target.value })}
+                  className="w-full px-3 py-2 border border-slate-200 rounded-xl text-sm focus:outline-none focus:border-primary-500" />
+              </div>
+              <div>
+                <label className="block text-xs font-bold text-slate-700 mb-1">H. Religar</label>
+                <input type="time" value={form.hora_religar} onChange={(e) => setForm({ ...form, hora_religar: e.target.value })}
+                  className="w-full px-3 py-2 border border-slate-200 rounded-xl text-sm focus:outline-none focus:border-primary-500" />
+              </div>
+            </div>
+            <div className="grid grid-cols-2 gap-3">
+              <div>
+                <label className="block text-xs font-bold text-slate-700 mb-1">Alimentador</label>
+                <input value={form.alimentador} onChange={(e) => setForm({ ...form, alimentador: e.target.value })}
+                  className="w-full px-3 py-2 border border-slate-200 rounded-xl text-sm focus:outline-none focus:border-primary-500" />
+              </div>
+              <div>
+                <label className="block text-xs font-bold text-slate-700 mb-1">Chave</label>
+                <input value={form.chave} onChange={(e) => setForm({ ...form, chave: e.target.value })}
+                  className="w-full px-3 py-2 border border-slate-200 rounded-xl text-sm focus:outline-none focus:border-primary-500" />
+              </div>
+            </div>
+            <div>
+              <label className="block text-xs font-bold text-slate-700 mb-1">Obs.</label>
+              <input value={form.obs} onChange={(e) => setForm({ ...form, obs: e.target.value })}
+                className="w-full px-3 py-2 border border-slate-200 rounded-xl text-sm focus:outline-none focus:border-primary-500" />
+            </div>
           </div>
 
           {/* Itens orçados */}
@@ -1660,7 +1838,7 @@ function PainelCadastros({ obras, equipes, produtos, recarregar, mostrarToast })
   const [excluirObraAlvo, setExcluirObraAlvo] = useState(null);
 
   // Equipes
-  const [novaEquipe, setNovaEquipe] = useState({ nome: '', membros: [], lider: '' });
+  const [novaEquipe, setNovaEquipe] = useState({ nome: '', numero: '', membros: [], lider: '' });
   const [filtroEquipeLista, setFiltroEquipeLista] = useState('');
   const [equipeEmEdicao, setEquipeEmEdicao] = useState(null);
   const [excluirEquipeAlvo, setExcluirEquipeAlvo] = useState(null);
@@ -1941,16 +2119,22 @@ function PainelCadastros({ obras, equipes, produtos, recarregar, mostrarToast })
                 equipesFiltradas.map(eq => (
                   <div key={eq.id} className="group relative flex flex-col gap-2 text-xs bg-slate-50 hover:bg-slate-100/70 rounded-xl p-3 border border-slate-100 transition-all">
                     <div className="flex items-center justify-between gap-2">
-                      <div className="flex items-center gap-1.5">
-                        <HardHat size={14} className="text-primary-600 flex-shrink-0" />
-                        <span className="font-extrabold text-slate-800 break-words leading-tight">{eq.nome}</span>
-                      </div>
+                    <div className="flex items-center gap-1.5">
+                      <HardHat size={14} className="text-primary-600 flex-shrink-0" />
+                      <span className="font-extrabold text-slate-800 break-words leading-tight">{eq.nome}</span>
+                      {eq.numero && (
+                        <span className="text-[10px] font-bold bg-primary-50 text-primary-700 border border-primary-100 rounded-full px-2 py-0.5">
+                          Nº {eq.numero}
+                        </span>
+                      )}
+                    </div>
                       <div className="flex items-center gap-1 opacity-60 group-hover:opacity-100 transition-opacity">
                         <button
                           onClick={() => {
                             setEquipeEmEdicao(eq);
                             setNovaEquipe({
                               nome: eq.nome || '',
+                              numero: eq.numero || '',
                               membros: (eq.membros || []).map(m => String(m.funcionario_id)),
                               lider: String((eq.membros || []).find(m => m.lider)?.funcionario_id || '')
                             });
@@ -2010,6 +2194,7 @@ function PainelCadastros({ obras, equipes, produtos, recarregar, mostrarToast })
             </div>
             <div className="space-y-3">
               <CampoTexto label="Nome da equipe *" value={novaEquipe.nome} onChange={e => setNovaEquipe({ ...novaEquipe, nome: e.target.value })} />
+              <CampoTexto label="Número (impresso no modelo de O.S)" value={novaEquipe.numero} onChange={e => setNovaEquipe({ ...novaEquipe, numero: e.target.value })} />
               <MembrosEquipePicker
                 membros={novaEquipe.membros}
                 lider={novaEquipe.lider}
@@ -2023,7 +2208,7 @@ function PainelCadastros({ obras, equipes, produtos, recarregar, mostrarToast })
                   type="button"
                   onClick={() => {
                     setEquipeEmEdicao(null);
-                    setNovaEquipe({ nome: '', membros: [], lider: '' });
+                    setNovaEquipe({ nome: '', numero: '', membros: [], lider: '' });
                   }}
                   className="flex-1 py-2.5 bg-white border border-slate-200 text-slate-700 rounded-xl text-xs font-bold transition-all cursor-pointer hover:bg-slate-50"
                 >
@@ -2035,6 +2220,7 @@ function PainelCadastros({ obras, equipes, produtos, recarregar, mostrarToast })
                   if (!novaEquipe.nome) { mostrarToast('Informe o nome da equipe.', 'error'); return; }
                   const payload = {
                     nome: novaEquipe.nome,
+                    numero: novaEquipe.numero || null,
                     membro_ids: novaEquipe.membros.map(Number),
                     lider_id: novaEquipe.lider ? Number(novaEquipe.lider) : null,
                   };
@@ -2042,7 +2228,7 @@ function PainelCadastros({ obras, equipes, produtos, recarregar, mostrarToast })
                     ? await put(`${API_URL}/os/equipes/${equipeEmEdicao.id}`, payload, 'Equipe atualizada.')
                     : await post(`${API_URL}/os/equipes`, payload, 'Equipe criada.');
                   if (ok) {
-                    setNovaEquipe({ nome: '', membros: [], lider: '' });
+                    setNovaEquipe({ nome: '', numero: '', membros: [], lider: '' });
                     setEquipeEmEdicao(null);
                   }
                 }}

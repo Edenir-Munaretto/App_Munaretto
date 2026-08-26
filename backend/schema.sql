@@ -590,6 +590,7 @@ CREATE TABLE IF NOT EXISTS obras (
 CREATE TABLE IF NOT EXISTS equipes (
     id SERIAL PRIMARY KEY,
     nome VARCHAR(255) NOT NULL UNIQUE,
+    numero VARCHAR(20),                 -- número de identificação impresso no modelo de O.S
     descricao TEXT,
     ativa BOOLEAN DEFAULT TRUE,
     created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
@@ -633,6 +634,19 @@ CREATE TABLE IF NOT EXISTS ordens_servico (
     descricao_escopo TEXT,
     custo_mo_orcado NUMERIC(12, 2) DEFAULT 0.00,   -- mão de obra prevista (R$)
     criado_por VARCHAR(255),                        -- e-mail do usuário criador
+    -- Campos do modelo de impressão da O.S (capa de campo).
+    tipo VARCHAR(20) NOT NULL DEFAULT 'construcao'
+        CHECK (tipo IN ('construcao', 'linha_viva')),
+    agencia VARCHAR(100),
+    municipio VARCHAR(100),
+    local_servico TEXT,
+    bt_energizado BOOLEAN DEFAULT FALSE,
+    at_energizado_bloqueio BOOLEAN DEFAULT FALSE,
+    hora_desligar TIME,
+    hora_religar TIME,
+    alimentador VARCHAR(100),
+    chave VARCHAR(100),
+    obs TEXT,
     created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
 );
@@ -788,3 +802,34 @@ ALTER TABLE IF EXISTS login_tentativas ENABLE ROW LEVEL SECURITY;
 DROP POLICY IF EXISTS "service_role_full_login_tentativas" ON login_tentativas;
 CREATE POLICY "service_role_full_login_tentativas" ON login_tentativas
     FOR ALL TO service_role USING (true) WITH CHECK (true);
+
+-- ============================================================================
+-- MIGRAÇÃO: modelo de impressão da O.S (capa de campo)
+-- Rode apenas uma vez no banco existente (Supabase SQL Editor) quando o
+-- banco já foi criado pela versão anterior do schema. As colunas já fazem
+-- parte do CREATE TABLE acima para bancos novos.
+-- ============================================================================
+ALTER TABLE IF EXISTS equipes ADD COLUMN IF NOT EXISTS numero VARCHAR(20);
+
+ALTER TABLE IF EXISTS ordens_servico
+    ADD COLUMN IF NOT EXISTS tipo VARCHAR(20) NOT NULL DEFAULT 'construcao',
+    ADD COLUMN IF NOT EXISTS agencia VARCHAR(100),
+    ADD COLUMN IF NOT EXISTS municipio VARCHAR(100),
+    ADD COLUMN IF NOT EXISTS local_servico TEXT,
+    ADD COLUMN IF NOT EXISTS bt_energizado BOOLEAN DEFAULT FALSE,
+    ADD COLUMN IF NOT EXISTS at_energizado_bloqueio BOOLEAN DEFAULT FALSE,
+    ADD COLUMN IF NOT EXISTS hora_desligar TIME,
+    ADD COLUMN IF NOT EXISTS hora_religar TIME,
+    ADD COLUMN IF NOT EXISTS alimentador VARCHAR(100),
+    ADD COLUMN IF NOT EXISTS chave VARCHAR(100),
+    ADD COLUMN IF NOT EXISTS obs TEXT;
+
+-- Restrição de valor válido para o tipo (após a coluna existir).
+DO $$
+BEGIN
+    IF EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'ordens_servico_tipo_check') THEN
+        ALTER TABLE ordens_servico DROP CONSTRAINT ordens_servico_tipo_check;
+    END IF;
+END $$;
+ALTER TABLE IF EXISTS ordens_servico
+    ADD CONSTRAINT ordens_servico_tipo_check CHECK (tipo IN ('construcao', 'linha_viva'));

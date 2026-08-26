@@ -41,6 +41,7 @@ class ObraResponse(ObraCreate):
 
 class EquipeCreate(BaseModel):
     nome: str = Field(..., min_length=2)
+    numero: str | None = Field(None, max_length=20, description="Número impresso no modelo de O.S (ex.: 12204)")
     descricao: str | None = None
     # IDs dos funcionários que compõem a equipe
     membro_ids: list[int] = Field(default_factory=list)
@@ -51,6 +52,7 @@ class EquipeCreate(BaseModel):
 class EquipeResponse(BaseModel):
     id: int
     nome: str
+    numero: str | None
     descricao: str | None
     ativa: bool
     membros: list[dict]
@@ -223,6 +225,7 @@ def criar_equipe(equipe: EquipeCreate, db=Depends(get_supabase)):
             .insert(
                 {
                     "nome": equipe.nome,
+                    "numero": equipe.numero,
                     "descricao": equipe.descricao,
                 }
             )
@@ -251,6 +254,7 @@ def atualizar_equipe(equipe_id: int, equipe: EquipeCreate, db=Depends(get_supaba
             .update(
                 {
                     "nome": equipe.nome,
+                    "numero": equipe.numero,
                     "descricao": equipe.descricao,
                 }
             )

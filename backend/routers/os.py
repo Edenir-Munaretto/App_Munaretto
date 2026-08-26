@@ -34,6 +34,8 @@ logger = logging.getLogger(__name__)
 
 STATUS_VALIDOS = {"rascunho", "aberta", "em_andamento", "impedida", "concluida", "cancelada"}
 PRIORIDADES = {"baixa", "media", "alta", "critica"}
+# Tipo da O.S: define qual modelo de impressão é usado (CONSTRUÇÃO ou LINHA VIVA).
+TIPOS_OS = {"construcao", "linha_viva"}
 
 # Máquina de estados: origem -> destinos permitidos. Qualquer transição fora
 # deste mapa é rejeitada com 422 (evita saltos como Rascunho -> Concluída).
@@ -71,6 +73,18 @@ class OSCreate(BaseModel):
     descricao_escopo: str | None = None
     custo_mo_orcado: float = Field(0, ge=0)
     itens_orcados: list[ItemOrcadoIn] = Field(default_factory=list)
+    # Campos do modelo de impressão (capa da O.S).
+    tipo: str = Field("construcao", description="'construcao' ou 'linha_viva' (define o modelo de impressão)")
+    agencia: str | None = None
+    municipio: str | None = None
+    local_servico: str | None = None
+    bt_energizado: bool = False
+    at_energizado_bloqueio: bool = False
+    hora_desligar: str | None = None  # "HH:MM"
+    hora_religar: str | None = None
+    alimentador: str | None = None
+    chave: str | None = None
+    obs: str | None = None
 
 
 class OSUpdate(BaseModel):
@@ -79,6 +93,17 @@ class OSUpdate(BaseModel):
     prazo_entrega: str | None = None
     descricao_escopo: str | None = None
     custo_mo_orcado: float = Field(0, ge=0)
+    tipo: str = Field("construcao")
+    agencia: str | None = None
+    municipio: str | None = None
+    local_servico: str | None = None
+    bt_energizado: bool = False
+    at_energizado_bloqueio: bool = False
+    hora_desligar: str | None = None
+    hora_religar: str | None = None
+    alimentador: str | None = None
+    chave: str | None = None
+    obs: str | None = None
 
 
 class StatusUpdate(BaseModel):
@@ -476,6 +501,8 @@ def criar_os(payload: OSCreate, usuario: UsuarioAutenticado = Depends(get_curren
     try:
         if payload.prioridade not in PRIORIDADES:
             raise HTTPException(status_code=400, detail=f"Prioridade inválida. Use: {', '.join(sorted(PRIORIDADES))}.")
+        if payload.tipo not in TIPOS_OS:
+            raise HTTPException(status_code=400, detail=f"Tipo inválido. Use: {', '.join(sorted(TIPOS_OS))}.")
         if not db.table("obras").select("id").eq("id", payload.obra_id).execute().data:
             raise HTTPException(status_code=404, detail="Obra não encontrada.")
         if payload.equipe_id and not db.table("equipes").select("id").eq("id", payload.equipe_id).execute().data:
@@ -490,6 +517,17 @@ def criar_os(payload: OSCreate, usuario: UsuarioAutenticado = Depends(get_curren
             "prazo_entrega": payload.prazo_entrega,
             "descricao_escopo": payload.descricao_escopo,
             "custo_mo_orcado": payload.custo_mo_orcado,
+            "tipo": payload.tipo,
+            "agencia": payload.agencia,
+            "municipio": payload.municipio,
+            "local_servico": payload.local_servico,
+            "bt_energizado": payload.bt_energizado,
+            "at_energizado_bloqueio": payload.at_energizado_bloqueio,
+            "hora_desligar": payload.hora_desligar,
+            "hora_religar": payload.hora_religar,
+            "alimentador": payload.alimentador,
+            "chave": payload.chave,
+            "obs": payload.obs,
             "criado_por": usuario.email,
         }
         resp = db.table("ordens_servico").insert(dados).execute()
@@ -558,6 +596,8 @@ def editar_os(
             raise HTTPException(status_code=400, detail="Não é possível editar uma O.S encerrada.")
         if payload.prioridade not in PRIORIDADES:
             raise HTTPException(status_code=400, detail=f"Prioridade inválida. Use: {', '.join(sorted(PRIORIDADES))}.")
+        if payload.tipo not in TIPOS_OS:
+            raise HTTPException(status_code=400, detail=f"Tipo inválido. Use: {', '.join(sorted(TIPOS_OS))}.")
         if payload.equipe_id and not db.table("equipes").select("id").eq("id", payload.equipe_id).execute().data:
             raise HTTPException(status_code=404, detail="Equipe não encontrada.")
 
@@ -570,6 +610,17 @@ def editar_os(
                     "prazo_entrega": payload.prazo_entrega,
                     "descricao_escopo": payload.descricao_escopo,
                     "custo_mo_orcado": payload.custo_mo_orcado,
+                    "tipo": payload.tipo,
+                    "agencia": payload.agencia,
+                    "municipio": payload.municipio,
+                    "local_servico": payload.local_servico,
+                    "bt_energizado": payload.bt_energizado,
+                    "at_energizado_bloqueio": payload.at_energizado_bloqueio,
+                    "hora_desligar": payload.hora_desligar,
+                    "hora_religar": payload.hora_religar,
+                    "alimentador": payload.alimentador,
+                    "chave": payload.chave,
+                    "obs": payload.obs,
                 }
             )
             .eq("id", os_id)
@@ -683,6 +734,85 @@ def duplicar_os(os_id: int, usuario: UsuarioAutenticado = Depends(get_current_us
     except Exception:
         logger.exception("Erro ao duplicar O.S %s", os_id)
         raise HTTPException(status_code=500, detail="Erro ao duplicar O.S.") from None
+
+
+# ---------------------------------------------------------------------------
+# Impressão da O.S no modelo oficial (capa de campo)
+# ---------------------------------------------------------------------------
+
+
+@router.get("/{os_id}/imprimir", summary="Gera o PDF da O.S no modelo oficial")
+def imprimir_os(os_id: int, usuario: UsuarioAutenticado = Depends(get_current_user), db=Depends(get_supabase)):
+    """Preenche o modelo da O.S (CONSTRUÇÃO ou LINHA VIVA) e retorna o PDF.
+
+    Campos derivados automaticamente quando não preenchidos: município e
+    local vêm da obra; encarregado e membros vêm da equipe vinculada.
+    """
+    try:
+        os_data = _os_ou_404(db, os_id)
+        _garantir_acesso_os(db, usuario, os_data)
+
+        obra = db.table("obras").select("*").eq("id", os_data["obra_id"]).execute().data
+        obra = obra[0] if obra else {}
+
+        equipe_nome = None
+        equipe_numero = None
+        encarregado = None
+        membros: list[dict] = []
+        if os_data.get("equipe_id"):
+            equipe_resp = db.table("equipes").select("nome, numero").eq("id", os_data["equipe_id"]).execute().data
+            if equipe_resp:
+                equipe_nome = equipe_resp[0].get("nome")
+                equipe_numero = equipe_resp[0].get("numero")
+
+            vinculos = (
+                db.table("equipe_membros")
+                .select("funcionario_id, lider")
+                .eq("equipe_id", os_data["equipe_id"])
+                .execute()
+                .data
+            )
+            func_ids = sorted({v["funcionario_id"] for v in vinculos})
+            funcs = {}
+            if func_ids:
+                resp = db.table("funcionarios").select("id, nome, cargo_id").in_("id", func_ids).execute().data
+                funcs = {f["id"]: f for f in resp}
+            cargos = {}
+            cargo_ids = sorted({f.get("cargo_id") for f in funcs.values() if f.get("cargo_id")})
+            if cargo_ids:
+                resp_c = db.table("cargos").select("id, nome").in_("id", cargo_ids).execute().data
+                cargos = {c["id"]: c.get("nome") for c in resp_c}
+
+            for v in vinculos:
+                func = funcs.get(v["funcionario_id"]) or {}
+                nome = func.get("nome")
+                if not nome:
+                    continue
+                membros.append({"nome": nome, "cargo": cargos.get(func.get("cargo_id")) or ""})
+                if v.get("lider") and not encarregado:
+                    encarregado = nome
+
+        from utils.modelo_os import gerar_modelo_os
+
+        caminho = gerar_modelo_os(
+            os_data=os_data,
+            obra=obra,
+            equipe_nome=equipe_nome,
+            equipe_numero=equipe_numero,
+            encarregado=encarregado,
+            membros=membros,
+            tipo=os_data.get("tipo") or "construcao",
+        )
+        return FileResponse(
+            caminho,
+            media_type="application/pdf",
+            filename=f"{os_data['codigo']}_modelo.pdf",
+        )
+    except HTTPException:
+        raise
+    except Exception:
+        logger.exception("Erro ao imprimir O.S %s", os_id)
+        raise HTTPException(status_code=500, detail="Erro ao gerar o modelo da O.S.") from None
 
 
 # ---------------------------------------------------------------------------
