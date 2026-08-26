@@ -25,10 +25,14 @@ class ObraCreate(BaseModel):
     endereco: Optional[str] = None
     cidade: Optional[str] = None
 
+class ClienteMinResponse(BaseModel):
+    nome: str
+
 class ObraResponse(ObraCreate):
     id: int
     ativo: bool
     created_at: str
+    clientes: Optional[ClienteMinResponse] = None
 
 class EquipeCreate(BaseModel):
     nome: str = Field(..., min_length=2)
@@ -110,7 +114,7 @@ def listar_obras(
 ):
     """Lista obras; opcionalmente filtra por termo (nome/cidade)."""
     try:
-        query = db.table("obras").select("*")
+        query = db.table("obras").select("*, clientes(nome)")
         if not incluir_inativas:
             query = query.eq("ativo", True)
         if busca:
