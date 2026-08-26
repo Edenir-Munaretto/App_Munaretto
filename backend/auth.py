@@ -3,17 +3,18 @@
 Fornece criação e validação de tokens de acesso usados pela API.
 A secret é lida da variável de ambiente JWT_SECRET.
 """
+
 import logging
 import os
 import threading
 import time
-from datetime import datetime, timedelta, timezone
-from typing import Optional
+from datetime import UTC, datetime, timedelta
 
 import jwt
 from fastapi import Depends, HTTPException, Request, status
 from fastapi.security import OAuth2PasswordBearer
 from pydantic import BaseModel
+
 from supabase_client import get_supabase
 
 logger = logging.getLogger(__name__)
@@ -38,20 +39,18 @@ def criar_token_acesso(user_id: int, email: str, validade_minutos: int = 480) ->
     """Gera um token JWT assinado com o id e e-mail do usuário."""
     secret = _secret()
     if not secret:
-        raise RuntimeError(
-            "JWT_SECRET não configurado. Adicione a variável JWT_SECRET no arquivo .env"
-        )
-    expiracao = datetime.now(timezone.utc) + timedelta(minutes=validade_minutos)
+        raise RuntimeError("JWT_SECRET não configurado. Adicione a variável JWT_SECRET no arquivo .env")
+    expiracao = datetime.now(UTC) + timedelta(minutes=validade_minutos)
     payload = {
         "sub": str(user_id),
         "email": email,
-        "iat": datetime.now(timezone.utc),
+        "iat": datetime.now(UTC),
         "exp": expiracao,
     }
     return jwt.encode(payload, secret, algorithm=ALGORITMO)
 
 
-def decodificar_token(token: str) -> Optional[dict]:
+def decodificar_token(token: str) -> dict | None:
     """Valida o token e retorna o payload. Retorna None se inválido ou expirado."""
     try:
         return jwt.decode(token, _secret(), algorithms=[ALGORITMO])
@@ -68,6 +67,7 @@ def secret_esta_configurada() -> bool:
 
 class UsuarioAutenticado(BaseModel):
     """Usuário autenticado, sem campo de senha."""
+
     id: int
     nome: str
     email: str
@@ -91,7 +91,7 @@ def get_current_user(
     try:
         user_id = int(payload.get("sub"))
     except (TypeError, ValueError):
-        raise CREDENCIAIS_INVALIDAS
+        raise CREDENCIAIS_INVALIDAS from None
 
     response = db.table("usuarios").select("*").eq("id", user_id).limit(1).execute()
     if not response.data:
@@ -110,6 +110,7 @@ def get_current_user(
 
 def require_permisao(modulo: str):
     """Dependência que exige que o usuário tenha a permissão do módulo informado."""
+
     def verificador(usuario: UsuarioAutenticado = Depends(get_current_user)) -> UsuarioAutenticado:
         if modulo not in (usuario.permissoes or []):
             raise HTTPException(
@@ -117,11 +118,13 @@ def require_permisao(modulo: str):
                 detail=f"Acesso negado: você não tem permissão para o módulo '{modulo}'.",
             )
         return usuario
+
     return verificador
 
 
 def require_qualquer_permisao(modulos: list):
     """Dependência que exige que o usuário tenha pelo menos uma das permissões informadas."""
+
     def verificador(usuario: UsuarioAutenticado = Depends(get_current_user)) -> UsuarioAutenticado:
         if not any(m in (usuario.permissoes or []) for m in modulos):
             raise HTTPException(
@@ -129,6 +132,7 @@ def require_qualquer_permisao(modulos: list):
                 detail=f"Acesso negado: você não tem permissão para nenhum dos módulos: {', '.join(modulos)}.",
             )
         return usuario
+
     return verificador
 
 
@@ -156,7 +160,7 @@ class LoginRateLimiter:
         return inicio, contador
 
     # --- Persistência no Supabase --------------------------------------------
-    def _ler_banco(self, db, chave: str) -> Optional[dict]:
+    def _ler_banco(self, db, chave: str) -> dict | None:
         resp = db.table(self.TABELA).select("*").eq("chave", chave).limit(1).execute()
         if not resp.data:
             return None

@@ -8,26 +8,31 @@ Regras de vencimento consideradas:
   - Próximo ao Vencimento: faltam até DIAS_AVISO.
   - Vencido: a validade já passou.
 """
+
 import logging
-import os
 import tempfile
 from datetime import date
-from typing import List, Optional
 
-from fastapi import APIRouter, HTTPException, Query, Depends
+from fastapi import APIRouter, Depends, HTTPException, Query
 from fastapi.responses import FileResponse
 from pydantic import BaseModel, Field
 
-from supabase_client import get_supabase
 from auth import require_permisao
+from supabase_client import get_supabase
+from utils.date_helpers import (
+    STATUS_PROXIMO,
+    STATUS_SEM_VALIDADE,
+    STATUS_VENCIDO,
+    STATUS_VIGENTE,
+)
 from utils.date_helpers import (
     hoje as _hoje,
+)
+from utils.date_helpers import (
     parse_data as _parse_data,
+)
+from utils.date_helpers import (
     status_vencimento as _status_vencimento,
-    STATUS_VIGENTE,
-    STATUS_PROXIMO,
-    STATUS_VENCIDO,
-    STATUS_SEM_VALIDADE,
 )
 
 router = APIRouter(dependencies=[Depends(require_permisao("sst"))])
@@ -49,6 +54,7 @@ RESULTADO_ASO_VALIDOS = {"apto", "apto_com_restricao", "inapto"}
 # Helpers (status de vencimento importados de utils.date_helpers)
 # ---------------------------------------------------------------------------
 
+
 def _status_ca(ca_validade) -> str:
     """Classifica a situação do Certificado de Aprovação (CA) de um EPI."""
     d = _parse_data(ca_validade)
@@ -57,7 +63,7 @@ def _status_ca(ca_validade) -> str:
     return "Válido" if d >= _hoje() else "CA Vencido"
 
 
-def _somar_meses(data_base: str, meses: Optional[int]) -> Optional[str]:
+def _somar_meses(data_base: str, meses: int | None) -> str | None:
     """Soma meses a uma data e retorna no formato YYYY-MM-DD."""
     if not meses or not data_base:
         return None
@@ -68,8 +74,18 @@ def _somar_meses(data_base: str, meses: Optional[int]) -> Optional[str]:
     ano = dt.year + indice_mes // 12
     mes = indice_mes % 12 + 1
     dias_por_mes = [
-        31, 29 if (ano % 4 == 0 and (ano % 100 != 0 or ano % 400 == 0)) else 28,
-        31, 30, 31, 30, 31, 31, 30, 31, 30, 31,
+        31,
+        29 if (ano % 4 == 0 and (ano % 100 != 0 or ano % 400 == 0)) else 28,
+        31,
+        30,
+        31,
+        30,
+        31,
+        31,
+        30,
+        31,
+        30,
+        31,
     ]
     dia = min(dt.day, dias_por_mes[mes - 1])
     return date(ano, mes, dia).isoformat()
@@ -99,24 +115,24 @@ def _registro_vencimento(mensagem: str, gravidade: str) -> dict:
 # ---------------------------------------------------------------------------
 class CargoBase(BaseModel):
     nome: str = Field(..., min_length=2, description="Nome do cargo/função")
-    descricao: Optional[str] = None
+    descricao: str | None = None
 
 
 class CargoResponse(CargoBase):
     id: int
     ativo: bool = True
-    created_at: Optional[str] = None
+    created_at: str | None = None
 
 
-@router.get("/cargos", response_model=List[CargoResponse])
+@router.get("/cargos", response_model=list[CargoResponse])
 def listar_cargos(db=Depends(get_supabase)):
     """Lista os cargos/funções ativos."""
     try:
         dados = db.table("cargos").select("*").eq("ativo", True).order("nome").execute().data
         return dados
-    except Exception as e:
+    except Exception:
         logger.exception("Erro ao listar cargos")
-        raise HTTPException(status_code=500, detail="Erro ao listar cargos")
+        raise HTTPException(status_code=500, detail="Erro ao listar cargos") from None
 
 
 @router.post("/cargos", response_model=CargoResponse, status_code=201)
@@ -132,9 +148,9 @@ def cadastrar_cargo(cargo: CargoBase, db=Depends(get_supabase)):
         return response.data[0]
     except HTTPException:
         raise
-    except Exception as e:
+    except Exception:
         logger.exception("Erro ao cadastrar cargo")
-        raise HTTPException(status_code=500, detail="Erro ao cadastrar cargo")
+        raise HTTPException(status_code=500, detail="Erro ao cadastrar cargo") from None
 
 
 @router.put("/cargos/{cargo_id}", response_model=CargoResponse)
@@ -153,9 +169,9 @@ def atualizar_cargo(cargo_id: int, cargo: CargoBase, db=Depends(get_supabase)):
         return response.data[0]
     except HTTPException:
         raise
-    except Exception as e:
+    except Exception:
         logger.exception("Erro ao atualizar cargo")
-        raise HTTPException(status_code=500, detail="Erro ao atualizar cargo")
+        raise HTTPException(status_code=500, detail="Erro ao atualizar cargo") from None
 
 
 @router.delete("/cargos/{cargo_id}")
@@ -169,9 +185,9 @@ def excluir_cargo(cargo_id: int, db=Depends(get_supabase)):
         return {"success": True, "message": "Cargo excluído com sucesso."}
     except HTTPException:
         raise
-    except Exception as e:
+    except Exception:
         logger.exception("Erro ao excluir cargo")
-        raise HTTPException(status_code=500, detail="Erro ao excluir cargo")
+        raise HTTPException(status_code=500, detail="Erro ao excluir cargo") from None
 
 
 # ---------------------------------------------------------------------------
@@ -179,22 +195,22 @@ def excluir_cargo(cargo_id: int, db=Depends(get_supabase)):
 # ---------------------------------------------------------------------------
 class TreinamentoBase(BaseModel):
     nome: str = Field(..., min_length=2, description="Nome do curso (ex: NR-10 Básico)")
-    norma: Optional[str] = Field(None, description="Norma regulamentadora (ex: NR-10)")
-    tipo: Optional[str] = Field(None, description="Tipo (ex: Inicial, Reciclagem)")
-    validade_meses: Optional[int] = Field(None, ge=1, description="Periodicidade de reciclagem em meses")
-    carga_horaria: Optional[int] = Field(None, ge=0, description="Carga horária em horas")
-    instituicao: Optional[str] = None
+    norma: str | None = Field(None, description="Norma regulamentadora (ex: NR-10)")
+    tipo: str | None = Field(None, description="Tipo (ex: Inicial, Reciclagem)")
+    validade_meses: int | None = Field(None, ge=1, description="Periodicidade de reciclagem em meses")
+    carga_horaria: int | None = Field(None, ge=0, description="Carga horária em horas")
+    instituicao: str | None = None
     ativo: bool = True
 
 
 class TreinamentoResponse(TreinamentoBase):
     id: int
-    created_at: Optional[str] = None
+    created_at: str | None = None
 
 
-@router.get("/treinamentos", response_model=List[TreinamentoResponse])
+@router.get("/treinamentos", response_model=list[TreinamentoResponse])
 def listar_treinamentos(
-    incluir_inativos: Optional[bool] = Query(False),
+    incluir_inativos: bool | None = Query(False),
     db=Depends(get_supabase),
 ):
     """Lista o catálogo de treinamentos. Por padrão retorna apenas ativos."""
@@ -203,9 +219,9 @@ def listar_treinamentos(
         if not incluir_inativos:
             query = query.eq("ativo", True)
         return query.order("nome").execute().data
-    except Exception as e:
+    except Exception:
         logger.exception("Erro ao listar treinamentos")
-        raise HTTPException(status_code=500, detail="Erro ao listar treinamentos")
+        raise HTTPException(status_code=500, detail="Erro ao listar treinamentos") from None
 
 
 @router.post("/treinamentos", response_model=TreinamentoResponse, status_code=201)
@@ -216,9 +232,9 @@ def cadastrar_treinamento(treinamento: TreinamentoBase, db=Depends(get_supabase)
         if not response.data:
             raise HTTPException(status_code=500, detail="Falha ao cadastrar treinamento.")
         return response.data[0]
-    except Exception as e:
+    except Exception:
         logger.exception("Erro ao cadastrar treinamento")
-        raise HTTPException(status_code=500, detail="Erro ao cadastrar treinamento")
+        raise HTTPException(status_code=500, detail="Erro ao cadastrar treinamento") from None
 
 
 @router.put("/treinamentos/{treinamento_id}", response_model=TreinamentoResponse)
@@ -234,9 +250,9 @@ def atualizar_treinamento(treinamento_id: int, treinamento: TreinamentoBase, db=
         return response.data[0]
     except HTTPException:
         raise
-    except Exception as e:
+    except Exception:
         logger.exception("Erro ao atualizar treinamento")
-        raise HTTPException(status_code=500, detail="Erro ao atualizar treinamento")
+        raise HTTPException(status_code=500, detail="Erro ao atualizar treinamento") from None
 
 
 @router.delete("/treinamentos/{treinamento_id}")
@@ -250,9 +266,9 @@ def excluir_treinamento(treinamento_id: int, db=Depends(get_supabase)):
         return {"success": True, "message": "Treinamento excluído com sucesso."}
     except HTTPException:
         raise
-    except Exception as e:
+    except Exception:
         logger.exception("Erro ao excluir treinamento")
-        raise HTTPException(status_code=500, detail="Erro ao excluir treinamento")
+        raise HTTPException(status_code=500, detail="Erro ao excluir treinamento") from None
 
 
 # ---------------------------------------------------------------------------
@@ -269,14 +285,14 @@ class MatrizResponse(BaseModel):
     cargo_nome: str
     treinamento_id: int
     treinamento_nome: str
-    norma: Optional[str]
-    tipo: Optional[str]
-    validade_meses: Optional[int]
+    norma: str | None
+    tipo: str | None
+    validade_meses: int | None
 
 
-@router.get("/matriz", response_model=List[MatrizResponse])
+@router.get("/matriz", response_model=list[MatrizResponse])
 def listar_matriz(
-    cargo_id: Optional[int] = Query(None, description="Filtra por cargo"),
+    cargo_id: int | None = Query(None, description="Filtra por cargo"),
     db=Depends(get_supabase),
 ):
     """Lista a matriz de treinamentos vinculada aos cargos."""
@@ -296,20 +312,22 @@ def listar_matriz(
             t = treino_map.get(m["treinamento_id"])
             if not c or not t:
                 continue
-            resultado.append({
-                "id": m["id"],
-                "cargo_id": m["cargo_id"],
-                "cargo_nome": c["nome"],
-                "treinamento_id": m["treinamento_id"],
-                "treinamento_nome": t["nome"],
-                "norma": t.get("norma"),
-                "tipo": t.get("tipo"),
-                "validade_meses": t.get("validade_meses"),
-            })
+            resultado.append(
+                {
+                    "id": m["id"],
+                    "cargo_id": m["cargo_id"],
+                    "cargo_nome": c["nome"],
+                    "treinamento_id": m["treinamento_id"],
+                    "treinamento_nome": t["nome"],
+                    "norma": t.get("norma"),
+                    "tipo": t.get("tipo"),
+                    "validade_meses": t.get("validade_meses"),
+                }
+            )
         return resultado
-    except Exception as e:
+    except Exception:
         logger.exception("Erro ao listar matriz de treinamentos")
-        raise HTTPException(status_code=500, detail="Erro ao listar matriz de treinamentos")
+        raise HTTPException(status_code=500, detail="Erro ao listar matriz de treinamentos") from None
 
 
 @router.post("/matriz", response_model=MatrizResponse, status_code=201)
@@ -323,7 +341,13 @@ def vincular_treinamento(matriz: MatrizCreate, db=Depends(get_supabase)):
         if not treinamento.data:
             raise HTTPException(status_code=404, detail="Treinamento não encontrado.")
 
-        dup = db.table("matriz_treinamentos").select("id").eq("cargo_id", matriz.cargo_id).eq("treinamento_id", matriz.treinamento_id).execute()
+        dup = (
+            db.table("matriz_treinamentos")
+            .select("id")
+            .eq("cargo_id", matriz.cargo_id)
+            .eq("treinamento_id", matriz.treinamento_id)
+            .execute()
+        )
         if dup.data:
             raise HTTPException(status_code=400, detail="Este treinamento já está vinculado ao cargo.")
 
@@ -343,9 +367,9 @@ def vincular_treinamento(matriz: MatrizCreate, db=Depends(get_supabase)):
         }
     except HTTPException:
         raise
-    except Exception as e:
+    except Exception:
         logger.exception("Erro ao vincular treinamento ao cargo")
-        raise HTTPException(status_code=500, detail="Erro ao vincular treinamento ao cargo")
+        raise HTTPException(status_code=500, detail="Erro ao vincular treinamento ao cargo") from None
 
 
 @router.delete("/matriz/{vinculo_id}")
@@ -358,9 +382,9 @@ def desvincular_treinamento(vinculo_id: int, db=Depends(get_supabase)):
         return {"success": True, "message": "Treinamento desvinculado do cargo."}
     except HTTPException:
         raise
-    except Exception as e:
+    except Exception:
         logger.exception("Erro ao desvincular treinamento")
-        raise HTTPException(status_code=500, detail="Erro ao desvincular treinamento")
+        raise HTTPException(status_code=500, detail="Erro ao desvincular treinamento") from None
 
 
 # ---------------------------------------------------------------------------
@@ -370,33 +394,39 @@ class FuncTreinamentoBase(BaseModel):
     funcionario_id: int = Field(..., description="ID do funcionário")
     treinamento_id: int = Field(..., description="ID do treinamento")
     data_realizacao: str = Field(..., description="Data de realização (YYYY-MM-DD)")
-    data_validade: Optional[str] = Field(None, description="Validade (calculada automaticamente se ausente)")
-    carga_horaria: Optional[int] = Field(None, ge=0)
-    certificado_url: Optional[str] = None
-    observacao: Optional[str] = None
+    data_validade: str | None = Field(None, description="Validade (calculada automaticamente se ausente)")
+    carga_horaria: int | None = Field(None, ge=0)
+    certificado_url: str | None = None
+    observacao: str | None = None
 
 
 class FuncTreinamentoResponse(FuncTreinamentoBase):
     id: int
     funcionario_nome: str
     treinamento_nome: str
-    norma: Optional[str]
+    norma: str | None
     status: str
     tem_certificado: bool = False
-    certificado_nome: Optional[str] = None
-    created_at: Optional[str] = None
+    certificado_nome: str | None = None
+    created_at: str | None = None
 
 
-@router.get("/funcionario-treinamentos", response_model=List[FuncTreinamentoResponse])
+@router.get("/funcionario-treinamentos", response_model=list[FuncTreinamentoResponse])
 def listar_funcionario_treinamentos(
-    busca: Optional[str] = Query(None, description="Filtra por nome do funcionário ou curso"),
-    status: Optional[str] = Query(None, description="Filtra por status de vencimento"),
+    busca: str | None = Query(None, description="Filtra por nome do funcionário ou curso"),
+    status: str | None = Query(None, description="Filtra por status de vencimento"),
     db=Depends(get_supabase),
 ):
     """Lista os treinamentos realizados pelos funcionários com status de vencimento."""
     try:
         linhas = db.table("funcionario_treinamentos").select("*").order("funcionario_nome").execute().data
-        certs = db.table("certificados").select("registro_id", "nome_original").eq("tipo_registro", "treinamento").execute().data
+        certs = (
+            db.table("certificados")
+            .select("registro_id", "nome_original")
+            .eq("tipo_registro", "treinamento")
+            .execute()
+            .data
+        )
         cert_map = {c["registro_id"]: c for c in certs}
         resultado = []
         for r in linhas:
@@ -414,9 +444,9 @@ def listar_funcionario_treinamentos(
                     continue
             resultado.append(r)
         return resultado
-    except Exception as e:
+    except Exception:
         logger.exception("Erro ao listar treinamentos dos funcionários")
-        raise HTTPException(status_code=500, detail="Erro ao listar treinamentos dos funcionários")
+        raise HTTPException(status_code=500, detail="Erro ao listar treinamentos dos funcionários") from None
 
 
 @router.post("/funcionario-treinamentos", response_model=FuncTreinamentoResponse, status_code=201)
@@ -455,9 +485,9 @@ def cadastrar_funcionario_treinamento(item: FuncTreinamentoBase, db=Depends(get_
         return registro
     except HTTPException:
         raise
-    except Exception as e:
+    except Exception:
         logger.exception("Erro ao registrar treinamento do funcionário")
-        raise HTTPException(status_code=500, detail="Erro ao registrar treinamento do funcionário")
+        raise HTTPException(status_code=500, detail="Erro ao registrar treinamento do funcionário") from None
 
 
 @router.put("/funcionario-treinamentos/{registro_id}", response_model=FuncTreinamentoResponse)
@@ -492,9 +522,9 @@ def atualizar_funcionario_treinamento(registro_id: int, item: FuncTreinamentoBas
         return registro
     except HTTPException:
         raise
-    except Exception as e:
+    except Exception:
         logger.exception("Erro ao atualizar treinamento do funcionário")
-        raise HTTPException(status_code=500, detail="Erro ao atualizar treinamento do funcionário")
+        raise HTTPException(status_code=500, detail="Erro ao atualizar treinamento do funcionário") from None
 
 
 @router.delete("/funcionario-treinamentos/{registro_id}")
@@ -505,23 +535,33 @@ def excluir_funcionario_treinamento(registro_id: int, db=Depends(get_supabase)):
     deixar objeto órfão no bucket.
     """
     try:
-        cert = db.table("certificados").select("bucket_key").eq("tipo_registro", "treinamento").eq("registro_id", registro_id).execute()
+        cert = (
+            db.table("certificados")
+            .select("bucket_key")
+            .eq("tipo_registro", "treinamento")
+            .eq("registro_id", registro_id)
+            .execute()
+        )
         response = db.table("funcionario_treinamentos").delete().eq("id", registro_id).execute()
         if not response.data:
             raise HTTPException(status_code=404, detail="Registro de treinamento não encontrado.")
         if cert.data:
             try:
-                from storage import bucket as b2_bucket, get_s3_client
+                from storage import bucket as b2_bucket
+                from storage import get_s3_client
+
                 get_s3_client().delete_object(Bucket=b2_bucket(), Key=cert.data[0]["bucket_key"])
             except Exception:
                 logger.warning("Não foi possível remover o certificado do B2 (registro %s)", registro_id)
-            db.table("certificados").delete().eq("tipo_registro", "treinamento").eq("registro_id", registro_id).execute()
+            db.table("certificados").delete().eq("tipo_registro", "treinamento").eq(
+                "registro_id", registro_id
+            ).execute()
         return {"success": True, "message": "Registro de treinamento excluído."}
     except HTTPException:
         raise
-    except Exception as e:
+    except Exception:
         logger.exception("Erro ao excluir registro de treinamento")
-        raise HTTPException(status_code=500, detail="Erro ao excluir registro de treinamento")
+        raise HTTPException(status_code=500, detail="Erro ao excluir registro de treinamento") from None
 
 
 # ---------------------------------------------------------------------------
@@ -531,12 +571,12 @@ class AsoBase(BaseModel):
     funcionario_id: int = Field(..., description="ID do funcionário")
     tipo_exame: str = Field(..., description="Tipo de exame (admissional, periodico, etc.)")
     data_exame: str = Field(..., description="Data do exame (YYYY-MM-DD)")
-    data_validade: Optional[str] = Field(None, description="Validade (periódicos)")
-    validade_meses: Optional[int] = Field(None, ge=1, description="Periodicidade em meses para periódicos")
-    medico_responsavel: Optional[str] = None
-    clinica: Optional[str] = None
-    resultado: Optional[str] = Field(None, description="apto, apto_com_restricao ou inapto")
-    observacao: Optional[str] = None
+    data_validade: str | None = Field(None, description="Validade (periódicos)")
+    validade_meses: int | None = Field(None, ge=1, description="Periodicidade em meses para periódicos")
+    medico_responsavel: str | None = None
+    clinica: str | None = None
+    resultado: str | None = Field(None, description="apto, apto_com_restricao ou inapto")
+    observacao: str | None = None
 
 
 class AsoResponse(AsoBase):
@@ -544,21 +584,23 @@ class AsoResponse(AsoBase):
     funcionario_nome: str
     status: str
     tem_documento: bool = False
-    documento_nome: Optional[str] = None
-    created_at: Optional[str] = None
+    documento_nome: str | None = None
+    created_at: str | None = None
 
 
-@router.get("/aso", response_model=List[AsoResponse])
+@router.get("/aso", response_model=list[AsoResponse])
 def listar_asos(
-    busca: Optional[str] = Query(None, description="Filtra por nome do funcionário"),
-    status: Optional[str] = Query(None, description="Filtra por status de vencimento"),
-    tipo: Optional[str] = Query(None, description="Filtra por tipo de exame"),
+    busca: str | None = Query(None, description="Filtra por nome do funcionário"),
+    status: str | None = Query(None, description="Filtra por status de vencimento"),
+    tipo: str | None = Query(None, description="Filtra por tipo de exame"),
     db=Depends(get_supabase),
 ):
     """Lista os ASOs com status de vencimento."""
     try:
         linhas = db.table("aso").select("*").order("funcionario_nome").execute().data
-        certs = db.table("certificados").select("registro_id", "nome_original").eq("tipo_registro", "aso").execute().data
+        certs = (
+            db.table("certificados").select("registro_id", "nome_original").eq("tipo_registro", "aso").execute().data
+        )
         cert_map = {c["registro_id"]: c for c in certs}
         resultado = []
         for r in linhas:
@@ -576,9 +618,9 @@ def listar_asos(
                     continue
             resultado.append(r)
         return resultado
-    except Exception as e:
+    except Exception:
         logger.exception("Erro ao listar ASOs")
-        raise HTTPException(status_code=500, detail="Erro ao listar ASOs")
+        raise HTTPException(status_code=500, detail="Erro ao listar ASOs") from None
 
 
 @router.post("/aso", response_model=AsoResponse, status_code=201)
@@ -615,9 +657,9 @@ def cadastrar_aso(item: AsoBase, db=Depends(get_supabase)):
         return registro
     except HTTPException:
         raise
-    except Exception as e:
+    except Exception:
         logger.exception("Erro ao cadastrar ASO")
-        raise HTTPException(status_code=500, detail="Erro ao cadastrar ASO")
+        raise HTTPException(status_code=500, detail="Erro ao cadastrar ASO") from None
 
 
 @router.put("/aso/{aso_id}", response_model=AsoResponse)
@@ -649,9 +691,9 @@ def atualizar_aso(aso_id: int, item: AsoBase, db=Depends(get_supabase)):
         return registro
     except HTTPException:
         raise
-    except Exception as e:
+    except Exception:
         logger.exception("Erro ao atualizar ASO")
-        raise HTTPException(status_code=500, detail="Erro ao atualizar ASO")
+        raise HTTPException(status_code=500, detail="Erro ao atualizar ASO") from None
 
 
 @router.delete("/aso/{aso_id}")
@@ -662,13 +704,17 @@ def excluir_aso(aso_id: int, db=Depends(get_supabase)):
     deixar objeto órfão no bucket.
     """
     try:
-        cert = db.table("certificados").select("bucket_key").eq("tipo_registro", "aso").eq("registro_id", aso_id).execute()
+        cert = (
+            db.table("certificados").select("bucket_key").eq("tipo_registro", "aso").eq("registro_id", aso_id).execute()
+        )
         response = db.table("aso").delete().eq("id", aso_id).execute()
         if not response.data:
             raise HTTPException(status_code=404, detail="ASO não encontrado.")
         if cert.data:
             try:
-                from storage import bucket as b2_bucket, get_s3_client
+                from storage import bucket as b2_bucket
+                from storage import get_s3_client
+
                 get_s3_client().delete_object(Bucket=b2_bucket(), Key=cert.data[0]["bucket_key"])
             except Exception:
                 logger.warning("Não foi possível remover o documento do ASO no B2 (registro %s)", aso_id)
@@ -676,9 +722,9 @@ def excluir_aso(aso_id: int, db=Depends(get_supabase)):
         return {"success": True, "message": "ASO excluído com sucesso."}
     except HTTPException:
         raise
-    except Exception as e:
+    except Exception:
         logger.exception("Erro ao excluir ASO")
-        raise HTTPException(status_code=500, detail="Erro ao excluir ASO")
+        raise HTTPException(status_code=500, detail="Erro ao excluir ASO") from None
 
 
 # ---------------------------------------------------------------------------
@@ -686,22 +732,22 @@ def excluir_aso(aso_id: int, db=Depends(get_supabase)):
 # ---------------------------------------------------------------------------
 class EpiBase(BaseModel):
     nome: str = Field(..., min_length=2, description="Nome do EPI (ex: Capacete de Segurança)")
-    categoria: Optional[str] = Field(None, description="Categoria (ex: Proteção da cabeça)")
-    ca_numero: Optional[str] = Field(None, description="Número do Certificado de Aprovação (CA)")
-    fabricante: Optional[str] = None
-    ca_validade: Optional[str] = Field(None, description="Validade do CA (YYYY-MM-DD)")
+    categoria: str | None = Field(None, description="Categoria (ex: Proteção da cabeça)")
+    ca_numero: str | None = Field(None, description="Número do Certificado de Aprovação (CA)")
+    fabricante: str | None = None
+    ca_validade: str | None = Field(None, description="Validade do CA (YYYY-MM-DD)")
     ativo: bool = True
 
 
 class EpiResponse(EpiBase):
     id: int
     ca_status: str
-    created_at: Optional[str] = None
+    created_at: str | None = None
 
 
-@router.get("/epis", response_model=List[EpiResponse])
+@router.get("/epis", response_model=list[EpiResponse])
 def listar_epis(
-    incluir_inativos: Optional[bool] = Query(False),
+    incluir_inativos: bool | None = Query(False),
     db=Depends(get_supabase),
 ):
     """Lista o catálogo de EPIs com a situação do CA."""
@@ -715,7 +761,7 @@ def listar_epis(
         return dados
     except Exception as e:
         logger.exception("Erro ao listar EPIs")
-        raise HTTPException(status_code=500, detail="Erro ao listar EPIs")
+        raise HTTPException(status_code=500, detail="Erro ao listar EPIs") from None
 
 
 @router.post("/epis", response_model=EpiResponse, status_code=201)
@@ -728,9 +774,9 @@ def cadastrar_epi(epi: EpiBase, db=Depends(get_supabase)):
         registro = response.data[0]
         registro["ca_status"] = _status_ca(registro.get("ca_validade"))
         return registro
-    except Exception as e:
+    except Exception:
         logger.exception("Erro ao cadastrar EPI")
-        raise HTTPException(status_code=500, detail="Erro ao cadastrar EPI")
+        raise HTTPException(status_code=500, detail="Erro ao cadastrar EPI") from None
 
 
 @router.put("/epis/{epi_id}", response_model=EpiResponse)
@@ -748,9 +794,9 @@ def atualizar_epi(epi_id: int, epi: EpiBase, db=Depends(get_supabase)):
         return registro
     except HTTPException:
         raise
-    except Exception as e:
+    except Exception:
         logger.exception("Erro ao atualizar EPI")
-        raise HTTPException(status_code=500, detail="Erro ao atualizar EPI")
+        raise HTTPException(status_code=500, detail="Erro ao atualizar EPI") from None
 
 
 @router.delete("/epis/{epi_id}")
@@ -764,9 +810,9 @@ def excluir_epi(epi_id: int, db=Depends(get_supabase)):
         return {"success": True, "message": "EPI excluído com sucesso."}
     except HTTPException:
         raise
-    except Exception as e:
+    except Exception:
         logger.exception("Erro ao excluir EPI")
-        raise HTTPException(status_code=500, detail="Erro ao excluir EPI")
+        raise HTTPException(status_code=500, detail="Erro ao excluir EPI") from None
 
 
 # ---------------------------------------------------------------------------
@@ -776,25 +822,25 @@ class FuncEpiBase(BaseModel):
     funcionario_id: int = Field(..., description="ID do funcionário")
     epi_id: int = Field(..., description="ID do EPI")
     data_entrega: str = Field(..., description="Data de entrega (YYYY-MM-DD)")
-    data_devolucao: Optional[str] = Field(None, description="Data de devolução")
+    data_devolucao: str | None = Field(None, description="Data de devolução")
     quantidade: int = Field(1, ge=1, description="Quantidade entregue")
-    observacao: Optional[str] = None
+    observacao: str | None = None
 
 
 class FuncEpiResponse(FuncEpiBase):
     id: int
     funcionario_nome: str
     epi_nome: str
-    ca_numero: Optional[str]
+    ca_numero: str | None
     ca_status: str
     status: str
-    created_at: Optional[str] = None
+    created_at: str | None = None
 
 
-@router.get("/funcionario-epis", response_model=List[FuncEpiResponse])
+@router.get("/funcionario-epis", response_model=list[FuncEpiResponse])
 def listar_funcionario_epis(
-    busca: Optional[str] = Query(None, description="Filtra por funcionário ou EPI"),
-    status: Optional[str] = Query(None, description="Filtra por Em uso / Devolvido"),
+    busca: str | None = Query(None, description="Filtra por funcionário ou EPI"),
+    status: str | None = Query(None, description="Filtra por Em uso / Devolvido"),
     db=Depends(get_supabase),
 ):
     """Lista as fichas de entrega de EPI com a situação do CA."""
@@ -810,13 +856,16 @@ def listar_funcionario_epis(
                 continue
             if busca:
                 termo = busca.lower()
-                if termo not in str(r.get("funcionario_nome", "")).lower() and termo not in str(r.get("epi_nome", "")).lower():
+                if (
+                    termo not in str(r.get("funcionario_nome", "")).lower()
+                    and termo not in str(r.get("epi_nome", "")).lower()
+                ):
                     continue
             resultado.append(r)
         return resultado
-    except Exception as e:
+    except Exception:
         logger.exception("Erro ao listar fichas de EPI")
-        raise HTTPException(status_code=500, detail="Erro ao listar fichas de EPI")
+        raise HTTPException(status_code=500, detail="Erro ao listar fichas de EPI") from None
 
 
 @router.post("/funcionario-epis", response_model=FuncEpiResponse, status_code=201)
@@ -848,9 +897,9 @@ def cadastrar_funcionario_epi(item: FuncEpiBase, db=Depends(get_supabase)):
         return registro
     except HTTPException:
         raise
-    except Exception as e:
+    except Exception:
         logger.exception("Erro ao registrar entrega de EPI")
-        raise HTTPException(status_code=500, detail="Erro ao registrar entrega de EPI")
+        raise HTTPException(status_code=500, detail="Erro ao registrar entrega de EPI") from None
 
 
 @router.put("/funcionario-epis/{registro_id}", response_model=FuncEpiResponse)
@@ -885,9 +934,9 @@ def atualizar_funcionario_epi(registro_id: int, item: FuncEpiBase, db=Depends(ge
         return registro
     except HTTPException:
         raise
-    except Exception as e:
+    except Exception:
         logger.exception("Erro ao atualizar ficha de EPI")
-        raise HTTPException(status_code=500, detail="Erro ao atualizar ficha de EPI")
+        raise HTTPException(status_code=500, detail="Erro ao atualizar ficha de EPI") from None
 
 
 @router.delete("/funcionario-epis/{registro_id}")
@@ -900,14 +949,14 @@ def excluir_funcionario_epi(registro_id: int, db=Depends(get_supabase)):
         return {"success": True, "message": "Ficha de EPI excluída com sucesso."}
     except HTTPException:
         raise
-    except Exception as e:
+    except Exception:
         logger.exception("Erro ao excluir ficha de EPI")
-        raise HTTPException(status_code=500, detail="Erro ao excluir ficha de EPI")
+        raise HTTPException(status_code=500, detail="Erro ao excluir ficha de EPI") from None
 
 
 @router.get("/pendencias")
 def listar_pendencias(
-    busca: Optional[str] = Query(None, description="Filtra por funcionário ou curso"),
+    busca: str | None = Query(None, description="Filtra por funcionário ou curso"),
     db=Depends(get_supabase),
 ):
     """Lista os treinamentos obrigatórios (matriz) que estão pendentes ou vencidos por funcionário.
@@ -966,32 +1015,37 @@ def listar_pendencias(
                         "validade_meses": treino.get("validade_meses"),
                     }
                     if ultimo is None:
-                        pendencias.append({
-                            **base,
-                            "situacao": "Pendente",
-                            "ultima_realizacao": None,
-                            "ultima_validade": None,
-                        })
+                        pendencias.append(
+                            {
+                                **base,
+                                "situacao": "Pendente",
+                                "ultima_realizacao": None,
+                                "ultima_validade": None,
+                            }
+                        )
                     elif _status_vencimento(ultimo.get("data_validade")) == STATUS_VENCIDO:
-                        pendencias.append({
-                            **base,
-                            "situacao": "Vencido",
-                            "ultima_realizacao": ultimo.get("data_realizacao"),
-                            "ultima_validade": ultimo.get("data_validade"),
-                        })
+                        pendencias.append(
+                            {
+                                **base,
+                                "situacao": "Vencido",
+                                "ultima_realizacao": ultimo.get("data_realizacao"),
+                                "ultima_validade": ultimo.get("data_validade"),
+                            }
+                        )
 
         if busca:
             termo = busca.lower()
             pendencias = [
-                p for p in pendencias
+                p
+                for p in pendencias
                 if termo in p["funcionario_nome"].lower() or termo in p["treinamento_nome"].lower()
             ]
 
         pendencias.sort(key=lambda p: (p["funcionario_nome"], p["treinamento_nome"]))
         return pendencias
-    except Exception as e:
+    except Exception:
         logger.exception("Erro ao listar pendências de treinamentos")
-        raise HTTPException(status_code=500, detail="Erro ao listar pendências de treinamentos")
+        raise HTTPException(status_code=500, detail="Erro ao listar pendências de treinamentos") from None
 
 
 # ---------------------------------------------------------------------------
@@ -1046,7 +1100,8 @@ def _gerar_pdf_ficha_epi(ficha: dict, epi: dict):
     pdf.ln(4)
     pdf.set_font("Helvetica", "I", 8)
     pdf.multi_cell(
-        0, 4,
+        0,
+        4,
         "Conforme a NR-6, o empregador é obrigado a fornecer ao trabalhador, gratuitamente, EPI adequado ao risco, "
         "em perfeito estado de conservação e funcionamento, com Certificado de Aprovação (CA) válido. "
         "O trabalhador deve assinar o recebimento do equipamento.",
@@ -1083,10 +1138,12 @@ def gerar_pdf_ficha_epi(registro_id: int, db=Depends(get_supabase)):
                 epi = epi_resp.data[0]
 
         pdf = _gerar_pdf_ficha_epi(ficha, epi)
-        nome_base = "".join(
-            c for c in str(ficha.get("funcionario_nome") or "funcionario")
-            if c.isalnum() or c in (" ", "-", "_")
-        ).strip() or "funcionario"
+        nome_base = (
+            "".join(
+                c for c in str(ficha.get("funcionario_nome") or "funcionario") if c.isalnum() or c in (" ", "-", "_")
+            ).strip()
+            or "funcionario"
+        )
         nome_arquivo = f"Ficha_EPI_{nome_base}_{registro_id}.pdf"
 
         with tempfile.NamedTemporaryFile(delete=False, suffix=".pdf") as tmp:
@@ -1096,9 +1153,9 @@ def gerar_pdf_ficha_epi(registro_id: int, db=Depends(get_supabase)):
         return FileResponse(caminho, media_type="application/pdf", filename=nome_arquivo)
     except HTTPException:
         raise
-    except Exception as e:
+    except Exception:
         logger.exception("Erro ao gerar PDF da ficha de EPI")
-        raise HTTPException(status_code=500, detail="Erro ao gerar PDF da ficha de EPI")
+        raise HTTPException(status_code=500, detail="Erro ao gerar PDF da ficha de EPI") from None
 
 
 # ---------------------------------------------------------------------------
@@ -1129,41 +1186,53 @@ def obter_alertas(db=Depends(get_supabase)):
 
         for t in treinos:
             if t["status"] == STATUS_VENCIDO:
-                alertas.append(_registro_vencimento(
-                    f"Treinamento VENCIDO: {t.get('funcionario_nome')} - {t.get('treinamento_nome')} (validade {t.get('data_validade')}).",
-                    "danger",
-                ))
+                alertas.append(
+                    _registro_vencimento(
+                        f"Treinamento VENCIDO: {t.get('funcionario_nome')} - {t.get('treinamento_nome')} "
+                        f"(validade {t.get('data_validade')}).",
+                        "danger",
+                    )
+                )
             elif t["status"] == STATUS_PROXIMO:
                 d = _parse_data(t.get("data_validade"))
                 dias = (d - hoje).days if d else 0
-                alertas.append(_registro_vencimento(
-                    f"{t.get('funcionario_nome')} - {t.get('treinamento_nome')} vence em {dias} dia(s) ({t.get('data_validade')}).",
-                    "warning",
-                ))
+                alertas.append(
+                    _registro_vencimento(
+                        f"{t.get('funcionario_nome')} - {t.get('treinamento_nome')} vence em {dias} dia(s) "
+                        f"({t.get('data_validade')}).",
+                        "warning",
+                    )
+                )
 
         for a in asos:
             if a["status"] == STATUS_VENCIDO and a.get("tipo_exame") == "periodico":
-                alertas.append(_registro_vencimento(
-                    f"ASO periódico VENCIDO: {a.get('funcionario_nome')} (exame {a.get('data_exame')}).",
-                    "danger",
-                ))
+                alertas.append(
+                    _registro_vencimento(
+                        f"ASO periódico VENCIDO: {a.get('funcionario_nome')} (exame {a.get('data_exame')}).",
+                        "danger",
+                    )
+                )
             elif a["status"] == STATUS_PROXIMO:
                 d = _parse_data(a.get("data_validade"))
                 dias = (d - hoje).days if d else 0
-                alertas.append(_registro_vencimento(
-                    f"ASO de {a.get('funcionario_nome')} vence em {dias} dia(s) ({a.get('data_validade')}).",
-                    "warning",
-                ))
+                alertas.append(
+                    _registro_vencimento(
+                        f"ASO de {a.get('funcionario_nome')} vence em {dias} dia(s) ({a.get('data_validade')}).",
+                        "warning",
+                    )
+                )
 
         for e in epis:
             if _status_ca(e.get("ca_validade")) == "CA Vencido":
-                alertas.append(_registro_vencimento(
-                    f"CA vencido para o EPI: {e.get('nome')} (CA {e.get('ca_numero')}).",
-                    "warning",
-                ))
+                alertas.append(
+                    _registro_vencimento(
+                        f"CA vencido para o EPI: {e.get('nome')} (CA {e.get('ca_numero')}).",
+                        "warning",
+                    )
+                )
 
         alertas.sort(key=lambda x: 0 if x["gravidade"] == "danger" else 1)
         return {"resumo": resumo, "alertas": alertas}
     except Exception as e:
         logger.exception("Erro ao buscar alertas de SST")
-        raise HTTPException(status_code=500, detail="Erro ao buscar alertas de SST")
+        raise HTTPException(status_code=500, detail="Erro ao buscar alertas de SST") from None

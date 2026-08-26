@@ -3,13 +3,14 @@
 Segue o mesmo padrão dos demais routers do projeto: Supabase via PostgREST,
 validação com Pydantic e permissão de módulo ("os").
 """
+
 import logging
-from typing import List, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel, Field
-from supabase_client import get_supabase
+
 from auth import require_permisao
+from supabase_client import get_supabase
 
 router = APIRouter(dependencies=[Depends(require_permisao("os"))])
 
@@ -19,49 +20,58 @@ logger = logging.getLogger(__name__)
 # Schemas Pydantic
 # ---------------------------------------------------------------------------
 
+
 class ObraCreate(BaseModel):
     cliente_id: int = Field(..., description="ID do cliente dono da obra")
     nome: str = Field(..., min_length=2, description="Nome/identificação da obra")
-    endereco: Optional[str] = None
-    cidade: Optional[str] = None
+    endereco: str | None = None
+    cidade: str | None = None
+
 
 class ClienteMinResponse(BaseModel):
     nome: str
+
 
 class ObraResponse(ObraCreate):
     id: int
     ativo: bool
     created_at: str
-    clientes: Optional[ClienteMinResponse] = None
+    clientes: ClienteMinResponse | None = None
+
 
 class EquipeCreate(BaseModel):
     nome: str = Field(..., min_length=2)
-    descricao: Optional[str] = None
+    descricao: str | None = None
     # IDs dos funcionários que compõem a equipe
-    membro_ids: List[int] = Field(default_factory=list)
+    membro_ids: list[int] = Field(default_factory=list)
     # ID do líder: precisa pertencer à lista de membros (validado no endpoint)
-    lider_id: Optional[int] = None
+    lider_id: int | None = None
+
 
 class EquipeResponse(BaseModel):
     id: int
     nome: str
-    descricao: Optional[str]
+    descricao: str | None
     ativa: bool
-    membros: List[dict]
+    membros: list[dict]
+
 
 class ProdutoCreate(BaseModel):
     nome: str = Field(..., min_length=2, description="Nome/descrição do produto")
-    codigo: Optional[str] = Field(None, description="SKU/código de barras p/ bipagem")
+    codigo: str | None = Field(None, description="SKU/código de barras p/ bipagem")
     unidade: str = Field("UN", max_length=20)
     preco_unitario: float = Field(0, ge=0)
+
 
 class ProdutoResponse(ProdutoCreate):
     id: int
     ativo: bool
 
+
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
+
 
 def _obter_ou_404(db, tabela: str, registro_id: int, rotulo: str) -> dict:
     resp = db.table(tabela).select("*").eq("id", registro_id).execute()
@@ -70,7 +80,7 @@ def _obter_ou_404(db, tabela: str, registro_id: int, rotulo: str) -> dict:
     return resp.data[0]
 
 
-def _gravar_membros(db, equipe_id: int, membro_ids: List[int], lider_id: Optional[int]):
+def _gravar_membros(db, equipe_id: int, membro_ids: list[int], lider_id: int | None):
     """Regrava a composição da equipe de forma atômica (delete + insert)."""
     db.table("equipe_membros").delete().eq("equipe_id", equipe_id).execute()
     if not membro_ids:
@@ -84,7 +94,7 @@ def _gravar_membros(db, equipe_id: int, membro_ids: List[int], lider_id: Optiona
         raise HTTPException(status_code=500, detail="Falha ao salvar membros da equipe.")
 
 
-def _membros_da_equipe(db, equipe_id: int) -> List[dict]:
+def _membros_da_equipe(db, equipe_id: int) -> list[dict]:
     """Retorna os membros com nome/valor_hora resolvidos via join manual."""
     resp = (
         db.table("equipe_membros")
@@ -102,13 +112,15 @@ def _membros_da_equipe(db, equipe_id: int) -> List[dict]:
         for m in resp.data
     ]
 
+
 # ---------------------------------------------------------------------------
 # Obras
 # ---------------------------------------------------------------------------
 
-@router.get("/obras", response_model=List[ObraResponse])
+
+@router.get("/obras", response_model=list[ObraResponse])
 def listar_obras(
-    busca: Optional[str] = Query(None),
+    busca: str | None = Query(None),
     incluir_inativas: bool = False,
     db=Depends(get_supabase),
 ):
@@ -122,7 +134,7 @@ def listar_obras(
         return query.order("nome").execute().data
     except Exception:
         logger.exception("Erro ao listar obras")
-        raise HTTPException(status_code=500, detail="Erro ao listar obras.")
+        raise HTTPException(status_code=500, detail="Erro ao listar obras.") from None
 
 
 @router.post("/obras", response_model=ObraResponse, status_code=201)
@@ -137,7 +149,7 @@ def criar_obra(obra: ObraCreate, db=Depends(get_supabase)):
         raise
     except Exception:
         logger.exception("Erro ao criar obra")
-        raise HTTPException(status_code=500, detail="Erro ao criar obra.")
+        raise HTTPException(status_code=500, detail="Erro ao criar obra.") from None
 
 
 @router.put("/obras/{obra_id}", response_model=ObraResponse)
@@ -153,7 +165,7 @@ def atualizar_obra(obra_id: int, obra: ObraCreate, db=Depends(get_supabase)):
         raise
     except Exception:
         logger.exception("Erro ao atualizar obra %s", obra_id)
-        raise HTTPException(status_code=500, detail="Erro ao atualizar obra.")
+        raise HTTPException(status_code=500, detail="Erro ao atualizar obra.") from None
 
 
 @router.delete("/obras/{obra_id}")
@@ -171,26 +183,30 @@ def excluir_obra(obra_id: int, db=Depends(get_supabase)):
         raise
     except Exception:
         logger.exception("Erro ao excluir obra %s", obra_id)
-        raise HTTPException(status_code=500, detail="Erro ao excluir obra.")
+        raise HTTPException(status_code=500, detail="Erro ao excluir obra.") from None
+
 
 # ---------------------------------------------------------------------------
 # Equipes
 # ---------------------------------------------------------------------------
 
-@router.get("/equipes", response_model=List[EquipeResponse])
+
+@router.get("/equipes", response_model=list[EquipeResponse])
 def listar_equipes(db=Depends(get_supabase)):
     try:
         equipes = db.table("equipes").select("*").order("nome").execute().data
         resultado = []
         for eq in equipes:
-            resultado.append({
-                **eq,
-                "membros": _membros_da_equipe(db, eq["id"]),
-            })
+            resultado.append(
+                {
+                    **eq,
+                    "membros": _membros_da_equipe(db, eq["id"]),
+                }
+            )
         return resultado
     except Exception:
         logger.exception("Erro ao listar equipes")
-        raise HTTPException(status_code=500, detail="Erro ao listar equipes.")
+        raise HTTPException(status_code=500, detail="Erro ao listar equipes.") from None
 
 
 @router.post("/equipes", response_model=EquipeResponse, status_code=201)
@@ -202,10 +218,16 @@ def criar_equipe(equipe: EquipeCreate, db=Depends(get_supabase)):
         # Regra: o líder deve fazer parte da equipe.
         if equipe.lider_id is not None and equipe.lider_id not in equipe.membro_ids:
             raise HTTPException(status_code=400, detail="O líder deve ser um membro da equipe.")
-        resp = db.table("equipes").insert({
-            "nome": equipe.nome,
-            "descricao": equipe.descricao,
-        }).execute()
+        resp = (
+            db.table("equipes")
+            .insert(
+                {
+                    "nome": equipe.nome,
+                    "descricao": equipe.descricao,
+                }
+            )
+            .execute()
+        )
         if not resp.data:
             raise HTTPException(status_code=500, detail="Falha ao criar equipe.")
         nova = resp.data[0]
@@ -215,7 +237,7 @@ def criar_equipe(equipe: EquipeCreate, db=Depends(get_supabase)):
         raise
     except Exception:
         logger.exception("Erro ao criar equipe")
-        raise HTTPException(status_code=500, detail="Erro ao criar equipe.")
+        raise HTTPException(status_code=500, detail="Erro ao criar equipe.") from None
 
 
 @router.put("/equipes/{equipe_id}", response_model=EquipeResponse)
@@ -224,10 +246,17 @@ def atualizar_equipe(equipe_id: int, equipe: EquipeCreate, db=Depends(get_supaba
         _obter_ou_404(db, "equipes", equipe_id, "Equipe")
         if equipe.lider_id is not None and equipe.lider_id not in equipe.membro_ids:
             raise HTTPException(status_code=400, detail="O líder deve ser um membro da equipe.")
-        resp = db.table("equipes").update({
-            "nome": equipe.nome,
-            "descricao": equipe.descricao,
-        }).eq("id", equipe_id).execute()
+        resp = (
+            db.table("equipes")
+            .update(
+                {
+                    "nome": equipe.nome,
+                    "descricao": equipe.descricao,
+                }
+            )
+            .eq("id", equipe_id)
+            .execute()
+        )
         if not resp.data:
             raise HTTPException(status_code=500, detail="Falha ao atualizar equipe.")
         _gravar_membros(db, equipe_id, equipe.membro_ids, equipe.lider_id)
@@ -236,7 +265,7 @@ def atualizar_equipe(equipe_id: int, equipe: EquipeCreate, db=Depends(get_supaba
         raise
     except Exception:
         logger.exception("Erro ao atualizar equipe %s", equipe_id)
-        raise HTTPException(status_code=500, detail="Erro ao atualizar equipe.")
+        raise HTTPException(status_code=500, detail="Erro ao atualizar equipe.") from None
 
 
 @router.delete("/equipes/{equipe_id}")
@@ -253,15 +282,17 @@ def excluir_equipe(equipe_id: int, db=Depends(get_supabase)):
         raise
     except Exception:
         logger.exception("Erro ao excluir equipe %s", equipe_id)
-        raise HTTPException(status_code=500, detail="Erro ao excluir equipe.")
+        raise HTTPException(status_code=500, detail="Erro ao excluir equipe.") from None
+
 
 # ---------------------------------------------------------------------------
 # Produtos
 # ---------------------------------------------------------------------------
 
-@router.get("/produtos", response_model=List[ProdutoResponse])
+
+@router.get("/produtos", response_model=list[ProdutoResponse])
 def listar_produtos(
-    busca: Optional[str] = Query(None, description="Busca por nome ou código (autocompletar)"),
+    busca: str | None = Query(None, description="Busca por nome ou código (autocompletar)"),
     db=Depends(get_supabase),
 ):
     try:
@@ -271,7 +302,7 @@ def listar_produtos(
         return query.order("nome").limit(50).execute().data
     except Exception:
         logger.exception("Erro ao listar produtos")
-        raise HTTPException(status_code=500, detail="Erro ao listar produtos.")
+        raise HTTPException(status_code=500, detail="Erro ao listar produtos.") from None
 
 
 @router.post("/produtos", response_model=ProdutoResponse, status_code=201)
@@ -289,7 +320,7 @@ def criar_produto(produto: ProdutoCreate, db=Depends(get_supabase)):
         raise
     except Exception:
         logger.exception("Erro ao criar produto")
-        raise HTTPException(status_code=500, detail="Erro ao criar produto.")
+        raise HTTPException(status_code=500, detail="Erro ao criar produto.") from None
 
 
 @router.put("/produtos/{produto_id}", response_model=ProdutoResponse)
@@ -304,16 +335,14 @@ def atualizar_produto(produto_id: int, produto: ProdutoCreate, db=Depends(get_su
         raise
     except Exception:
         logger.exception("Erro ao atualizar produto %s", produto_id)
-        raise HTTPException(status_code=500, detail="Erro ao atualizar produto.")
+        raise HTTPException(status_code=500, detail="Erro ao atualizar produto.") from None
 
 
 @router.delete("/produtos/{produto_id}")
 def excluir_produto(produto_id: int, db=Depends(get_supabase)):
     try:
         _obter_ou_404(db, "produtos", produto_id, "Produto")
-        usadas = (
-            db.table("os_materiais").select("id").eq("produto_id", produto_id).limit(1).execute()
-        )
+        usadas = db.table("os_materiais").select("id").eq("produto_id", produto_id).limit(1).execute()
         if usadas.data:
             db.table("produtos").update({"ativo": False}).eq("id", produto_id).execute()
             return {"success": True, "message": "Produto possui lançamentos e foi apenas inativado."}
@@ -323,4 +352,4 @@ def excluir_produto(produto_id: int, db=Depends(get_supabase)):
         raise
     except Exception:
         logger.exception("Erro ao excluir produto %s", produto_id)
-        raise HTTPException(status_code=500, detail="Erro ao excluir produto.")
+        raise HTTPException(status_code=500, detail="Erro ao excluir produto.") from None

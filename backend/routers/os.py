@@ -11,17 +11,18 @@ Regras de negócio centrais:
   (vêem tudo); demais usuários só acessam O.S das equipes em que atuam
   (vínculo feito pelo e-mail do funcionário cadastrado).
 """
+
 import logging
 import uuid
-from datetime import datetime, timezone
-from typing import List, Optional
+from datetime import UTC, datetime
 
-from fastapi import APIRouter, Depends, HTTPException, Query, UploadFile, File
+from fastapi import APIRouter, Depends, File, HTTPException, Query, UploadFile
 from fastapi.responses import FileResponse
 from pydantic import BaseModel, Field
-from supabase_client import get_supabase
+
 from auth import UsuarioAutenticado, get_current_user, require_permisao
-from storage import get_s3_client, bucket
+from storage import bucket, get_s3_client
+from supabase_client import get_supabase
 
 router = APIRouter(dependencies=[Depends(require_permisao("os"))])
 
@@ -56,47 +57,55 @@ PERMISSOES_GESTOR = {"configuracoes", "dashboard"}
 # Schemas Pydantic
 # ---------------------------------------------------------------------------
 
+
 class ItemOrcadoIn(BaseModel):
     produto_id: int
     quantidade_orcada: float = Field(..., gt=0)
 
+
 class OSCreate(BaseModel):
     obra_id: int
-    equipe_id: Optional[int] = None
+    equipe_id: int | None = None
     prioridade: str = Field("media")
-    prazo_entrega: Optional[str] = None          # ISO date (YYYY-MM-DD)
-    descricao_escopo: Optional[str] = None
+    prazo_entrega: str | None = None  # ISO date (YYYY-MM-DD)
+    descricao_escopo: str | None = None
     custo_mo_orcado: float = Field(0, ge=0)
-    itens_orcados: List[ItemOrcadoIn] = Field(default_factory=list)
+    itens_orcados: list[ItemOrcadoIn] = Field(default_factory=list)
+
 
 class OSUpdate(BaseModel):
-    equipe_id: Optional[int] = None
+    equipe_id: int | None = None
     prioridade: str = Field("media")
-    prazo_entrega: Optional[str] = None
-    descricao_escopo: Optional[str] = None
+    prazo_entrega: str | None = None
+    descricao_escopo: str | None = None
     custo_mo_orcado: float = Field(0, ge=0)
+
 
 class StatusUpdate(BaseModel):
     novo_status: str
-    justificativa: Optional[str] = None
+    justificativa: str | None = None
     # IDs de fotos já enviadas à O.S usadas como evidência do impedimento.
-    fotos_ids: List[int] = Field(default_factory=list)
-    geolocalizacao: Optional[str] = Field(None, max_length=100, description="'lat,lng' do dispositivo")
+    fotos_ids: list[int] = Field(default_factory=list)
+    geolocalizacao: str | None = Field(None, max_length=100, description="'lat,lng' do dispositivo")
+
 
 class MaterialLancamento(BaseModel):
     produto_id: int
     quantidade_usada: float = Field(..., gt=0)
-    observacao: Optional[str] = None
+    observacao: str | None = None
+
 
 class ApontamentoAcao(BaseModel):
     acao: str = Field(..., description="'play' para iniciar ou 'pause' para encerrar o bloco")
+
 
 # ---------------------------------------------------------------------------
 # Helpers internos
 # ---------------------------------------------------------------------------
 
+
 def _agora() -> datetime:
-    return datetime.now(timezone.utc)
+    return datetime.now(UTC)
 
 
 def _e_gestor(usuario: UsuarioAutenticado) -> bool:
@@ -104,14 +113,14 @@ def _e_gestor(usuario: UsuarioAutenticado) -> bool:
     return any(p in PERMISSOES_GESTOR for p in (usuario.permissoes or []))
 
 
-def _funcionario_do_usuario(db, usuario: UsuarioAutenticado) -> Optional[dict]:
+def _funcionario_do_usuario(db, usuario: UsuarioAutenticado) -> dict | None:
     if not usuario.email:
         return None
     resp = db.table("funcionarios").select("*").eq("email", usuario.email).limit(1).execute()
     return resp.data[0] if resp.data else None
 
 
-def _equipes_do_usuario(db, usuario: UsuarioAutenticado) -> List[int]:
+def _equipes_do_usuario(db, usuario: UsuarioAutenticado) -> list[int]:
     func = _funcionario_do_usuario(db, usuario)
     if not func:
         return []
@@ -145,12 +154,7 @@ def _gerar_codigo_os(db) -> str:
     """
     ano = _agora().year
     prefixo = f"OS-{ano}-"
-    existentes = (
-        db.table("ordens_servico")
-        .select("codigo")
-        .like("codigo", f"{prefixo}%")
-        .execute()
-    )
+    existentes = db.table("ordens_servico").select("codigo").like("codigo", f"{prefixo}%").execute()
     maior = 0
     for linha in existentes.data or []:
         try:
@@ -160,20 +164,28 @@ def _gerar_codigo_os(db) -> str:
     return f"{prefixo}{maior + 1:04d}"
 
 
-def _gravar_historico(db, os_id: int, anterior: Optional[str], novo: str,
-                      justificativa: Optional[str], usuario_email: Optional[str],
-                      geolocalizacao: Optional[str]) -> None:
-    db.table("os_historico").insert({
-        "os_id": os_id,
-        "status_anterior": anterior,
-        "status_novo": novo,
-        "justificativa": justificativa,
-        "usuario_alteracao": usuario_email,
-        "geolocalizacao_log": geolocalizacao,
-    }).execute()
+def _gravar_historico(
+    db,
+    os_id: int,
+    anterior: str | None,
+    novo: str,
+    justificativa: str | None,
+    usuario_email: str | None,
+    geolocalizacao: str | None,
+) -> None:
+    db.table("os_historico").insert(
+        {
+            "os_id": os_id,
+            "status_anterior": anterior,
+            "status_novo": novo,
+            "justificativa": justificativa,
+            "usuario_alteracao": usuario_email,
+            "geolocalizacao_log": geolocalizacao,
+        }
+    ).execute()
 
 
-def _notificar_criador(db, os_data: dict, novo_status: str, ator_email: Optional[str]) -> None:
+def _notificar_criador(db, os_data: dict, novo_status: str, ator_email: str | None) -> None:
     """Avisa o criador da O.S sobre eventos relevantes (impedimento/conclusão)."""
     destino = os_data.get("criado_por")
     if not destino or (ator_email and destino.lower() == (ator_email or "").lower()):
@@ -187,32 +199,30 @@ def _notificar_criador(db, os_data: dict, novo_status: str, ator_email: Optional
     if not texto:
         return
     try:
-        db.table("notificacoes").insert({
-            "tipo": "os",
-            "titulo": f"Controle de O.S - {novo_status.capitalize()}",
-            "mensagem": texto,
-            "destinatario": destino,
-        }).execute()
+        db.table("notificacoes").insert(
+            {
+                "tipo": "os",
+                "titulo": f"Controle de O.S - {novo_status.capitalize()}",
+                "mensagem": texto,
+                "destinatario": destino,
+            }
+        ).execute()
     except Exception:
         logger.exception("Falha ao criar notificação para %s", destino)
 
 
 def _encerrar_apontamentos_abertos(db, os_id: int) -> None:
     """Ao concluir/cancelar uma O.S, fecha qualquer cronômetro esquecido aberto."""
-    abertos = (
-        db.table("os_apontamentos")
-        .select("*")
-        .eq("os_id", os_id)
-        .is_("fim", "null")
-        .execute()
-    )
+    abertos = db.table("os_apontamentos").select("*").eq("os_id", os_id).is_("fim", "null").execute()
     for apt in abertos.data or []:
         inicio = datetime.fromisoformat(apt["inicio"])
         minutos = max(0, int(((_agora() - inicio).total_seconds()) // 60))
-        db.table("os_apontamentos").update({
-            "fim": _agora().isoformat(),
-            "minutos_trabalhados": minutos,
-        }).eq("id", apt["id"]).execute()
+        db.table("os_apontamentos").update(
+            {
+                "fim": _agora().isoformat(),
+                "minutos_trabalhados": minutos,
+            }
+        ).eq("id", apt["id"]).execute()
 
 
 def _validar_transicao_impedida(db, os_data: dict, payload: StatusUpdate) -> str:
@@ -235,13 +245,7 @@ def _validar_transicao_impedida(db, os_data: dict, payload: StatusUpdate) -> str
             status_code=422,
             detail="Para marcar a O.S como IMPEDIDA é obrigatório anexar ao menos uma foto de evidência.",
         )
-    evidencias = (
-        db.table("os_fotos")
-        .select("id")
-        .eq("os_id", os_data["id"])
-        .in_("id", fotos_ids)
-        .execute()
-    )
+    evidencias = db.table("os_fotos").select("id").eq("os_id", os_data["id"]).in_("id", fotos_ids).execute()
     if len(evidencias.data or []) != len(fotos_ids):
         raise HTTPException(
             status_code=422,
@@ -261,23 +265,12 @@ def _precos_dos_produtos(db, produto_ids) -> dict:
 
 def _resumo_materiais(db, os_id: int) -> dict:
     """Compara orçado vs. aplicado por produto e calcula custos."""
-    orcados = (
-        db.table("os_itens_orcados")
-        .select("produto_id, quantidade_orcada")
-        .eq("os_id", os_id)
-        .execute()
-    )
-    aplicacoes = (
-        db.table("os_materiais")
-        .select("produto_id, quantidade_usada")
-        .eq("os_id", os_id)
-        .execute()
-    )
+    orcados = db.table("os_itens_orcados").select("produto_id, quantidade_orcada").eq("os_id", os_id).execute()
+    aplicacoes = db.table("os_materiais").select("produto_id, quantidade_usada").eq("os_id", os_id).execute()
 
     # Catálogo e preços dos produtos envolvidos (consultas únicas, sem N+1
     # e sem depender de embedded resources do PostgREST).
-    todos_ids = [i["produto_id"] for i in (orcados.data or [])] + \
-                [m["produto_id"] for m in (aplicacoes.data or [])]
+    todos_ids = [i["produto_id"] for i in (orcados.data or [])] + [m["produto_id"] for m in (aplicacoes.data or [])]
     catalogo = {}
     ids_unicos = sorted(set(todos_ids))
     if ids_unicos:
@@ -288,26 +281,32 @@ def _resumo_materiais(db, os_id: int) -> dict:
     por_produto = {}
     for item in orcados.data or []:
         pid = item["produto_id"]
-        p = por_produto.setdefault(pid, {
-            "produto_id": pid,
-            "nome": (catalogo.get(pid) or {}).get("nome"),
-            "unidade": (catalogo.get(pid) or {}).get("unidade"),
-            "preco_unitario": precos.get(pid, 0),
-            "orcado": 0.0,
-            "aplicado": 0.0,
-        })
+        p = por_produto.setdefault(
+            pid,
+            {
+                "produto_id": pid,
+                "nome": (catalogo.get(pid) or {}).get("nome"),
+                "unidade": (catalogo.get(pid) or {}).get("unidade"),
+                "preco_unitario": precos.get(pid, 0),
+                "orcado": 0.0,
+                "aplicado": 0.0,
+            },
+        )
         p["orcado"] += float(item["quantidade_orcada"])
 
     for lanc in aplicacoes.data or []:
         pid = lanc["produto_id"]
-        p = por_produto.setdefault(pid, {
-            "produto_id": pid,
-            "nome": (catalogo.get(pid) or {}).get("nome") or "Produto",
-            "unidade": (catalogo.get(pid) or {}).get("unidade") or "-",
-            "preco_unitario": precos.get(pid, 0),
-            "orcado": 0.0,
-            "aplicado": 0.0,
-        })
+        p = por_produto.setdefault(
+            pid,
+            {
+                "produto_id": pid,
+                "nome": (catalogo.get(pid) or {}).get("nome") or "Produto",
+                "unidade": (catalogo.get(pid) or {}).get("unidade") or "-",
+                "preco_unitario": precos.get(pid, 0),
+                "orcado": 0.0,
+                "aplicado": 0.0,
+            },
+        )
         p["aplicado"] += float(lanc["quantidade_usada"])
 
     itens = []
@@ -318,12 +317,14 @@ def _resumo_materiais(db, os_id: int) -> dict:
         custo_aplicado = p["aplicado"] * p["preco_unitario"]
         total_orcado_rs += custo_orcado
         total_aplicado_rs += custo_aplicado
-        itens.append({
-            **p,
-            "custo_orcado": round(custo_orcado, 2),
-            "custo_aplicado": round(custo_aplicado, 2),
-            "perc_aplicado": round(p["aplicado"] / p["orcado"] * 100, 1) if p["orcado"] else None,
-        })
+        itens.append(
+            {
+                **p,
+                "custo_orcado": round(custo_orcado, 2),
+                "custo_aplicado": round(custo_aplicado, 2),
+                "perc_aplicado": round(p["aplicado"] / p["orcado"] * 100, 1) if p["orcado"] else None,
+            }
+        )
 
     return {
         "itens": sorted(itens, key=lambda i: i["nome"] or ""),
@@ -363,11 +364,14 @@ def _resumo_mao_de_obra(db, os_id: int, custo_mo_orcado: float) -> dict:
         valor_hora = float(func.get("valor_hora") or 0)
         total_minutos += minutos
         custo_real += minutos * valor_hora / 60
-        acum = por_funcionario.setdefault(apt["funcionario_id"], {
-            "nome": func.get("nome"),
-            "minutos": 0,
-            "custo": 0.0,
-        })
+        acum = por_funcionario.setdefault(
+            apt["funcionario_id"],
+            {
+                "nome": func.get("nome"),
+                "minutos": 0,
+                "custo": 0.0,
+            },
+        )
         acum["minutos"] += minutos
         acum["custo"] = round(acum["minutos"] * valor_hora / 60, 2)
 
@@ -378,25 +382,24 @@ def _resumo_mao_de_obra(db, os_id: int, custo_mo_orcado: float) -> dict:
         "por_funcionario": sorted(por_funcionario.values(), key=lambda f: -(f["minutos"])),
     }
 
+
 # ---------------------------------------------------------------------------
 # Endpoints - Ordens de Serviço
 # ---------------------------------------------------------------------------
 
+
 @router.get("/", summary="Lista O.S (Kanban/filtros)")
 def listar_os(
-    status: Optional[str] = Query(None),
-    prioridade: Optional[str] = Query(None),
-    obra_id: Optional[int] = Query(None),
-    equipe_id: Optional[int] = Query(None),
-    busca: Optional[str] = Query(None, description="Busca por código ou escopo"),
+    status: str | None = Query(None),
+    prioridade: str | None = Query(None),
+    obra_id: int | None = Query(None),
+    equipe_id: int | None = Query(None),
+    busca: str | None = Query(None, description="Busca por código ou escopo"),
     usuario: UsuarioAutenticado = Depends(get_current_user),
     db=Depends(get_supabase),
 ):
     try:
-        query = (
-            db.table("ordens_servico")
-            .select("*, obras(id, nome, cliente_id, clientes(nome)), equipes(id, nome)")
-        )
+        query = db.table("ordens_servico").select("*, obras(id, nome, cliente_id, clientes(nome)), equipes(id, nome)")
 
         # Permissão granular: usuário de campo só enxerga O.S das suas equipes.
         if not _e_gestor(usuario):
@@ -438,13 +441,7 @@ def listar_os(
                 .execute()
                 .data
             )
-            fotos = (
-                db.table("os_fotos")
-                .select("os_id")
-                .in_("os_id", os_ids)
-                .execute()
-                .data
-            )
+            fotos = db.table("os_fotos").select("os_id").in_("os_id", os_ids).execute().data
             fotos_count = {}
             for f in fotos or []:
                 fotos_count[f["os_id"]] = fotos_count.get(f["os_id"], 0) + 1
@@ -470,13 +467,11 @@ def listar_os(
         raise
     except Exception:
         logger.exception("Erro ao listar O.S")
-        raise HTTPException(status_code=500, detail="Erro ao listar Ordens de Serviço.")
+        raise HTTPException(status_code=500, detail="Erro ao listar Ordens de Serviço.") from None
 
 
 @router.post("/", status_code=201)
-def criar_os(payload: OSCreate,
-             usuario: UsuarioAutenticado = Depends(get_current_user),
-             db=Depends(get_supabase)):
+def criar_os(payload: OSCreate, usuario: UsuarioAutenticado = Depends(get_current_user), db=Depends(get_supabase)):
     """Cria uma nova O.S (status inicial 'rascunho') com seus itens orçados."""
     try:
         if payload.prioridade not in PRIORIDADES:
@@ -515,13 +510,11 @@ def criar_os(payload: OSCreate,
         raise
     except Exception:
         logger.exception("Erro ao criar O.S")
-        raise HTTPException(status_code=500, detail="Erro ao criar Ordem de Serviço.")
+        raise HTTPException(status_code=500, detail="Erro ao criar Ordem de Serviço.") from None
 
 
 @router.get("/{os_id}", summary="Detalhes completos da O.S")
-def detalhar_os(os_id: int,
-                usuario: UsuarioAutenticado = Depends(get_current_user),
-                db=Depends(get_supabase)):
+def detalhar_os(os_id: int, usuario: UsuarioAutenticado = Depends(get_current_user), db=Depends(get_supabase)):
     try:
         os_data = _os_ou_404(db, os_id)
         _garantir_acesso_os(db, usuario, os_data)
@@ -529,21 +522,13 @@ def detalhar_os(os_id: int,
         materiais = _resumo_materiais(db, os_id)
         mao_de_obra = _resumo_mao_de_obra(db, os_id, os_data.get("custo_mo_orcado"))
         historico = (
-            db.table("os_historico")
-            .select("*")
-            .eq("os_id", os_id)
-            .order("criado_em", desc=False)
-            .execute()
-            .data
+            db.table("os_historico").select("*").eq("os_id", os_id).order("criado_em", desc=False).execute().data
         )
-        fotos = db.table("os_fotos").select("id, nome_original, mime_type, created_at").eq("os_id", os_id).execute().data
+        fotos = (
+            db.table("os_fotos").select("id, nome_original, mime_type, created_at").eq("os_id", os_id).execute().data
+        )
         apontamento_aberto = (
-            db.table("os_apontamentos")
-            .select("id, inicio")
-            .eq("os_id", os_id)
-            .is_("fim", "null")
-            .execute()
-            .data
+            db.table("os_apontamentos").select("id, inicio").eq("os_id", os_id).is_("fim", "null").execute().data
         )
 
         return {
@@ -558,13 +543,13 @@ def detalhar_os(os_id: int,
         raise
     except Exception:
         logger.exception("Erro ao detalhar O.S %s", os_id)
-        raise HTTPException(status_code=500, detail="Erro ao obter detalhes da O.S.")
+        raise HTTPException(status_code=500, detail="Erro ao obter detalhes da O.S.") from None
 
 
 @router.put("/{os_id}", summary="Edita dados da O.S")
-def editar_os(os_id: int, payload: OSUpdate,
-              usuario: UsuarioAutenticado = Depends(get_current_user),
-              db=Depends(get_supabase)):
+def editar_os(
+    os_id: int, payload: OSUpdate, usuario: UsuarioAutenticado = Depends(get_current_user), db=Depends(get_supabase)
+):
     """Permite editar escopo/prazo/equipe enquanto a O.S não está encerrada."""
     try:
         os_data = _os_ou_404(db, os_id)
@@ -576,13 +561,20 @@ def editar_os(os_id: int, payload: OSUpdate,
         if payload.equipe_id and not db.table("equipes").select("id").eq("id", payload.equipe_id).execute().data:
             raise HTTPException(status_code=404, detail="Equipe não encontrada.")
 
-        resp = db.table("ordens_servico").update({
-            "equipe_id": payload.equipe_id,
-            "prioridade": payload.prioridade,
-            "prazo_entrega": payload.prazo_entrega,
-            "descricao_escopo": payload.descricao_escopo,
-            "custo_mo_orcado": payload.custo_mo_orcado,
-        }).eq("id", os_id).execute()
+        resp = (
+            db.table("ordens_servico")
+            .update(
+                {
+                    "equipe_id": payload.equipe_id,
+                    "prioridade": payload.prioridade,
+                    "prazo_entrega": payload.prazo_entrega,
+                    "descricao_escopo": payload.descricao_escopo,
+                    "custo_mo_orcado": payload.custo_mo_orcado,
+                }
+            )
+            .eq("id", os_id)
+            .execute()
+        )
         if not resp.data:
             raise HTTPException(status_code=500, detail="Falha ao atualizar O.S.")
         return resp.data[0]
@@ -590,13 +582,13 @@ def editar_os(os_id: int, payload: OSUpdate,
         raise
     except Exception:
         logger.exception("Erro ao editar O.S %s", os_id)
-        raise HTTPException(status_code=500, detail="Erro ao atualizar O.S.")
+        raise HTTPException(status_code=500, detail="Erro ao atualizar O.S.") from None
 
 
 @router.put("/{os_id}/status", summary="Transição de status (com máquina de estados)")
-def alterar_status(os_id: int, payload: StatusUpdate,
-                   usuario: UsuarioAutenticado = Depends(get_current_user),
-                   db=Depends(get_supabase)):
+def alterar_status(
+    os_id: int, payload: StatusUpdate, usuario: UsuarioAutenticado = Depends(get_current_user), db=Depends(get_supabase)
+):
     try:
         os_data = _os_ou_404(db, os_id)
         _garantir_acesso_os(db, usuario, os_data)
@@ -634,7 +626,10 @@ def alterar_status(os_id: int, payload: StatusUpdate,
             _encerrar_apontamentos_abertos(db, os_id)
 
         _gravar_historico(
-            db, os_id, atual, novo,
+            db,
+            os_id,
+            atual,
+            novo,
             justificativa or payload.justificativa,
             usuario.email,
             payload.geolocalizacao,
@@ -645,13 +640,11 @@ def alterar_status(os_id: int, payload: StatusUpdate,
         raise
     except Exception:
         logger.exception("Erro ao alterar status da O.S %s", os_id)
-        raise HTTPException(status_code=500, detail="Erro ao alterar status da O.S.")
+        raise HTTPException(status_code=500, detail="Erro ao alterar status da O.S.") from None
 
 
 @router.post("/{os_id}/duplicar", status_code=201, summary="Clona a O.S como rascunho")
-def duplicar_os(os_id: int,
-                usuario: UsuarioAutenticado = Depends(get_current_user),
-                db=Depends(get_supabase)):
+def duplicar_os(os_id: int, usuario: UsuarioAutenticado = Depends(get_current_user), db=Depends(get_supabase)):
     try:
         original = _os_ou_404(db, os_id)
         _garantir_acesso_os(db, usuario, original)
@@ -674,28 +667,36 @@ def duplicar_os(os_id: int,
 
         itens = db.table("os_itens_orcados").select("produto_id, quantidade_orcada").eq("os_id", os_id).execute()
         if itens.data:
-            db.table("os_itens_orcados").insert([
-                {"os_id": copia["id"], "produto_id": i["produto_id"], "quantidade_orcada": i["quantidade_orcada"]}
-                for i in itens.data
-            ]).execute()
+            db.table("os_itens_orcados").insert(
+                [
+                    {"os_id": copia["id"], "produto_id": i["produto_id"], "quantidade_orcada": i["quantidade_orcada"]}
+                    for i in itens.data
+                ]
+            ).execute()
 
-        _gravar_historico(db, copia["id"], None, "rascunho",
-                          f"Duplicada a partir da O.S {original['codigo']}.", usuario.email, None)
+        _gravar_historico(
+            db, copia["id"], None, "rascunho", f"Duplicada a partir da O.S {original['codigo']}.", usuario.email, None
+        )
         return copia
     except HTTPException:
         raise
     except Exception:
         logger.exception("Erro ao duplicar O.S %s", os_id)
-        raise HTTPException(status_code=500, detail="Erro ao duplicar O.S.")
+        raise HTTPException(status_code=500, detail="Erro ao duplicar O.S.") from None
+
 
 # ---------------------------------------------------------------------------
 # Endpoints - Lançamento de materiais/insumos
 # ---------------------------------------------------------------------------
 
+
 @router.post("/{os_id}/materiais", status_code=201, summary="Lança material aplicado")
-def lancar_material(os_id: int, payload: MaterialLancamento,
-                    usuario: UsuarioAutenticado = Depends(get_current_user),
-                    db=Depends(get_supabase)):
+def lancar_material(
+    os_id: int,
+    payload: MaterialLancamento,
+    usuario: UsuarioAutenticado = Depends(get_current_user),
+    db=Depends(get_supabase),
+):
     try:
         os_data = _os_ou_404(db, os_id)
         _garantir_acesso_os(db, usuario, os_data)
@@ -709,13 +710,19 @@ def lancar_material(os_id: int, payload: MaterialLancamento,
         if not produto.data:
             raise HTTPException(status_code=404, detail="Produto não encontrado.")
 
-        resp = db.table("os_materiais").insert({
-            "os_id": os_id,
-            "produto_id": payload.produto_id,
-            "quantidade_usada": payload.quantidade_usada,
-            "usuario_email": usuario.email,
-            "observacao": payload.observacao,
-        }).execute()
+        resp = (
+            db.table("os_materiais")
+            .insert(
+                {
+                    "os_id": os_id,
+                    "produto_id": payload.produto_id,
+                    "quantidade_usada": payload.quantidade_usada,
+                    "usuario_email": usuario.email,
+                    "observacao": payload.observacao,
+                }
+            )
+            .execute()
+        )
         if not resp.data:
             raise HTTPException(status_code=500, detail="Falha ao lançar material.")
         return {**resp.data[0], "produto_nome": produto.data[0]["nome"]}
@@ -723,19 +730,17 @@ def lancar_material(os_id: int, payload: MaterialLancamento,
         raise
     except Exception:
         logger.exception("Erro ao lançar material na O.S %s", os_id)
-        raise HTTPException(status_code=500, detail="Erro ao lançar material.")
+        raise HTTPException(status_code=500, detail="Erro ao lançar material.") from None
 
 
 @router.delete("/{os_id}/materiais/{lancamento_id}", summary="Estorna um lançamento de material")
-def estornar_material(os_id: int, lancamento_id: int,
-                      usuario: UsuarioAutenticado = Depends(get_current_user),
-                      db=Depends(get_supabase)):
+def estornar_material(
+    os_id: int, lancamento_id: int, usuario: UsuarioAutenticado = Depends(get_current_user), db=Depends(get_supabase)
+):
     try:
         os_data = _os_ou_404(db, os_id)
         _garantir_acesso_os(db, usuario, os_data)
-        registro = (
-            db.table("os_materiais").select("id").eq("id", lancamento_id).eq("os_id", os_id).execute()
-        )
+        registro = db.table("os_materiais").select("id").eq("id", lancamento_id).eq("os_id", os_id).execute()
         if not registro.data:
             raise HTTPException(status_code=404, detail="Lançamento não encontrado nesta O.S.")
         db.table("os_materiais").delete().eq("id", lancamento_id).execute()
@@ -744,13 +749,11 @@ def estornar_material(os_id: int, lancamento_id: int,
         raise
     except Exception:
         logger.exception("Erro ao estornar lançamento %s da O.S %s", lancamento_id, os_id)
-        raise HTTPException(status_code=500, detail="Erro ao estornar lançamento.")
+        raise HTTPException(status_code=500, detail="Erro ao estornar lançamento.") from None
 
 
 @router.get("/{os_id}/resumo", summary="Aplicado vs. Orçado + custo de M.O")
-def resumo_os(os_id: int,
-              usuario: UsuarioAutenticado = Depends(get_current_user),
-              db=Depends(get_supabase)):
+def resumo_os(os_id: int, usuario: UsuarioAutenticado = Depends(get_current_user), db=Depends(get_supabase)):
     try:
         os_data = _os_ou_404(db, os_id)
         _garantir_acesso_os(db, usuario, os_data)
@@ -762,17 +765,22 @@ def resumo_os(os_id: int,
         raise
     except Exception:
         logger.exception("Erro no resumo da O.S %s", os_id)
-        raise HTTPException(status_code=500, detail="Erro ao gerar resumo da O.S.")
+        raise HTTPException(status_code=500, detail="Erro ao gerar resumo da O.S.") from None
+
 
 # ---------------------------------------------------------------------------
 # Endpoints - Apontamento de Horas (H.H.) - Play/Pause
 # ---------------------------------------------------------------------------
 
+
 @router.post("/{os_id}/apontamentos", summary="Play/Pause do cronômetro H.H.")
-def apontar_hora(os_id: int, payload: ApontamentoAcao,
-                 geolocalizacao: Optional[str] = Query(None, max_length=100),
-                 usuario: UsuarioAutenticado = Depends(get_current_user),
-                 db=Depends(get_supabase)):
+def apontar_hora(
+    os_id: int,
+    payload: ApontamentoAcao,
+    geolocalizacao: str | None = Query(None, max_length=100),
+    usuario: UsuarioAutenticado = Depends(get_current_user),
+    db=Depends(get_supabase),
+):
     """Registra blocos de trabalho do membro da equipe.
 
     - 'play': abre um bloco. Se a O.S estiver 'aberta', promove automaticamente
@@ -812,19 +820,32 @@ def apontar_hora(os_id: int, payload: ApontamentoAcao,
         if acao == "play":
             if abertos.data:
                 raise HTTPException(status_code=409, detail="Já existe um cronômetro em andamento para você nesta O.S.")
-            resp = db.table("os_apontamentos").insert({
-                "os_id": os_id,
-                "funcionario_id": func["id"],
-                "inicio": _agora().isoformat(),
-            }).execute()
+            resp = (
+                db.table("os_apontamentos")
+                .insert(
+                    {
+                        "os_id": os_id,
+                        "funcionario_id": func["id"],
+                        "inicio": _agora().isoformat(),
+                    }
+                )
+                .execute()
+            )
             if not resp.data:
                 raise HTTPException(status_code=500, detail="Falha ao iniciar cronômetro.")
 
             # Início automático de serviço: 'aberta' -> 'em_andamento'.
             if os_data["status"] == "aberta":
                 db.table("ordens_servico").update({"status": "em_andamento"}).eq("id", os_id).execute()
-                _gravar_historico(db, os_id, "aberta", "em_andamento",
-                                  "Início automático via apontamento de horas.", usuario.email, geolocalizacao)
+                _gravar_historico(
+                    db,
+                    os_id,
+                    "aberta",
+                    "em_andamento",
+                    "Início automático via apontamento de horas.",
+                    usuario.email,
+                    geolocalizacao,
+                )
             return {"acao": "play", "apontamento": resp.data[0]}
 
         # acao == pause
@@ -833,10 +854,17 @@ def apontar_hora(os_id: int, payload: ApontamentoAcao,
         bloco = abertos.data[0]
         inicio = datetime.fromisoformat(bloco["inicio"])
         minutos = max(0, int(((_agora() - inicio).total_seconds()) // 60))
-        resp = db.table("os_apontamentos").update({
-            "fim": _agora().isoformat(),
-            "minutos_trabalhados": minutos,
-        }).eq("id", bloco["id"]).execute()
+        resp = (
+            db.table("os_apontamentos")
+            .update(
+                {
+                    "fim": _agora().isoformat(),
+                    "minutos_trabalhados": minutos,
+                }
+            )
+            .eq("id", bloco["id"])
+            .execute()
+        )
         if not resp.data:
             raise HTTPException(status_code=500, detail="Falha ao encerrar cronômetro.")
         return {"acao": "pause", "minutos_trabalhados": minutos}
@@ -844,17 +872,21 @@ def apontar_hora(os_id: int, payload: ApontamentoAcao,
         raise
     except Exception:
         logger.exception("Erro no apontamento de horas da O.S %s", os_id)
-        raise HTTPException(status_code=500, detail="Erro no apontamento de horas.")
+        raise HTTPException(status_code=500, detail="Erro no apontamento de horas.") from None
+
 
 # ---------------------------------------------------------------------------
 # Endpoints - Evidências fotográficas
 # ---------------------------------------------------------------------------
 
+
 @router.post("/{os_id}/fotos", status_code=201, summary="Upload de foto (câmera/galeria)")
-async def enviar_foto(os_id: int,
-                      arquivo: UploadFile = File(...),
-                      usuario: UsuarioAutenticado = Depends(get_current_user),
-                      db=Depends(get_supabase)):
+async def enviar_foto(
+    os_id: int,
+    arquivo: UploadFile = File(...),
+    usuario: UsuarioAutenticado = Depends(get_current_user),
+    db=Depends(get_supabase),
+):
     try:
         os_data = _os_ou_404(db, os_id)
         _garantir_acesso_os(db, usuario, os_data)
@@ -873,14 +905,20 @@ async def enviar_foto(os_id: int,
         bucket_key = f"os_fotos/{os_id}/{uuid.uuid4().hex}{extensao}"
         s3.put_object(Bucket=bucket(), Key=bucket_key, Body=conteudo, ContentType=mime)
 
-        resp = db.table("os_fotos").insert({
-            "os_id": os_id,
-            "nome_original": arquivo.filename or "foto",
-            "tamanho_bytes": len(conteudo),
-            "mime_type": mime,
-            "bucket_key": bucket_key,
-            "enviado_por": usuario.email,
-        }).execute()
+        resp = (
+            db.table("os_fotos")
+            .insert(
+                {
+                    "os_id": os_id,
+                    "nome_original": arquivo.filename or "foto",
+                    "tamanho_bytes": len(conteudo),
+                    "mime_type": mime,
+                    "bucket_key": bucket_key,
+                    "enviado_por": usuario.email,
+                }
+            )
+            .execute()
+        )
         if not resp.data:
             s3.delete_object(Bucket=bucket(), Key=bucket_key)
             raise HTTPException(status_code=500, detail="Falha ao registrar a foto.")
@@ -889,13 +927,11 @@ async def enviar_foto(os_id: int,
         raise
     except Exception:
         logger.exception("Erro ao enviar foto da O.S %s", os_id)
-        raise HTTPException(status_code=500, detail="Erro ao enviar foto.")
+        raise HTTPException(status_code=500, detail="Erro ao enviar foto.") from None
 
 
 @router.get("/{os_id}/fotos", summary="Lista fotos com URLs temporárias")
-def listar_fotos(os_id: int,
-                 usuario: UsuarioAutenticado = Depends(get_current_user),
-                 db=Depends(get_supabase)):
+def listar_fotos(os_id: int, usuario: UsuarioAutenticado = Depends(get_current_user), db=Depends(get_supabase)):
     try:
         os_data = _os_ou_404(db, os_id)
         _garantir_acesso_os(db, usuario, os_data)
@@ -914,19 +950,17 @@ def listar_fotos(os_id: int,
         raise
     except Exception:
         logger.exception("Erro ao listar fotos da O.S %s", os_id)
-        raise HTTPException(status_code=500, detail="Erro ao listar fotos.")
+        raise HTTPException(status_code=500, detail="Erro ao listar fotos.") from None
 
 
 @router.delete("/{os_id}/fotos/{foto_id}", summary="Exclui uma evidência fotográfica")
-def excluir_foto(os_id: int, foto_id: int,
-                 usuario: UsuarioAutenticado = Depends(get_current_user),
-                 db=Depends(get_supabase)):
+def excluir_foto(
+    os_id: int, foto_id: int, usuario: UsuarioAutenticado = Depends(get_current_user), db=Depends(get_supabase)
+):
     try:
         os_data = _os_ou_404(db, os_id)
         _garantir_acesso_os(db, usuario, os_data)
-        meta = (
-            db.table("os_fotos").select("*").eq("id", foto_id).eq("os_id", os_id).execute()
-        )
+        meta = db.table("os_fotos").select("*").eq("id", foto_id).eq("os_id", os_id).execute()
         if not meta.data:
             raise HTTPException(status_code=404, detail="Foto não encontrada nesta O.S.")
         s3 = get_s3_client()
@@ -940,16 +974,16 @@ def excluir_foto(os_id: int, foto_id: int,
         raise
     except Exception:
         logger.exception("Erro ao excluir foto %s da O.S %s", foto_id, os_id)
-        raise HTTPException(status_code=500, detail="Erro ao excluir foto.")
+        raise HTTPException(status_code=500, detail="Erro ao excluir foto.") from None
+
 
 # ---------------------------------------------------------------------------
 # Relatório PDF
 # ---------------------------------------------------------------------------
 
+
 @router.get("/{os_id}/pdf", summary="Relatório de execução da O.S em PDF")
-def relatorio_pdf(os_id: int,
-                  usuario: UsuarioAutenticado = Depends(get_current_user),
-                  db=Depends(get_supabase)):
+def relatorio_pdf(os_id: int, usuario: UsuarioAutenticado = Depends(get_current_user), db=Depends(get_supabase)):
     try:
         os_data = _os_ou_404(db, os_id)
         _garantir_acesso_os(db, usuario, os_data)
@@ -957,17 +991,17 @@ def relatorio_pdf(os_id: int,
         obra = db.table("obras").select("nome, clientes(nome)").eq("id", os_data["obra_id"]).execute().data
         equipe = (
             db.table("equipes").select("nome").eq("id", os_data.get("equipe_id")).execute().data
-            if os_data.get("equipe_id") else []
+            if os_data.get("equipe_id")
+            else []
         )
-        historico = (
-            db.table("os_historico").select("*").eq("os_id", os_id).order("criado_em").execute().data
-        )
+        historico = db.table("os_historico").select("*").eq("os_id", os_id).order("criado_em").execute().data
         materiais = _resumo_materiais(db, os_id)
         mao_de_obra = _resumo_mao_de_obra(db, os_id, os_data.get("custo_mo_orcado"))
         qtd_fotos = db.table("os_fotos").select("id").eq("os_id", os_id).execute()
 
         # utils/pdf_os.py monta o documento (mantém pdf_generator.py intacto).
         from utils.pdf_os import gerar_pdf_os
+
         caminho = gerar_pdf_os(
             os_data=os_data,
             obra=(obra[0] if obra else {}),
@@ -986,4 +1020,4 @@ def relatorio_pdf(os_id: int,
         raise
     except Exception:
         logger.exception("Erro ao gerar PDF da O.S %s", os_id)
-        raise HTTPException(status_code=500, detail="Erro ao gerar relatório PDF.")
+        raise HTTPException(status_code=500, detail="Erro ao gerar relatório PDF.") from None

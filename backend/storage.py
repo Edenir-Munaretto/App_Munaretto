@@ -10,6 +10,7 @@ variáveis de ambiente (nunca versionadas):
     B2_BUCKET_NAME       - Nome do bucket PRIVADO
     B2_REGION            - Região do bucket (opcional, padrão us-west-004)
 """
+
 import logging
 import os
 
@@ -44,7 +45,8 @@ def get_s3_client():
         return _cliente
 
     faltando = [
-        nome for nome, valor in (
+        nome
+        for nome, valor in (
             ("B2_ENDPOINT", B2_ENDPOINT),
             ("B2_KEY_ID", B2_KEY_ID),
             ("B2_APPLICATION_KEY", B2_APPLICATION_KEY),
@@ -54,8 +56,7 @@ def get_s3_client():
     ]
     if faltando:
         raise RuntimeError(
-            "Armazenamento de arquivos não configurado. Variáveis ausentes no .env: "
-            + ", ".join(faltando)
+            "Armazenamento de arquivos não configurado. Variáveis ausentes no .env: " + ", ".join(faltando)
         )
 
     _cliente = boto3.client(

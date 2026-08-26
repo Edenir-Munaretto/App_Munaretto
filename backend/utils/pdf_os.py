@@ -4,10 +4,10 @@ Gera um documento com: identificação da O.S/obra/equipe, escopo, linha do
 tempo de status, comparativo Materiais Aplicados vs. Orçados e mão de obra
 apontada (horas x valor/hora). Mantém o pdf_generator.py original intacto.
 """
+
 import os
 import tempfile
 from datetime import datetime
-from typing import Optional
 
 from fpdf import FPDF
 
@@ -54,7 +54,7 @@ class _RelatorioOS(FPDF):
         self.set_font("Arial", "B", 8.5)
         self.set_fill_color(15, 23, 42)
         self.set_text_color(255, 255, 255)
-        for (nome, _), w in zip(colunas.items(), larguras):
+        for (nome, _), w in zip(colunas.items(), larguras, strict=True):
             self.cell(w, 7, f" {nome}", border=1, fill=True)
         self.ln()
         self.set_text_color(15, 23, 42)
@@ -71,7 +71,7 @@ class _RelatorioOS(FPDF):
             fill = i % 2 == 0
             if fill:
                 self.set_fill_color(241, 245, 249)
-            for valor, w in zip(linha, larguras):
+            for valor, w in zip(linha, larguras, strict=True):
                 texto = str(valor if valor is not None else "-")
                 # FPDF core fonts são latin-1: evita erro com caracteres fora.
                 texto = texto.encode("latin-1", "replace").decode("latin-1")
@@ -86,9 +86,15 @@ def _fmt_data(iso: str) -> str:
         return str(iso or "-")
 
 
-def gerar_pdf_os(os_data: dict, obra: dict, equipe: Optional[str] = None,
-                 historico: list = None, materiais: dict = None,
-                 mao_de_obra: dict = None, quantidade_fotos: int = 0) -> str:
+def gerar_pdf_os(
+    os_data: dict,
+    obra: dict,
+    equipe: str | None = None,
+    historico: list | None = None,
+    materiais: dict | None = None,
+    mao_de_obra: dict | None = None,
+    quantidade_fotos: int = 0,
+) -> str:
     """Monta o PDF da O.S e retorna o caminho temporário do arquivo."""
     historico = historico or []
     materiais = materiais or {"itens": [], "total_orcado_rs": 0, "total_aplicado_rs": 0}
@@ -102,7 +108,9 @@ def gerar_pdf_os(os_data: dict, obra: dict, equipe: Optional[str] = None,
 
     # --- Identificação -------------------------------------------------------
     pdf._titulo_secao("IDENTIFICAÇÃO")
-    cliente = (obra.get("clientes") or {}).get("nome") if isinstance(obra.get("clientes"), dict) else obra.get("clientes")
+    cliente = (
+        (obra.get("clientes") or {}).get("nome") if isinstance(obra.get("clientes"), dict) else obra.get("clientes")
+    )
     pdf._linha_dado("Ordem de Serviço", os_data.get("codigo"))
     pdf._linha_dado("Obra", obra.get("nome"))
     pdf._linha_dado("Cliente", cliente)
@@ -117,24 +125,32 @@ def gerar_pdf_os(os_data: dict, obra: dict, equipe: Optional[str] = None,
 
     pdf._titulo_secao("ESCOPO DO SERVIÇO")
     pdf.set_font("Arial", "", 9)
-    pdf.multi_cell(0, 5.5, (os_data.get("descricao_escopo") or "Não informado.").encode("latin-1", "replace").decode("latin-1"))
+    pdf.multi_cell(
+        0, 5.5, (os_data.get("descricao_escopo") or "Não informado.").encode("latin-1", "replace").decode("latin-1")
+    )
 
     # --- Linha do tempo ------------------------------------------------------
     pdf._titulo_secao("LINHA DO TEMPO / HISTÓRICO DE STATUS")
     rotulos_status = {
-        "rascunho": "Rascunho", "aberta": "Aberta", "em_andamento": "Em Andamento",
-        "impedida": "Impedida", "concluida": "Concluída", "cancelada": "Cancelada",
+        "rascunho": "Rascunho",
+        "aberta": "Aberta",
+        "em_andamento": "Em Andamento",
+        "impedida": "Impedida",
+        "concluida": "Concluída",
+        "cancelada": "Cancelada",
     }
     linhas_hist = []
     for h in historico:
         de = rotulos_status.get(h.get("status_anterior"), "-") if h.get("status_anterior") else "-"
         para = rotulos_status.get(h.get("status_novo"), h.get("status_novo"))
-        linhas_hist.append([
-            _fmt_data(h.get("criado_em")),
-            f"{de} -> {para}",
-            h.get("justificativa") or "",
-            h.get("usuario_alteracao") or "",
-        ])
+        linhas_hist.append(
+            [
+                _fmt_data(h.get("criado_em")),
+                f"{de} -> {para}",
+                h.get("justificativa") or "",
+                h.get("usuario_alteracao") or "",
+            ]
+        )
     pdf._tabela({"Data/Hora": 30, "Transição": 45, "Justificativa": 70, "Usuário": 40}, linhas_hist)
 
     # --- Materiais -----------------------------------------------------------
@@ -151,10 +167,15 @@ def gerar_pdf_os(os_data: dict, obra: dict, equipe: Optional[str] = None,
     ]
     pdf._tabela({"Produto": 55, "Orçado": 25, "Aplicado": 25, "%": 15, "Custo aplicado": 35}, linhas_mat)
     pdf.set_font("Arial", "B", 9)
-    pdf.cell(0, 7, (
-        f"Total orçado: {brl(materiais.get('total_orcado_rs'))}   |   "
-        f"Total aplicado: {brl(materiais.get('total_aplicado_rs'))}"
-    ), ln=True)
+    pdf.cell(
+        0,
+        7,
+        (
+            f"Total orçado: {brl(materiais.get('total_orcado_rs'))}   |   "
+            f"Total aplicado: {brl(materiais.get('total_aplicado_rs'))}"
+        ),
+        ln=True,
+    )
 
     # --- Mão de obra ---------------------------------------------------------
     pdf._titulo_secao("MÃO DE OBRA (H.H.)")
@@ -164,11 +185,16 @@ def gerar_pdf_os(os_data: dict, obra: dict, equipe: Optional[str] = None,
     ]
     pdf._tabela({"Colaborador": 80, "Horas trabalhadas": 50, "Custo real": 40}, linhas_mo)
     pdf.set_font("Arial", "B", 9)
-    pdf.cell(0, 7, (
-        f"Total de horas: {mao_de_obra.get('total_horas', 0)} h   |   "
-        f"Custo real de M.O.: {brl(mao_de_obra.get('custo_mo_real'))}   |   "
-        f"M.O. orçada: {brl(mao_de_obra.get('custo_mo_orcado'))}"
-    ), ln=True)
+    pdf.cell(
+        0,
+        7,
+        (
+            f"Total de horas: {mao_de_obra.get('total_horas', 0)} h   |   "
+            f"Custo real de M.O.: {brl(mao_de_obra.get('custo_mo_real'))}   |   "
+            f"M.O. orçada: {brl(mao_de_obra.get('custo_mo_orcado'))}"
+        ),
+        ln=True,
+    )
     pdf.set_font("Arial", "", 8.5)
     pdf.cell(0, 6, f"Evidências fotográficas anexadas à O.S: {quantidade_fotos}", ln=True)
 

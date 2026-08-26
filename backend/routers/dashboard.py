@@ -7,15 +7,18 @@ exibidos (funcionários, férias, ASOs e cursos).
 
 Depende apenas de leitura sobre as tabelas compartilhadas dos demais módulos.
 """
+
 import logging
 import time
 
-from fastapi import APIRouter, HTTPException, Depends
+from fastapi import APIRouter, Depends, HTTPException
 
-from supabase_client import get_supabase
 from auth import require_qualquer_permisao
-from utils.date_helpers import hoje as _hoje, parse_data as _parse_data, status_vencimento as _status_vencimento
-from utils.date_helpers import STATUS_VIGENTE, STATUS_PROXIMO, STATUS_VENCIDO, STATUS_SEM_VALIDADE
+from supabase_client import get_supabase
+from utils.date_helpers import STATUS_PROXIMO, STATUS_SEM_VALIDADE, STATUS_VENCIDO, STATUS_VIGENTE
+from utils.date_helpers import hoje as _hoje
+from utils.date_helpers import parse_data as _parse_data
+from utils.date_helpers import status_vencimento as _status_vencimento
 
 router = APIRouter(dependencies=[Depends(require_qualquer_permisao(["dashboard", "configuracoes"]))])
 
@@ -70,36 +73,42 @@ def _alertas_ferias(registros: list) -> list:
         dias = (limite - hoje).days
         nome = r.get("nome", "Colaborador")
         if 10 < dias <= 30:
-            alertas.append({
-                "nome": nome,
-                "data_limite": limite.strftime("%d/%m/%Y"),
-                "dias_restantes": dias,
-                "gravidade": "warning",
-                "mensagem": f"Faltam {dias} dias para o limite de gozo de {nome} ({limite.strftime('%d/%m/%Y')}).",
-            })
+            alertas.append(
+                {
+                    "nome": nome,
+                    "data_limite": limite.strftime("%d/%m/%Y"),
+                    "dias_restantes": dias,
+                    "gravidade": "warning",
+                    "mensagem": f"Faltam {dias} dias para o limite de gozo de {nome} ({limite.strftime('%d/%m/%Y')}).",
+                }
+            )
         elif 0 <= dias <= 10:
-            alertas.append({
-                "nome": nome,
-                "data_limite": limite.strftime("%d/%m/%Y"),
-                "dias_restantes": dias,
-                "gravidade": "danger",
-                "mensagem": f"URGENTE: {nome} precisa tirar férias até {limite.strftime('%d/%m/%Y')}!",
-            })
+            alertas.append(
+                {
+                    "nome": nome,
+                    "data_limite": limite.strftime("%d/%m/%Y"),
+                    "dias_restantes": dias,
+                    "gravidade": "danger",
+                    "mensagem": f"URGENTE: {nome} precisa tirar férias até {limite.strftime('%d/%m/%Y')}!",
+                }
+            )
         elif dias < 0:
-            alertas.append({
-                "nome": nome,
-                "data_limite": limite.strftime("%d/%m/%Y"),
-                "dias_restantes": dias,
-                "gravidade": "expired",
-                "mensagem": f"ATENÇÃO: Prazo limite vencido para {nome} em {limite.strftime('%d/%m/%Y')}!",
-            })
+            alertas.append(
+                {
+                    "nome": nome,
+                    "data_limite": limite.strftime("%d/%m/%Y"),
+                    "dias_restantes": dias,
+                    "gravidade": "expired",
+                    "mensagem": f"ATENÇÃO: Prazo limite vencido para {nome} em {limite.strftime('%d/%m/%Y')}!",
+                }
+            )
     return alertas
 
 
 @router.get("/resumo")
 def resumo_dashboard(db=Depends(get_supabase)):
     """Retorna todos os dados exibidos no Dashboard em uma única chamada.
-    
+
     Resultado cacheado por 60 segundos para reduzir queries ao Supabase
     em chamadas frequentes (ex: window.focus do frontend).
     """
@@ -145,6 +154,6 @@ def resumo_dashboard(db=Depends(get_supabase)):
         _cache["data"] = resultado
         _cache["ts"] = time.monotonic()
         return resultado
-    except Exception as e:
+    except Exception:
         logger.exception("Erro ao buscar resumo do dashboard")
-        raise HTTPException(status_code=500, detail="Erro ao buscar resumo do dashboard")
+        raise HTTPException(status_code=500, detail="Erro ao buscar resumo do dashboard") from None

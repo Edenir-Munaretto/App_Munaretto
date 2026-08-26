@@ -3,9 +3,8 @@
 Centraliza a lógica de parse e cálculo de status de vencimento que estava
 duplicada em sst.py, dashboard.py e ferias.py.
 """
-from datetime import date, datetime
-from typing import Optional
 
+from datetime import date, datetime
 
 DIAS_AVISO = 30
 
@@ -20,9 +19,9 @@ def hoje() -> date:
     return date.today()
 
 
-def parse_data(valor) -> Optional[date]:
+def parse_data(valor) -> date | None:
     """Converte string 'YYYY-MM-DD' ou objeto date/datetime para date.
-    
+
     Retorna None se o valor for inválido ou ausente.
     """
     if valor is None:

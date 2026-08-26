@@ -1,80 +1,86 @@
 import os
 import tempfile
-from fpdf import FPDF
 from datetime import datetime
+
+from fpdf import FPDF
+
 
 class RelatorioSocio(FPDF):
     def header(self):
         # Cabeçalho com fundo azul escuro
         self.set_fill_color(26, 54, 104)
-        self.rect(0, 0, 210, 40, 'F')
-        self.set_font("Arial", 'B', 18)
+        self.rect(0, 0, 210, 40, "F")
+        self.set_font("Arial", "B", 18)
         self.set_text_color(255, 255, 255)
-        self.cell(0, 15, "RELATÓRIO DE FECHAMENTO MENSAL", ln=True, align='C')
-        self.set_font("Arial", 'B', 12)
-        self.cell(0, 5, "Usinas Solar - Ouro Energia", ln=True, align='C')
+        self.cell(0, 15, "RELATÓRIO DE FECHAMENTO MENSAL", ln=True, align="C")
+        self.set_font("Arial", "B", 12)
+        self.cell(0, 5, "Usinas Solar - Ouro Energia", ln=True, align="C")
         self.ln(20)
 
     def footer(self):
         self.set_y(-15)
-        self.set_font("Arial", 'I', 8)
+        self.set_font("Arial", "I", 8)
         self.set_text_color(128, 128, 128)
-        self.cell(0, 10, f"Gerado em {datetime.now().strftime('%d/%m/%Y')} - Página {self.page_no()}", align='C')
+        self.cell(0, 10, f"Gerado em {datetime.now().strftime('%d/%m/%Y')} - Página {self.page_no()}", align="C")
 
     def criar_tabela_financeira(self, titulo, dados, cor_header):
-        self.set_font("Arial", 'B', 12)
+        self.set_font("Arial", "B", 12)
         self.set_text_color(0, 0, 0)
         self.cell(0, 10, titulo, ln=True)
         self.set_fill_color(*cor_header)
         self.set_text_color(255, 255, 255)
-        self.set_font("Arial", 'B', 10)
+        self.set_font("Arial", "B", 10)
         self.cell(140, 8, " Descrição", border=1, fill=True)
-        self.cell(50, 8, " Valor (R$)", border=1, fill=True, align='C')
+        self.cell(50, 8, " Valor (R$)", border=1, fill=True, align="C")
         self.ln()
         self.set_text_color(0, 0, 0)
-        self.set_font("Arial", '', 10)
+        self.set_font("Arial", "", 10)
         for desc, valor in dados.items():
             self.cell(140, 8, f" {desc}", border=1)
-            self.cell(50, 8, f" {valor:>10}", border=1, align='R')
+            self.cell(50, 8, f" {valor:>10}", border=1, align="R")
             self.ln()
         self.ln(5)
+
 
 def gerar_pdf_mensal(mes_ref, dados_usinas, dados_despesas, total_liquido, nome_arquivo="relatorio_mensal.pdf"):
     pdf = RelatorioSocio()
     pdf.add_page()
 
     # Funções Auxiliares
-    parse_valor = lambda v: float(str(v).replace('.', '').replace(',', '.'))
-    formatar = lambda v: f"{v:,.2f}".replace(",", "X").replace(".", ",").replace("X", ".")
+    def parse_valor(v):
+        return float(str(v).replace(".", "").replace(",", "."))
 
-    pdf.set_font("Arial", 'B', 12)
+    def formatar(v):
+        return f"{v:,.2f}".replace(",", "X").replace(".", ",").replace("X", ".")
+
+    pdf.set_font("Arial", "B", 12)
     pdf.cell(0, 10, f"PERÍODO DE REFERÊNCIA: {mes_ref}", ln=True)
     pdf.ln(5)
 
     # 1. Rendimentos
     pdf.criar_tabela_financeira("RENDIMENTOS DE PRODUÇÃO", dados_usinas, (46, 139, 87))
     total_rend = sum(parse_valor(v) for v in dados_usinas.values())
-    pdf.set_font("Arial", 'B', 10)
+    pdf.set_font("Arial", "B", 10)
     pdf.set_fill_color(230, 245, 230)
     pdf.cell(140, 8, " TOTAL RENDIMENTOS", border=1, fill=True)
-    pdf.cell(50, 8, f" R$ {formatar(total_rend)}", border=1, fill=True, align='C')
+    pdf.cell(50, 8, f" R$ {formatar(total_rend)}", border=1, fill=True, align="C")
     pdf.ln(15)
 
     # 2. Despesas
     pdf.criar_tabela_financeira("DESPESAS OPERACIONAIS", dados_despesas, (178, 34, 34))
     total_desp = sum(parse_valor(v) for v in dados_despesas.values())
-    pdf.set_font("Arial", 'B', 10)
+    pdf.set_font("Arial", "B", 10)
     pdf.set_fill_color(255, 240, 240)
     pdf.cell(140, 8, " TOTAL DESPESAS", border=1, fill=True)
-    pdf.cell(50, 8, f" R$ {formatar(total_desp)}", border=1, fill=True, align='C')
+    pdf.cell(50, 8, f" R$ {formatar(total_desp)}", border=1, fill=True, align="C")
 
     # 3. Saldo Líquido
     pdf.ln(20)
     pdf.set_fill_color(240, 240, 240)
-    pdf.set_font("Arial", 'B', 14)
+    pdf.set_font("Arial", "B", 14)
     pdf.cell(140, 15, " SALDO LÍQUIDO DISPONÍVEL", border=1, fill=True)
     pdf.set_text_color(0, 100, 0)
-    pdf.cell(50, 15, f" R$ {total_liquido}", border=1, fill=True, align='C')
+    pdf.cell(50, 15, f" R$ {total_liquido}", border=1, fill=True, align="C")
     pdf.set_text_color(0, 0, 0)
 
     # 4. Tabela de Sócios
@@ -85,7 +91,7 @@ def gerar_pdf_mensal(mes_ref, dados_usinas, dados_despesas, total_liquido, nome_
         "Marlene (30%)": formatar(valor_num * 0.30),
         "João B. (30%)": formatar(valor_num * 0.30),
         "Nei Rigo (10%)": formatar(valor_num * 0.10),
-        "Gilmar T. (5%)": formatar(valor_num * 0.05)
+        "Gilmar T. (5%)": formatar(valor_num * 0.05),
     }
     pdf.criar_tabela_financeira("DISTRIBUIÇÃO DE LUCROS (TODOS OS SÓCIOS)", socios, (26, 54, 104))
 
@@ -93,16 +99,20 @@ def gerar_pdf_mensal(mes_ref, dados_usinas, dados_despesas, total_liquido, nome_
     pdf.output(caminho_temp)
     return caminho_temp
 
+
 def gerar_pdf_socio_especifico(socio_alvo, mes_ref, dados_usinas, dados_despesas, total_liquido):
     pdf = RelatorioSocio()
     pdf.add_page()
 
     # Funções Auxiliares de Formatação
-    parse_valor = lambda v: float(str(v).replace('.', '').replace(',', '.'))
-    formatar = lambda v: f"{v:,.2f}".replace(",", "X").replace(".", ",").replace("X", ".")
+    def parse_valor(v):
+        return float(str(v).replace(".", "").replace(",", "."))
+
+    def formatar(v):
+        return f"{v:,.2f}".replace(",", "X").replace(".", ",").replace("X", ".")
 
     # 1. Informações de Cabeçalho Local
-    pdf.set_font("Arial", 'B', 12)
+    pdf.set_font("Arial", "B", 12)
     pdf.cell(0, 10, f"PERÍODO: {mes_ref}", ln=True)
     pdf.cell(0, 10, f"SÓCIO: {socio_alvo}", ln=True)
     pdf.ln(5)
@@ -110,28 +120,22 @@ def gerar_pdf_socio_especifico(socio_alvo, mes_ref, dados_usinas, dados_despesas
     # 2. Tabelas de Produção e Despesas
     pdf.criar_tabela_financeira("RENDIMENTOS DE PRODUÇÃO", dados_usinas, (46, 139, 87))
     total_rend = sum(parse_valor(v) for v in dados_usinas.values())
-    pdf.set_font("Arial", 'B', 10)
+    pdf.set_font("Arial", "B", 10)
     pdf.set_fill_color(230, 245, 230)
     pdf.cell(140, 8, " TOTAL RENDIMENTOS", border=1, fill=True)
-    pdf.cell(50, 8, f" R$ {formatar(total_rend)}", border=1, fill=True, align='C')
+    pdf.cell(50, 8, f" R$ {formatar(total_rend)}", border=1, fill=True, align="C")
     pdf.ln(15)
 
     pdf.criar_tabela_financeira("DESPESAS OPERACIONAIS", dados_despesas, (178, 34, 34))
     total_desp = sum(parse_valor(v) for v in dados_despesas.values())
-    pdf.set_font("Arial", 'B', 10)
+    pdf.set_font("Arial", "B", 10)
     pdf.set_fill_color(255, 240, 240)
     pdf.cell(140, 8, " TOTAL DESPESAS", border=1, fill=True)
-    pdf.cell(50, 8, f" R$ {formatar(total_desp)}", border=1, fill=True, align='C')
-    
+    pdf.cell(50, 8, f" R$ {formatar(total_desp)}", border=1, fill=True, align="C")
+
     # 3. Cálculo da Divisão Fixa
     valor_num = parse_valor(total_liquido)
-    SOCIOS_REGRAS = {
-        "Demarco": 0.25,
-        "Marlene": 0.30,
-        "João B.": 0.30,
-        "Nei Rigo": 0.10,
-        "Gilmar T.": 0.05
-    }
+    SOCIOS_REGRAS = {"Demarco": 0.25, "Marlene": 0.30, "João B.": 0.30, "Nei Rigo": 0.10, "Gilmar T.": 0.05}
 
     porcentagem = SOCIOS_REGRAS.get(socio_alvo, 0)
     valor_socio = valor_num * porcentagem
@@ -139,16 +143,16 @@ def gerar_pdf_socio_especifico(socio_alvo, mes_ref, dados_usinas, dados_despesas
     # 4. Saldo Líquido e Cota-parte
     pdf.ln(20)
     pdf.set_fill_color(240, 240, 240)
-    pdf.set_font("Arial", 'B', 14)
+    pdf.set_font("Arial", "B", 14)
     pdf.cell(140, 15, " TOTAL LÍQUIDO DA USINA", border=1, fill=True)
     pdf.set_text_color(0, 100, 0)
-    pdf.cell(50, 15, f" R$ {total_liquido}", border=1, fill=True, align='C')
+    pdf.cell(50, 15, f" R$ {total_liquido}", border=1, fill=True, align="C")
     pdf.ln()
-    
+
     pdf.set_text_color(255, 255, 255)
     pdf.set_fill_color(26, 54, 104)
-    pdf.cell(140, 15, f" COTA-PARTE: {socio_alvo} ({int(porcentagem*100)}%)", border=1, fill=True)
-    pdf.cell(50, 15, f" R$ {formatar(valor_socio)}", border=1, fill=True, align='C')
+    pdf.cell(140, 15, f" COTA-PARTE: {socio_alvo} ({int(porcentagem * 100)}%)", border=1, fill=True)
+    pdf.cell(50, 15, f" R$ {formatar(valor_socio)}", border=1, fill=True, align="C")
 
     nome_arquivo = f"Relatorio_{socio_alvo}_{mes_ref.replace('/', '-')}.pdf"
     caminho_temp = os.path.join(tempfile.gettempdir(), nome_arquivo)

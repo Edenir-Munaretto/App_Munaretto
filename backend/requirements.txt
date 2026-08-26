@@ -20,3 +20,6 @@ pywin32>=306; platform_system == "Windows"
 # Testes
 pytest>=7.0.0
 httpx>=0.24.0
+
+# Qualidade de código (linter + formatador)
+ruff>=0.16.0

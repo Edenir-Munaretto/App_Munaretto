@@ -7,16 +7,14 @@ from fastapi.testclient import TestClient
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
-from supabase_client import get_supabase  # noqa: E402
-from main import app  # noqa: E402
-from tests.supabase_fake import SupabaseFake  # noqa: E402
+from main import app
+from supabase_client import get_supabase
+from tests.supabase_fake import SupabaseFake
 
 
 def _hash_senha(senha: str) -> str:
     salt = "0123456789abcdef"
-    valor = hashlib.pbkdf2_hmac(
-        "sha256", senha.encode("utf-8"), bytes.fromhex(salt), 100000
-    ).hex()
+    valor = hashlib.pbkdf2_hmac("sha256", senha.encode("utf-8"), bytes.fromhex(salt), 100000).hex()
     return f"{salt}${valor}"
 
 
@@ -29,8 +27,14 @@ def _montar_dados_banco():
                 "email": "admin@munaretto.com",
                 "senha": "f3a1f7c47d63d1b8d3f5e67b7f9d2b3e$abcd" * 4,
                 "permissoes": [
-                    "dashboard", "clientes", "ferias", "fluxo",
-                    "documentos", "comprovantes", "recebimentos", "configuracoes",
+                    "dashboard",
+                    "clientes",
+                    "ferias",
+                    "fluxo",
+                    "documentos",
+                    "comprovantes",
+                    "recebimentos",
+                    "configuracoes",
                 ],
                 "ativo": True,
                 "precisa_trocar_senha": False,
@@ -167,8 +171,13 @@ def _criar_e_logar(client, db_fake, uid, nome, email, senha, permissoes):
 def os_gestor_client(client, db_fake):
     """Gestor: permissão 'os' + 'dashboard' (visão completa do módulo)."""
     return _criar_e_logar(
-        client, db_fake, 91, "Gestor OS", "gestor.os@munaretto.com",
-        "senhaGestor123", ["os", "dashboard"],
+        client,
+        db_fake,
+        91,
+        "Gestor OS",
+        "gestor.os@munaretto.com",
+        "senhaGestor123",
+        ["os", "dashboard"],
     )
 
 
@@ -176,6 +185,11 @@ def os_gestor_client(client, db_fake):
 def os_campo_client(client, db_fake):
     """Usuário de campo: apenas 'os' (restrito às equipes em que atua)."""
     return _criar_e_logar(
-        client, db_fake, 92, "Lider Campo", "campo@munaretto.com",
-        "senhaCampo123", ["os"],
+        client,
+        db_fake,
+        92,
+        "Lider Campo",
+        "campo@munaretto.com",
+        "senhaCampo123",
+        ["os"],
     )

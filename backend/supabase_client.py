@@ -1,12 +1,12 @@
 import logging
 import os
 import time
-from functools import wraps
-from typing import Any, Callable
+from collections.abc import Callable
+from typing import Any
 
 from dotenv import load_dotenv
-from supabase import create_client, Client
 from postgrest.exceptions import APIError
+from supabase import Client, create_client
 
 # Carrega arquivo .env se existir
 load_dotenv()
@@ -26,6 +26,7 @@ logger = logging.getLogger(__name__)
 MAX_TENTATIVAS = 3
 BASE_ATRASO = 0.5  # segundos
 
+
 def _erro_transitorio(err: Exception) -> bool:
     """Retorna True se o erro deve ser repetido (rede / 5xx).
 
@@ -34,9 +35,8 @@ def _erro_transitorio(err: Exception) -> bool:
     """
     if isinstance(err, APIError):
         return err.status_code is not None and err.status_code >= 500
-    if isinstance(err, (ValueError, TypeError)):
-        return False
-    return True
+    return not isinstance(err, (ValueError, TypeError))
+
 
 def _com_retry(fn: Callable[..., Any], *args, **kwargs):
     """Executa fn com tentativas e backoff exponencial em erros transitórios."""
@@ -44,11 +44,11 @@ def _com_retry(fn: Callable[..., Any], *args, **kwargs):
     for tentativa in range(MAX_TENTATIVAS):
         try:
             return fn(*args, **kwargs)
-        except Exception as err:  # noqa: BLE001
+        except Exception as err:
             ultimo_erro = err
             if not _erro_transitorio(err) or tentativa >= MAX_TENTATIVAS - 1:
                 raise
-            atraso = BASE_ATRASO * (2 ** tentativa)
+            atraso = BASE_ATRASO * (2**tentativa)
             logger.warning(
                 "Falha transitória no Supabase (tentativa %d/%d): %s. Nova tentativa em %.1fs",
                 tentativa + 1,
@@ -58,6 +58,7 @@ def _com_retry(fn: Callable[..., Any], *args, **kwargs):
             )
             time.sleep(atraso)
     raise ultimo_erro  # pragma: no cover
+
 
 class _RetryProxy:
     """Proxy do cliente Supabase que aplica retry na chamada final `.execute()`.
@@ -76,17 +77,21 @@ class _RetryProxy:
         if nome == "execute" and callable(atributo):
             return lambda *a, **k: _com_retry(atributo, *a, **k)
         if callable(atributo):
+
             def _chamada(*args, **kwargs):
                 resultado = atributo(*args, **kwargs)
-                if hasattr(resultado, "execute") and callable(getattr(resultado, "execute")):
+                if hasattr(resultado, "execute") and callable(resultado.execute):
                     return _RetryProxy(resultado)
                 return resultado
+
             return _chamada
         return atributo
+
 
 # Cliente Supabase singleton (envolvido pelo proxy de retry)
 _cliente: Client = create_client(SUPABASE_URL, SUPABASE_KEY) if SUPABASE_URL and SUPABASE_KEY else None
 supabase = _RetryProxy(_cliente) if _cliente is not None else None
+
 
 def get_supabase() -> Client:
     if supabase is None:

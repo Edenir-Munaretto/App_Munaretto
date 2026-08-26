@@ -13,9 +13,7 @@ SENHA = "senhaForte123"
 
 def _hash_senha(senha: str) -> str:
     salt = "0123456789abcdef"
-    valor = hashlib.pbkdf2_hmac(
-        "sha256", senha.encode("utf-8"), bytes.fromhex(salt), 100000
-    ).hex()
+    valor = hashlib.pbkdf2_hmac("sha256", senha.encode("utf-8"), bytes.fromhex(salt), 100000).hex()
     return f"{salt}${valor}"
 
 
@@ -41,20 +39,52 @@ def _login(client):
 
 def _sembrar_notificacoes(db_fake):
     db_fake._dados["notificacoes"] = [
-        {"id": 1, "tipo": "ferias", "titulo": "Nova", "mensagem": "A",
-         "destinatario": EMAIL, "ferias_id": None, "lida": False,
-         "criada_por": "Sistema", "created_at": "2026-08-01T10:00:00Z"},
-        {"id": 2, "tipo": "ferias", "titulo": "Lida", "mensagem": "B",
-         "destinatario": EMAIL, "ferias_id": None, "lida": True,
-         "criada_por": "Sistema", "created_at": "2026-08-02T10:00:00Z"},
+        {
+            "id": 1,
+            "tipo": "ferias",
+            "titulo": "Nova",
+            "mensagem": "A",
+            "destinatario": EMAIL,
+            "ferias_id": None,
+            "lida": False,
+            "criada_por": "Sistema",
+            "created_at": "2026-08-01T10:00:00Z",
+        },
+        {
+            "id": 2,
+            "tipo": "ferias",
+            "titulo": "Lida",
+            "mensagem": "B",
+            "destinatario": EMAIL,
+            "ferias_id": None,
+            "lida": True,
+            "criada_por": "Sistema",
+            "created_at": "2026-08-02T10:00:00Z",
+        },
         # Registro legado sem valor em lida (NULL) — deve contar como NÃO lida
-        {"id": 3, "tipo": "ferias", "titulo": "Sem lida", "mensagem": "C",
-         "destinatario": EMAIL, "ferias_id": None, "lida": None,
-         "criada_por": "Sistema", "created_at": "2026-08-03T10:00:00Z"},
+        {
+            "id": 3,
+            "tipo": "ferias",
+            "titulo": "Sem lida",
+            "mensagem": "C",
+            "destinatario": EMAIL,
+            "ferias_id": None,
+            "lida": None,
+            "criada_por": "Sistema",
+            "created_at": "2026-08-03T10:00:00Z",
+        },
         # Notificação de OUTRO usuário — nunca deve aparecer
-        {"id": 4, "tipo": "ferias", "titulo": "Outro", "mensagem": "D",
-         "destinatario": "outro@munaretto.com", "ferias_id": None, "lida": False,
-         "criada_por": "Sistema", "created_at": "2026-08-04T10:00:00Z"},
+        {
+            "id": 4,
+            "tipo": "ferias",
+            "titulo": "Outro",
+            "mensagem": "D",
+            "destinatario": "outro@munaretto.com",
+            "ferias_id": None,
+            "lida": False,
+            "criada_por": "Sistema",
+            "created_at": "2026-08-04T10:00:00Z",
+        },
     ]
 
 
@@ -188,27 +218,46 @@ def _sembrar_documentos(db_fake, validade_proximo, validade_vencido, validade_lo
     ]
     db_fake._dados["veiculo_documentos"] = [
         {
-            "id": 1, "veiculo_id": 1, "tipo": "CRLV",
-            "nome_original": "crlv.pdf", "tamanho_bytes": 10,
-            "mime_type": "application/pdf", "bucket_key": "k1",
-            "data_validade": validade_proximo, "observacao": None,
+            "id": 1,
+            "veiculo_id": 1,
+            "tipo": "CRLV",
+            "nome_original": "crlv.pdf",
+            "tamanho_bytes": 10,
+            "mime_type": "application/pdf",
+            "bucket_key": "k1",
+            "data_validade": validade_proximo,
+            "observacao": None,
         },
         {
-            "id": 2, "veiculo_id": 1, "tipo": "Certificado do Cronotacógrafo",
-            "nome_original": "crono.pdf", "tamanho_bytes": 10,
-            "mime_type": "application/pdf", "bucket_key": "k2",
-            "data_validade": validade_vencido, "observacao": None,
+            "id": 2,
+            "veiculo_id": 1,
+            "tipo": "Certificado do Cronotacógrafo",
+            "nome_original": "crono.pdf",
+            "tamanho_bytes": 10,
+            "mime_type": "application/pdf",
+            "bucket_key": "k2",
+            "data_validade": validade_vencido,
+            "observacao": None,
         },
         {
-            "id": 3, "veiculo_id": 1, "tipo": "Seguro",
-            "nome_original": "seguro.pdf", "tamanho_bytes": 10,
-            "mime_type": "application/pdf", "bucket_key": "k3",
-            "data_validade": validade_longe, "observacao": None,
+            "id": 3,
+            "veiculo_id": 1,
+            "tipo": "Seguro",
+            "nome_original": "seguro.pdf",
+            "tamanho_bytes": 10,
+            "mime_type": "application/pdf",
+            "bucket_key": "k3",
+            "data_validade": validade_longe,
+            "observacao": None,
         },
         {
-            "id": 4, "veiculo_id": 1, "tipo": "IPVA",
-            "nome_original": "ipva.pdf", "tamanho_bytes": 10,
-            "mime_type": "application/pdf", "bucket_key": "k4",
+            "id": 4,
+            "veiculo_id": 1,
+            "tipo": "IPVA",
+            "nome_original": "ipva.pdf",
+            "tamanho_bytes": 10,
+            "mime_type": "application/pdf",
+            "bucket_key": "k4",
             "data_validade": None if sem_validade else "2026-09-01",
             "observacao": None,
         },

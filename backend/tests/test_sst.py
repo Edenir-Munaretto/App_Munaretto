@@ -8,14 +8,10 @@ Usa o cliente Supabase fake (sem rede).
 import hashlib
 from datetime import date, timedelta
 
-import pytest
-
 
 def _hash_senha(senha: str) -> str:
     salt = "0123456789abcdef"
-    valor = hashlib.pbkdf2_hmac(
-        "sha256", senha.encode("utf-8"), bytes.fromhex(salt), 100000
-    ).hex()
+    valor = hashlib.pbkdf2_hmac("sha256", senha.encode("utf-8"), bytes.fromhex(salt), 100000).hex()
     return f"{salt}${valor}"
 
 
@@ -46,9 +42,7 @@ def test_sem_permissao(client, db_fake):
         json={"email": "semsst@munaretto.com", "senha": "senhaSemSST1"},
     )
     token = resp.json()["token"]
-    resp2 = client.get(
-        "/api/sst/cargos", headers={"Authorization": f"Bearer {token}"}
-    )
+    resp2 = client.get("/api/sst/cargos", headers={"Authorization": f"Bearer {token}"})
     assert resp2.status_code == 403
 
 
@@ -131,19 +125,34 @@ def test_vencimento_treinamento(sst_client, db_fake):
     # Vencido
     sst_client.post(
         "/api/sst/funcionario-treinamentos",
-        json={"funcionario_id": 1, "treinamento_id": treino["id"], "data_realizacao": "2020-01-01", "data_validade": "2021-01-01"},
+        json={
+            "funcionario_id": 1,
+            "treinamento_id": treino["id"],
+            "data_realizacao": "2020-01-01",
+            "data_validade": "2021-01-01",
+        },
     )
     # Próximo ao vencimento (10 dias)
     proximo = (hoje + timedelta(days=10)).isoformat()
     sst_client.post(
         "/api/sst/funcionario-treinamentos",
-        json={"funcionario_id": 1, "treinamento_id": treino["id"], "data_realizacao": hoje.isoformat(), "data_validade": proximo},
+        json={
+            "funcionario_id": 1,
+            "treinamento_id": treino["id"],
+            "data_realizacao": hoje.isoformat(),
+            "data_validade": proximo,
+        },
     )
     # Vigente (validade longe no futuro)
     vigente = (hoje + timedelta(days=365)).isoformat()
     sst_client.post(
         "/api/sst/funcionario-treinamentos",
-        json={"funcionario_id": 1, "treinamento_id": treino["id"], "data_realizacao": hoje.isoformat(), "data_validade": vigente},
+        json={
+            "funcionario_id": 1,
+            "treinamento_id": treino["id"],
+            "data_realizacao": hoje.isoformat(),
+            "data_validade": vigente,
+        },
     )
 
     resp = sst_client.get("/api/sst/funcionario-treinamentos")
@@ -252,7 +261,13 @@ def test_crud_epi_e_ficha(sst_client, db_fake):
 
     resp = sst_client.put(
         f"/api/sst/funcionario-epis/{ficha['id']}",
-        json={"funcionario_id": 1, "epi_id": epi["id"], "data_entrega": "2026-01-01", "data_devolucao": "2026-02-01", "quantidade": 2},
+        json={
+            "funcionario_id": 1,
+            "epi_id": epi["id"],
+            "data_entrega": "2026-01-01",
+            "data_devolucao": "2026-02-01",
+            "quantidade": 2,
+        },
     )
     assert resp.status_code == 200
     assert resp.json()["status"] == "Devolvido"
@@ -295,7 +310,12 @@ def test_pendencias_matriz(sst_client, db_fake):
     # Realizou, mas a validade venceu -> Vencido
     sst_client.post(
         "/api/sst/funcionario-treinamentos",
-        json={"funcionario_id": 1, "treinamento_id": treino["id"], "data_realizacao": "2020-01-01", "data_validade": "2021-01-01"},
+        json={
+            "funcionario_id": 1,
+            "treinamento_id": treino["id"],
+            "data_realizacao": "2020-01-01",
+            "data_validade": "2021-01-01",
+        },
     )
     pend = sst_client.get("/api/sst/pendencias").json()
     assert len(pend) == 1
@@ -306,7 +326,12 @@ def test_pendencias_matriz(sst_client, db_fake):
     vigente = (hoje + timedelta(days=365)).isoformat()
     sst_client.post(
         "/api/sst/funcionario-treinamentos",
-        json={"funcionario_id": 1, "treinamento_id": treino["id"], "data_realizacao": hoje.isoformat(), "data_validade": vigente},
+        json={
+            "funcionario_id": 1,
+            "treinamento_id": treino["id"],
+            "data_realizacao": hoje.isoformat(),
+            "data_validade": vigente,
+        },
     )
     pend = sst_client.get("/api/sst/pendencias").json()
     assert pend == []
@@ -384,7 +409,12 @@ def test_alertas_sst(sst_client, db_fake):
     ).json()
     sst_client.post(
         "/api/sst/funcionario-treinamentos",
-        json={"funcionario_id": 1, "treinamento_id": treino["id"], "data_realizacao": "2020-01-01", "data_validade": "2021-01-01"},
+        json={
+            "funcionario_id": 1,
+            "treinamento_id": treino["id"],
+            "data_realizacao": "2020-01-01",
+            "data_validade": "2021-01-01",
+        },
     )
     sst_client.post(
         "/api/sst/epis",

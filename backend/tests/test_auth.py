@@ -9,9 +9,7 @@ import hashlib
 
 def _hash_senha(senha: str) -> str:
     salt = "0123456789abcdef"
-    valor = hashlib.pbkdf2_hmac(
-        "sha256", senha.encode("utf-8"), bytes.fromhex(salt), 100000
-    ).hex()
+    valor = hashlib.pbkdf2_hmac("sha256", senha.encode("utf-8"), bytes.fromhex(salt), 100000).hex()
     return f"{salt}${valor}"
 
 
@@ -65,9 +63,7 @@ def test_rota_protegida_sem_token(client):
 
 
 def test_rota_protegida_token_invalido(client):
-    resp = client.get(
-        "/api/clientes/", headers={"Authorization": "Bearer token.invalido.aqui"}
-    )
+    resp = client.get("/api/clientes/", headers={"Authorization": "Bearer token.invalido.aqui"})
     assert resp.status_code in (401, 403)
 
 
@@ -126,9 +122,7 @@ def test_usuarios_me_retorna_permissoes_frescas(client, db_fake):
         permissoes=("clientes", "sst"),
     )
     token = _login(client, email="gestor2@munaretto.com", senha="gestorSenha456")
-    resp = client.get(
-        "/api/usuarios/me", headers={"Authorization": f"Bearer {token}"}
-    )
+    resp = client.get("/api/usuarios/me", headers={"Authorization": f"Bearer {token}"})
     assert resp.status_code == 200, resp.text
     body = resp.json()
     assert body["id"] == 99
@@ -145,9 +139,7 @@ def test_funcionarios_permisao_funcionarios_ok(client, db_fake):
         permissoes=("funcionarios",),
     )
     token = _login(client, email="rh@munaretto.com", senha="rhSenha123")
-    resp = client.get(
-        "/api/funcionarios/", headers={"Authorization": f"Bearer {token}"}
-    )
+    resp = client.get("/api/funcionarios/", headers={"Authorization": f"Bearer {token}"})
     assert resp.status_code == 200, resp.text
     assert isinstance(resp.json(), list)
 
@@ -161,9 +153,7 @@ def test_funcionarios_permisao_negada(client, db_fake):
         permissoes=("fluxo",),
     )
     token = _login(client, email="semmodulo@munaretto.com", senha="semModulo123")
-    resp = client.get(
-        "/api/funcionarios/", headers={"Authorization": f"Bearer {token}"}
-    )
+    resp = client.get("/api/funcionarios/", headers={"Authorization": f"Bearer {token}"})
     assert resp.status_code == 403
 
 
@@ -176,9 +166,7 @@ def test_funcionarios_permisao_sst_ok(client, db_fake):
         permissoes=("sst",),
     )
     token = _login(client, email="sst@munaretto.com", senha="sstSenha123")
-    resp = client.get(
-        "/api/funcionarios/", headers={"Authorization": f"Bearer {token}"}
-    )
+    resp = client.get("/api/funcionarios/", headers={"Authorization": f"Bearer {token}"})
     assert resp.status_code == 200, resp.text
 
 

@@ -8,35 +8,56 @@ Cobre as regras críticas:
 - Custo Real de Mão de Obra (minutos x valor_hora / 60);
 - Permissão granular (usuário de campo só acessa O.S da própria equipe).
 """
-import pytest
 
 from routers.os import TRANSICOES_STATUS
-
 
 # ---------------------------------------------------------------------------
 # Helpers de cenário
 # ---------------------------------------------------------------------------
 
+
 def _seed_cenario(db_fake):
     """Cria cliente, obra, produto e duas equipes com o líder de campo."""
     db = db_fake._dados
-    db["funcionarios"].append({
-        "id": 10, "nome": "Líder de Campo", "cpf": "11111111111",
-        "email": "campo@munaretto.com", "valor_hora": 30.0, "ativo": True,
-    })
-    db["obras"].append({
-        "id": 5, "cliente_id": 1, "nome": "Obra Central",
-        "ativo": True, "created_at": "2026-01-01T00:00:00Z",
-    })
-    db["produtos"].append({
-        "id": 7, "codigo": "CIM-50", "nome": "Cimento CP-II 50kg",
-        "unidade": "saco", "preco_unitario": 40.0, "ativo": True,
-    })
+    db["funcionarios"].append(
+        {
+            "id": 10,
+            "nome": "Líder de Campo",
+            "cpf": "11111111111",
+            "email": "campo@munaretto.com",
+            "valor_hora": 30.0,
+            "ativo": True,
+        }
+    )
+    db["obras"].append(
+        {
+            "id": 5,
+            "cliente_id": 1,
+            "nome": "Obra Central",
+            "ativo": True,
+            "created_at": "2026-01-01T00:00:00Z",
+        }
+    )
+    db["produtos"].append(
+        {
+            "id": 7,
+            "codigo": "CIM-50",
+            "nome": "Cimento CP-II 50kg",
+            "unidade": "saco",
+            "preco_unitario": 40.0,
+            "ativo": True,
+        }
+    )
     db["equipes"].append({"id": 100, "nome": "Equipe A", "ativa": True})
     db["equipes"].append({"id": 200, "nome": "Equipe B", "ativa": True})
-    db["equipe_membros"].append({
-        "id": 1, "equipe_id": 100, "funcionario_id": 10, "lider": True,
-    })
+    db["equipe_membros"].append(
+        {
+            "id": 1,
+            "equipe_id": 100,
+            "funcionario_id": 10,
+            "lider": True,
+        }
+    )
 
 
 def _criar_os(client, **overrides):
@@ -58,9 +79,7 @@ def _criar_os_aberta_em_andamento(client):
     assert resp.status_code == 201, resp.text
     os_id = resp.json()["id"]
     assert client.put(f"/api/os/{os_id}/status", json={"novo_status": "aberta"}).status_code == 200
-    assert (
-        client.put(f"/api/os/{os_id}/status", json={"novo_status": "em_andamento"}).status_code == 200
-    )
+    assert client.put(f"/api/os/{os_id}/status", json={"novo_status": "em_andamento"}).status_code == 200
     return os_id
 
 
@@ -69,9 +88,11 @@ def _anexar_foto_via_banco(db_fake, os_id, qtd=1):
     fotos = []
     for i in range(qtd):
         registro = {
-            "id": 900 + i, "os_id": os_id,
+            "id": 900 + i,
+            "os_id": os_id,
             "nome_original": f"evidencia{i}.jpg",
-            "tamanho_bytes": 1000, "mime_type": "image/jpeg",
+            "tamanho_bytes": 1000,
+            "mime_type": "image/jpeg",
             "bucket_key": f"os_fotos/{os_id}/fake{i}.jpg",
         }
         db_fake._dados["os_fotos"].append(registro)
@@ -83,8 +104,8 @@ def _anexar_foto_via_banco(db_fake, os_id, qtd=1):
 # Testes
 # ---------------------------------------------------------------------------
 
-class TestMaquinaEstados:
 
+class TestMaquinaEstados:
     def test_transicoes_validas_cobrem_todos_os_status(self):
         for origem in ("rascunho", "aberta", "em_andamento", "impedida", "concluida", "cancelada"):
             assert origem in TRANSICOES_STATUS
@@ -184,8 +205,13 @@ class TestTravaImpedida:
         assert (
             os_gestor_client.put(
                 f"/api/os/{os_id}/status",
-                json={"novo_status": "impedida", "justificativa": "Falta de material no estoque da região.", "fotos_ids": fotos},
-            ).status_code == 200
+                json={
+                    "novo_status": "impedida",
+                    "justificativa": "Falta de material no estoque da região.",
+                    "fotos_ids": fotos,
+                },
+            ).status_code
+            == 200
         )
         resp = os_gestor_client.put(f"/api/os/{os_id}/status", json={"novo_status": "em_andamento"})
         assert resp.status_code == 200
@@ -220,11 +246,16 @@ class TestApontamentoHoras:
         os_id = _criar_os(os_gestor_client).json()["id"]
 
         # Bloco fechado de 120 min do líder (R$ 30/h) => custo esperado R$ 60.
-        db_fake._dados["os_apontamentos"].append({
-            "id": 1, "os_id": os_id, "funcionario_id": 10,
-            "inicio": "2026-03-01T08:00:00Z", "fim": "2026-03-01T10:00:00Z",
-            "minutos_trabalhados": 120,
-        })
+        db_fake._dados["os_apontamentos"].append(
+            {
+                "id": 1,
+                "os_id": os_id,
+                "funcionario_id": 10,
+                "inicio": "2026-03-01T08:00:00Z",
+                "fim": "2026-03-01T10:00:00Z",
+                "minutos_trabalhados": 120,
+            }
+        )
 
         resp = os_gestor_client.get(f"/api/os/{os_id}")
         assert resp.status_code == 200
@@ -235,7 +266,6 @@ class TestApontamentoHoras:
 
 
 class TestMateriaisEPermissao:
-
     def test_lancamento_material_e_resumo(self, os_gestor_client, db_fake):
         _seed_cenario(db_fake)
         os_id = _criar_os(os_gestor_client).json()["id"]
@@ -273,8 +303,8 @@ class TestMateriaisEPermissao:
 
     def test_campo_ve_apenas_sua_equipe_na_listagem(self, os_campo_client, db_fake):
         _seed_cenario(db_fake)
-        _criar_os(os_campo_client, equipe_id=100)   # própria equipe
-        _criar_os(os_campo_client, equipe_id=200)   # outra equipe
+        _criar_os(os_campo_client, equipe_id=100)  # própria equipe
+        _criar_os(os_campo_client, equipe_id=200)  # outra equipe
         lista = os_campo_client.get("/api/os/").json()
         assert len(lista) == 1
 

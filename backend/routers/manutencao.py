@@ -8,19 +8,19 @@ cada veículo (CRLV, certificado do cronotacógrafo...) com data de validade.
 Os arquivos dos documentos são armazenados no Backblaze B2 (bucket privado,
 protocolo S3); no banco ficam apenas os metadados e a chave do objeto.
 """
+
 import logging
 import os
 import re
 import uuid
-from typing import List, Optional
 
-from fastapi import APIRouter, File, Form, HTTPException, Query, UploadFile, Depends
+from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, UploadFile
 from pydantic import BaseModel, Field
 
+from auth import require_permisao
 from storage import bucket, get_s3_client
 from supabase_client import get_supabase
-from auth import require_permisao
-from utils.date_helpers import status_vencimento, STATUS_VENCIDO, STATUS_PROXIMO
+from utils.date_helpers import STATUS_PROXIMO, STATUS_VENCIDO, status_vencimento
 
 router = APIRouter(dependencies=[Depends(require_permisao("manutencao"))])
 
@@ -35,7 +35,7 @@ MIMES_PERMITIDOS = {
 }
 
 TAMANHO_MAXIMO_BYTES = 15 * 1024 * 1024  # 15 MB por arquivo
-VALIDADE_PRESIGNED_SEGUNDOS = 15 * 60    # 15 minutos
+VALIDADE_PRESIGNED_SEGUNDOS = 15 * 60  # 15 minutos
 
 
 # ---------------------------------------------------------------------------
@@ -44,13 +44,13 @@ VALIDADE_PRESIGNED_SEGUNDOS = 15 * 60    # 15 minutos
 class VeiculoCreate(BaseModel):
     modelo: str = Field(..., min_length=2, description="Modelo do veículo")
     placa: str = Field(..., min_length=3, description="Placa do veículo")
-    observacao: Optional[str] = None
+    observacao: str | None = None
 
 
 class VeiculoResponse(VeiculoCreate):
     id: int
     ativo: bool = True
-    created_at: Optional[str] = None
+    created_at: str | None = None
     # Resumo das pendências de documentos (CRLV, IPVA, etc.) deste veículo.
     docs_vencidos: int = 0
     docs_proximos_vencimento: int = 0
@@ -59,43 +59,43 @@ class VeiculoResponse(VeiculoCreate):
 class ManutencaoCreate(BaseModel):
     veiculo_id: int
     tipo: str = Field(..., min_length=2, description="Tipo de serviço (Manutenção, Troca de pneus...)")
-    descricao: Optional[str] = None
+    descricao: str | None = None
     data_servico: str = Field(..., description="Data em que o serviço foi realizado (YYYY-MM-DD)")
-    oficina: Optional[str] = None
-    valor: Optional[float] = 0.0
-    km_odometro: Optional[int] = None
-    observacao: Optional[str] = None
+    oficina: str | None = None
+    valor: float | None = 0.0
+    km_odometro: int | None = None
+    observacao: str | None = None
 
 
 class ManutencaoResponse(ManutencaoCreate):
     id: int
-    created_at: Optional[str] = None
+    created_at: str | None = None
 
 
 class EquipamentoCreate(BaseModel):
     veiculo_id: int
     equipamento: str = Field(..., min_length=1, description="Nome do equipamento")
-    quantidade: Optional[int] = 1
-    observacao: Optional[str] = None
+    quantidade: int | None = 1
+    observacao: str | None = None
 
 
 class EquipamentoResponse(EquipamentoCreate):
     id: int
-    ultima_reposicao: Optional[str] = None
-    created_at: Optional[str] = None
+    ultima_reposicao: str | None = None
+    created_at: str | None = None
 
 
 class EquipamentoReposicaoCreate(BaseModel):
     equipamento_id: int = Field(..., description="ID do equipamento (veiculo_equipamentos)")
     data_reposicao: str = Field(..., description="Data da reposição (YYYY-MM-DD)")
     quantidade: int = Field(1, ge=1, description="Quantidade reposta/substituída")
-    observacao: Optional[str] = None
+    observacao: str | None = None
 
 
 class EquipamentoReposicaoResponse(EquipamentoReposicaoCreate):
     id: int
     veiculo_id: int
-    created_at: Optional[str] = None
+    created_at: str | None = None
 
 
 class VeiculoDocumentoResponse(BaseModel):
@@ -106,9 +106,9 @@ class VeiculoDocumentoResponse(BaseModel):
     tamanho_bytes: int
     mime_type: str
     bucket_key: str
-    data_validade: Optional[str] = None
-    observacao: Optional[str] = None
-    created_at: Optional[str] = None
+    data_validade: str | None = None
+    observacao: str | None = None
+    created_at: str | None = None
 
 
 # ---------------------------------------------------------------------------
@@ -124,7 +124,7 @@ def _veiculo_existe(db, veiculo_id: int) -> bool:
     return bool(resp.data)
 
 
-def _placa_duplicada(db, placa: str, ignorar_id: Optional[int] = None) -> bool:
+def _placa_duplicada(db, placa: str, ignorar_id: int | None = None) -> bool:
     placa_norm = _normalizar_placa(placa)
     resp = db.table("veiculos").select("id", "placa").eq("ativo", True).execute()
     for v in resp.data:
@@ -150,7 +150,7 @@ def _remover_objeto(s3, chave: str) -> None:
         logger.exception("Erro ao remover objeto %s do B2", chave)
 
 
-def _pendencias_documentos(db, veiculo_ids: List[int]) -> dict:
+def _pendencias_documentos(db, veiculo_ids: list[int]) -> dict:
     """Conta documentos vencidos/próximos do vencimento por veículo.
 
     Retorna {veiculo_id: {"vencidos": int, "proximos": int}} considerando apenas
@@ -160,12 +160,7 @@ def _pendencias_documentos(db, veiculo_ids: List[int]) -> dict:
     if not veiculo_ids:
         return resumo
     try:
-        docs = (
-            db.table("veiculo_documentos")
-            .select("veiculo_id, data_validade")
-            .execute()
-            .data
-        )
+        docs = db.table("veiculo_documentos").select("veiculo_id, data_validade").execute().data
     except Exception:
         logger.warning("Não foi possível carregar pendências de documentos", exc_info=True)
         return resumo
@@ -202,9 +197,9 @@ def _com_url(meta: dict) -> dict:
 # ---------------------------------------------------------------------------
 # Veículos
 # ---------------------------------------------------------------------------
-@router.get("/veiculos", response_model=List[VeiculoResponse])
+@router.get("/veiculos", response_model=list[VeiculoResponse])
 def listar_veiculos(
-    busca: Optional[str] = Query(None, description="Termo de busca (modelo ou placa)"),
+    busca: str | None = Query(None, description="Termo de busca (modelo ou placa)"),
     db=Depends(get_supabase),
 ):
     """Lista os veículos ativos. Filtra por modelo ou placa se houver busca."""
@@ -213,9 +208,9 @@ def listar_veiculos(
         if busca:
             termo = busca.strip().lower()
             dados = [
-                v for v in dados
-                if termo in str(v.get("modelo", "")).lower()
-                or termo in str(v.get("placa", "")).lower()
+                v
+                for v in dados
+                if termo in str(v.get("modelo", "")).lower() or termo in str(v.get("placa", "")).lower()
             ]
         dados.sort(key=lambda v: str(v.get("modelo", "")).lower())
         pendencias = _pendencias_documentos(db, [v["id"] for v in dados])
@@ -226,7 +221,7 @@ def listar_veiculos(
         return dados
     except Exception:
         logger.exception("Erro ao listar veículos")
-        raise HTTPException(status_code=500, detail="Erro ao listar veículos")
+        raise HTTPException(status_code=500, detail="Erro ao listar veículos") from None
 
 
 @router.get("/veiculos/{veiculo_id}", response_model=VeiculoResponse)
@@ -241,7 +236,7 @@ def buscar_veiculo(veiculo_id: int, db=Depends(get_supabase)):
         raise
     except Exception:
         logger.exception("Erro ao buscar veículo")
-        raise HTTPException(status_code=500, detail="Erro ao buscar veículo")
+        raise HTTPException(status_code=500, detail="Erro ao buscar veículo") from None
 
 
 @router.post("/veiculos", response_model=VeiculoResponse, status_code=201)
@@ -273,7 +268,7 @@ def cadastrar_veiculo(veiculo: VeiculoCreate, db=Depends(get_supabase)):
         raise
     except Exception:
         logger.exception("Erro ao cadastrar veículo")
-        raise HTTPException(status_code=500, detail="Erro ao cadastrar veículo")
+        raise HTTPException(status_code=500, detail="Erro ao cadastrar veículo") from None
 
 
 @router.put("/veiculos/{veiculo_id}", response_model=VeiculoResponse)
@@ -297,7 +292,7 @@ def atualizar_veiculo(veiculo_id: int, veiculo: VeiculoCreate, db=Depends(get_su
         raise
     except Exception:
         logger.exception("Erro ao atualizar veículo")
-        raise HTTPException(status_code=500, detail="Erro ao atualizar veículo")
+        raise HTTPException(status_code=500, detail="Erro ao atualizar veículo") from None
 
 
 @router.delete("/veiculos/{veiculo_id}")
@@ -314,13 +309,13 @@ def excluir_veiculo(veiculo_id: int, db=Depends(get_supabase)):
         raise
     except Exception:
         logger.exception("Erro ao excluir veículo")
-        raise HTTPException(status_code=500, detail="Erro ao excluir veículo")
+        raise HTTPException(status_code=500, detail="Erro ao excluir veículo") from None
 
 
 # ---------------------------------------------------------------------------
 # Manutenções
 # ---------------------------------------------------------------------------
-@router.get("/veiculos/{veiculo_id}/manutencoes", response_model=List[ManutencaoResponse])
+@router.get("/veiculos/{veiculo_id}/manutencoes", response_model=list[ManutencaoResponse])
 def listar_manutencoes(veiculo_id: int, db=Depends(get_supabase)):
     """Lista o histórico de manutenções de um veículo (mais recentes primeiro)."""
     try:
@@ -333,7 +328,7 @@ def listar_manutencoes(veiculo_id: int, db=Depends(get_supabase)):
         raise
     except Exception:
         logger.exception("Erro ao listar manutenções")
-        raise HTTPException(status_code=500, detail="Erro ao listar manutenções")
+        raise HTTPException(status_code=500, detail="Erro ao listar manutenções") from None
 
 
 @router.post("/manutencoes", response_model=ManutencaoResponse, status_code=201)
@@ -351,7 +346,7 @@ def cadastrar_manutencao(manut: ManutencaoCreate, db=Depends(get_supabase)):
         raise
     except Exception:
         logger.exception("Erro ao registrar manutenção")
-        raise HTTPException(status_code=500, detail="Erro ao registrar manutenção")
+        raise HTTPException(status_code=500, detail="Erro ao registrar manutenção") from None
 
 
 @router.put("/manutencoes/{registro_id}", response_model=ManutencaoResponse)
@@ -373,7 +368,7 @@ def atualizar_manutencao(registro_id: int, manut: ManutencaoCreate, db=Depends(g
         raise
     except Exception:
         logger.exception("Erro ao atualizar manutenção")
-        raise HTTPException(status_code=500, detail="Erro ao atualizar manutenção")
+        raise HTTPException(status_code=500, detail="Erro ao atualizar manutenção") from None
 
 
 @router.delete("/manutencoes/{registro_id}")
@@ -389,13 +384,13 @@ def excluir_manutencao(registro_id: int, db=Depends(get_supabase)):
         raise
     except Exception:
         logger.exception("Erro ao excluir manutenção")
-        raise HTTPException(status_code=500, detail="Erro ao excluir manutenção")
+        raise HTTPException(status_code=500, detail="Erro ao excluir manutenção") from None
 
 
 # ---------------------------------------------------------------------------
 # Equipamentos (checklist por veículo)
 # ---------------------------------------------------------------------------
-@router.get("/veiculos/{veiculo_id}/equipamentos", response_model=List[EquipamentoResponse])
+@router.get("/veiculos/{veiculo_id}/equipamentos", response_model=list[EquipamentoResponse])
 def listar_equipamentos(veiculo_id: int, db=Depends(get_supabase)):
     """Lista os equipamentos/checklist de um veículo, com a data da última reposição."""
     try:
@@ -406,7 +401,13 @@ def listar_equipamentos(veiculo_id: int, db=Depends(get_supabase)):
         # Data da última reposição por equipamento (maior data no histórico).
         ultimas = {}
         try:
-            repos = db.table("equipamento_reposicoes").select("equipamento_id", "data_reposicao").eq("veiculo_id", veiculo_id).execute().data
+            repos = (
+                db.table("equipamento_reposicoes")
+                .select("equipamento_id", "data_reposicao")
+                .eq("veiculo_id", veiculo_id)
+                .execute()
+                .data
+            )
             for r in repos:
                 eid = r["equipamento_id"]
                 data = r.get("data_reposicao", "")
@@ -425,7 +426,7 @@ def listar_equipamentos(veiculo_id: int, db=Depends(get_supabase)):
         raise
     except Exception:
         logger.exception("Erro ao listar equipamentos")
-        raise HTTPException(status_code=500, detail="Erro ao listar equipamentos")
+        raise HTTPException(status_code=500, detail="Erro ao listar equipamentos") from None
 
 
 @router.post("/equipamentos", response_model=EquipamentoResponse, status_code=201)
@@ -443,7 +444,7 @@ def cadastrar_equipamento(equip: EquipamentoCreate, db=Depends(get_supabase)):
         raise
     except Exception:
         logger.exception("Erro ao cadastrar equipamento")
-        raise HTTPException(status_code=500, detail="Erro ao cadastrar equipamento")
+        raise HTTPException(status_code=500, detail="Erro ao cadastrar equipamento") from None
 
 
 @router.put("/equipamentos/{registro_id}", response_model=EquipamentoResponse)
@@ -465,7 +466,7 @@ def atualizar_equipamento(registro_id: int, equip: EquipamentoCreate, db=Depends
         raise
     except Exception:
         logger.exception("Erro ao atualizar equipamento")
-        raise HTTPException(status_code=500, detail="Erro ao atualizar equipamento")
+        raise HTTPException(status_code=500, detail="Erro ao atualizar equipamento") from None
 
 
 @router.delete("/equipamentos/{registro_id}")
@@ -481,13 +482,13 @@ def excluir_equipamento(registro_id: int, db=Depends(get_supabase)):
         raise
     except Exception:
         logger.exception("Erro ao excluir equipamento")
-        raise HTTPException(status_code=500, detail="Erro ao excluir equipamento")
+        raise HTTPException(status_code=500, detail="Erro ao excluir equipamento") from None
 
 
 # ---------------------------------------------------------------------------
 # Reposições de equipamentos (histórico por equipamento)
 # ---------------------------------------------------------------------------
-@router.get("/equipamentos/{registro_id}/reposicoes", response_model=List[EquipamentoReposicaoResponse])
+@router.get("/equipamentos/{registro_id}/reposicoes", response_model=list[EquipamentoReposicaoResponse])
 def listar_reposicoes(registro_id: int, db=Depends(get_supabase)):
     """Lista o histórico de reposições/substituições de um equipamento (mais recentes primeiro)."""
     try:
@@ -501,7 +502,7 @@ def listar_reposicoes(registro_id: int, db=Depends(get_supabase)):
         raise
     except Exception:
         logger.exception("Erro ao listar reposições")
-        raise HTTPException(status_code=500, detail="Erro ao listar reposições")
+        raise HTTPException(status_code=500, detail="Erro ao listar reposições") from None
 
 
 @router.post("/equipamentos/reposicoes", response_model=EquipamentoReposicaoResponse, status_code=201)
@@ -522,7 +523,7 @@ def registrar_reposicao(rep: EquipamentoReposicaoCreate, db=Depends(get_supabase
         raise
     except Exception:
         logger.exception("Erro ao registrar reposição")
-        raise HTTPException(status_code=500, detail="Erro ao registrar reposição")
+        raise HTTPException(status_code=500, detail="Erro ao registrar reposição") from None
 
 
 @router.delete("/equipamentos/reposicoes/{reposicao_id}")
@@ -538,13 +539,13 @@ def excluir_reposicao(reposicao_id: int, db=Depends(get_supabase)):
         raise
     except Exception:
         logger.exception("Erro ao excluir reposição")
-        raise HTTPException(status_code=500, detail="Erro ao excluir reposição")
+        raise HTTPException(status_code=500, detail="Erro ao excluir reposição") from None
 
 
 # ---------------------------------------------------------------------------
 # Documentos de veículos (CRLV, cronotacógrafo, etc.)
 # ---------------------------------------------------------------------------
-@router.get("/veiculos/{veiculo_id}/documentos", response_model=List[VeiculoDocumentoResponse])
+@router.get("/veiculos/{veiculo_id}/documentos", response_model=list[VeiculoDocumentoResponse])
 def listar_documentos_veiculo(veiculo_id: int, db=Depends(get_supabase)):
     """Lista os documentos anexados a um veículo (mais recentes primeiro)."""
     try:
@@ -557,7 +558,7 @@ def listar_documentos_veiculo(veiculo_id: int, db=Depends(get_supabase)):
         raise
     except Exception:
         logger.exception("Erro ao listar documentos do veículo")
-        raise HTTPException(status_code=500, detail="Erro ao listar documentos do veículo")
+        raise HTTPException(status_code=500, detail="Erro ao listar documentos do veículo") from None
 
 
 @router.post("/veiculos/{veiculo_id}/documentos", response_model=VeiculoDocumentoResponse, status_code=201)
@@ -565,8 +566,8 @@ async def cadastrar_documento_veiculo(
     veiculo_id: int,
     arquivo: UploadFile = File(...),
     tipo: str = Form(..., min_length=2, description="Tipo do documento (ex.: CRLV, Certificado do Cronotacógrafo)"),
-    data_validade: Optional[str] = Form(None, description="Data de validade (YYYY-MM-DD)"),
-    observacao: Optional[str] = Form(None, description="Observação sobre o documento"),
+    data_validade: str | None = Form(None, description="Data de validade (YYYY-MM-DD)"),
+    observacao: str | None = Form(None, description="Observação sobre o documento"),
     db=Depends(get_supabase),
 ):
     """Anexa um documento ao veículo e salva o arquivo no bucket privado (B2)."""
@@ -603,16 +604,22 @@ async def cadastrar_documento_veiculo(
             ContentType=mime,
         )
 
-        response = db.table("veiculo_documentos").insert({
-            "veiculo_id": veiculo_id,
-            "tipo": tipo.strip(),
-            "nome_original": _nome_arquivo_seguro(arquivo.filename),
-            "tamanho_bytes": len(conteudo),
-            "mime_type": mime,
-            "bucket_key": bucket_key,
-            "data_validade": data_validade or None,
-            "observacao": observacao or None,
-        }).execute()
+        response = (
+            db.table("veiculo_documentos")
+            .insert(
+                {
+                    "veiculo_id": veiculo_id,
+                    "tipo": tipo.strip(),
+                    "nome_original": _nome_arquivo_seguro(arquivo.filename),
+                    "tamanho_bytes": len(conteudo),
+                    "mime_type": mime,
+                    "bucket_key": bucket_key,
+                    "data_validade": data_validade or None,
+                    "observacao": observacao or None,
+                }
+            )
+            .execute()
+        )
 
         if not response.data:
             # Rollback: remove o objeto enviado para não deixar arquivo órfão.
@@ -624,7 +631,7 @@ async def cadastrar_documento_veiculo(
         raise
     except Exception:
         logger.exception("Erro ao cadastrar documento do veículo %s", veiculo_id)
-        raise HTTPException(status_code=500, detail="Erro ao cadastrar documento do veículo")
+        raise HTTPException(status_code=500, detail="Erro ao cadastrar documento do veículo") from None
 
 
 @router.get("/documentos/{documento_id}")
@@ -639,7 +646,7 @@ def obter_documento_veiculo(documento_id: int, db=Depends(get_supabase)):
         raise
     except Exception:
         logger.exception("Erro ao gerar URL do documento %s", documento_id)
-        raise HTTPException(status_code=500, detail="Erro ao obter documento do veículo")
+        raise HTTPException(status_code=500, detail="Erro ao obter documento do veículo") from None
 
 
 @router.delete("/documentos/{documento_id}")
@@ -657,4 +664,4 @@ def excluir_documento_veiculo(documento_id: int, db=Depends(get_supabase)):
         raise
     except Exception:
         logger.exception("Erro ao excluir documento %s", documento_id)
-        raise HTTPException(status_code=500, detail="Erro ao excluir documento do veículo")
+        raise HTTPException(status_code=500, detail="Erro ao excluir documento do veículo") from None

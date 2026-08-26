@@ -5,7 +5,7 @@ insert/update/delete/limit/execute) sobre um dicionário em memória, de forma
 que os routers da API possam ser testados sem conexão externa.
 """
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 
 
 @dataclass
@@ -103,10 +103,7 @@ class _Query:
                 linhas = [r for r in linhas if r.get(coluna) != valor]
             elif op == "ilike":
                 termo = str(valor).replace("%", "").lower()
-                linhas = [
-                    r for r in linhas
-                    if termo in str(r.get(coluna, "")).lower()
-                ]
+                linhas = [r for r in linhas if termo in str(r.get(coluna, "")).lower()]
             elif op == "in":
                 linhas = [r for r in linhas if r.get(coluna) in valor]
             elif op == "isnull":
@@ -121,17 +118,14 @@ class _Query:
                     termo = bruto.replace("%", "").lower()
                     termos.append((col, operador, termo))
                 if termos:
-                    def _casa_ou(r):
-                        for col, _, termo in termos:
-                            if termo in str(r.get(col, "")).lower():
-                                return True
-                        return False
+
+                    def _casa_ou(r, termos=termos):
+                        return any(termo in str(r.get(col, "")).lower() for col, _, termo in termos)
+
                     linhas = [r for r in linhas if _casa_ou(r)]
         if self.ordenacao:
             coluna, desc = self.ordenacao
-            linhas = sorted(
-                linhas, key=lambda r: str(r.get(coluna, "")), reverse=desc
-            )
+            linhas = sorted(linhas, key=lambda r: str(r.get(coluna, "")), reverse=desc)
         if self.limite is not None:
             linhas = linhas[: self.limite]
         if self.range_ is not None:
@@ -146,9 +140,7 @@ class _Query:
         criados = []
         for item in payload:
             novo = dict(item)
-            novo["id"] = max(
-                (r["id"] for r in self.dados[self.tabela]), default=0
-            ) + 1
+            novo["id"] = max((r["id"] for r in self.dados[self.tabela]), default=0) + 1
             self.dados[self.tabela].append(novo)
             criados.append(novo)
         return _Resposta(criados)
@@ -171,9 +163,7 @@ class _Query:
                 atualizados.append(alvo)
             else:
                 novo = dict(item)
-                novo["id"] = max(
-                    (r["id"] for r in self.dados[self.tabela]), default=0
-                ) + 1
+                novo["id"] = max((r["id"] for r in self.dados[self.tabela]), default=0) + 1
                 self.dados[self.tabela].append(novo)
                 atualizados.append(novo)
         return _Resposta(atualizados)

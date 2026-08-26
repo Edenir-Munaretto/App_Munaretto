@@ -1,13 +1,32 @@
 import logging
 import os
 import sys
+
 import uvicorn
 from dotenv import load_dotenv
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
-from routers import clientes, ferias, fluxo_caixa, documentos, comprovantes, recebimentos, usuarios, notificacoes, funcionarios, sst, certificados, dashboard, manutencao, os as router_os, apoio_os
+
+from routers import (
+    apoio_os,
+    certificados,
+    clientes,
+    comprovantes,
+    dashboard,
+    documentos,
+    ferias,
+    fluxo_caixa,
+    funcionarios,
+    manutencao,
+    notificacoes,
+    recebimentos,
+    sst,
+    usuarios,
+)
+from routers import os as router_os
 
 load_dotenv()
+
 
 # ---------------------------------------------------------------------------
 # Logging centralizado (T4.2): nível configurável por ambiente.
@@ -83,10 +102,12 @@ app.include_router(manutencao.router, prefix="/api/manutencao", tags=["Manutenç
 app.include_router(apoio_os.router, prefix="/api/os", tags=["Controle de O.S - Cadastros"])
 app.include_router(router_os.router, prefix="/api/os", tags=["Controle de O.S"])
 
+
 @app.get("/health", tags=["Geral"])
 def health_check():
     """Rota simples para verificar se a API está online."""
     return {"status": "online", "message": "App Munaretto API rodando com sucesso."}
+
 
 if __name__ == "__main__":
     # Render/plataformas injetam a porta via variável PORT; fallback para 8000 em dev.

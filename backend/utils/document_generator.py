@@ -2,18 +2,20 @@ import logging
 import os
 import shutil
 import subprocess
-import tempfile
 from datetime import datetime, timedelta
-from num2words import num2words
+
 from docxtpl import DocxTemplate
+from num2words import num2words
 from openpyxl import load_workbook
 
 logger = logging.getLogger(__name__)
 
 TEMPLATES_DIR = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "templates")
 
+
 def garantir_pastas():
     os.makedirs(TEMPLATES_DIR, exist_ok=True)
+
 
 def valor_por_extenso(valor_str):
     if not valor_str:
@@ -21,19 +23,20 @@ def valor_por_extenso(valor_str):
     try:
         limpo = valor_str.replace("R$", "").replace(" ", "").replace(".", "").replace(",", ".")
         valor_float = float(limpo)
-        extenso = num2words(valor_float, lang='pt_BR', to='currency')
+        extenso = num2words(valor_float, lang="pt_BR", to="currency")
         return f"({extenso.capitalize()})"
     except Exception as e:
         print(f"Erro ao converter extenso: {e}")
         return ""
 
+
 def criar_contexto_cliente(cliente: dict) -> dict:
     hoje = datetime.now()
     data_60_dias = hoje + timedelta(days=60)
-    
+
     valor_obra = cliente.get("valor_da_obra") or "0,00"
     valor_devolucao = cliente.get("valor_de_devolucao") or "0,00"
-    
+
     return {
         "id": cliente.get("id", ""),
         "nome": cliente.get("nome", ""),
@@ -47,8 +50,9 @@ def criar_contexto_cliente(cliente: dict) -> dict:
         "valor_da_obra": valor_obra,
         "valor_extenso": valor_por_extenso(valor_obra),
         "data": hoje.strftime("%d/%m/%Y"),
-        "data_fim": data_60_dias.strftime("%d/%m/%Y")
+        "data_fim": data_60_dias.strftime("%d/%m/%Y"),
     }
+
 
 def convert_docx_to_pdf(docx_path: str, out_dir: str) -> str:
     """Converte arquivo DOCX para PDF.
@@ -67,6 +71,7 @@ def convert_docx_to_pdf(docx_path: str, out_dir: str) -> str:
     # ── Método 1: docx2pdf (Windows com Word instalado) ──────────────────────
     try:
         from docx2pdf import convert as docx2pdf_convert
+
         logger.info("Convertendo DOCX→PDF via docx2pdf...")
         docx2pdf_convert(docx_path, pdf_path_esperado)
         if os.path.exists(pdf_path_esperado):
@@ -110,8 +115,7 @@ def convert_docx_to_pdf(docx_path: str, out_dir: str) -> str:
         try:
             result = subprocess.run(
                 [libreoffice_bin, "--headless", "--convert-to", "pdf", "--outdir", out_dir, docx_path],
-                stdout=subprocess.PIPE,
-                stderr=subprocess.PIPE,
+                capture_output=True,
                 timeout=60,
             )
             stdout = result.stdout.decode("utf-8", errors="ignore")
@@ -174,35 +178,37 @@ def convert_docx_to_pdf(docx_path: str, out_dir: str) -> str:
     detalhe = " | ".join(erros) if erros else "Nenhum conversor disponível (docx2pdf, LibreOffice ou pywin32)."
     raise RuntimeError(f"Falha ao converter DOCX para PDF. Detalhes: {detalhe}")
 
+
 def preencher_word(cliente: dict, template_name: str, out_dir: str) -> str:
     garantir_pastas()
     contexto = criar_contexto_cliente(cliente)
     template_path = os.path.join(TEMPLATES_DIR, f"{template_name}.docx")
-    
+
     if not os.path.exists(template_path):
         return None
-        
+
     doc = DocxTemplate(template_path)
     doc.render(contexto)
-    
-    nome_cliente = "".join([c for c in str(contexto['nome']) if c.isalnum() or c in (' ', '-', '_', '.')]).strip()
-    nome_template = "".join([c for c in str(template_name) if c.isalnum() or c in (' ', '-', '_', '.')]).strip()
+
+    nome_cliente = "".join([c for c in str(contexto["nome"]) if c.isalnum() or c in (" ", "-", "_", ".")]).strip()
+    nome_template = "".join([c for c in str(template_name) if c.isalnum() or c in (" ", "-", "_", ".")]).strip()
     nome_arq = f"{nome_template} - {nome_cliente}.docx"
     caminho = os.path.join(out_dir, nome_arq)
     doc.save(caminho)
     return caminho
 
+
 def preencher_excel(cliente: dict, template_name: str, out_dir: str) -> str:
     garantir_pastas()
     contexto = criar_contexto_cliente(cliente)
     template_path = os.path.join(TEMPLATES_DIR, f"{template_name}.xlsx")
-    
+
     if not os.path.exists(template_path):
         return None
-        
+
     wb = load_workbook(template_path)
     ws = wb.active
-    
+
     for row in ws.iter_rows():
         for cell in row:
             if cell.value and isinstance(cell.value, str):
@@ -212,9 +218,9 @@ def preencher_excel(cliente: dict, template_name: str, out_dir: str) -> str:
                     if placeholder in valor_original:
                         cell.value = valor_original.replace(placeholder, str(valor))
                         valor_original = cell.value
-                        
-    nome_cliente = "".join([c for c in str(contexto['nome']) if c.isalnum() or c in (' ', '-', '_', '.')]).strip()
-    nome_template = "".join([c for c in str(template_name) if c.isalnum() or c in (' ', '-', '_', '.')]).strip()
+
+    nome_cliente = "".join([c for c in str(contexto["nome"]) if c.isalnum() or c in (" ", "-", "_", ".")]).strip()
+    nome_template = "".join([c for c in str(template_name) if c.isalnum() or c in (" ", "-", "_", ".")]).strip()
     nome_arq = f"{nome_template} - {nome_cliente}.xlsx"
     caminho = os.path.join(out_dir, nome_arq)
     wb.save(caminho)

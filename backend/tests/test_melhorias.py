@@ -9,9 +9,7 @@ import hashlib
 
 def _hash_senha(senha: str) -> str:
     salt = "0123456789abcdef"
-    valor = hashlib.pbkdf2_hmac(
-        "sha256", senha.encode("utf-8"), bytes.fromhex(salt), 100000
-    ).hex()
+    valor = hashlib.pbkdf2_hmac("sha256", senha.encode("utf-8"), bytes.fromhex(salt), 100000).hex()
     return f"{salt}${valor}"
 
 
@@ -147,9 +145,7 @@ def test_login_com_hash_novo_formato(client, db_fake):
     import hashlib as _hl
 
     salt = "0123456789abcdef"
-    valor = _hl.pbkdf2_hmac(
-        "sha256", "senhaNova123".encode("utf-8"), bytes.fromhex(salt), 100000
-    ).hex()
+    valor = _hl.pbkdf2_hmac("sha256", b"senhaNova123", bytes.fromhex(salt), 100000).hex()
     db_fake._dados["usuarios"].append(
         {
             "id": 55,
@@ -171,7 +167,6 @@ def test_login_com_hash_novo_formato(client, db_fake):
 
 def test_rate_limiter_persiste_no_banco(client, db_fake):
     """Contador de tentativas fica persistido na tabela login_tentativas."""
-    import time as _time
 
     _injetar_usuario(db_fake)
     chave = "gestor@munaretto.com"

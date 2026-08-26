@@ -11,9 +11,7 @@ import pytest
 
 def _hash_senha(senha: str) -> str:
     salt = "0123456789abcdef"
-    valor = hashlib.pbkdf2_hmac(
-        "sha256", senha.encode("utf-8"), bytes.fromhex(salt), 100000
-    ).hex()
+    valor = hashlib.pbkdf2_hmac("sha256", senha.encode("utf-8"), bytes.fromhex(salt), 100000).hex()
     return f"{salt}${valor}"
 
 
@@ -38,9 +36,7 @@ def test_sem_permissao(client, db_fake):
         json={"email": "semmanut@munaretto.com", "senha": "senhaSemManut1"},
     )
     token = resp.json()["token"]
-    resp2 = client.get(
-        "/api/manutencao/veiculos", headers={"Authorization": f"Bearer {token}"}
-    )
+    resp2 = client.get("/api/manutencao/veiculos", headers={"Authorization": f"Bearer {token}"})
     assert resp2.status_code == 403
 
 
@@ -78,20 +74,14 @@ def test_crud_veiculos(manutencao_client):
 
 
 def test_placa_duplicada(manutencao_client):
-    manutencao_client.post(
-        "/api/manutencao/veiculos", json={"modelo": "VW Gol", "placa": "XYZ-9876"}
-    )
-    resp = manutencao_client.post(
-        "/api/manutencao/veiculos", json={"modelo": "VW Voyage", "placa": "xyz-9876"}
-    )
+    manutencao_client.post("/api/manutencao/veiculos", json={"modelo": "VW Gol", "placa": "XYZ-9876"})
+    resp = manutencao_client.post("/api/manutencao/veiculos", json={"modelo": "VW Voyage", "placa": "xyz-9876"})
     assert resp.status_code == 400
     assert "placa" in resp.json()["detail"].lower()
 
 
 def test_reativa_veiculo_inativo_com_mesma_placa(manutencao_client):
-    resp = manutencao_client.post(
-        "/api/manutencao/veiculos", json={"modelo": "Fiat Strada", "placa": "REA-1000"}
-    )
+    resp = manutencao_client.post("/api/manutencao/veiculos", json={"modelo": "Fiat Strada", "placa": "REA-1000"})
     assert resp.status_code == 201
     vid = resp.json()["id"]
 
@@ -118,17 +108,11 @@ def test_listar_veiculos_com_pendencias_documentos(manutencao_client, db_fake):
     """Lista de veículos traz contagem de documentos vencidos/próximos do vencimento."""
     from datetime import date, timedelta
 
-    r1 = manutencao_client.post(
-        "/api/manutencao/veiculos", json={"modelo": "Vencido Truck", "placa": "PND-0001"}
-    )
+    r1 = manutencao_client.post("/api/manutencao/veiculos", json={"modelo": "Vencido Truck", "placa": "PND-0001"})
     vid1 = r1.json()["id"]
-    r2 = manutencao_client.post(
-        "/api/manutencao/veiculos", json={"modelo": "A Vencer Truck", "placa": "PND-0002"}
-    )
+    r2 = manutencao_client.post("/api/manutencao/veiculos", json={"modelo": "A Vencer Truck", "placa": "PND-0002"})
     vid2 = r2.json()["id"]
-    r3 = manutencao_client.post(
-        "/api/manutencao/veiculos", json={"modelo": "Em Dia Truck", "placa": "PND-0003"}
-    )
+    r3 = manutencao_client.post("/api/manutencao/veiculos", json={"modelo": "Em Dia Truck", "placa": "PND-0003"})
     vid3 = r3.json()["id"]
 
     db_fake._dados["veiculo_documentos"] = [
@@ -163,9 +147,7 @@ def test_busca_veiculos(manutencao_client):
 # Manutenções
 # ---------------------------------------------------------------------------
 def _criar_veiculo(manutencao_client):
-    resp = manutencao_client.post(
-        "/api/manutencao/veiculos", json={"modelo": "Fiat Strada", "placa": "DEF-4321"}
-    )
+    resp = manutencao_client.post("/api/manutencao/veiculos", json={"modelo": "Fiat Strada", "placa": "DEF-4321"})
     return resp.json()["id"]
 
 
@@ -380,7 +362,15 @@ def s3_fake_manutencao(monkeypatch):
     return fake
 
 
-def _upload_documento(manutencao_client, veiculo_id, tipo="CRLV", data_validade="2026-12-31", nome="crlv.pdf", mime="application/pdf", conteudo=b"%PDF-1.4 crlv"):
+def _upload_documento(
+    manutencao_client,
+    veiculo_id,
+    tipo="CRLV",
+    data_validade="2026-12-31",
+    nome="crlv.pdf",
+    mime="application/pdf",
+    conteudo=b"%PDF-1.4 crlv",
+):
     return manutencao_client.post(
         f"/api/manutencao/veiculos/{veiculo_id}/documentos",
         data={"tipo": tipo, "data_validade": data_validade},
@@ -400,7 +390,14 @@ def test_crud_documentos_veiculo(manutencao_client, s3_fake_manutencao):
     assert doc["nome_original"] == "crlv.pdf"
     assert doc["bucket_key"].startswith("documentos/veiculos/")
 
-    resp = _upload_documento(manutencao_client, veiculo_id, tipo="Certificado do Cronotacógrafo", data_validade="2026-11-15", nome="crono.pdf", conteudo=b"%PDF-1.4 crono")
+    resp = _upload_documento(
+        manutencao_client,
+        veiculo_id,
+        tipo="Certificado do Cronotacógrafo",
+        data_validade="2026-11-15",
+        nome="crono.pdf",
+        conteudo=b"%PDF-1.4 crono",
+    )
     assert resp.status_code == 201, resp.text
 
     resp = manutencao_client.get(f"/api/manutencao/veiculos/{veiculo_id}/documentos")

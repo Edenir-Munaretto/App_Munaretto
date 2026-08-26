@@ -4,9 +4,9 @@ Usa um fake do cliente S3 para validar os fluxos de upload/download/delete
 sem depender de rede ou credenciais reais.
 """
 
-import pytest
-
 from datetime import date
+
+import pytest
 
 
 def _criar_funcionario(db_fake):

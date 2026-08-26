@@ -17,6 +17,7 @@ por `tipo_registro`:
   - 'treinamento' -> certificado de curso (funcionario_treinamentos)
   - 'aso'         -> laudo/exame (aso)
 """
+
 import logging
 import os
 import uuid
@@ -46,7 +47,7 @@ TABELA_REGISTRO = {
 }
 
 TAMANHO_MAXIMO_BYTES = 15 * 1024 * 1024  # 15 MB por arquivo
-VALIDADE_PRESIGNED_SEGUNDOS = 15 * 60    # 15 minutos
+VALIDADE_PRESIGNED_SEGUNDOS = 15 * 60  # 15 minutos
 
 
 def _nome_arquivo_seguro(nome: str) -> str:
@@ -100,7 +101,9 @@ async def _enviar_documento(tipo_registro: str, registro_id: int, arquivo: Uploa
     s3 = get_s3_client()
 
     # Substituição segura: se já existe documento, remove o anterior.
-    existente = db.table("certificados").select("*").eq("tipo_registro", tipo_registro).eq("registro_id", registro_id).execute()
+    existente = (
+        db.table("certificados").select("*").eq("tipo_registro", tipo_registro).eq("registro_id", registro_id).execute()
+    )
     if existente.data:
         _remover_objeto(s3, existente.data[0]["bucket_key"])
         db.table("certificados").delete().eq("tipo_registro", tipo_registro).eq("registro_id", registro_id).execute()
@@ -115,15 +118,21 @@ async def _enviar_documento(tipo_registro: str, registro_id: int, arquivo: Uploa
         ContentType=mime,
     )
 
-    response = db.table("certificados").insert({
-        "tipo_registro": tipo_registro,
-        "colaborador_id": funcionario_id,
-        "registro_id": registro_id,
-        "nome_original": _nome_arquivo_seguro(arquivo.filename),
-        "tamanho_bytes": len(conteudo),
-        "mime_type": mime,
-        "bucket_key": bucket_key,
-    }).execute()
+    response = (
+        db.table("certificados")
+        .insert(
+            {
+                "tipo_registro": tipo_registro,
+                "colaborador_id": funcionario_id,
+                "registro_id": registro_id,
+                "nome_original": _nome_arquivo_seguro(arquivo.filename),
+                "tamanho_bytes": len(conteudo),
+                "mime_type": mime,
+                "bucket_key": bucket_key,
+            }
+        )
+        .execute()
+    )
 
     if not response.data:
         # Rollback: remove o objeto enviado para não deixar arquivo órfão.
@@ -134,7 +143,9 @@ async def _enviar_documento(tipo_registro: str, registro_id: int, arquivo: Uploa
 
 
 def _obter_metadados(db, tipo_registro: str, registro_id: int):
-    cert = db.table("certificados").select("*").eq("tipo_registro", tipo_registro).eq("registro_id", registro_id).execute()
+    cert = (
+        db.table("certificados").select("*").eq("tipo_registro", tipo_registro).eq("registro_id", registro_id).execute()
+    )
     if not cert.data:
         raise HTTPException(status_code=404, detail="Nenhum documento anexado a este registro.")
     return cert.data[0]
@@ -156,7 +167,7 @@ async def enviar_certificado_treinamento(
         raise
     except Exception:
         logger.exception("Erro ao enviar certificado do treinamento %s", registro_id)
-        raise HTTPException(status_code=500, detail="Erro ao enviar certificado.")
+        raise HTTPException(status_code=500, detail="Erro ao enviar certificado.") from None
 
 
 @router.get("/treinamento/{registro_id}")
@@ -170,7 +181,7 @@ def obter_certificado_treinamento(registro_id: int, db=Depends(get_supabase)):
         raise
     except Exception:
         logger.exception("Erro ao gerar URL do certificado do treinamento %s", registro_id)
-        raise HTTPException(status_code=500, detail="Erro ao obter certificado.")
+        raise HTTPException(status_code=500, detail="Erro ao obter certificado.") from None
 
 
 @router.delete("/treinamento/{registro_id}")
@@ -182,7 +193,7 @@ def excluir_certificado_treinamento(registro_id: int, db=Depends(get_supabase)):
         raise
     except Exception:
         logger.exception("Erro ao excluir certificado do treinamento %s", registro_id)
-        raise HTTPException(status_code=500, detail="Erro ao excluir certificado.")
+        raise HTTPException(status_code=500, detail="Erro ao excluir certificado.") from None
 
 
 # ---------------------------------------------------------------------------
@@ -201,7 +212,7 @@ async def enviar_documento_aso(
         raise
     except Exception:
         logger.exception("Erro ao enviar documento do ASO %s", registro_id)
-        raise HTTPException(status_code=500, detail="Erro ao enviar documento do ASO.")
+        raise HTTPException(status_code=500, detail="Erro ao enviar documento do ASO.") from None
 
 
 @router.get("/aso/{registro_id}")
@@ -215,7 +226,7 @@ def obter_documento_aso(registro_id: int, db=Depends(get_supabase)):
         raise
     except Exception:
         logger.exception("Erro ao gerar URL do documento do ASO %s", registro_id)
-        raise HTTPException(status_code=500, detail="Erro ao obter documento do ASO.")
+        raise HTTPException(status_code=500, detail="Erro ao obter documento do ASO.") from None
 
 
 @router.delete("/aso/{registro_id}")
@@ -227,7 +238,7 @@ def excluir_documento_aso(registro_id: int, db=Depends(get_supabase)):
         raise
     except Exception:
         logger.exception("Erro ao excluir documento do ASO %s", registro_id)
-        raise HTTPException(status_code=500, detail="Erro ao excluir documento do ASO.")
+        raise HTTPException(status_code=500, detail="Erro ao excluir documento do ASO.") from None
 
 
 # ---------------------------------------------------------------------------

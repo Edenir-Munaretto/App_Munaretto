@@ -1,11 +1,11 @@
-from typing import List, Optional
-from datetime import datetime, timedelta
 import logging
+from datetime import datetime, timedelta
 
-from fastapi import APIRouter, HTTPException, Query, Depends
+from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel, Field
+
+from auth import UsuarioAutenticado, get_current_user
 from supabase_client import get_supabase
-from auth import get_current_user, UsuarioAutenticado
 
 logger = logging.getLogger(__name__)
 
@@ -16,10 +16,10 @@ class NotificacaoCreate(BaseModel):
     tipo: str = Field("ferias", description="Tipo da notificação (ex: ferias)")
     titulo: str = Field(..., min_length=1, description="Título curto da notificação")
     mensagem: str = Field(..., min_length=1, description="Descrição da notificação")
-    destinatario: Optional[str] = Field(None, description="E-mail do usuário destinatário")
-    ferias_id: Optional[int] = Field(None, description="ID do registro de férias relacionado")
-    veiculo_documento_id: Optional[int] = Field(None, description="ID do documento de veículo relacionado")
-    criada_por: Optional[str] = Field(None, description="Usuário que originou a notificação")
+    destinatario: str | None = Field(None, description="E-mail do usuário destinatário")
+    ferias_id: int | None = Field(None, description="ID do registro de férias relacionado")
+    veiculo_documento_id: int | None = Field(None, description="ID do documento de veículo relacionado")
+    criada_por: str | None = Field(None, description="Usuário que originou a notificação")
 
 
 class NotificacaoResponse(BaseModel):
@@ -27,12 +27,12 @@ class NotificacaoResponse(BaseModel):
     tipo: str
     titulo: str
     mensagem: str
-    destinatario: Optional[str]
-    ferias_id: Optional[int] = None
-    veiculo_documento_id: Optional[int] = None
+    destinatario: str | None
+    ferias_id: int | None = None
+    veiculo_documento_id: int | None = None
     lida: bool
-    criada_por: Optional[str]
-    created_at: Optional[str] = None
+    criada_por: str | None
+    created_at: str | None = None
 
 
 def _gerar_lembretes_ferias(db) -> None:
@@ -44,9 +44,7 @@ def _gerar_lembretes_ferias(db) -> None:
     notificação com o mesmo destinatário, registro e mensagem.
     """
     try:
-        programacoes = db.table("gestao_ferias").select(
-            "id, nome, data_inicio"
-        ).eq("status", "Programado").execute()
+        programacoes = db.table("gestao_ferias").select("id, nome, data_inicio").eq("status", "Programado").execute()
         if not programacoes.data:
             return
 
@@ -87,10 +85,7 @@ def _gerar_lembretes_ferias(db) -> None:
             dias_restantes = (inicio - dia).days
             if dias_restantes == 0:
                 titulo = f"Férias de {nome} começam hoje"
-                mensagem = (
-                    f"As férias de {nome} começam hoje ({inicio_br}) e a "
-                    "programação ainda não foi confirmada."
-                )
+                mensagem = f"As férias de {nome} começam hoje ({inicio_br}) e a programação ainda não foi confirmada."
             else:
                 titulo = f"Férias de {nome} em {dias_restantes} dias"
                 mensagem = (
@@ -99,22 +94,28 @@ def _gerar_lembretes_ferias(db) -> None:
                 )
 
             for alvo in alvos:
-                existe = db.table("notificacoes").select("id").eq(
-                    "destinatario", alvo
-                ).eq("ferias_id", ferias_id).eq("tipo", "ferias").eq(
-                    "mensagem", mensagem
-                ).execute()
+                existe = (
+                    db.table("notificacoes")
+                    .select("id")
+                    .eq("destinatario", alvo)
+                    .eq("ferias_id", ferias_id)
+                    .eq("tipo", "ferias")
+                    .eq("mensagem", mensagem)
+                    .execute()
+                )
                 if existe.data:
                     continue
 
-                db.table("notificacoes").insert({
-                    "tipo": "ferias",
-                    "titulo": titulo,
-                    "mensagem": mensagem,
-                    "destinatario": alvo,
-                    "ferias_id": ferias_id,
-                    "criada_por": "Sistema",
-                }).execute()
+                db.table("notificacoes").insert(
+                    {
+                        "tipo": "ferias",
+                        "titulo": titulo,
+                        "mensagem": mensagem,
+                        "destinatario": alvo,
+                        "ferias_id": ferias_id,
+                        "criada_por": "Sistema",
+                    }
+                ).execute()
     except Exception as e:
         logger.warning(f"Erro ao gerar lembretes de férias: {e}")
 
@@ -132,16 +133,16 @@ def _gerar_lembretes_documentos_veiculos(db) -> None:
     documento (veiculo_documento_id), destinatário, tipo e mensagem.
     """
     try:
-        docs = db.table("veiculo_documentos").select(
-            "id, tipo, data_validade, veiculo_id"
-        ).not_("data_validade", "is", None).execute()
+        docs = (
+            db.table("veiculo_documentos")
+            .select("id, tipo, data_validade, veiculo_id")
+            .not_("data_validade", "is", None)
+            .execute()
+        )
         if not docs.data:
             return
 
-        veiculos = {
-            v["id"]: v
-            for v in db.table("veiculos").select("id, modelo, placa").execute().data
-        }
+        veiculos = {v["id"]: v for v in db.table("veiculos").select("id, modelo, placa").execute().data}
 
         destinatarios = db.table("usuarios").select("email, permissoes").eq("ativo", True).execute()
         alvos = [u["email"] for u in destinatarios.data if "manutencao" in (u.get("permissoes") or [])]
@@ -165,10 +166,7 @@ def _gerar_lembretes_documentos_veiculos(db) -> None:
 
             if validade < hoje:
                 titulo = f"Documento vencido: {d['tipo']}"
-                mensagem = (
-                    f"O documento \"{d['tipo']}\" do veículo {rotulo} "
-                    f"venceu em {validade_br} e está vencido."
-                )
+                mensagem = f'O documento "{d["tipo"]}" do veículo {rotulo} venceu em {validade_br} e está vencido.'
             else:
                 dias_total = (validade - hoje).days
                 if dias_total > 30:
@@ -186,43 +184,46 @@ def _gerar_lembretes_documentos_veiculos(db) -> None:
                 dias_restantes = (validade - dia).days
                 if dias_restantes == 0:
                     titulo = f"Documento vence hoje: {d['tipo']}"
-                    mensagem = (
-                        f"O documento \"{d['tipo']}\" do veículo {rotulo} "
-                        f"vence hoje ({validade_br})."
-                    )
+                    mensagem = f'O documento "{d["tipo"]}" do veículo {rotulo} vence hoje ({validade_br}).'
                 else:
                     titulo = f"Documento vence em {dias_restantes} dias"
                     mensagem = (
-                        f"O documento \"{d['tipo']}\" do veículo {rotulo} "
+                        f'O documento "{d["tipo"]}" do veículo {rotulo} '
                         f"vence em {dias_restantes} dia(s) ({validade_br})."
                     )
 
             for alvo in alvos:
-                existe = db.table("notificacoes").select("id").eq(
-                    "destinatario", alvo
-                ).eq("veiculo_documento_id", doc_id).eq("tipo", "documento_veiculo").eq(
-                    "mensagem", mensagem
-                ).execute()
+                existe = (
+                    db.table("notificacoes")
+                    .select("id")
+                    .eq("destinatario", alvo)
+                    .eq("veiculo_documento_id", doc_id)
+                    .eq("tipo", "documento_veiculo")
+                    .eq("mensagem", mensagem)
+                    .execute()
+                )
                 if existe.data:
                     continue
 
-                db.table("notificacoes").insert({
-                    "tipo": "documento_veiculo",
-                    "titulo": titulo,
-                    "mensagem": mensagem,
-                    "destinatario": alvo,
-                    "veiculo_documento_id": doc_id,
-                    "criada_por": "Sistema",
-                }).execute()
+                db.table("notificacoes").insert(
+                    {
+                        "tipo": "documento_veiculo",
+                        "titulo": titulo,
+                        "mensagem": mensagem,
+                        "destinatario": alvo,
+                        "veiculo_documento_id": doc_id,
+                        "criada_por": "Sistema",
+                    }
+                ).execute()
     except Exception as e:
         logger.warning(f"Erro ao gerar lembretes de documentos de veículos: {e}")
 
 
-@router.get("/", response_model=List[NotificacaoResponse])
+@router.get("/", response_model=list[NotificacaoResponse])
 def listar_notificacoes(
-    lida: Optional[bool] = Query(None, description="Filtra por lida/não lida"),
+    lida: bool | None = Query(None, description="Filtra por lida/não lida"),
     usuario: UsuarioAutenticado = Depends(get_current_user),
-    db = Depends(get_supabase),
+    db=Depends(get_supabase),
 ):
     """Lista apenas as notificações do usuário autenticado (e-mail derivado do token)."""
     try:
@@ -235,10 +236,7 @@ def listar_notificacoes(
         if lida is not None:
             # `not is true` também captura registros com lida NULL (legado),
             # que o `eq(false)` deixaria de fora
-            if lida:
-                query = query.eq("lida", True)
-            else:
-                query = query.not_("lida", "is", True)
+            query = query.eq("lida", True) if lida else query.not_("lida", "is", True)
 
         response = query.execute()
         # Normaliza lida NULL (registros legados) para False, evitando erro de
@@ -247,11 +245,15 @@ def listar_notificacoes(
             if n.get("lida") is None:
                 n["lida"] = False
         return response.data
-    except Exception as e:
+    except Exception:
         logger.exception("Erro ao listar notificações")
-        raise HTTPException(status_code=500, detail="Erro ao listar notificações")
+        raise HTTPException(status_code=500, detail="Erro ao listar notificações") from None
+
+
 @router.post("/", response_model=NotificacaoResponse, status_code=201)
-def criar_notificacao(notificacao: NotificacaoCreate, usuario: UsuarioAutenticado = Depends(get_current_user), db = Depends(get_supabase)):
+def criar_notificacao(
+    notificacao: NotificacaoCreate, usuario: UsuarioAutenticado = Depends(get_current_user), db=Depends(get_supabase)
+):
     """Cria uma notificação para o próprio usuário autenticado (destinatário vem do token)."""
     try:
         payload = notificacao.model_dump()
@@ -261,45 +263,59 @@ def criar_notificacao(notificacao: NotificacaoCreate, usuario: UsuarioAutenticad
         if not response.data:
             raise HTTPException(status_code=500, detail="Falha ao criar notificação.")
         return response.data[0]
-    except Exception as e:
+    except Exception:
         logger.exception("Erro ao criar notificação")
-        raise HTTPException(status_code=500, detail="Erro ao criar notificação")
+        raise HTTPException(status_code=500, detail="Erro ao criar notificação") from None
+
+
 @router.patch("/{notificacao_id}/lida")
-def marcar_lida(notificacao_id: int, usuario: UsuarioAutenticado = Depends(get_current_user), db = Depends(get_supabase)):
+def marcar_lida(notificacao_id: int, usuario: UsuarioAutenticado = Depends(get_current_user), db=Depends(get_supabase)):
     """Marca uma notificação do usuário autenticado como lida."""
     try:
-        response = db.table("notificacoes").update({"lida": True}).eq("id", notificacao_id).eq("destinatario", usuario.email).execute()
+        response = (
+            db.table("notificacoes")
+            .update({"lida": True})
+            .eq("id", notificacao_id)
+            .eq("destinatario", usuario.email)
+            .execute()
+        )
         if not response.data:
             raise HTTPException(status_code=404, detail="Notificação não encontrada.")
         return {"success": True, "id": notificacao_id}
     except HTTPException:
         raise
-    except Exception as e:
+    except Exception:
         logger.exception("Erro ao marcar notificação como lida")
-        raise HTTPException(status_code=500, detail="Erro ao marcar notificação como lida")
+        raise HTTPException(status_code=500, detail="Erro ao marcar notificação como lida") from None
+
+
 @router.delete("/{notificacao_id}")
-def excluir_notificacao(notificacao_id: int, usuario: UsuarioAutenticado = Depends(get_current_user), db = Depends(get_supabase)):
+def excluir_notificacao(
+    notificacao_id: int, usuario: UsuarioAutenticado = Depends(get_current_user), db=Depends(get_supabase)
+):
     """Exclui uma notificação do usuário autenticado."""
     try:
-        response = db.table("notificacoes").delete().eq("id", notificacao_id).eq("destinatario", usuario.email).execute()
+        response = (
+            db.table("notificacoes").delete().eq("id", notificacao_id).eq("destinatario", usuario.email).execute()
+        )
         if not response.data:
             raise HTTPException(status_code=404, detail="Notificação não encontrada.")
         return {"success": True, "id": notificacao_id}
     except HTTPException:
         raise
-    except Exception as e:
+    except Exception:
         logger.exception("Erro ao excluir notificação")
-        raise HTTPException(status_code=500, detail="Erro ao excluir notificação")
+        raise HTTPException(status_code=500, detail="Erro ao excluir notificação") from None
 
 
 @router.post("/marcar-todas-lidas")
-def marcar_todas_lidas(usuario: UsuarioAutenticado = Depends(get_current_user), db = Depends(get_supabase)):
+def marcar_todas_lidas(usuario: UsuarioAutenticado = Depends(get_current_user), db=Depends(get_supabase)):
     """Marca todas as notificações do usuário autenticado como lidas."""
     try:
         # Sem filtro em lida: garante que registros com lida NULL (legado)
         # também sejam marcados
         db.table("notificacoes").update({"lida": True}).eq("destinatario", usuario.email).execute()
         return {"success": True}
-    except Exception as e:
+    except Exception:
         logger.exception("Erro ao marcar notificações como lidas")
-        raise HTTPException(status_code=500, detail="Erro ao marcar notificações como lidas")
+        raise HTTPException(status_code=500, detail="Erro ao marcar notificações como lidas") from None

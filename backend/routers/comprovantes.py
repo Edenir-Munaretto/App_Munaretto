@@ -3,14 +3,15 @@ import logging
 import re
 import unicodedata
 from datetime import datetime
-from typing import List, Optional
-from fastapi import APIRouter, HTTPException, Query, Depends, UploadFile, File, Form
+
+from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, UploadFile
 from fastapi.responses import Response
 from openpyxl import Workbook, load_workbook
 from openpyxl.styles import Alignment, Border, Font, PatternFill, Side
 from pydantic import BaseModel, Field
+
+from auth import require_permisao
 from supabase_client import get_supabase
-from auth import get_current_user, require_permisao
 
 router = APIRouter(dependencies=[Depends(require_permisao("comprovantes"))])
 
@@ -147,10 +148,7 @@ def _parse_numero(valor):
     texto = str(valor).strip().replace("R$", "").replace(" ", "")
     if not texto:
         return None
-    if "," in texto:
-        texto = texto.replace(".", "").replace(",", ".")
-    else:
-        texto = texto.replace(".", "")
+    texto = texto.replace(".", "").replace(",", ".") if "," in texto else texto.replace(".", "")
     try:
         return round(float(texto), 2)
     except ValueError:
@@ -171,42 +169,53 @@ def _normalizar_tipo(valor):
         return "Nota Fiscal"
     return None
 
+
 class ComprovanteCreate(BaseModel):
-    tipo_documento: str = Field(..., description="Tipo do documento: Nota Fiscal, Boleto, Pix, Diversas, Aluguel, Imposto")
-    
+    tipo_documento: str = Field(
+        ..., description="Tipo do documento: Nota Fiscal, Boleto, Pix, Diversas, Aluguel, Imposto"
+    )
+
     # Campos Nota Fiscal
-    numero_nf: Optional[str] = None
-    data_emissao: Optional[str] = None
-    nome: Optional[str] = None
-    cnpj: Optional[str] = None
-    local_servico: Optional[str] = None
-    valor_total: Optional[float] = 0.0
-    base_calculo: Optional[float] = 0.0
-    valor_inss: Optional[float] = 0.0
-    valor_iss: Optional[float] = 0.0
-    valor_liquido: Optional[float] = 0.0
-    
+    numero_nf: str | None = None
+    data_emissao: str | None = None
+    nome: str | None = None
+    cnpj: str | None = None
+    local_servico: str | None = None
+    valor_total: float | None = 0.0
+    base_calculo: float | None = 0.0
+    valor_inss: float | None = 0.0
+    valor_iss: float | None = 0.0
+    valor_liquido: float | None = 0.0
+
     # Outros tipos (Boleto, Pix, Diversas, Aluguel)
-    data_pagamento: Optional[str] = None
-    data_vencimento: Optional[str] = None
-    descricao: Optional[str] = None
-    forma_pagamento: Optional[str] = None # "boleto", "dda", "pix"
-    valor_pago: Optional[float] = 0.0
-    valor_juros: Optional[float] = 0.0
+    data_pagamento: str | None = None
+    data_vencimento: str | None = None
+    descricao: str | None = None
+    forma_pagamento: str | None = None  # "boleto", "dda", "pix"
+    valor_pago: float | None = 0.0
+    valor_juros: float | None = 0.0
+
 
 class ComprovanteResponse(ComprovanteCreate):
     id: int
     data_registro: str
 
-@router.get("/", response_model=List[ComprovanteResponse])
+
+@router.get("/", response_model=list[ComprovanteResponse])
 def listar_comprovantes(
-    ordenar_por: str = Query("data_registro", description="Campo de ordenação: data_registro, data_pagamento ou data_emissao"),
-    tipo_documento: Optional[str] = Query(None, description="Filtrar por tipo: Nota Fiscal, Boleto, Pix, Diversas, Aluguel, Imposto"),
-    data_inicio: Optional[str] = Query(None, description="Data início do filtro (YYYY-MM-DD) — filtra data_emissao ou data_pagamento"),
-    data_fim: Optional[str] = Query(None, description="Data fim do filtro (YYYY-MM-DD)"),
-    limit: Optional[int] = Query(None, ge=1, le=10000, description="Máximo de registros a retornar (paginação)"),
-    offset: Optional[int] = Query(0, ge=0, description="Registros a pular (paginação)"),
-    db = Depends(get_supabase),
+    ordenar_por: str = Query(
+        "data_registro", description="Campo de ordenação: data_registro, data_pagamento ou data_emissao"
+    ),
+    tipo_documento: str | None = Query(
+        None, description="Filtrar por tipo: Nota Fiscal, Boleto, Pix, Diversas, Aluguel, Imposto"
+    ),
+    data_inicio: str | None = Query(
+        None, description="Data início do filtro (YYYY-MM-DD) — filtra data_emissao ou data_pagamento"
+    ),
+    data_fim: str | None = Query(None, description="Data fim do filtro (YYYY-MM-DD)"),
+    limit: int | None = Query(None, ge=1, le=10000, description="Máximo de registros a retornar (paginação)"),
+    offset: int | None = Query(0, ge=0, description="Registros a pular (paginação)"),
+    db=Depends(get_supabase),
 ):
     """Lista lançamentos de comprovantes. Suporta filtro por tipo e período.
 
@@ -279,18 +288,22 @@ def listar_comprovantes(
                 break
             offset_atual += tamanho_bloco
         return todos
-    except Exception as e:
+    except Exception:
         logger.exception("Erro ao buscar comprovantes")
-        raise HTTPException(status_code=500, detail="Erro ao buscar comprovantes")
+        raise HTTPException(status_code=500, detail="Erro ao buscar comprovantes") from None
 
 
 @router.get("/exportar")
 def exportar_comprovantes(
-    ordenar_por: str = Query("data_registro", description="Campo de ordenação: data_registro, data_pagamento ou data_emissao"),
-    tipo_documento: Optional[str] = Query(None, description="Filtrar por tipo: Nota Fiscal, Boleto, Pix, Diversas, Aluguel, Imposto"),
-    data_inicio: Optional[str] = Query(None, description="Data início do filtro (YYYY-MM-DD)"),
-    data_fim: Optional[str] = Query(None, description="Data fim do filtro (YYYY-MM-DD)"),
-    db = Depends(get_supabase),
+    ordenar_por: str = Query(
+        "data_registro", description="Campo de ordenação: data_registro, data_pagamento ou data_emissao"
+    ),
+    tipo_documento: str | None = Query(
+        None, description="Filtrar por tipo: Nota Fiscal, Boleto, Pix, Diversas, Aluguel, Imposto"
+    ),
+    data_inicio: str | None = Query(None, description="Data início do filtro (YYYY-MM-DD)"),
+    data_fim: str | None = Query(None, description="Data fim do filtro (YYYY-MM-DD)"),
+    db=Depends(get_supabase),
 ):
     """Exporta os comprovantes filtrados para um arquivo .xlsx (openpyxl)."""
     # Reutiliza a mesma listagem com paginação ampla (sem limit = retorna tudo)
@@ -371,7 +384,6 @@ def baixar_modelo_importacao():
 
         cabecalhos = [rotulo for _, rotulo in CAMPOS_MODELO]
 
-        preenchimento = PatternFill(start_color="DDDDDD", end_color="DDDDDD", fill_type="solid")
         fonte_cabecalho = Font(bold=True, color="FFFFFF")
         fill_cabecalho = PatternFill(start_color="1E293B", end_color="1E293B", fill_type="solid")
         borda = Border(*[Side(style="thin", color="CBD5E1")] * 4)
@@ -462,15 +474,16 @@ def baixar_modelo_importacao():
             media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
             headers={"Content-Disposition": 'attachment; filename="modelo_comprovantes.xlsx"'},
         )
-    except Exception as e:
+    except Exception:
         logger.exception("Erro ao gerar modelo de importação")
-        raise HTTPException(status_code=500, detail="Erro ao gerar modelo de importação.")
+        raise HTTPException(status_code=500, detail="Erro ao gerar modelo de importação.") from None
+
 
 @router.post("/importar")
 def importar_planilha(
     file: UploadFile = File(...),
     simular: bool = Form(False),
-    db = Depends(get_supabase),
+    db=Depends(get_supabase),
 ):
     """Importa comprovantes/boletos em lote a partir de uma planilha .xlsx.
 
@@ -489,9 +502,12 @@ def importar_planilha(
 
     try:
         wb = load_workbook(io.BytesIO(conteudo), data_only=True)
-    except Exception as e:
+    except Exception:
         logger.exception("Falha ao ler planilha")
-        raise HTTPException(status_code=400, detail="Não foi possível ler o arquivo. Verifique se é um .xlsx válido.")
+        raise HTTPException(
+            status_code=400,
+            detail="Não foi possível ler o arquivo. Verifique se é um .xlsx válido.",
+        ) from None
 
     ws = wb.active
     linhas = list(ws.iter_rows(values_only=True))
@@ -540,8 +556,13 @@ def importar_planilha(
                 payload[campo_data] = _parse_data(payload[campo_data])
 
         for campo_num in (
-            "valor_total", "base_calculo", "valor_inss", "valor_iss",
-            "valor_liquido", "valor_pago", "valor_juros",
+            "valor_total",
+            "base_calculo",
+            "valor_inss",
+            "valor_iss",
+            "valor_liquido",
+            "valor_pago",
+            "valor_juros",
         ):
             if campo_num in payload:
                 payload[campo_num] = _parse_numero(payload[campo_num])
@@ -575,7 +596,7 @@ def importar_planilha(
             else:
                 db.table("comprovantes").insert(payload).execute()
                 importados += 1
-        except Exception as e:
+        except Exception:
             logger.exception("Erro ao importar linha %d", num)
             erros.append({"linha": num, "mensagem": "Falha ao salvar no banco."})
 
@@ -590,8 +611,9 @@ def importar_planilha(
         "simular": simular,
     }
 
+
 @router.get("/{comprovante_id}", response_model=ComprovanteResponse)
-def buscar_comprovante(comprovante_id: int, db = Depends(get_supabase)):
+def buscar_comprovante(comprovante_id: int, db=Depends(get_supabase)):
     """Busca um comprovante específico pelo ID."""
     try:
         response = db.table("comprovantes").select("*").eq("id", comprovante_id).execute()
@@ -600,11 +622,13 @@ def buscar_comprovante(comprovante_id: int, db = Depends(get_supabase)):
         return response.data[0]
     except HTTPException:
         raise
-    except Exception as e:
+    except Exception:
         logger.exception("Erro ao buscar comprovante")
-        raise HTTPException(status_code=500, detail="Erro ao buscar comprovante")
+        raise HTTPException(status_code=500, detail="Erro ao buscar comprovante") from None
+
+
 @router.post("/", response_model=ComprovanteResponse, status_code=201)
-def criar_comprovante(comprovante: ComprovanteCreate, db = Depends(get_supabase)):
+def criar_comprovante(comprovante: ComprovanteCreate, db=Depends(get_supabase)):
     """Cria um novo lançamento de comprovante."""
     try:
         payload = comprovante.model_dump()
@@ -616,11 +640,13 @@ def criar_comprovante(comprovante: ComprovanteCreate, db = Depends(get_supabase)
         if not response.data:
             raise HTTPException(status_code=500, detail="Falha ao salvar comprovante.")
         return response.data[0]
-    except Exception as e:
+    except Exception:
         logger.exception("Erro ao criar comprovante")
-        raise HTTPException(status_code=500, detail="Erro ao criar comprovante")
+        raise HTTPException(status_code=500, detail="Erro ao criar comprovante") from None
+
+
 @router.put("/{comprovante_id}", response_model=ComprovanteResponse)
-def atualizar_comprovante(comprovante_id: int, comprovante: ComprovanteCreate, db = Depends(get_supabase)):
+def atualizar_comprovante(comprovante_id: int, comprovante: ComprovanteCreate, db=Depends(get_supabase)):
     """Atualiza um comprovante existente."""
     try:
         check = db.table("comprovantes").select("id").eq("id", comprovante_id).execute()
@@ -638,11 +664,13 @@ def atualizar_comprovante(comprovante_id: int, comprovante: ComprovanteCreate, d
         return response.data[0]
     except HTTPException:
         raise
-    except Exception as e:
+    except Exception:
         logger.exception("Erro ao atualizar comprovante")
-        raise HTTPException(status_code=500, detail="Erro ao atualizar comprovante")
+        raise HTTPException(status_code=500, detail="Erro ao atualizar comprovante") from None
+
+
 @router.delete("/{comprovante_id}")
-def excluir_comprovante(comprovante_id: int, db = Depends(get_supabase)):
+def excluir_comprovante(comprovante_id: int, db=Depends(get_supabase)):
     """Exclui um comprovante do sistema."""
     try:
         check = db.table("comprovantes").select("id").eq("id", comprovante_id).execute()
@@ -653,6 +681,6 @@ def excluir_comprovante(comprovante_id: int, db = Depends(get_supabase)):
         return {"status": "success", "message": "Comprovante excluído com sucesso."}
     except HTTPException:
         raise
-    except Exception as e:
+    except Exception:
         logger.exception("Erro ao excluir comprovante")
-        raise HTTPException(status_code=500, detail="Erro ao excluir comprovante")
+        raise HTTPException(status_code=500, detail="Erro ao excluir comprovante") from None

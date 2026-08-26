@@ -1,0 +1,16 @@
+# Configuração de qualidade de código do backend (Ruff: linter + formatador).
+[tool.ruff]
+target-version = "py311"   # mesma versão do Dockerfile de produção
+line-length = 120
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "B", "UP", "SIM", "RUF"]
+# B008: Depends() em argumentos padrão é o idioma oficial do FastAPI.
+# BLE001: o projeto captura Exception deliberadamente para logar (logger.exception) e
+#         responder HTTP 500 de forma uniforme — padrão consistente em todos os routers.
+# DTZ*: o projeto usa datetime naive por escolha (timestamps do Supabase/PostgREST).
+ignore = ["B008", "BLE001", "DTZ005", "DTZ007", "DTZ011"]
+
+[tool.ruff.lint.per-file-ignores]
+# Os imports de conftest precisam vir depois do sys.path.insert para os testes rodarem.
+"tests/conftest.py" = ["E402"]
