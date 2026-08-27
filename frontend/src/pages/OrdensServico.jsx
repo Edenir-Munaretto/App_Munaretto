@@ -992,9 +992,11 @@ const FORM_OS_INICIAL = {
 
 // Autocomplete de obras: sugere conforme digita, buscando por nome (Nota PS)
 // e pelo nome do cliente. onChange recebe a obra selecionada (ou null).
+// Suporta teclado: setas ↑/↓ para navegar e Enter para confirmar.
 function ObraAutocomplete({ obras, value, disabled = false, onChange }) {
   const [termo, setTermo] = useState('');
   const [aberto, setAberto] = useState(false);
+  const [indiceAtivo, setIndiceAtivo] = useState(-1);
 
   const selecionada = obras.find(o => o.id === Number(value)) || null;
 
@@ -1016,9 +1018,13 @@ function ObraAutocomplete({ obras, value, disabled = false, onChange }) {
       .slice(0, 8);
   }, [termo, obras]);
 
+  // Reinicia o cursor ao mudar os resultados da busca.
+  useEffect(() => { setIndiceAtivo(-1); }, [sugestoes]);
+
   const escolher = (o) => {
     setTermo(`${o.nome} — ${o.clientes?.nome || ''}`);
     setAberto(false);
+    setIndiceAtivo(-1);
     onChange(o);
   };
 
@@ -1032,25 +1038,47 @@ function ObraAutocomplete({ obras, value, disabled = false, onChange }) {
     }
   };
 
+  const aoTeclar = (e) => {
+    if (disabled) return;
+    if (e.key === 'ArrowDown') {
+      e.preventDefault();
+      if (!aberto) { setAberto(true); return; }
+      setIndiceAtivo(prev => (sugestoes.length ? (prev + 1) % sugestoes.length : -1));
+    } else if (e.key === 'ArrowUp') {
+      e.preventDefault();
+      setIndiceAtivo(prev => (sugestoes.length ? (prev <= 0 ? sugestoes.length - 1 : prev - 1) : -1));
+    } else if (e.key === 'Enter') {
+      if (aberto && indiceAtivo >= 0 && sugestoes[indiceAtivo]) {
+        e.preventDefault();
+        escolher(sugestoes[indiceAtivo]);
+      }
+    } else if (e.key === 'Escape') {
+      setAberto(false);
+      setIndiceAtivo(-1);
+    }
+  };
+
   return (
     <div className="relative">
       <input
         value={termo}
         disabled={disabled}
         onChange={(e) => aoDigitar(e.target.value)}
+        onKeyDown={aoTeclar}
         onFocus={() => setAberto(true)}
-        onBlur={() => setTimeout(() => setAberto(false), 150)}
+        onBlur={() => setTimeout(() => { setAberto(false); setIndiceAtivo(-1); }, 150)}
         placeholder="Digite o nome ou a Nota PS da obra..."
         className="w-full px-3.5 py-2.5 border border-slate-200 rounded-xl text-sm font-semibold focus:outline-none focus:border-primary-500 disabled:bg-slate-100 disabled:text-slate-500"
       />
       {aberto && !disabled && sugestoes.length > 0 && (
         <ul className="absolute z-20 left-0 right-0 mt-1 bg-white border border-slate-200 rounded-xl shadow-lg overflow-hidden max-h-64 overflow-y-auto">
-          {sugestoes.map(o => (
+          {sugestoes.map((o, i) => (
             <li key={o.id} className="border-b border-slate-50 last:border-0">
               <button
                 type="button"
                 onMouseDown={() => escolher(o)}
-                className="w-full text-left px-3.5 py-2.5 hover:bg-primary-50 transition-colors cursor-pointer"
+                onMouseEnter={() => setIndiceAtivo(i)}
+                className={`w-full text-left px-3.5 py-2.5 transition-colors cursor-pointer ${i === indiceAtivo ? 'bg-primary-50' : 'hover:bg-primary-50'}`}
               >
                 <span className="block text-sm font-bold text-slate-800 truncate">{o.nome}</span>
                 <span className="block text-xs text-slate-400 truncate">{o.clientes?.nome || 'Sem cliente'}</span>
