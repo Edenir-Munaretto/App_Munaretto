@@ -2583,7 +2583,7 @@ function ClientesSelect({ clientes, value, onChange }) {
     <select value={value} onChange={(e) => onChange(e.target.value)}
       className="w-full px-3 py-2 border border-slate-200 rounded-xl text-sm">
       <option value="">Selecione o cliente *</option>
-      {clientes.map(c => <option key={c.id} value={c.id}>{c.nome}{c.nota_ps ? ` (Nota PS: ${c.nota_ps})` : ''}</option>)}
+      {clientes.map(c => <option key={c.id} value={c.id}>{c.nome}</option>)}
     </select>
   );
 }
