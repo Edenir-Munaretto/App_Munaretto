@@ -17,6 +17,7 @@ logger = logging.getLogger(__name__)
 
 LABELS_ATIVIDADE = {
     "construcao": "CONSTRUÇÃO",
+    "manutencao": "MANUTENÇÃO",
     "linha_viva": "LINHA VIVA",
 }
 
@@ -93,11 +94,12 @@ def gerar_modelo_os(
         "membros": membros,
     }
 
-    if tipo in ("linha_viva", "construcao"):
+    if tipo in ("linha_viva", "construcao", "manutencao"):
         try:
             if tipo == "linha_viva":
                 from utils.modelo_os_linha_viva import gerar_pdf_linha_viva as gerar_direto
             else:
+                # Construção e Manutenção compartilham o mesmo layout.
                 from utils.modelo_os_construcao import gerar_pdf_construcao as gerar_direto
 
             return gerar_direto(

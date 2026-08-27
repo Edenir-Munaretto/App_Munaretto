@@ -39,8 +39,9 @@ logger = logging.getLogger(__name__)
 
 STATUS_VALIDOS = {"rascunho", "aberta", "em_andamento", "impedida", "concluida", "cancelada"}
 PRIORIDADES = {"baixa", "media", "alta", "critica"}
-# Tipo da O.S: define qual modelo de impressão é usado (CONSTRUÇÃO ou LINHA VIVA).
-TIPOS_OS = {"construcao", "linha_viva"}
+# Tipo da O.S: define o modelo de impressão (CONSTRUÇÃO e MANUTENÇÃO usam o
+# mesmo layout; LINHA VIVA tem modelo próprio).
+TIPOS_OS = {"construcao", "linha_viva", "manutencao"}
 
 # Máquina de estados: origem -> destinos permitidos. Qualquer transição fora
 # deste mapa é rejeitada com 422 (evita saltos como Rascunho -> Concluída).

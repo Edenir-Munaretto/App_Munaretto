@@ -1205,6 +1205,7 @@ function ModalNovaOS({ aberto, obras, equipes, produtos, onFechar, onCriada, mos
             <select value={form.tipo} onChange={(e) => setForm({ ...form, tipo: e.target.value })}
               className="w-full px-3.5 py-2.5 border border-slate-200 rounded-xl text-sm font-semibold focus:outline-none focus:border-primary-500">
               <option value="construcao">Construção</option>
+              <option value="manutencao">Manutenção</option>
               <option value="linha_viva">Linha Viva</option>
             </select>
           </div>
