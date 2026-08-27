@@ -990,6 +990,79 @@ const FORM_OS_INICIAL = {
   hora_desligar: '', hora_religar: '', alimentador: '', chave: '', obs: '',
 };
 
+// Autocomplete de obras: sugere conforme digita, buscando por nome (Nota PS)
+// e pelo nome do cliente. onChange recebe a obra selecionada (ou null).
+function ObraAutocomplete({ obras, value, disabled = false, onChange }) {
+  const [termo, setTermo] = useState('');
+  const [aberto, setAberto] = useState(false);
+
+  const selecionada = obras.find(o => o.id === Number(value)) || null;
+
+  // Ao receber uma obra selecionada externamente (modo edição/prefill), exibe o nome dela.
+  useEffect(() => {
+    if (selecionada) setTermo(`${selecionada.nome} — ${selecionada.clientes?.nome || ''}`);
+    else if (!value) setTermo('');
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [value]);
+
+  const sugestoes = useMemo(() => {
+    const t = termo.trim().toLowerCase();
+    if (!t) return obras.slice(0, 8);
+    return obras
+      .filter(o =>
+        (o.nome || '').toLowerCase().includes(t) ||
+        (o.clientes?.nome || '').toLowerCase().includes(t)
+      )
+      .slice(0, 8);
+  }, [termo, obras]);
+
+  const escolher = (o) => {
+    setTermo(`${o.nome} — ${o.clientes?.nome || ''}`);
+    setAberto(false);
+    onChange(o);
+  };
+
+  const aoDigitar = (texto) => {
+    setTermo(texto);
+    setAberto(true);
+    // Se o texto deixou de corresponder à obra selecionada, limpa a seleção.
+    const selecionadaAtual = obras.find(o => o.id === Number(value));
+    if (selecionadaAtual && texto.trim() !== `${selecionadaAtual.nome} — ${selecionadaAtual.clientes?.nome || ''}`.trim()) {
+      onChange(null);
+    }
+  };
+
+  return (
+    <div className="relative">
+      <input
+        value={termo}
+        disabled={disabled}
+        onChange={(e) => aoDigitar(e.target.value)}
+        onFocus={() => setAberto(true)}
+        onBlur={() => setTimeout(() => setAberto(false), 150)}
+        placeholder="Digite o nome ou a Nota PS da obra..."
+        className="w-full px-3.5 py-2.5 border border-slate-200 rounded-xl text-sm font-semibold focus:outline-none focus:border-primary-500 disabled:bg-slate-100 disabled:text-slate-500"
+      />
+      {aberto && !disabled && sugestoes.length > 0 && (
+        <ul className="absolute z-20 left-0 right-0 mt-1 bg-white border border-slate-200 rounded-xl shadow-lg overflow-hidden max-h-64 overflow-y-auto">
+          {sugestoes.map(o => (
+            <li key={o.id} className="border-b border-slate-50 last:border-0">
+              <button
+                type="button"
+                onMouseDown={() => escolher(o)}
+                className="w-full text-left px-3.5 py-2.5 hover:bg-primary-50 transition-colors cursor-pointer"
+              >
+                <span className="block text-sm font-bold text-slate-800 truncate">{o.nome}</span>
+                <span className="block text-xs text-slate-400 truncate">{o.clientes?.nome || 'Sem cliente'}</span>
+              </button>
+            </li>
+          ))}
+        </ul>
+      )}
+    </div>
+  );
+}
+
 function ModalNovaOS({ aberto, obras, equipes, onFechar, onCriada, mostrarToast, edicao }) {
   const [form, setForm] = useState(FORM_OS_INICIAL);
   const [salvando, setSalvando] = useState(false);
@@ -1156,20 +1229,17 @@ function ModalNovaOS({ aberto, obras, equipes, onFechar, onCriada, mostrarToast,
         <div className="p-6 space-y-4">
           <div>
             <label className="block text-xs font-bold text-slate-700 mb-1.5">Obra *</label>
-            <select value={form.obra_id} disabled={!!edicao}
-              onChange={(e) => {
-              const obraSel = obras.find(o => o.id === Number(e.target.value));
-              setForm(f => ({
+            <ObraAutocomplete
+              obras={obras}
+              value={form.obra_id}
+              disabled={!!edicao}
+              onChange={(obraSel) => setForm(f => ({
                 ...f,
-                obra_id: e.target.value,
+                obra_id: obraSel ? String(obraSel.id) : '',
                 municipio: f.municipio || obraSel?.cidade || '',
                 local_servico: f.local_servico || obraSel?.endereco || '',
-              }));
-            }}
-              className="w-full px-3.5 py-2.5 border border-slate-200 rounded-xl text-sm font-semibold focus:outline-none focus:border-primary-500 disabled:bg-slate-100 disabled:text-slate-500">
-              <option value="">Selecione...</option>
-              {obras.map(o => <option key={o.id} value={o.id}>{o.nome} — {o.clientes?.nome || ''}</option>)}
-            </select>
+              }))}
+            />
             {edicao && (
               <p className="text-[10px] text-slate-400 mt-1 font-semibold">A obra não pode ser alterada após a criação.</p>
             )}
