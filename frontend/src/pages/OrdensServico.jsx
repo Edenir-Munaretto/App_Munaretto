@@ -997,11 +997,14 @@ function ObraAutocomplete({ obras, value, disabled = false, onChange }) {
   const [termo, setTermo] = useState('');
   const [aberto, setAberto] = useState(false);
   const [indiceAtivo, setIndiceAtivo] = useState(-1);
+  const editando = useRef(false); // true enquanto o usuário digita (não sincronizar)
 
   const selecionada = obras.find(o => o.id === Number(value)) || null;
 
   // Ao receber uma obra selecionada externamente (modo edição/prefill), exibe o nome dela.
+  // Durante a digitação do usuário, não sobrescreve o texto.
   useEffect(() => {
+    if (editando.current) return;
     if (selecionada) setTermo(`${selecionada.nome} — ${selecionada.clientes?.nome || ''}`);
     else if (!value) setTermo('');
   // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -1022,6 +1025,7 @@ function ObraAutocomplete({ obras, value, disabled = false, onChange }) {
   useEffect(() => { setIndiceAtivo(-1); }, [sugestoes]);
 
   const escolher = (o) => {
+    editando.current = false;
     setTermo(`${o.nome} — ${o.clientes?.nome || ''}`);
     setAberto(false);
     setIndiceAtivo(-1);
@@ -1029,6 +1033,7 @@ function ObraAutocomplete({ obras, value, disabled = false, onChange }) {
   };
 
   const aoDigitar = (texto) => {
+    editando.current = true;
     setTermo(texto);
     setAberto(true);
     // Se o texto deixou de corresponder à obra selecionada, limpa a seleção.
