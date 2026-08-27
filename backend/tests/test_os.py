@@ -5,7 +5,7 @@ Cobre as regras críticas:
 - Máquina de estados (transições inválidas são rejeitadas);
 - Trava do status 'Impedida' (justificativa >= 20 caracteres + fotos);
 - Apontamento H.H. (play promove a O.S, pause calcula minutos);
-- Custo Real de Mão de Obra (minutos x valor_hora / 60);
+- Custo Real de Mão de Obra (zerado até definir valor por equipe);
 - Permissão granular (usuário de campo só acessa O.S da própria equipe);
 - Impressão do modelo oficial (CONSTRUÇÃO/LINHA VIVA).
 """
@@ -27,8 +27,6 @@ def _seed_cenario(db_fake):
             "id": 10,
             "nome": "Líder de Campo",
             "cpf": "11111111111",
-            "email": "campo@munaretto.com",
-            "valor_hora": 30.0,
             "ativo": True,
         }
     )
@@ -223,10 +221,10 @@ class TestTravaImpedida:
 class TestApontamentoHoras:
     """H.H.: play/pause e cálculo do Custo Real de Mão de Obra."""
 
-    def test_play_promove_aberta_para_em_andamento(self, os_campo_client, db_fake):
+    def test_play_promove_aberta_para_em_andamento(self, os_gestor_client, os_campo_client, db_fake):
         _seed_cenario(db_fake)
-        # O.S atribuída à Equipe A (equipe do líder de campo).
-        os_id = _criar_os(os_campo_client, equipe_id=100).json()["id"]
+        # O gestor cria a O.S; o campo executa o apontamento.
+        os_id = _criar_os(os_gestor_client, equipe_id=100).json()["id"]
         os_campo_client.put(f"/api/os/{os_id}/status", json={"novo_status": "aberta"})
 
         resp = os_campo_client.post(f"/api/os/{os_id}/apontamentos", json={"acao": "play"})
@@ -236,9 +234,9 @@ class TestApontamentoHoras:
         eventos = [h for h in db_fake._dados["os_historico"] if h["status_novo"] == "em_andamento"]
         assert any("apontamento" in (h["justificativa"] or "") for h in eventos)
 
-    def test_pause_duplo_rejeita(self, os_campo_client, db_fake):
+    def test_pause_duplo_rejeita(self, os_gestor_client, os_campo_client, db_fake):
         _seed_cenario(db_fake)
-        os_id = _criar_os(os_campo_client, equipe_id=100).json()["id"]
+        os_id = _criar_os(os_gestor_client, equipe_id=100).json()["id"]
         os_campo_client.post(f"/api/os/{os_id}/apontamentos", json={"acao": "play"})
         assert os_campo_client.post(f"/api/os/{os_id}/apontamentos", json={"acao": "play"}).status_code == 409
         assert os_campo_client.post(f"/api/os/{os_id}/apontamentos", json={"acao": "pause"}).status_code == 200
@@ -248,7 +246,8 @@ class TestApontamentoHoras:
         _seed_cenario(db_fake)
         os_id = _criar_os(os_gestor_client).json()["id"]
 
-        # Bloco fechado de 120 min do líder (R$ 30/h) => custo esperado R$ 60.
+        # Bloco fechado de 120 min do líder; custo real fica zerado até que
+        # o valor da hora seja definido por equipe.
         db_fake._dados["os_apontamentos"].append(
             {
                 "id": 1,
@@ -264,7 +263,7 @@ class TestApontamentoHoras:
         assert resp.status_code == 200
         mo = resp.json()["mao_de_obra"]
         assert mo["total_horas"] == 2.0
-        assert mo["custo_mo_real"] == 60.0
+        assert mo["custo_mo_real"] == 0.0
         assert mo["por_funcionario"][0]["nome"] == "Líder de Campo"
 
 
@@ -294,22 +293,49 @@ class TestMateriaisEPermissao:
         resp = os_gestor_client.post(f"/api/os/{os_id}/materiais", json={"produto_id": 7, "quantidade_usada": 1})
         assert resp.status_code == 400
 
-    def test_campo_nao_acessa_os_de_outra_equipe(self, os_campo_client, db_fake):
+    def test_campo_nao_acessa_os_de_outra_equipe(self, os_gestor_client, os_campo_client, db_fake):
         _seed_cenario(db_fake)
-        # Equipe B NÃO tem o líder de campo como membro.
-        os_outros = _criar_os(os_campo_client, equipe_id=200).json()["id"]
+        # O gestor cria as O.S; o campo só acessa a da própria equipe (100).
+        os_propria = _criar_os(os_gestor_client, equipe_id=100).json()["id"]
+        os_outros = _criar_os(os_gestor_client, equipe_id=200).json()["id"]
+
+        assert os_campo_client.get(f"/api/os/{os_propria}").status_code == 200
         resp = os_campo_client.get(f"/api/os/{os_outros}")
         assert resp.status_code == 403
 
         resp_status = os_campo_client.put(f"/api/os/{os_outros}/status", json={"novo_status": "aberta"})
         assert resp_status.status_code == 403
 
-    def test_campo_ve_apenas_sua_equipe_na_listagem(self, os_campo_client, db_fake):
+    def test_campo_ve_apenas_sua_equipe_na_listagem(self, os_gestor_client, os_campo_client, db_fake):
         _seed_cenario(db_fake)
-        _criar_os(os_campo_client, equipe_id=100)  # própria equipe
-        _criar_os(os_campo_client, equipe_id=200)  # outra equipe
+        _criar_os(os_gestor_client, equipe_id=100)  # própria equipe
+        _criar_os(os_gestor_client, equipe_id=200)  # outra equipe
         lista = os_campo_client.get("/api/os/").json()
         assert len(lista) == 1
+
+    def test_campo_nao_cria_os(self, os_campo_client, db_fake):
+        _seed_cenario(db_fake)
+        resp = _criar_os(os_campo_client, equipe_id=100)
+        assert resp.status_code == 403
+
+    def test_campo_nao_acessa_cadastros_de_apoio(self, os_campo_client, db_fake):
+        _seed_cenario(db_fake)
+        assert os_campo_client.get("/api/os/obras").status_code == 403
+        assert os_campo_client.get("/api/os/equipes").status_code == 403
+        assert os_campo_client.get("/api/os/produtos").status_code == 403
+
+    def test_campo_nao_edita_os(self, os_gestor_client, os_campo_client, db_fake):
+        _seed_cenario(db_fake)
+        os_id = _criar_os(os_gestor_client, equipe_id=100).json()["id"]
+        resp = os_campo_client.put(f"/api/os/{os_id}", json={"descricao_escopo": "alterada"})
+        assert resp.status_code == 403
+
+    def test_campo_imprime_modelo_da_propria_equipe(self, os_gestor_client, os_campo_client, db_fake):
+        _seed_cenario(db_fake)
+        os_id = _criar_os(os_gestor_client, equipe_id=100, tipo="construcao").json()["id"]
+        resp = os_campo_client.get(f"/api/os/{os_id}/imprimir")
+        assert resp.status_code == 200, resp.text
+        assert resp.content.startswith(b"%PDF")
 
     def test_duplicar_clona_itens_orcados_como_rascunho(self, os_gestor_client, db_fake):
         _seed_cenario(db_fake)

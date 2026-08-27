@@ -8,6 +8,7 @@ import { useFetchState } from '../hooks/useFetchState';
 
 function Configuracoes({ usuarioAtual, onUsuarioAtualizado }) {
   const [usuarios, setUsuarios] = useState([]);
+  const [funcionarios, setFuncionarios] = useState([]);
   const [busca, setBusca] = useState('');
   const [loading, setLoading] = useState(true);
   const lista = useFetchState();
@@ -22,17 +23,28 @@ function Configuracoes({ usuarioAtual, onUsuarioAtualizado }) {
     email: '',
     senha: '',
     ativo: true,
-    permissoes: []
+    permissoes: [],
+    funcionario_id: ''
   });
 
   useEffect(() => {
     fetchUsuarios();
+    fetchFuncionarios();
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   const showToast = (message, type = 'success') => {
     setToast({ message, type });
     setTimeout(() => setToast(null), 4000);
+  };
+
+  const fetchFuncionarios = async () => {
+    try {
+      const res = await apiFetch(`${API_URL}/funcionarios/`);
+      if (res.ok) setFuncionarios(await res.json());
+    } catch (err) {
+      console.error('Erro ao buscar funcionários:', err);
+    }
   };
 
   const fetchUsuarios = async () => {
@@ -61,7 +73,8 @@ function Configuracoes({ usuarioAtual, onUsuarioAtualizado }) {
       email: '',
       senha: '',
       ativo: true,
-      permissoes: []
+      permissoes: [],
+      funcionario_id: ''
     });
     setShowModal(true);
   };
@@ -73,7 +86,8 @@ function Configuracoes({ usuarioAtual, onUsuarioAtualizado }) {
       email: u.email || '',
       senha: '',
       ativo: u.ativo,
-      permissoes: u.permissoes || []
+      permissoes: u.permissoes || [],
+      funcionario_id: u.funcionario_id != null ? String(u.funcionario_id) : ''
     });
     setShowModal(true);
   };
@@ -112,7 +126,8 @@ function Configuracoes({ usuarioAtual, onUsuarioAtualizado }) {
       email: formData.email,
       senha: formData.senha,
       ativo: formData.ativo,
-      permissoes: formData.permissoes
+      permissoes: formData.permissoes,
+      funcionario_id: formData.funcionario_id ? Number(formData.funcionario_id) : null
     };
 
     try {
@@ -174,6 +189,12 @@ function Configuracoes({ usuarioAtual, onUsuarioAtualizado }) {
       (u.email || '').toLowerCase().includes(searchLower);
   });
 
+  const nomeFuncionario = (id) => {
+    if (!id) return null;
+    const f = funcionarios.find(f => f.id === id);
+    return f ? f.nome : 'Funcionário removido';
+  };
+
   return (
     <div className="space-y-6">
       {/* Toast */}
@@ -219,6 +240,7 @@ function Configuracoes({ usuarioAtual, onUsuarioAtualizado }) {
               <tr className="bg-slate-50 border-b border-slate-100 text-slate-400 font-bold text-xs uppercase tracking-wider">
                 <th className="px-3 py-3 md:px-6 md:py-4">Nome</th>
                 <th className="px-3 py-3 md:px-6 md:py-4">E-mail</th>
+                <th className="px-3 py-3 md:px-6 md:py-4">Funcionário vinculado</th>
                 <th className="px-3 py-3 md:px-6 md:py-4">Módulos</th>
                 <th className="px-3 py-3 md:px-6 md:py-4 text-center">Status</th>
                 <th className="px-3 py-3 md:px-6 md:py-4 text-center">Ações</th>
@@ -227,7 +249,7 @@ function Configuracoes({ usuarioAtual, onUsuarioAtualizado }) {
             <tbody className="divide-y divide-slate-100 text-slate-700">
               {loading ? (
                 <tr>
-                  <td colSpan="5" className="text-center py-12 text-slate-400">
+                  <td colSpan="6" className="text-center py-12 text-slate-400">
                     <div className="flex flex-col items-center justify-center gap-3">
                       <div className="w-8 h-8 border-4 border-primary-500 border-t-transparent rounded-full animate-spin" />
                       <p className="text-xs">Carregando usuários...</p>
@@ -236,13 +258,13 @@ function Configuracoes({ usuarioAtual, onUsuarioAtualizado }) {
                 </tr>
               ) : lista.status === 'error' ? (
                 <tr>
-                  <td colSpan="5">
+                  <td colSpan="6">
                     <ErroCarregamento mensagem={lista.erro} onTentarNovamente={fetchUsuarios} />
                   </td>
                 </tr>
               ) : filteredUsuarios.length === 0 ? (
                 <tr>
-                  <td colSpan="5" className="text-center py-16 text-slate-400">
+                  <td colSpan="6" className="text-center py-16 text-slate-400">
                     <span className="text-3xl">👤</span>
                     <p className="font-semibold mt-2">Nenhum usuário encontrado.</p>
                     <p className="text-xs mt-1">Cadastre um novo usuário no botão acima.</p>
@@ -258,6 +280,15 @@ function Configuracoes({ usuarioAtual, onUsuarioAtualizado }) {
                       )}
                     </td>
                     <td className="px-3 py-3 md:px-6 md:py-4 text-xs">{u.email}</td>
+                    <td className="px-3 py-3 md:px-6 md:py-4 text-xs">
+                      {nomeFuncionario(u.funcionario_id) ? (
+                        <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-amber-50 text-amber-700 border border-amber-100 text-[10px] font-bold">
+                          {nomeFuncionario(u.funcionario_id)}
+                        </span>
+                      ) : (
+                        <span className="text-slate-300">—</span>
+                      )}
+                    </td>
                     <td className="px-3 py-3 md:px-6 md:py-4">
                       <div className="flex flex-wrap gap-1 max-w-md">
                         {(u.permissoes || []).map((p) => {
@@ -348,6 +379,24 @@ function Configuracoes({ usuarioAtual, onUsuarioAtualizado }) {
                     placeholder="usuario@email.com"
                     className="w-full px-3.5 py-2 border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-primary-500/20 focus:border-primary-500 text-sm"
                   />
+                </div>
+
+                <div>
+                  <label className="block text-xs font-bold text-slate-700 mb-1.5">Funcionário vinculado</label>
+                  <select
+                    name="funcionario_id"
+                    value={formData.funcionario_id}
+                    onChange={handleInputChange}
+                    className="w-full px-3.5 py-2 border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-primary-500/20 focus:border-primary-500 text-sm bg-white"
+                  >
+                    <option value="">Nenhum (somente gestor)</option>
+                    {funcionarios.map(f => (
+                      <option key={f.id} value={f.id}>{f.nome}</option>
+                    ))}
+                  </select>
+                  <p className="text-[10px] text-slate-400 mt-1 font-semibold">
+                    Responsável de equipe: vincula o login ao funcionário para acessar as O.S da equipe.
+                  </p>
                 </div>
 
                 <div>

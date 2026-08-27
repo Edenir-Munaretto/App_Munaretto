@@ -10,5 +10,6 @@ export const MODULOS = [
   { id: 'manutencao', label: 'Manutenção' },
   { id: 'sst', label: 'Segurança do Trabalho' },
   { id: 'os', label: 'Controle de O.S' },
+  { id: 'os_campo', label: 'O.S (Campo)' },
   { id: 'configuracoes', label: 'Configurações' },
 ];

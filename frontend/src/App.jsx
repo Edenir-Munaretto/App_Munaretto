@@ -374,7 +374,8 @@ function App() {
   const tabs = [
     ...(podeDashboard ? [{ id: 'dashboard', label: 'Dashboard', icon: LayoutDashboard, component: Dashboard }] : []),
     ...MODULOS
-      .filter(m => m.id !== 'dashboard' && permissoes.includes(m.id))
+      // Quem tem "os_campo" vê a mesma aba "Controle de O.S" (sem ações de gestão).
+      .filter(m => m.id !== 'dashboard' && (permissoes.includes(m.id) || (m.id === 'os' && permissoes.includes('os_campo'))))
       .map(m => ({
         id: m.id,
         label: m.label,

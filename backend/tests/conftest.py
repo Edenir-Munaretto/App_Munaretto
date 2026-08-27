@@ -147,8 +147,12 @@ def manutencao_client(client, db_fake):
     return client
 
 
-def _criar_e_logar(client, db_fake, uid, nome, email, senha, permissoes):
-    """Helper dos fixtures do módulo O.S: cria usuário e retorna client logado."""
+def _criar_e_logar(client, db_fake, uid, nome, email, senha, permissoes, funcionario_id=None):
+    """Helper dos fixtures do módulo O.S: cria usuário e retorna client logado.
+
+    Cada chamada usa um TestClient próprio (evita que um fixture sobrescreva
+    o token do outro quando um teste usa mais de um client).
+    """
     db_fake._dados["usuarios"].append(
         {
             "id": uid,
@@ -158,13 +162,15 @@ def _criar_e_logar(client, db_fake, uid, nome, email, senha, permissoes):
             "permissoes": permissoes,
             "ativo": True,
             "precisa_trocar_senha": False,
+            "funcionario_id": funcionario_id,
         }
     )
-    resp = client.post("/api/usuarios/login", json={"email": email, "senha": senha})
+    novo = TestClient(app)
+    resp = novo.post("/api/usuarios/login", json={"email": email, "senha": senha})
     assert resp.status_code == 200, resp.text
     token = resp.json()["token"]
-    client.headers.update({"Authorization": f"Bearer {token}"})
-    return client
+    novo.headers.update({"Authorization": f"Bearer {token}"})
+    return novo
 
 
 @pytest.fixture
@@ -183,7 +189,10 @@ def os_gestor_client(client, db_fake):
 
 @pytest.fixture
 def os_campo_client(client, db_fake):
-    """Usuário de campo: apenas 'os' (restrito às equipes em que atua)."""
+    """Usuário de campo: permissão 'os_campo' (restrito às equipes em que atua).
+
+    Vinculado ao funcionário de id 10 (criado pelo _seed_cenario de test_os).
+    """
     return _criar_e_logar(
         client,
         db_fake,
@@ -191,5 +200,6 @@ def os_campo_client(client, db_fake):
         "Lider Campo",
         "campo@munaretto.com",
         "senhaCampo123",
-        ["os"],
+        ["os_campo"],
+        funcionario_id=10,
     )

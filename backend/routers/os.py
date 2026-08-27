@@ -5,11 +5,11 @@ Regras de negócio centrais:
 - Trava de status 'Impedida': justificativa obrigatória (>= 20 caracteres)
   e pelo menos uma foto de evidência já anexada à O.S.;
 - Apontamento de horas (H.H.) com Play/Pause e cálculo do Custo Real de
-  Mão de Obra a partir de funcionarios.valor_hora;
+  Mão de Obra (zerado até que o valor da hora seja definido por equipe);
 - Comparativo Materiais Aplicados vs. Orçados;
 - Permissão granular: usuários com "configuracoes"/"dashboard" são gestores
   (vêem tudo); demais usuários só acessam O.S das equipes em que atuam
-  (vínculo feito pelo e-mail do funcionário cadastrado).
+  (vínculo pelo funcionário selecionado em Configurações → Usuários).
 """
 
 import logging
@@ -20,11 +20,15 @@ from fastapi import APIRouter, Depends, File, HTTPException, Query, UploadFile
 from fastapi.responses import FileResponse
 from pydantic import BaseModel, Field
 
-from auth import UsuarioAutenticado, get_current_user, require_permisao
+from auth import UsuarioAutenticado, get_current_user, require_qualquer_permisao
 from storage import bucket, get_s3_client
 from supabase_client import get_supabase
 
-router = APIRouter(dependencies=[Depends(require_permisao("os"))])
+# O módulo é acessível ao gestor ("os") e ao usuário de campo ("os_campo").
+# O usuário de campo enxerga apenas as O.S das equipes em que atua e executa
+# tarefas (status, H.H., fotos, materiais, impressão); ações de gestão
+# (criar/editar/duplicar O.S, estorno, exclusão de evidências) exigem "os".
+router = APIRouter(dependencies=[Depends(require_qualquer_permisao(["os", "os_campo"]))])
 
 logger = logging.getLogger(__name__)
 
@@ -138,10 +142,25 @@ def _e_gestor(usuario: UsuarioAutenticado) -> bool:
     return any(p in PERMISSOES_GESTOR for p in (usuario.permissoes or []))
 
 
+def _e_gestor_os(usuario: UsuarioAutenticado) -> bool:
+    """Gestor do módulo O.S: quem possui a permissão 'os'."""
+    return "os" in (usuario.permissoes or [])
+
+
+def _exigir_gestor(usuario: UsuarioAutenticado) -> None:
+    """Ações de gestão do módulo O.S são restritas a quem tem a permissão 'os'."""
+    if not _e_gestor_os(usuario):
+        raise HTTPException(
+            status_code=403,
+            detail="Esta ação é restrita ao gestor de O.S.",
+        )
+
+
 def _funcionario_do_usuario(db, usuario: UsuarioAutenticado) -> dict | None:
-    if not usuario.email:
+    """Funcionário vinculado ao usuário (definido em Configurações → Usuários)."""
+    if not usuario.funcionario_id:
         return None
-    resp = db.table("funcionarios").select("*").eq("email", usuario.email).limit(1).execute()
+    resp = db.table("funcionarios").select("*").eq("id", usuario.funcionario_id).limit(1).execute()
     return resp.data[0] if resp.data else None
 
 
@@ -359,7 +378,7 @@ def _resumo_materiais(db, os_id: int) -> dict:
 
 
 def _resumo_mao_de_obra(db, os_id: int, custo_mo_orcado: float) -> dict:
-    """Calcula horas líquidas e Custo Real de M.O. (minutos x valor_hora / 60)."""
+    """Calcula horas líquidas e Custo Real de M.O. (zerado até definir valor por equipe)."""
     aponts = (
         db.table("os_apontamentos")
         .select("funcionario_id, inicio, fim, minutos_trabalhados")
@@ -371,7 +390,7 @@ def _resumo_mao_de_obra(db, os_id: int, custo_mo_orcado: float) -> dict:
     func_ids = sorted({a["funcionario_id"] for a in (aponts.data or [])})
     funcs = {}
     if func_ids:
-        resp = db.table("funcionarios").select("id, nome, valor_hora").in_("id", func_ids).execute()
+        resp = db.table("funcionarios").select("id, nome").in_("id", func_ids).execute()
         funcs = {f["id"]: f for f in resp.data or []}
 
     agora = _agora()
@@ -386,9 +405,7 @@ def _resumo_mao_de_obra(db, os_id: int, custo_mo_orcado: float) -> dict:
             # Cronômetro ainda aberto: conta o tempo decorrido até agora.
             inicio = datetime.fromisoformat(apt["inicio"])
             minutos = max(0, int(((agora - inicio).total_seconds()) // 60))
-        valor_hora = float(func.get("valor_hora") or 0)
         total_minutos += minutos
-        custo_real += minutos * valor_hora / 60
         acum = por_funcionario.setdefault(
             apt["funcionario_id"],
             {
@@ -398,7 +415,6 @@ def _resumo_mao_de_obra(db, os_id: int, custo_mo_orcado: float) -> dict:
             },
         )
         acum["minutos"] += minutos
-        acum["custo"] = round(acum["minutos"] * valor_hora / 60, 2)
 
     return {
         "total_horas": round(total_minutos / 60, 2),
@@ -499,6 +515,7 @@ def listar_os(
 def criar_os(payload: OSCreate, usuario: UsuarioAutenticado = Depends(get_current_user), db=Depends(get_supabase)):
     """Cria uma nova O.S (status inicial 'rascunho') com seus itens orçados."""
     try:
+        _exigir_gestor(usuario)
         if payload.prioridade not in PRIORIDADES:
             raise HTTPException(status_code=400, detail=f"Prioridade inválida. Use: {', '.join(sorted(PRIORIDADES))}.")
         if payload.tipo not in TIPOS_OS:
@@ -590,6 +607,7 @@ def editar_os(
 ):
     """Permite editar escopo/prazo/equipe enquanto a O.S não está encerrada."""
     try:
+        _exigir_gestor(usuario)
         os_data = _os_ou_404(db, os_id)
         _garantir_acesso_os(db, usuario, os_data)
         if os_data["status"] in ("concluida", "cancelada"):
@@ -697,6 +715,7 @@ def alterar_status(
 @router.post("/{os_id}/duplicar", status_code=201, summary="Clona a O.S como rascunho")
 def duplicar_os(os_id: int, usuario: UsuarioAutenticado = Depends(get_current_user), db=Depends(get_supabase)):
     try:
+        _exigir_gestor(usuario)
         original = _os_ou_404(db, os_id)
         _garantir_acesso_os(db, usuario, original)
 
@@ -868,6 +887,7 @@ def estornar_material(
     os_id: int, lancamento_id: int, usuario: UsuarioAutenticado = Depends(get_current_user), db=Depends(get_supabase)
 ):
     try:
+        _exigir_gestor(usuario)
         os_data = _os_ou_404(db, os_id)
         _garantir_acesso_os(db, usuario, os_data)
         registro = db.table("os_materiais").select("id").eq("id", lancamento_id).eq("os_id", os_id).execute()
@@ -929,7 +949,8 @@ def apontar_hora(
         if not func:
             raise HTTPException(
                 status_code=403,
-                detail="Seu usuário não está vinculado a um cadastro de funcionário (campo 'email').",
+                detail="Seu usuário não está vinculado a um funcionário. Peça ao administrador para vincular em "
+                "Configurações → Usuários.",
             )
 
         if os_data["status"] in ("concluida", "cancelada", "impedida"):
@@ -1088,6 +1109,7 @@ def excluir_foto(
     os_id: int, foto_id: int, usuario: UsuarioAutenticado = Depends(get_current_user), db=Depends(get_supabase)
 ):
     try:
+        _exigir_gestor(usuario)
         os_data = _os_ou_404(db, os_id)
         _garantir_acesso_os(db, usuario, os_data)
         meta = db.table("os_fotos").select("*").eq("id", foto_id).eq("os_id", os_id).execute()

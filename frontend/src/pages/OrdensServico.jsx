@@ -187,7 +187,7 @@ function CardOS({ os, onClick, draggableProps = {} }) {
 // Abas compartilhadas entre o drawer do gestor e a tela de campo (mobile)
 // ---------------------------------------------------------------------------
 
-function TabInsumos({ osDetalhe, produtos, onAtualizado, mostrarToast, podeEditar }) {
+function TabInsumos({ osDetalhe, produtos, onAtualizado, mostrarToast, podeEditar, podeEstornar }) {
   const [buscaProduto, setBuscaProduto] = useState('');
   const [qtd, setQtd] = useState(1);
   const [salvando, setSalvando] = useState(false);
@@ -382,7 +382,7 @@ function TabInsumos({ osDetalhe, produtos, onAtualizado, mostrarToast, podeEdita
               <span className="text-xs text-slate-600 truncate">
                 {fmtData(l.data_lancamento)} · {l.quantidade_usada} × {l.produtos?.nome || l.produto_nome || ''}
               </span>
-              {podeEditar && (
+              {podeEstornar && (
                 <button onClick={() => setEstornandoId(l.id)} className="text-slate-300 hover:text-rose-600 cursor-pointer" title="Estornar">
                   <Trash2 size={14} />
                 </button>
@@ -408,7 +408,7 @@ function TabInsumos({ osDetalhe, produtos, onAtualizado, mostrarToast, podeEdita
   );
 }
 
-function TabEvidencias({ osDetalhe, onAtualizado, mostrarToast, podeEditar }) {
+function TabEvidencias({ osDetalhe, onAtualizado, mostrarToast, podeEditar, podeExcluir }) {
   const [fotos, setFotos] = useState([]);
   const [enviando, setEnviando] = useState(false);
   const [fotoParaExcluir, setFotoParaExcluir] = useState(null); // ID aguardando confirmação
@@ -484,7 +484,7 @@ function TabEvidencias({ osDetalhe, onAtualizado, mostrarToast, podeEditar }) {
         {fotos.map(f => (
           <div key={f.id} className="relative group aspect-square rounded-xl overflow-hidden border border-slate-200 bg-slate-50">
             <img src={f.url_temporaria} alt={f.nome_original} className="w-full h-full object-cover" loading="lazy" />
-            {podeEditar && (
+            {podeExcluir && (
               <button
                 onClick={() => setFotoParaExcluir(f.id)}
                 className="absolute top-1 right-1 w-7 h-7 rounded-full bg-black/60 text-white flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity cursor-pointer"
@@ -706,7 +706,7 @@ function AcoesStatus({ detalhe, podeEditar, mudarStatus, aoAplicado }) {
   );
 }
 
-function PainelExecucao({ osId, produtos, geolocalizacao, capturarGps, onFechar, recarregarLista, mostrarToast, ehMobile, mudarStatus }) {
+function PainelExecucao({ osId, produtos, geolocalizacao, capturarGps, onFechar, recarregarLista, mostrarToast, ehMobile, mudarStatus, ehGestor }) {
   const [detalhe, setDetalhe] = useState(null);
   const [erro, setErro] = useState('');
   const [aba, setAba] = useState('insumos');
@@ -744,6 +744,9 @@ function PainelExecucao({ osId, produtos, geolocalizacao, capturarGps, onFechar,
   const mo = detalhe.mao_de_obra || {};
   const mat = detalhe.materiais || {};
   const podeEditar = !['concluida', 'cancelada'].includes(detalhe.status);
+  // Ações de gestão dentro do painel (estorno, excluir evidência) exigem "os".
+  const podeEstornar = ehGestor && podeEditar;
+  const podeExcluir = ehGestor && podeEditar;
   const prazo = situacaoPrazo(detalhe);
 
   const duplicar = async () => {
@@ -802,10 +805,11 @@ function PainelExecucao({ osId, produtos, geolocalizacao, capturarGps, onFechar,
           onAtualizado={carregar}
           mostrarToast={mostrarToast}
           podeEditar={podeEditar}
+          podeEstornar={podeEstornar}
         />
       )}
       {aba === 'evidencias' && (
-        <TabEvidencias osDetalhe={detalhe} onAtualizado={carregar} mostrarToast={mostrarToast} podeEditar={podeEditar} />
+        <TabEvidencias osDetalhe={detalhe} onAtualizado={carregar} mostrarToast={mostrarToast} podeEditar={podeEditar} podeExcluir={podeExcluir} />
       )}
       {aba === 'timeline' && <TabTimeline historico={detalhe.historico} />}
     </>
@@ -894,13 +898,15 @@ function PainelExecucao({ osId, produtos, geolocalizacao, capturarGps, onFechar,
           mudarStatus={mudarStatus}
           aoAplicado={() => { carregar(); recarregarLista(); }}
         />
-        <div className="grid grid-cols-3 gap-2">
-          <button
-            onClick={duplicar}
-            className="h-11 rounded-xl border border-slate-200 text-slate-600 text-xs font-bold flex items-center justify-center gap-1.5 hover:bg-slate-50 cursor-pointer"
-          >
-            <Copy size={14} /> Duplicar
-          </button>
+        <div className={`grid gap-2 ${ehGestor ? 'grid-cols-3' : 'grid-cols-2'}`}>
+          {ehGestor && (
+            <button
+              onClick={duplicar}
+              className="h-11 rounded-xl border border-slate-200 text-slate-600 text-xs font-bold flex items-center justify-center gap-1.5 hover:bg-slate-50 cursor-pointer"
+            >
+              <Copy size={14} /> Duplicar
+            </button>
+          )}
           <button
             onClick={() => abrirPdf(`/os/${detalhe.id}/imprimir`)}
             className="h-11 rounded-xl bg-primary-600 text-white text-xs font-bold flex items-center justify-center gap-1.5 hover:bg-primary-700 cursor-pointer"
@@ -1393,7 +1399,7 @@ function ModalImpedimento({ aberto, osAlvo, onConfirmar, onCancelar, processando
 // Página principal
 // ---------------------------------------------------------------------------
 
-function OrdensServico() {
+function OrdensServico({ usuarioAtual }) {
   const [listaOs, setListaOs] = useState([]);
   const [obras, setObras] = useState([]);
   const [equipes, setEquipes] = useState([]);
@@ -1420,6 +1426,10 @@ function OrdensServico() {
     setTimeout(() => setToast(null), 4500);
   }, []);
 
+  // Gestor do módulo O.S (permissão "os"); o usuário de campo ("os_campo")
+  // apenas visualiza e executa tarefas das O.S da própria equipe.
+  const ehGestor = (usuarioAtual?.permissoes || []).includes('os');
+
   const capturarGps = useCallback(async () => {
     const gps = await capturarGeolocalizacao();
     setGeolocalizacao(gps);
@@ -1435,22 +1445,25 @@ function OrdensServico() {
       if (filtroPrioridade) params.set('prioridade', filtroPrioridade);
       const qs = params.toString();
 
-      const [resOs, resObras, resEquipes, resProdutos] = await Promise.all([
-        apiFetch(`${API_URL}/os/${qs ? `?${qs}` : ''}`),
-        apiFetch(`${API_URL}/os/obras`),
-        apiFetch(`${API_URL}/os/equipes`),
-        apiFetch(`${API_URL}/os/produtos`),
-      ]);
+      // Cadastros de apoio (obras/equipes/produtos) são restritos ao gestor.
+      const resOs = await apiFetch(`${API_URL}/os/${qs ? `?${qs}` : ''}`);
       if (resOs.ok) setListaOs(await resOs.json()); else mostrarToast('Erro ao carregar O.S.', 'error');
-      if (resObras.ok) setObras(await resObras.json());
-      if (resEquipes.ok) setEquipes(await resEquipes.json());
-      if (resProdutos.ok) setProdutos(await resProdutos.json());
+      if (ehGestor) {
+        const [resObras, resEquipes, resProdutos] = await Promise.all([
+          apiFetch(`${API_URL}/os/obras`),
+          apiFetch(`${API_URL}/os/equipes`),
+          apiFetch(`${API_URL}/os/produtos`),
+        ]);
+        if (resObras.ok) setObras(await resObras.json());
+        if (resEquipes.ok) setEquipes(await resEquipes.json());
+        if (resProdutos.ok) setProdutos(await resProdutos.json());
+      }
     } catch {
       mostrarToast('Erro de conexão ao carregar o módulo de O.S.', 'error');
     } finally {
       setLoading(false);
     }
-  }, [filtroBusca, filtroObra, filtroEquipe, filtroPrioridade, mostrarToast]);
+  }, [filtroBusca, filtroObra, filtroEquipe, filtroPrioridade, ehGestor, mostrarToast]);
 
   useEffect(() => { carregarDados(); }, [carregarDados]);
 
@@ -1564,7 +1577,7 @@ function OrdensServico() {
 
   const seletorVisao = (
     <div className="flex bg-slate-100 rounded-xl p-1">
-      {[['quadro', 'Quadro', LayoutGrid], ['cadastros', 'Cadastros', FolderKanban]].map(([key, label, Icon]) => (
+      {[['quadro', 'Quadro', LayoutGrid], ...(ehGestor ? [['cadastros', 'Cadastros', FolderKanban]] : [])].map(([key, label, Icon]) => (
         <button key={key} onClick={() => setVisao(key)}
           className={`flex items-center gap-1.5 px-3 py-1.5 min-h-11 rounded-lg text-xs font-bold transition-all cursor-pointer ${
             visao === key ? 'bg-white text-primary-700 shadow-sm' : 'text-slate-500 hover:text-slate-700'
@@ -1575,12 +1588,12 @@ function OrdensServico() {
     </div>
   );
 
-  const botaoNova = (
+  const botaoNova = ehGestor ? (
     <button onClick={() => setModalNova(true)}
       className="flex items-center justify-center gap-2 px-5 py-2.5 bg-primary-600 text-white rounded-xl font-semibold text-sm hover:bg-primary-700 transition-all shadow-md shadow-primary-900/10 cursor-pointer">
       <Plus size={18} /> Nova O.S
     </button>
-  );
+  ) : null;
 
   const filtros = (
     <div className="flex flex-col md:flex-row gap-3 md:items-center bg-white p-4 rounded-2xl border border-slate-100 shadow-sm">
@@ -1590,16 +1603,20 @@ function OrdensServico() {
           placeholder="Buscar código ou escopo..."
           className="w-full pl-9 pr-3 py-2 rounded-xl border border-slate-200 bg-slate-50 focus:bg-white text-sm focus:outline-none focus:border-primary-500" />
       </div>
-      <select value={filtroObra} onChange={(e) => setFiltroObra(e.target.value)}
-        className="px-3 py-2 rounded-xl border border-slate-200 bg-white text-sm font-semibold text-slate-600">
-        <option value="">Todas as obras</option>
-        {obras.map(o => <option key={o.id} value={o.id}>{o.nome}</option>)}
-      </select>
-      <select value={filtroEquipe} onChange={(e) => setFiltroEquipe(e.target.value)}
-        className="px-3 py-2 rounded-xl border border-slate-200 bg-white text-sm font-semibold text-slate-600">
-        <option value="">Todas as equipes</option>
-        {equipes.map(eq => <option key={eq.id} value={eq.id}>{eq.numero ? `Nº ${eq.numero} - ${eq.nome}` : eq.nome}</option>)}
-      </select>
+      {ehGestor && (
+        <select value={filtroObra} onChange={(e) => setFiltroObra(e.target.value)}
+          className="px-3 py-2 rounded-xl border border-slate-200 bg-white text-sm font-semibold text-slate-600">
+          <option value="">Todas as obras</option>
+          {obras.map(o => <option key={o.id} value={o.id}>{o.nome}</option>)}
+        </select>
+      )}
+      {ehGestor && (
+        <select value={filtroEquipe} onChange={(e) => setFiltroEquipe(e.target.value)}
+          className="px-3 py-2 rounded-xl border border-slate-200 bg-white text-sm font-semibold text-slate-600">
+          <option value="">Todas as equipes</option>
+          {equipes.map(eq => <option key={eq.id} value={eq.id}>{eq.numero ? `Nº ${eq.numero} - ${eq.nome}` : eq.nome}</option>)}
+        </select>
+      )}
       <select value={filtroPrioridade} onChange={(e) => setFiltroPrioridade(e.target.value)}
         className="px-3 py-2 rounded-xl border border-slate-200 bg-white text-sm font-semibold text-slate-600">
         <option value="">Todas as prioridades</option>
@@ -1701,7 +1718,7 @@ function OrdensServico() {
               })}
 
 
-              {/* Drawer de detalhes do gestor */}
+              {/* Drawer de detalhes */}
               {osSelecionada != null && (
                 <PainelExecucao
                   osId={osSelecionada}
@@ -1714,6 +1731,7 @@ function OrdensServico() {
                   mostrarToast={mostrarToast}
                   ehMobile={false}
                   mudarStatus={mudarStatus}
+                  ehGestor={ehGestor}
                 />
               )}
             </div>
@@ -1738,6 +1756,7 @@ function OrdensServico() {
                   mostrarToast={mostrarToast}
                   ehMobile
                   mudarStatus={mudarStatus}
+                  ehGestor={ehGestor}
                 />
               </>
             ) : (
@@ -1768,20 +1787,22 @@ function OrdensServico() {
         </>
       )}
 
-      {visao === 'cadastros' && (
+      {visao === 'cadastros' && ehGestor && (
         <PainelCadastros
           obras={obras} equipes={equipes} produtos={produtos}
           recarregar={recarregarLista} mostrarToast={mostrarToast}
         />
       )}
 
-      <ModalNovaOS
-        aberto={modalNova}
-        obras={obras} equipes={equipes} produtos={produtos}
-        onFechar={() => setModalNova(false)}
-        onCriada={recarregarLista}
-        mostrarToast={mostrarToast}
-      />
+      {ehGestor && (
+        <ModalNovaOS
+          aberto={modalNova}
+          obras={obras} equipes={equipes} produtos={produtos}
+          onFechar={() => setModalNova(false)}
+          onCriada={recarregarLista}
+          mostrarToast={mostrarToast}
+        />
+      )}
 
       <ModalImpedimento
         aberto={!!modalImpedimento}

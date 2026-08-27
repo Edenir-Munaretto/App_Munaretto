@@ -17,7 +17,7 @@ function Funcionarios({ usuarioAtual }) {
   // Modal State
   const [showModal, setShowModal] = useState(false);
   const [editingId, setEditingId] = useState(null);
-  const [form, setForm] = useState({ nome: '', cpf: '', cargo_id: '', cargo_id_2: '', email: '', valor_hora: '' });
+  const [form, setForm] = useState({ nome: '', cpf: '', cargo_id: '', cargo_id_2: '' });
   const [cargos, setCargos] = useState([]);
   const [confirmarAcao, setConfirmarAcao] = useState(null);
 
@@ -81,7 +81,7 @@ function Funcionarios({ usuarioAtual }) {
 
   const openAddModal = () => {
     setEditingId(null);
-    setForm({ nome: '', cpf: '', cargo_id: '', cargo_id_2: '', email: '', valor_hora: '' });
+    setForm({ nome: '', cpf: '', cargo_id: '', cargo_id_2: '' });
     setShowModal(true);
   };
 
@@ -91,9 +91,7 @@ function Funcionarios({ usuarioAtual }) {
       nome: f.nome,
       cpf: f.cpf,
       cargo_id: f.cargo_id || '',
-      cargo_id_2: f.cargo_id_2 || '',
-      email: f.email || '',
-      valor_hora: f.valor_hora != null ? String(f.valor_hora) : ''
+      cargo_id_2: f.cargo_id_2 || ''
     });
     setShowModal(true);
   };
@@ -110,19 +108,11 @@ function Funcionarios({ usuarioAtual }) {
       return;
     }
 
-    const valorHora = String(form.valor_hora).replace(',', '.');
-    if (valorHora && (isNaN(parseFloat(valorHora)) || parseFloat(valorHora) < 0)) {
-      showToast('Valor/hora inválido.', 'error');
-      return;
-    }
-
     const payload = {
       nome: form.nome,
       cpf: form.cpf,
       cargo_id: form.cargo_id ? Number(form.cargo_id) : null,
-      cargo_id_2: form.cargo_id_2 ? Number(form.cargo_id_2) : null,
-      email: form.email.trim() || null,
-      valor_hora: valorHora ? parseFloat(valorHora) : null
+      cargo_id_2: form.cargo_id_2 ? Number(form.cargo_id_2) : null
     };
 
     try {
@@ -338,34 +328,9 @@ function Funcionarios({ usuarioAtual }) {
                     <td className="px-3 py-3 md:px-6 md:py-4 font-bold text-slate-900">{f.nome}</td>
                     <td className="px-3 py-3 md:px-6 md:py-4 font-mono text-xs">{f.cpf}</td>
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                <div>
-                  <label className="block text-xs font-bold text-slate-700 mb-1.5">E-mail (login de campo)</label>
-                  <input
-                    type="email"
-                    name="email"
-                    value={form.email}
-                    onChange={handleInputChange}
-                    placeholder="ex: maria@empresa.com"
-                    className="w-full px-3.5 py-2 border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-primary-500/20 focus:border-primary-500 text-sm"
-                  />
-                  <p className="text-[10px] text-slate-400 mt-1 font-semibold">
-                    Vincula o login ao funcionário para equipes e apontamentos de horas (Controle de O.S).
-                  </p>
-                </div>
-                <div>
-                  <label className="block text-xs font-bold text-slate-700 mb-1.5">Valor/Hora (R$)</label>
-                  <input
-                    type="number"
-                    step="0.01"
-                    min="0"
-                    name="valor_hora"
-                    value={form.valor_hora}
-                    onChange={handleInputChange}
-                    placeholder="ex: 25.00"
-                    className="w-full px-3.5 py-2 border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-primary-500/20 focus:border-primary-500 text-sm"
-                  />
-                  <p className="text-[10px] text-slate-400 mt-1 font-semibold">
-                    Usado para calcular o custo real de mão de obra nas O.S.
+                <div className="sm:col-span-2">
+                  <p className="text-[11px] text-slate-400 font-semibold bg-slate-50 border border-slate-100 rounded-xl px-3.5 py-2.5">
+                    O vínculo com o login do responsável de equipe é feito em Configurações → Usuários.
                   </p>
                 </div>
               </div>

@@ -97,7 +97,7 @@ def _gravar_membros(db, equipe_id: int, membro_ids: list[int], lider_id: int | N
 
 
 def _membros_da_equipe(db, equipe_id: int) -> list[dict]:
-    """Retorna os membros com nome/valor_hora resolvidos via join manual."""
+    """Retorna os membros da equipe com nome resolvido via join manual."""
     resp = (
         db.table("equipe_membros")
         .select("id, funcionario_id, lider, funcionarios(nome, cpf)")

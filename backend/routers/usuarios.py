@@ -71,6 +71,9 @@ class UsuarioCreate(BaseModel):
     )
     permissoes: list[str] = Field(default_factory=list, description="IDs dos módulos acessíveis")
     ativo: bool = True
+    # Vínculo com o funcionário (responsável de equipe). É o que permite ao
+    # usuário de campo acessar as O.S das equipes em que atua.
+    funcionario_id: int | None = Field(None, description="ID do funcionário vinculado (responsável de equipe)")
 
 
 class UsuarioUpdate(BaseModel):
@@ -79,6 +82,7 @@ class UsuarioUpdate(BaseModel):
     senha: str | None = Field(None, min_length=SENHA_MIN_LENGTH)
     permissoes: list[str] = Field(default_factory=list)
     ativo: bool = True
+    funcionario_id: int | None = Field(None, description="ID do funcionário vinculado (responsável de equipe)")
 
     @field_validator("senha", mode="before")
     @classmethod
@@ -96,6 +100,7 @@ class UsuarioResponse(BaseModel):
     email: str
     permissoes: list[str]
     ativo: bool
+    funcionario_id: int | None = None
     precisa_trocar_senha: bool = False
     created_at: str | None = None
 
@@ -148,6 +153,15 @@ def _garantir_admin(db) -> None:
 
 def _user_sem_senha(user: dict) -> dict:
     return {k: v for k, v in user.items() if k != "senha"}
+
+
+def _validar_funcionario(db, funcionario_id: int | None) -> None:
+    """Valida que o funcionário vinculado existe (se informado)."""
+    if funcionario_id is None:
+        return
+    resp = db.table("funcionarios").select("id").eq("id", funcionario_id).execute()
+    if not resp.data:
+        raise HTTPException(status_code=400, detail="Funcionário vinculado não encontrado.")
 
 
 # ---------------------------------------------------------------------------
@@ -217,6 +231,8 @@ def criar_usuario(
         if dup.data:
             raise HTTPException(status_code=400, detail="Já existe um usuário com este e-mail.")
 
+        _validar_funcionario(db, usuario.funcionario_id)
+
         payload = usuario.model_dump()
         payload["senha"] = hash_senha(usuario.senha)
         response = db.table("usuarios").insert(payload).execute()
@@ -246,6 +262,8 @@ def atualizar_usuario(
         dup = db.table("usuarios").select("id").eq("email", usuario.email).neq("id", usuario_id).execute()
         if dup.data:
             raise HTTPException(status_code=400, detail="Já existe um usuário com este e-mail.")
+
+        _validar_funcionario(db, usuario.funcionario_id)
 
         payload = usuario.model_dump()
         if not payload.get("senha"):

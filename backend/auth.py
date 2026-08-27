@@ -73,6 +73,9 @@ class UsuarioAutenticado(BaseModel):
     email: str
     permissoes: list
     ativo: bool
+    # Vínculo com o cadastro de funcionário (permite derivar as equipes do
+    # usuário de campo). Definido no cadastro de Usuários (Configurações).
+    funcionario_id: int | None = None
 
 
 def _sem_senha(user: dict) -> dict:
