@@ -42,7 +42,7 @@ def listar_clientes(
             # OR nativo do PostgREST — uma única query em vez de duas separadas
             # Remove caracteres que o PostgREST interpreta como sintaxe de filtro
             termo = re.sub(r"[%_*,()=;<>]", "", busca)
-            query = query.or_(f"nome.ilike.%{termo}%,cpf_cnpj.ilike.%{termo}%")
+            query = query.or_(f"nome.ilike.%{termo}%,cpf_cnpj.ilike.%{termo}%,nota_ps.ilike.%{termo}%")
 
         response = query.order("nome").execute()
         return response.data

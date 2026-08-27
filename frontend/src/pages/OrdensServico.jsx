@@ -1970,6 +1970,17 @@ function CampoTexto({ label, ...props }) {
 function PainelCadastros({ obras, equipes, produtos, recarregar, mostrarToast }) {
   const [abaAtiva, setAbaAtiva] = useState('obras');
 
+  // Clientes (usados no autopreenchimento por Nota PS e no select da obra).
+  const [listaClientes, setListaClientes] = useState([]);
+  const [clienteAuto, setClienteAuto] = useState(null); // cliente encontrado pela Nota PS
+
+  useEffect(() => {
+    apiFetch(`${API_URL}/clientes/`)
+      .then(res => (res.ok ? res.json() : []))
+      .then(setListaClientes)
+      .catch(() => setListaClientes([]));
+  }, []);
+
   // Obras
   const [novaObra, setNovaObra] = useState({ nome: '', cliente_id: '', cidade: '', endereco: '' });
   const [filtroObraLista, setFiltroObraLista] = useState('');
@@ -2034,6 +2045,37 @@ function PainelCadastros({ obras, equipes, produtos, recarregar, mostrarToast })
       (o.endereco || '').toLowerCase().includes(termo)
     );
   }, [obras, filtroObraLista]);
+
+  // Autopreenchimento: digitar a Nota PS localiza o cliente correspondente e
+  // já vincula o cliente + cidade/endereço do cadastro dele.
+  useEffect(() => {
+    if (obraEmEdicao) {
+      setClienteAuto(null);
+      return;
+    }
+    const termo = (novaObra.nome || '').trim().toLowerCase();
+    if (termo.length < 3) {
+      setClienteAuto(null);
+      return;
+    }
+    const timer = setTimeout(() => {
+      const candidatos = listaClientes.filter(c =>
+        (c.nota_ps || '').trim().toLowerCase().includes(termo)
+      );
+      const cliente = candidatos.find(c => (c.nota_ps || '').trim().toLowerCase() === termo) ||
+        (candidatos.length === 1 ? candidatos[0] : null);
+      setClienteAuto(cliente);
+      if (cliente) {
+        setNovaObra(prev => ({
+          ...prev,
+          cliente_id: prev.cliente_id || String(cliente.id),
+          cidade: prev.cidade || cliente.cidade || '',
+          endereco: prev.endereco || cliente.endereco || '',
+        }));
+      }
+    }, 400);
+    return () => clearTimeout(timer);
+  }, [novaObra.nome, listaClientes, obraEmEdicao]);
 
   const equipesFiltradas = useMemo(() => {
     if (!filtroEquipeLista) return equipes;
@@ -2177,8 +2219,20 @@ function PainelCadastros({ obras, equipes, produtos, recarregar, mostrarToast })
             </div>
             
             <div className="space-y-3">
-              <CampoTexto label="Nome da obra *" value={novaObra.nome} onChange={e => setNovaObra({ ...novaObra, nome: e.target.value })} />
-              <ClientesSelect value={novaObra.cliente_id} onChange={(v) => setNovaObra({ ...novaObra, cliente_id: v })} />
+              <div>
+                <CampoTexto label="Nota PS *" value={novaObra.nome} onChange={e => setNovaObra({ ...novaObra, nome: e.target.value })} />
+                {clienteAuto && (
+                  <p className="text-[10px] font-bold text-emerald-600 mt-1">
+                    Cliente vinculado automaticamente: {clienteAuto.nome}
+                  </p>
+                )}
+                {!clienteAuto && !obraEmEdicao && (novaObra.nome || '').trim().length >= 3 && (
+                  <p className="text-[10px] font-semibold text-slate-400 mt-1">
+                    Nenhum cliente com esta Nota PS — selecione manualmente abaixo.
+                  </p>
+                )}
+              </div>
+              <ClientesSelect clientes={listaClientes} value={novaObra.cliente_id} onChange={(v) => setNovaObra({ ...novaObra, cliente_id: v })} />
               <CampoTexto label="Cidade" value={novaObra.cidade} onChange={e => setNovaObra({ ...novaObra, cidade: e.target.value })} />
               <CampoTexto label="Endereço" value={novaObra.endereco} onChange={e => setNovaObra({ ...novaObra, endereco: e.target.value })} />
             </div>
@@ -2198,7 +2252,7 @@ function PainelCadastros({ obras, equipes, produtos, recarregar, mostrarToast })
               )}
               <button
                 onClick={async () => {
-                  if (!novaObra.nome || !novaObra.cliente_id) { mostrarToast('Informe nome e cliente da obra.', 'error'); return; }
+                  if (!novaObra.nome || !novaObra.cliente_id) { mostrarToast('Informe a Nota PS e o cliente.', 'error'); return; }
                   const payload = {
                     nome: novaObra.nome,
                     cliente_id: Number(novaObra.cliente_id),
@@ -2523,20 +2577,13 @@ function PainelCadastros({ obras, equipes, produtos, recarregar, mostrarToast })
   );
 }
 
-// Select de clientes (reutiliza o endpoint público de Clientes do sistema).
-function ClientesSelect({ value, onChange }) {
-  const [clientes, setClientes] = useState([]);
-  useEffect(() => {
-    apiFetch(`${API_URL}/clientes/`)
-      .then(res => (res.ok ? res.json() : []))
-      .then(setClientes)
-      .catch(() => setClientes([]));
-  }, []);
+// Select de clientes (controlado — a lista vem do PainelCadastros).
+function ClientesSelect({ clientes, value, onChange }) {
   return (
     <select value={value} onChange={(e) => onChange(e.target.value)}
       className="w-full px-3 py-2 border border-slate-200 rounded-xl text-sm">
       <option value="">Selecione o cliente *</option>
-      {clientes.map(c => <option key={c.id} value={c.id}>{c.nome}</option>)}
+      {clientes.map(c => <option key={c.id} value={c.id}>{c.nome}{c.nota_ps ? ` (Nota PS: ${c.nota_ps})` : ''}</option>)}
     </select>
   );
 }
