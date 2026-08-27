@@ -13,12 +13,13 @@ Regras de negócio centrais:
 """
 
 import logging
+import re
 import uuid
 from datetime import UTC, datetime
 
-from fastapi import APIRouter, Depends, File, HTTPException, Query, UploadFile
+from fastapi import APIRouter, Depends, File, HTTPException, Query, Response, UploadFile
 from fastapi.responses import FileResponse
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 
 from auth import UsuarioAutenticado, get_current_user, require_qualquer_permisao
 from storage import bucket, get_s3_client
@@ -57,7 +58,7 @@ MIMES_FOTO_PERMITIDOS = {"image/jpeg": ".jpg", "image/png": ".png", "image/webp"
 TAMANHO_MAXIMO_FOTO_BYTES = 15 * 1024 * 1024
 VALIDADE_PRESIGNED_SEGUNDOS = 15 * 60
 
-PERMISSOES_GESTOR = {"configuracoes", "dashboard"}
+PERMISSOES_GESTOR = {"configuracoes", "dashboard", "os"}
 
 # ---------------------------------------------------------------------------
 # Schemas Pydantic
@@ -67,6 +68,26 @@ PERMISSOES_GESTOR = {"configuracoes", "dashboard"}
 class ItemOrcadoIn(BaseModel):
     produto_id: int
     quantidade_orcada: float = Field(..., gt=0)
+
+
+def _validar_hora(valor):
+    """Aceita None/'' ou hora no formato HH:MM (usada no modelo de impressão)."""
+    if valor in (None, ""):
+        return None
+    if not re.fullmatch(r"\d{2}:\d{2}", str(valor)):
+        raise ValueError("Formato inválido. Use HH:MM (ex.: 08:30).")
+    return valor
+
+
+def _validar_data_iso(valor):
+    """Aceita None/'' ou data ISO YYYY-MM-DD."""
+    if valor in (None, ""):
+        return None
+    try:
+        datetime.fromisoformat(str(valor))
+    except ValueError:
+        raise ValueError("Data inválida. Use o formato AAAA-MM-DD.") from None
+    return valor
 
 
 class OSCreate(BaseModel):
@@ -90,6 +111,9 @@ class OSCreate(BaseModel):
     chave: str | None = None
     obs: str | None = None
 
+    _val_hora = field_validator("hora_desligar", "hora_religar")(_validar_hora)
+    _val_prazo = field_validator("prazo_entrega")(_validar_data_iso)
+
 
 class OSUpdate(BaseModel):
     equipe_id: int | None = None
@@ -108,6 +132,11 @@ class OSUpdate(BaseModel):
     alimentador: str | None = None
     chave: str | None = None
     obs: str | None = None
+    # None = não alterar; [] = limpar; lista = substituir o orçamento.
+    itens_orcados: list[ItemOrcadoIn] | None = None
+
+    _val_hora = field_validator("hora_desligar", "hora_religar")(_validar_hora)
+    _val_prazo = field_validator("prazo_entrega")(_validar_data_iso)
 
 
 class StatusUpdate(BaseModel):
@@ -198,14 +227,21 @@ def _gerar_codigo_os(db) -> str:
     """
     ano = _agora().year
     prefixo = f"OS-{ano}-"
-    existentes = db.table("ordens_servico").select("codigo").like("codigo", f"{prefixo}%").execute()
-    maior = 0
-    for linha in existentes.data or []:
-        try:
-            maior = max(maior, int(linha["codigo"].rsplit("-", 1)[1]))
-        except (ValueError, IndexError):
-            continue
-    return f"{prefixo}{maior + 1:04d}"
+    for _ in range(10):
+        existentes = db.table("ordens_servico").select("codigo").like("codigo", f"{prefixo}%").execute()
+        maior = 0
+        for linha in existentes.data or []:
+            try:
+                maior = max(maior, int(linha["codigo"].rsplit("-", 1)[1]))
+            except (ValueError, IndexError):
+                continue
+        codigo = f"{prefixo}{maior + 1:04d}"
+        # Confirma que o candidato ainda não existe (criação concorrente).
+        duplicado = db.table("ordens_servico").select("id").eq("codigo", codigo).execute()
+        if not duplicado.data:
+            return codigo
+        logger.warning("Código %s já reservado em criação concorrente; tentando o próximo.", codigo)
+    raise RuntimeError("Não foi possível gerar um código único para a O.S.")
 
 
 def _gravar_historico(
@@ -429,6 +465,18 @@ def _resumo_mao_de_obra(db, os_id: int, custo_mo_orcado: float) -> dict:
 # ---------------------------------------------------------------------------
 
 
+@router.get("/transicoes", summary="Máquina de estados (fonte única p/ o frontend)")
+def transicoes_status():
+    """Retorna a máquina de estados e domínios do módulo, evitando duplicação
+    das regras entre backend e frontend."""
+    return {
+        "transicoes": {origem: sorted(destinos) for origem, destinos in TRANSICOES_STATUS.items()},
+        "status_validos": sorted(STATUS_VALIDOS),
+        "prioridades": sorted(PRIORIDADES),
+        "tipos": sorted(TIPOS_OS),
+    }
+
+
 @router.get("/", summary="Lista O.S (Kanban/filtros)")
 def listar_os(
     status: str | None = Query(None),
@@ -436,32 +484,47 @@ def listar_os(
     obra_id: int | None = Query(None),
     equipe_id: int | None = Query(None),
     busca: str | None = Query(None, description="Busca por código ou escopo"),
+    limit: int = Query(100, ge=1, le=500, description="Máximo de O.S por página"),
+    offset: int = Query(0, ge=0, description="Registros a pular (paginação)"),
     usuario: UsuarioAutenticado = Depends(get_current_user),
     db=Depends(get_supabase),
+    response: Response = None,
 ):
     try:
-        query = db.table("ordens_servico").select("*, obras(id, nome, cliente_id, clientes(nome)), equipes(id, nome)")
+        base = db.table("ordens_servico")
 
-        # Permissão granular: usuário de campo só enxerga O.S das suas equipes.
-        if not _e_gestor(usuario):
-            equipes_usuario = _equipes_do_usuario(db, usuario)
-            if not equipes_usuario:
-                return []
-            query = query.in_("equipe_id", equipes_usuario)
+        def _aplicar_filtros(q):
+            # Permissão granular: usuário de campo só enxerga O.S das suas equipes.
+            if not _e_gestor(usuario):
+                equipes_usuario = _equipes_do_usuario(db, usuario)
+                if not equipes_usuario:
+                    return None
+                q = q.in_("equipe_id", equipes_usuario)
+            if status:
+                q = q.eq("status", status)
+            if prioridade:
+                q = q.eq("prioridade", prioridade)
+            if obra_id:
+                q = q.eq("obra_id", obra_id)
+            if equipe_id:
+                q = q.eq("equipe_id", equipe_id)
+            if busca:
+                termo = busca.replace("%", "").replace(",", "")
+                q = q.or_(f"codigo.ilike.%{termo}%,descricao_escopo.ilike.%{termo}%")
+            return q
 
-        if status:
-            query = query.eq("status", status)
-        if prioridade:
-            query = query.eq("prioridade", prioridade)
-        if obra_id:
-            query = query.eq("obra_id", obra_id)
-        if equipe_id:
-            query = query.eq("equipe_id", equipe_id)
-        if busca:
-            termo = busca.replace("%", "").replace(",", "")
-            query = query.or_(f"codigo.ilike.%{termo}%,descricao_escopo.ilike.%{termo}%")
+        # Total de registros (cabeçalho X-Total-Count para a paginação do Kanban).
+        q_total = _aplicar_filtros(base.select("id"))
+        if q_total is None:
+            return []
+        total = len(q_total.execute().data or [])
+        if response is not None:
+            response.headers["X-Total-Count"] = str(total)
 
-        dados = query.order("created_at", desc=True).execute().data
+        query = _aplicar_filtros(base.select("*, obras(id, nome, cliente_id, clientes(nome)), equipes(id, nome)"))
+        dados = (
+            query.order("created_at", desc=True).order("id", desc=True).range(offset, offset + limit - 1).execute().data
+        )
 
         # Contadores "Aplicado vs. Orçado" por O.S em UMA viagem só (evita
         # N+1 no frontend): soma o custo de cada item (qtde x preço unitário)
@@ -586,12 +649,32 @@ def detalhar_os(os_id: int, usuario: UsuarioAutenticado = Depends(get_current_us
             db.table("os_apontamentos").select("id, inicio").eq("os_id", os_id).is_("fim", "null").execute().data
         )
 
+        # Itens orçados com nome do produto (usados na edição da O.S).
+        itens_orc = (
+            db.table("os_itens_orcados").select("produto_id, quantidade_orcada").eq("os_id", os_id).execute().data
+        )
+        prod_ids = sorted({i["produto_id"] for i in (itens_orc or [])})
+        nomes = {}
+        if prod_ids:
+            resp = db.table("produtos").select("id, nome, unidade").in_("id", prod_ids).execute()
+            nomes = {p["id"]: p for p in resp.data or []}
+        itens_orcados = [
+            {
+                "produto_id": i["produto_id"],
+                "quantidade_orcada": i["quantidade_orcada"],
+                "nome": (nomes.get(i["produto_id"]) or {}).get("nome"),
+                "unidade": (nomes.get(i["produto_id"]) or {}).get("unidade"),
+            }
+            for i in (itens_orc or [])
+        ]
+
         return {
             **os_data,
             "materiais": materiais,
             "mao_de_obra": mao_de_obra,
             "historico": historico,
             "fotos": fotos,
+            "itens_orcados": itens_orcados,
             "cronometro_aberto": apontamento_aberto[0] if apontamento_aberto else None,
         }
     except HTTPException:
@@ -646,6 +729,17 @@ def editar_os(
         )
         if not resp.data:
             raise HTTPException(status_code=500, detail="Falha ao atualizar O.S.")
+
+        # Substituição do orçamento de materiais quando enviado na edição.
+        if payload.itens_orcados is not None:
+            db.table("os_itens_orcados").delete().eq("os_id", os_id).execute()
+            itens = [
+                {"os_id": os_id, "produto_id": i.produto_id, "quantidade_orcada": i.quantidade_orcada}
+                for i in {i.produto_id: i for i in payload.itens_orcados}.values()
+            ]
+            if itens:
+                db.table("os_itens_orcados").insert(itens).execute()
+
         return resp.data[0]
     except HTTPException:
         raise
@@ -676,6 +770,10 @@ def alterar_status(
                 status_code=422,
                 detail=f"Transição inválida: '{atual}' -> '{novo}'. Destinos permitidos: {', '.join(destinos)}.",
             )
+
+        # Cancelamento é decisão de gestão: restrito a quem tem a permissão 'os'.
+        if novo == "cancelada":
+            _exigir_gestor(usuario)
 
         # Regra 2 (crítica): 'Impedida' exige justificativa >= 20 caracteres + fotos.
         justificativa = None

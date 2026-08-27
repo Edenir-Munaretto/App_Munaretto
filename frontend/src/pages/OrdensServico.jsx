@@ -24,8 +24,8 @@ const COLUNAS = [
 
 const LABEL_STATUS = Object.fromEntries(COLUNAS.map(c => [c.id, c.label]));
 
-// Espelha a máquina de estados do backend — usada para bloquear visualmente
-// colunas de destino inválidas durante o drag-and-drop.
+// Espelha a máquina de estados do backend — usada como FALLBACK enquanto o
+// endpoint /os/transicoes (fonte única) não é carregado.
 const TRANSICOES_STATUS = {
   rascunho:    new Set(['aberta', 'cancelada']),
   aberta:      new Set(['em_andamento', 'impedida', 'cancelada']),
@@ -34,6 +34,8 @@ const TRANSICOES_STATUS = {
   concluida:   new Set(),
   cancelada:   new Set(),
 };
+
+const LIMITE_PAGINA = 100;
 
 const PRIORIDADES = {
   baixa: { label: 'Baixa', cor: 'bg-slate-100 text-slate-600 border-slate-200' },
@@ -73,6 +75,31 @@ const capturarGeolocalizacao = () => new Promise((resolve) => {
     { timeout: 8000 },
   );
 });
+
+// Redimensiona/comprime a imagem ANTES do upload (canvas no navegador):
+// reduz fotos de celular para no máx. 1600px e converte para JPEG ~82%,
+// economizando armazenamento no B2 e tempo de envio no campo.
+async function comprimirImagem(arquivo, maxLado = 1600, qualidade = 0.82) {
+  if (!arquivo || !arquivo.type || !arquivo.type.startsWith('image/')) return arquivo;
+  try {
+    const bitmap = await createImageBitmap(arquivo);
+    const escala = Math.min(1, maxLado / Math.max(bitmap.width, bitmap.height));
+    if (escala >= 1) {
+      bitmap.close();
+      return arquivo; // já pequena o suficiente
+    }
+    const canvas = document.createElement('canvas');
+    canvas.width = Math.max(1, Math.round(bitmap.width * escala));
+    canvas.height = Math.max(1, Math.round(bitmap.height * escala));
+    canvas.getContext('2d').drawImage(bitmap, 0, 0, canvas.width, canvas.height);
+    bitmap.close();
+    const blob = await new Promise((resolve) => canvas.toBlob(resolve, 'image/jpeg', qualidade));
+    if (!blob) return arquivo;
+    return new File([blob], arquivo.name.replace(/\.(png|webp)$/i, '.jpg') || 'foto.jpg', { type: 'image/jpeg' });
+  } catch {
+    return arquivo; // fallback: envia o original
+  }
+}
 
 // ---------------------------------------------------------------------------
 // Componentes pequenos reutilizáveis
@@ -428,7 +455,8 @@ function TabEvidencias({ osDetalhe, onAtualizado, mostrarToast, podeEditar, pode
   const enviarArquivos = async (files) => {
     setEnviando(true);
     let ok = 0;
-    for (const arquivo of files) {
+    for (const original of files) {
+      const arquivo = await comprimirImagem(original);
       const fd = new FormData();
       fd.append('arquivo', arquivo);
       try {
@@ -638,16 +666,17 @@ function CronometroHH({ osDetalhe, geolocalizacao, capturarGps, onAtualizado, mo
 
 // Botões de transição de status direto no painel — essencial no modo campo,
 // onde não há drag-and-drop. Transições irreversíveis pedem confirmação.
-function AcoesStatus({ detalhe, podeEditar, mudarStatus, aoAplicado }) {
+function AcoesStatus({ detalhe, podeEditar, mudarStatus, aoAplicado, ehGestor, transicoesMap }) {
   const [destinoConfirmar, setDestinoConfirmar] = useState(null);
   const [processando, setProcessando] = useState(false);
 
   if (!podeEditar) return null;
-  const alvos = TRANSICOES_STATUS[detalhe.status] || new Set();
+  const alvos = transicoesMap[detalhe.status] || new Set();
   // 'impedida' fica fora dos botões: exige justificativa + fotos (modal dedicado do Kanban).
   const principal = detalhe.status === 'rascunho' && alvos.has('aberta') ? 'aberta' : null;
   const retomar = detalhe.status === 'impedida' && alvos.has('em_andamento');
   const iniciar = detalhe.status === 'aberta' && alvos.has('em_andamento');
+  const podeCancelar = alvos.has('cancelada') && ehGestor;
 
   const aplicar = async () => {
     setProcessando(true);
@@ -657,7 +686,7 @@ function AcoesStatus({ detalhe, podeEditar, mudarStatus, aoAplicado }) {
     if (ok) aoAplicado();
   };
 
-  if (!principal && !retomar && !iniciar && !alvos.has('concluida') && !alvos.has('cancelada')) return null;
+  if (!principal && !retomar && !iniciar && !alvos.has('concluida') && !podeCancelar) return null;
 
   return (
     <div className="space-y-2">
@@ -669,7 +698,7 @@ function AcoesStatus({ detalhe, podeEditar, mudarStatus, aoAplicado }) {
           <Play size={16} /> {principal ? 'Ativar O.S' : retomar ? 'Retomar Execução' : 'Iniciar Execução'}
         </button>
       )}
-      <div className={`grid ${alvos.has('concluida') && alvos.has('cancelada') ? 'grid-cols-2' : 'grid-cols-1'} gap-2`}>
+      <div className={`grid ${alvos.has('concluida') && podeCancelar ? 'grid-cols-2' : 'grid-cols-1'} gap-2`}>
         {alvos.has('concluida') && (
           <button
             onClick={() => setDestinoConfirmar('concluida')}
@@ -679,7 +708,7 @@ function AcoesStatus({ detalhe, podeEditar, mudarStatus, aoAplicado }) {
             <Check size={15} /> Concluir O.S
           </button>
         )}
-        {alvos.has('cancelada') && (
+        {podeCancelar && (
           <button
             onClick={() => setDestinoConfirmar('cancelada')}
             className="h-11 rounded-xl border border-rose-200 bg-rose-50 hover:bg-rose-100 text-rose-600 text-xs font-bold flex items-center justify-center gap-1.5 cursor-pointer transition-all disabled:opacity-40"
@@ -706,7 +735,7 @@ function AcoesStatus({ detalhe, podeEditar, mudarStatus, aoAplicado }) {
   );
 }
 
-function PainelExecucao({ osId, produtos, geolocalizacao, capturarGps, onFechar, recarregarLista, mostrarToast, ehMobile, mudarStatus, ehGestor }) {
+function PainelExecucao({ osId, produtos, geolocalizacao, capturarGps, onFechar, recarregarLista, mostrarToast, ehMobile, mudarStatus, ehGestor, onEditar, transicoes }) {
   const [detalhe, setDetalhe] = useState(null);
   const [erro, setErro] = useState('');
   const [aba, setAba] = useState('insumos');
@@ -851,9 +880,11 @@ function PainelExecucao({ osId, produtos, geolocalizacao, capturarGps, onFechar,
           <p className="text-[9px] font-bold text-sky-600 uppercase">Horas H.H.</p>
           <p className="text-sm font-extrabold text-sky-800">{mo.total_horas ?? 0} h</p>
         </div>
-        <div className="bg-emerald-50 rounded-xl p-2.5 border border-emerald-100">
+        <div className="bg-emerald-50 rounded-xl p-2.5 border border-emerald-100" title={mo.custo_mo_real > 0 ? '' : 'Valor da hora por equipe ainda não definido'}>
           <p className="text-[9px] font-bold text-emerald-600 uppercase">Custo M.O.</p>
-          <p className="text-sm font-extrabold text-emerald-800">{brl(mo.custo_mo_real)}</p>
+          <p className="text-sm font-extrabold text-emerald-800">
+            {mo.custo_mo_real > 0 ? brl(mo.custo_mo_real) : '—'}
+          </p>
         </div>
         <div className={`rounded-xl p-2.5 border ${(mat.total_aplicado_rs ?? 0) > (mat.total_orcado_rs ?? 0) && mat.total_orcado_rs > 0 ? 'bg-rose-50 border-rose-100' : 'bg-amber-50 border-amber-100'}`}>
           <p className="text-[9px] font-bold text-amber-600 uppercase">Materiais</p>
@@ -897,8 +928,17 @@ function PainelExecucao({ osId, produtos, geolocalizacao, capturarGps, onFechar,
           podeEditar={podeEditar}
           mudarStatus={mudarStatus}
           aoAplicado={() => { carregar(); recarregarLista(); }}
-        />
-        <div className={`grid gap-2 ${ehGestor ? 'grid-cols-3' : 'grid-cols-2'}`}>
+          ehGestor={ehGestor}
+          transicoesMap={transicoes}
+        />        <div className={`grid gap-2 ${ehGestor ? 'grid-cols-2' : 'grid-cols-2'}`}>
+          {ehGestor && (
+            <button
+              onClick={() => onEditar(detalhe)}
+              className="h-11 rounded-xl border border-slate-200 text-slate-600 text-xs font-bold flex items-center justify-center gap-1.5 hover:bg-slate-50 cursor-pointer"
+            >
+              <Pencil size={14} /> Editar
+            </button>
+          )}
           {ehGestor && (
             <button
               onClick={duplicar}
@@ -947,7 +987,7 @@ const FORM_OS_INICIAL = {
   hora_desligar: '', hora_religar: '', alimentador: '', chave: '', obs: '',
 };
 
-function ModalNovaOS({ aberto, obras, equipes, produtos, onFechar, onCriada, mostrarToast }) {
+function ModalNovaOS({ aberto, obras, equipes, produtos, onFechar, onCriada, mostrarToast, edicao }) {
   const [form, setForm] = useState(FORM_OS_INICIAL);
   const [itens, setItens] = useState([]); // [{produto_id, quantidade_orcada}]
   const [produtoItem, setProdutoItem] = useState('');
@@ -956,7 +996,40 @@ function ModalNovaOS({ aberto, obras, equipes, produtos, onFechar, onCriada, mos
   const [criada, setCriada] = useState(null); // {id, codigo} ao salvar com sucesso
   const [imprimindo, setImprimindo] = useState(false);
 
-  useEffect(() => { if (aberto) { setForm(FORM_OS_INICIAL); setItens([]); setCriada(null); } }, [aberto]);
+  // Preenche o formulário no modo edição (ou zera no modo criação).
+  useEffect(() => {
+    if (!aberto) return;
+    if (edicao) {
+      setForm({
+        obra_id: String(edicao.obra_id || ''),
+        equipe_id: edicao.equipe_id ? String(edicao.equipe_id) : '',
+        prioridade: edicao.prioridade || 'media',
+        prazo_entrega: edicao.prazo_entrega || '',
+        descricao_escopo: edicao.descricao_escopo || '',
+        custo_mo_orcado: edicao.custo_mo_orcado != null ? String(edicao.custo_mo_orcado) : '',
+        tipo: edicao.tipo || 'construcao',
+        agencia: edicao.agencia || '',
+        municipio: edicao.municipio || '',
+        local_servico: edicao.local_servico || '',
+        bt_energizado: !!edicao.bt_energizado,
+        at_energizado_bloqueio: !!edicao.at_energizado_bloqueio,
+        hora_desligar: edicao.hora_desligar || '',
+        hora_religar: edicao.hora_religar || '',
+        alimentador: edicao.alimentador || '',
+        chave: edicao.chave || '',
+        obs: edicao.obs || '',
+      });
+      setItens((edicao.itens_orcados || []).map(i => ({
+        produto_id: i.produto_id,
+        quantidade_orcada: Number(i.quantidade_orcada),
+      })));
+      setCriada(null);
+    } else {
+      setForm(FORM_OS_INICIAL);
+      setItens([]);
+      setCriada(null);
+    }
+  }, [aberto, edicao]);
 
   // Totais calculados em tempo real: materiais orçados + custo de M.O.
   const totalMateriais = useMemo(
@@ -984,40 +1057,53 @@ function ModalNovaOS({ aberto, obras, equipes, produtos, onFechar, onCriada, mos
     if (!form.obra_id) { mostrarToast('Selecione a obra.', 'error'); return; }
     setSalvando(true);
     try {
-      const res = await apiFetch(`${API_URL}/os/`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          obra_id: Number(form.obra_id),
-          equipe_id: form.equipe_id ? Number(form.equipe_id) : null,
-          prioridade: form.prioridade,
-          prazo_entrega: form.prazo_entrega || null,
-          descricao_escopo: form.descricao_escopo || null,
-          custo_mo_orcado: Number(form.custo_mo_orcado || 0),
-          itens_orcados: itens,
-          tipo: form.tipo,
-          agencia: form.agencia || null,
-          municipio: form.municipio || null,
-          local_servico: form.local_servico || null,
-          bt_energizado: form.bt_energizado,
-          at_energizado_bloqueio: form.at_energizado_bloqueio,
-          hora_desligar: form.hora_desligar || null,
-          hora_religar: form.hora_religar || null,
-          alimentador: form.alimentador || null,
-          chave: form.chave || null,
-          obs: form.obs || null,
-        }),
-      });
+      const corpo = {
+        equipe_id: form.equipe_id ? Number(form.equipe_id) : null,
+        prioridade: form.prioridade,
+        prazo_entrega: form.prazo_entrega || null,
+        descricao_escopo: form.descricao_escopo || null,
+        custo_mo_orcado: Number(form.custo_mo_orcado || 0),
+        itens_orcados: itens,
+        tipo: form.tipo,
+        agencia: form.agencia || null,
+        municipio: form.municipio || null,
+        local_servico: form.local_servico || null,
+        bt_energizado: form.bt_energizado,
+        at_energizado_bloqueio: form.at_energizado_bloqueio,
+        hora_desligar: form.hora_desligar || null,
+        hora_religar: form.hora_religar || null,
+        alimentador: form.alimentador || null,
+        chave: form.chave || null,
+        obs: form.obs || null,
+      };
+
+      const res = edicao
+        ? await apiFetch(`${API_URL}/os/${edicao.id}`, {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(corpo),
+          })
+        : await apiFetch(`${API_URL}/os/`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ obra_id: Number(form.obra_id), ...corpo }),
+          });
       const data = await res.json().catch(() => null);
       if (res.ok) {
-        mostrarToast(`O.S ${data.codigo} criada como rascunho.`);
-        onCriada();
-        setCriada(data);
+        if (edicao) {
+          mostrarToast(`O.S ${data.codigo || edicao.codigo} atualizada.`);
+          onCriada();
+          onFechar();
+        } else {
+          mostrarToast(`O.S ${data.codigo} criada como rascunho.`);
+          onCriada();
+          setCriada(data);
+        }
       } else {
-        mostrarToast(erroDaResposta(data, 'Erro ao criar O.S.'), 'error');
+        mostrarToast(erroDaResposta(data, edicao ? 'Erro ao atualizar O.S.' : 'Erro ao criar O.S.'), 'error');
       }
     } catch {
-      mostrarToast('Erro de conexão ao criar O.S.', 'error');
+      mostrarToast(edicao ? 'Erro de conexão ao atualizar O.S.' : 'Erro de conexão ao criar O.S.', 'error');
     } finally {
       setSalvando(false);
     }
@@ -1082,13 +1168,17 @@ function ModalNovaOS({ aberto, obras, equipes, produtos, onFechar, onCriada, mos
     <div className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center z-50 p-4">
       <form onSubmit={salvar} className="bg-white rounded-2xl shadow-2xl max-w-lg w-full overflow-hidden max-h-[92vh] overflow-y-auto animate-in fade-in zoom-in duration-200">
         <div className="bg-slate-900 text-white px-6 py-4 flex items-center justify-between sticky top-0">
-          <h3 className="font-bold text-lg flex items-center gap-2"><ClipboardList className="text-primary-400" size={20} /> Nova Ordem de Serviço</h3>
+          <h3 className="font-bold text-lg flex items-center gap-2">
+            <ClipboardList className="text-primary-400" size={20} />
+            {edicao ? `Editar O.S ${edicao.codigo}` : 'Nova Ordem de Serviço'}
+          </h3>
           <button type="button" onClick={onFechar} className="text-slate-400 hover:text-white cursor-pointer"><X size={20} /></button>
         </div>
         <div className="p-6 space-y-4">
           <div>
             <label className="block text-xs font-bold text-slate-700 mb-1.5">Obra *</label>
-            <select value={form.obra_id} onChange={(e) => {
+            <select value={form.obra_id} disabled={!!edicao}
+              onChange={(e) => {
               const obraSel = obras.find(o => o.id === Number(e.target.value));
               setForm(f => ({
                 ...f,
@@ -1097,10 +1187,13 @@ function ModalNovaOS({ aberto, obras, equipes, produtos, onFechar, onCriada, mos
                 local_servico: f.local_servico || obraSel?.endereco || '',
               }));
             }}
-              className="w-full px-3.5 py-2.5 border border-slate-200 rounded-xl text-sm font-semibold focus:outline-none focus:border-primary-500">
+              className="w-full px-3.5 py-2.5 border border-slate-200 rounded-xl text-sm font-semibold focus:outline-none focus:border-primary-500 disabled:bg-slate-100 disabled:text-slate-500">
               <option value="">Selecione...</option>
               {obras.map(o => <option key={o.id} value={o.id}>{o.nome} — {o.clientes?.nome || ''}</option>)}
             </select>
+            {edicao && (
+              <p className="text-[10px] text-slate-400 mt-1 font-semibold">A obra não pode ser alterada após a criação.</p>
+            )}
           </div>
           <div>
             <label className="block text-xs font-bold text-slate-700 mb-1.5">Tipo de O.S</label>
@@ -1262,7 +1355,7 @@ function ModalNovaOS({ aberto, obras, equipes, produtos, onFechar, onCriada, mos
             className="px-4 py-2 border border-slate-200 text-slate-600 rounded-xl text-sm font-semibold hover:bg-slate-50 cursor-pointer">Cancelar</button>
           <button type="submit" disabled={salvando}
             className="px-5 py-2 bg-primary-600 text-white rounded-xl text-sm font-semibold hover:bg-primary-700 disabled:opacity-50 cursor-pointer">
-            {salvando ? 'Criando...' : 'Criar O.S'}
+            {salvando ? 'Salvando...' : edicao ? 'Salvar Alterações' : 'Criar O.S'}
           </button>
         </div>
       </form>
@@ -1288,7 +1381,8 @@ function ModalImpedimento({ aberto, osAlvo, onConfirmar, onCancelar, processando
   const enviarFotos = async (files) => {
     setEnviandoFoto(true);
     let novosFotoIds = [...fotos];
-    for (const arquivo of files) {
+    for (const original of files) {
+      const arquivo = await comprimirImagem(original);
       const fd = new FormData();
       fd.append('arquivo', arquivo);
       try {
@@ -1409,6 +1503,7 @@ function OrdensServico({ usuarioAtual }) {
   const [visao, setVisao] = useState('quadro');       // quadro | cadastros
   const [osSelecionada, setOsSelecionada] = useState(null);
   const [modalNova, setModalNova] = useState(false);
+  const [modalEdicao, setModalEdicao] = useState(null); // detalhe da O.S em edição
   const [modalImpedimento, setModalImpedimento] = useState(null); // {os, destinoColuna}
   const [confirmacaoEncerrar, setConfirmacaoEncerrar] = useState(null); // {os, destino}
   const [processando, setProcessando] = useState(false);
@@ -1420,6 +1515,44 @@ function OrdensServico({ usuarioAtual }) {
   const [filtroObra, setFiltroObra] = useState('');
   const [filtroEquipe, setFiltroEquipe] = useState('');
   const [filtroPrioridade, setFiltroPrioridade] = useState('');
+  const [totalOs, setTotalOs] = useState(0);
+  const [transicoes, setTransicoes] = useState(TRANSICOES_STATUS); // fonte única do backend
+
+  // Debounce da busca: só consulta o servidor após 350ms sem digitar.
+  const [buscaAplicada, setBuscaAplicada] = useState('');
+  useEffect(() => {
+    const timer = setTimeout(() => setBuscaAplicada(filtroBusca.trim()), 350);
+    return () => clearTimeout(timer);
+  }, [filtroBusca]);
+
+  // Máquina de estados vinda do backend (fonte única; fallback local).
+  useEffect(() => {
+    apiFetch(`${API_URL}/os/transicoes`)
+      .then(res => res.ok ? res.json() : null)
+      .then(dados => {
+        if (dados?.transicoes) {
+          const mapa = {};
+          for (const [origem, destinos] of Object.entries(dados.transicoes)) {
+            mapa[origem] = new Set(destinos);
+          }
+          setTransicoes(mapa);
+        }
+      })
+      .catch(() => { /* mantém o fallback local */ });
+  }, []);
+
+  // Check-in persistente: restaura o registro do dia após recarregar a página.
+  useEffect(() => {
+    try {
+      const chave = `os_checkin_${new Date().toISOString().slice(0, 10)}`;
+      const salvo = localStorage.getItem(chave);
+      if (salvo) {
+        const dados = JSON.parse(salvo);
+        setCheckinInfo({ quando: new Date(dados.quando), gps: dados.gps || null });
+        if (dados.gps) setGeolocalizacao(dados.gps);
+      }
+    } catch { /* armazenamento indisponível */ }
+  }, []);
 
   const mostrarToast = useCallback((message, type = 'success') => {
     setToast({ message, type });
@@ -1436,18 +1569,27 @@ function OrdensServico({ usuarioAtual }) {
     return gps;
   }, []);
 
-  const carregarDados = useCallback(async () => {
+  const buscarPagina = useCallback(async (offset, reset) => {
     try {
       const params = new URLSearchParams();
-      if (filtroBusca) params.set('busca', filtroBusca);
+      if (buscaAplicada) params.set('busca', buscaAplicada);
       if (filtroObra) params.set('obra_id', filtroObra);
       if (filtroEquipe) params.set('equipe_id', filtroEquipe);
       if (filtroPrioridade) params.set('prioridade', filtroPrioridade);
+      params.set('limit', String(LIMITE_PAGINA));
+      params.set('offset', String(offset));
       const qs = params.toString();
 
       // Cadastros de apoio (obras/equipes/produtos) são restritos ao gestor.
       const resOs = await apiFetch(`${API_URL}/os/${qs ? `?${qs}` : ''}`);
-      if (resOs.ok) setListaOs(await resOs.json()); else mostrarToast('Erro ao carregar O.S.', 'error');
+      if (resOs.ok) {
+        const pagina = await resOs.json();
+        const total = Number(resOs.headers.get('X-Total-Count') || pagina.length);
+        setTotalOs(total);
+        setListaOs(prev => (reset ? pagina : [...prev, ...pagina]));
+      } else {
+        mostrarToast('Erro ao carregar O.S.', 'error');
+      }
       if (ehGestor) {
         const [resObras, resEquipes, resProdutos] = await Promise.all([
           apiFetch(`${API_URL}/os/obras`),
@@ -1463,7 +1605,11 @@ function OrdensServico({ usuarioAtual }) {
     } finally {
       setLoading(false);
     }
-  }, [filtroBusca, filtroObra, filtroEquipe, filtroPrioridade, ehGestor, mostrarToast]);
+  }, [buscaAplicada, filtroObra, filtroEquipe, filtroPrioridade, ehGestor, mostrarToast]);
+
+  const carregarDados = useCallback(() => { buscarPagina(0, true); }, [buscarPagina]);
+
+  const carregarMais = () => buscarPagina(listaOs.length, false);
 
   useEffect(() => { carregarDados(); }, [carregarDados]);
 
@@ -1504,8 +1650,7 @@ function OrdensServico({ usuarioAtual }) {
     if (os) setDraggingOsStatus(os.status);
   };
 
-  const aoArrastarFim = (resultado) => {
-    setDraggingOsStatus(null);
+  const aoArrastarFim = (resultado) => {    setDraggingOsStatus(null);
     const { destination, source, draggableId } = resultado;
     if (!destination) return;
     if (destination.droppableId === source.droppableId) return;
@@ -1515,8 +1660,14 @@ function OrdensServico({ usuarioAtual }) {
     const destino = destination.droppableId;
 
     // Bloqueia transições inválidas com feedback claro ao usuário.
-    if (!TRANSICOES_STATUS[os.status]?.has(destino)) {
+    if (!transicoes[os.status]?.has(destino)) {
       mostrarToast(`Transição não permitida: "${LABEL_STATUS[os.status]}" → "${LABEL_STATUS[destino]}".`, 'error');
+      return;
+    }
+
+    // Cancelamento é decisão de gestão: só quem tem "os" pode cancelar.
+    if (destino === 'cancelada' && !ehGestor) {
+      mostrarToast('O cancelamento da O.S é restrito ao gestor.', 'error');
       return;
     }
 
@@ -1545,10 +1696,14 @@ function OrdensServico({ usuarioAtual }) {
 
   const fazerCheckin = async () => {
     const gps = await capturarGps();
-    setCheckinInfo({
-      quando: new Date(),
-      gps,
-    });
+    const info = { quando: new Date(), gps };
+    setCheckinInfo(info);
+    if (gps) setGeolocalizacao(gps);
+    // Persiste no dispositivo para sobreviver a recarregamentos (por dia).
+    try {
+      const chave = `os_checkin_${new Date().toISOString().slice(0, 10)}`;
+      localStorage.setItem(chave, JSON.stringify({ quando: info.quando.toISOString(), gps }));
+    } catch { /* armazenamento indisponível */ }
     mostrarToast(gps
       ? 'Check-in registrado com localização!'
       : 'Check-in registrado (sem GPS disponível no dispositivo).');
@@ -1561,8 +1716,6 @@ function OrdensServico({ usuarioAtual }) {
     for (const os of listaOs) (mapa[os.status] || mapa.rascunho).push(os);
     return mapa;
   }, [listaOs]);
-
-  const totalVisivel = listaOs.length;
 
   if (loading) {
     return (
@@ -1625,7 +1778,7 @@ function OrdensServico({ usuarioAtual }) {
       {/* Botão limpar filtros — aparece só quando há filtros ativos */}
       {(filtroBusca || filtroObra || filtroEquipe || filtroPrioridade) && (
         <button
-          onClick={() => { setFiltroBusca(''); setFiltroObra(''); setFiltroEquipe(''); setFiltroPrioridade(''); }}
+          onClick={() => { setFiltroBusca(''); setBuscaAplicada(''); setFiltroObra(''); setFiltroEquipe(''); setFiltroPrioridade(''); }}
           className="flex items-center gap-1.5 px-3 py-2 rounded-xl bg-rose-50 border border-rose-200 text-rose-600 text-xs font-bold hover:bg-rose-100 transition-colors cursor-pointer shrink-0"
         >
           <X size={13} />
@@ -1647,7 +1800,7 @@ function OrdensServico({ usuarioAtual }) {
       <div className="flex flex-col sm:flex-row gap-3 items-start sm:items-center justify-between">
         <div className="flex items-center gap-3 flex-wrap">
           {seletorVisao}
-          <span className="text-xs text-slate-400 font-semibold">{totalVisivel} O.S exibidas</span>
+          <span className="text-xs text-slate-400 font-semibold">{totalOs} O.S no total{listaOs.length < totalOs ? ` (${listaOs.length} carregadas)` : ''}</span>
         </div>
         <div className="flex items-center gap-2">
           {/* Check-in de campo: registra hora + GPS para as próximas ações */}
@@ -1666,12 +1819,12 @@ function OrdensServico({ usuarioAtual }) {
 
           {/* ===== KANBAN (desktop) ===== */}
           <DragDropContext onDragStart={aoArrastarInicio} onDragEnd={aoArrastarFim}>
-            <div className="hidden lg:grid grid-cols-6 gap-3 items-start relative">
+            <div className="hidden lg:grid grid-cols-3 xl:grid-cols-6 gap-3 items-start relative">
               {COLUNAS.map(col => {
                 // Durante o drag, calcula se esta coluna é um destino válido
                 const eDestinoInvalido = draggingOsStatus !== null
                   && draggingOsStatus !== col.id
-                  && !TRANSICOES_STATUS[draggingOsStatus]?.has(col.id);
+                  && !transicoes[draggingOsStatus]?.has(col.id);
 
                 return (
                   <div
@@ -1732,14 +1885,15 @@ function OrdensServico({ usuarioAtual }) {
                   ehMobile={false}
                   mudarStatus={mudarStatus}
                   ehGestor={ehGestor}
+                  onEditar={(detalhe) => setModalEdicao(detalhe)}
+                  transicoes={transicoes}
                 />
               )}
             </div>
           </DragDropContext>
 
           {/* ===== MODO CAMPO (mobile): lista + execução em tela cheia ===== */}
-          <div className="lg:hidden space-y-3">
-            {osSelecionada != null ? (
+          <div className="lg:hidden space-y-3">            {osSelecionada != null ? (
               <>
                 <button onClick={() => setOsSelecionada(null)}
                   className="flex items-center gap-1.5 text-sm font-bold text-primary-600 cursor-pointer">
@@ -1757,6 +1911,8 @@ function OrdensServico({ usuarioAtual }) {
                   ehMobile
                   mudarStatus={mudarStatus}
                   ehGestor={ehGestor}
+                  onEditar={(detalhe) => setModalEdicao(detalhe)}
+                  transicoes={transicoes}
                 />
               </>
             ) : (
@@ -1784,6 +1940,16 @@ function OrdensServico({ usuarioAtual }) {
               </>
             )}
           </div>
+
+          {/* Paginação: carrega a próxima página do Kanban */}
+          {listaOs.length < totalOs && (
+            <button
+              onClick={carregarMais}
+              className="w-full py-3 rounded-xl border border-slate-200 bg-white text-slate-600 text-sm font-bold hover:bg-slate-50 transition-colors cursor-pointer"
+            >
+              Carregar mais ({totalOs - listaOs.length} restantes)
+            </button>
+          )}
         </>
       )}
 
@@ -1796,9 +1962,10 @@ function OrdensServico({ usuarioAtual }) {
 
       {ehGestor && (
         <ModalNovaOS
-          aberto={modalNova}
+          aberto={modalNova || !!modalEdicao}
           obras={obras} equipes={equipes} produtos={produtos}
-          onFechar={() => setModalNova(false)}
+          edicao={modalEdicao}
+          onFechar={() => { setModalNova(false); setModalEdicao(null); }}
           onCriada={recarregarLista}
           mostrarToast={mostrarToast}
         />

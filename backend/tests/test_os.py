@@ -318,6 +318,35 @@ class TestMateriaisEPermissao:
         resp = _criar_os(os_campo_client, equipe_id=100)
         assert resp.status_code == 403
 
+    def test_campo_nao_cancela_os(self, os_gestor_client, os_campo_client, db_fake):
+        _seed_cenario(db_fake)
+        os_id = _criar_os(os_gestor_client, equipe_id=100).json()["id"]
+        # Campo avança a O.S até em_andamento (execução).
+        os_campo_client.post(f"/api/os/{os_id}/apontamentos", json={"acao": "play"})
+        # Cancelamento é restrito ao gestor.
+        resp = os_campo_client.put(f"/api/os/{os_id}/status", json={"novo_status": "cancelada"})
+        assert resp.status_code == 403
+        # Gestor consegue cancelar.
+        assert os_gestor_client.put(f"/api/os/{os_id}/status", json={"novo_status": "cancelada"}).status_code == 200
+
+    def test_gestor_apenas_os_ve_todas_as_equipes(self, client, db_fake):
+        """Um usuário com somente a permissão 'os' é gestor do módulo."""
+        from tests.conftest import _criar_e_logar
+
+        _seed_cenario(db_fake)
+        gestor_os = _criar_e_logar(
+            client,
+            db_fake,
+            95,
+            "Gestor Somente OS",
+            "gestor.sos@munaretto.com",
+            "senhaSos123",
+            ["os"],
+        )
+        _criar_os(gestor_os, equipe_id=200)  # equipe que ele não integra
+        lista = gestor_os.get("/api/os/").json()
+        assert len(lista) == 1
+
     def test_campo_nao_acessa_cadastros_de_apoio(self, os_campo_client, db_fake):
         _seed_cenario(db_fake)
         assert os_campo_client.get("/api/os/obras").status_code == 403
@@ -351,6 +380,70 @@ class TestMateriaisEPermissao:
         # Usuário sem nenhuma permissão em 'os' recebe 403 antes dos handlers.
         resp = client.get("/api/os/")
         assert resp.status_code == 401  # nem logado está (sem token)
+
+    def test_transicoes_endpoint_e_fonte_unica(self, os_gestor_client, db_fake):
+        _seed_cenario(db_fake)
+        resp = os_gestor_client.get("/api/os/transicoes")
+        assert resp.status_code == 200, resp.text
+        corpo = resp.json()
+        assert corpo["transicoes"]["rascunho"] == ["aberta", "cancelada"]
+        assert corpo["transicoes"]["concluida"] == []
+        assert "em_andamento" in corpo["status_validos"]
+        assert "linha_viva" in corpo["tipos"]
+
+    def test_listagem_paginada_traz_total_no_header(self, os_gestor_client, db_fake):
+        _seed_cenario(db_fake)
+        for _ in range(3):
+            _criar_os(os_gestor_client)
+        resp = os_gestor_client.get("/api/os/?limit=2&offset=0")
+        assert resp.status_code == 200
+        assert resp.headers.get("X-Total-Count") == "3"
+        assert len(resp.json()) == 2
+
+        resp2 = os_gestor_client.get("/api/os/?limit=2&offset=2")
+        assert len(resp2.json()) == 1
+
+
+class TestEdicaoEValidacao:
+    def test_editar_substitui_itens_orcados(self, os_gestor_client, db_fake):
+        _seed_cenario(db_fake)
+        os_id = _criar_os(os_gestor_client, itens_orcados=[{"produto_id": 7, "quantidade_orcada": 10}]).json()["id"]
+
+        resp = os_gestor_client.put(
+            f"/api/os/{os_id}",
+            json={"descricao_escopo": "Escopo revisado", "itens_orcados": [{"produto_id": 7, "quantidade_orcada": 5}]},
+        )
+        assert resp.status_code == 200, resp.text
+
+        detalhe = os_gestor_client.get(f"/api/os/{os_id}").json()
+        assert detalhe["descricao_escopo"] == "Escopo revisado"
+        itens = detalhe["itens_orcados"]
+        assert len(itens) == 1
+        assert itens[0]["quantidade_orcada"] == 5
+        assert itens[0]["nome"] == "Cimento CP-II 50kg"
+
+    def test_editar_limpa_itens_orcados(self, os_gestor_client, db_fake):
+        _seed_cenario(db_fake)
+        os_id = _criar_os(os_gestor_client, itens_orcados=[{"produto_id": 7, "quantidade_orcada": 10}]).json()["id"]
+        resp = os_gestor_client.put(f"/api/os/{os_id}", json={"itens_orcados": []})
+        assert resp.status_code == 200, resp.text
+        detalhe = os_gestor_client.get(f"/api/os/{os_id}").json()
+        assert detalhe["itens_orcados"] == []
+
+    def test_hora_invalida_rejeitada(self, os_gestor_client, db_fake):
+        _seed_cenario(db_fake)
+        resp = _criar_os(os_gestor_client, hora_desligar="8h30")
+        assert resp.status_code == 422
+
+    def test_prazo_invalido_rejeitado(self, os_gestor_client, db_fake):
+        _seed_cenario(db_fake)
+        resp = _criar_os(os_gestor_client, prazo_entrega="31/12/2026")
+        assert resp.status_code == 422
+
+    def test_hora_valida_aceita(self, os_gestor_client, db_fake):
+        _seed_cenario(db_fake)
+        resp = _criar_os(os_gestor_client, hora_desligar="08:30", hora_religar="17:45")
+        assert resp.status_code == 201, resp.text
 
 
 class TestModeloImpressao:
