@@ -1110,7 +1110,7 @@ function ModalNovaOS({ aberto, obras, equipes, produtos, onFechar, onCriada, mos
               <select value={form.equipe_id} onChange={(e) => setForm({ ...form, equipe_id: e.target.value })}
                 className="w-full px-3.5 py-2.5 border border-slate-200 rounded-xl text-sm font-semibold focus:outline-none focus:border-primary-500">
                 <option value="">Definir depois</option>
-                {equipes.map(eq => <option key={eq.id} value={eq.id}>{eq.nome}</option>)}
+                {equipes.map(eq => <option key={eq.id} value={eq.id}>{eq.numero ? `Nº ${eq.numero} - ${eq.nome}` : eq.nome}</option>)}
               </select>
             </div>
             <div>
@@ -1598,7 +1598,7 @@ function OrdensServico() {
       <select value={filtroEquipe} onChange={(e) => setFiltroEquipe(e.target.value)}
         className="px-3 py-2 rounded-xl border border-slate-200 bg-white text-sm font-semibold text-slate-600">
         <option value="">Todas as equipes</option>
-        {equipes.map(eq => <option key={eq.id} value={eq.id}>{eq.nome}</option>)}
+        {equipes.map(eq => <option key={eq.id} value={eq.id}>{eq.numero ? `Nº ${eq.numero} - ${eq.nome}` : eq.nome}</option>)}
       </select>
       <select value={filtroPrioridade} onChange={(e) => setFiltroPrioridade(e.target.value)}
         className="px-3 py-2 rounded-xl border border-slate-200 bg-white text-sm font-semibold text-slate-600">
@@ -2191,7 +2191,7 @@ function PainelCadastros({ obras, equipes, produtos, recarregar, mostrarToast })
             </div>
             <div className="space-y-3">
               <CampoTexto label="Nome da equipe *" value={novaEquipe.nome} onChange={e => setNovaEquipe({ ...novaEquipe, nome: e.target.value })} />
-              <CampoTexto label="Número (impresso no modelo de O.S)" value={novaEquipe.numero} onChange={e => setNovaEquipe({ ...novaEquipe, numero: e.target.value })} />
+              <CampoTexto label="Número da equipe * (impresso no modelo de O.S)" value={novaEquipe.numero} onChange={e => setNovaEquipe({ ...novaEquipe, numero: e.target.value })} />
               <MembrosEquipePicker
                 membros={novaEquipe.membros}
                 lider={novaEquipe.lider}
@@ -2215,6 +2215,7 @@ function PainelCadastros({ obras, equipes, produtos, recarregar, mostrarToast })
               <button
                 onClick={async () => {
                   if (!novaEquipe.nome) { mostrarToast('Informe o nome da equipe.', 'error'); return; }
+                  if (!novaEquipe.numero) { mostrarToast('Informe o número da equipe.', 'error'); return; }
                   const payload = {
                     nome: novaEquipe.nome,
                     numero: novaEquipe.numero || null,

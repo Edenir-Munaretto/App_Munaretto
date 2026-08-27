@@ -65,8 +65,8 @@ def gerar_modelo_os(
     geometria exata do modelo oficial; "construcao" usa o pipeline DOCX.
     """
     membros = membros or []
-    equipe_parts = [p for p in [equipe_numero, equipe_nome] if p]
-    equipe_label = " - ".join(equipe_parts)
+    # O campo "Equipe" do modelo impresso mostra apenas o número da equipe
+    equipe_label = equipe_numero or ""
 
     municipio = os_data.get("municipio") or obra.get("cidade") or ""
     local = os_data.get("local_servico") or obra.get("endereco") or ""
