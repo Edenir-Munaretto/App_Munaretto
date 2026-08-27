@@ -990,11 +990,8 @@ const FORM_OS_INICIAL = {
   hora_desligar: '', hora_religar: '', alimentador: '', chave: '', obs: '',
 };
 
-function ModalNovaOS({ aberto, obras, equipes, produtos, onFechar, onCriada, mostrarToast, edicao }) {
+function ModalNovaOS({ aberto, obras, equipes, onFechar, onCriada, mostrarToast, edicao }) {
   const [form, setForm] = useState(FORM_OS_INICIAL);
-  const [itens, setItens] = useState([]); // [{produto_id, quantidade_orcada}]
-  const [produtoItem, setProdutoItem] = useState('');
-  const [qtdItem, setQtdItem] = useState(1);
   const [salvando, setSalvando] = useState(false);
   const [criada, setCriada] = useState(null); // {id, codigo} ao salvar com sucesso
   const [imprimindo, setImprimindo] = useState(false);
@@ -1023,38 +1020,14 @@ function ModalNovaOS({ aberto, obras, equipes, produtos, onFechar, onCriada, mos
         chave: edicao.chave || '',
         obs: edicao.obs || '',
       });
-      setItens((edicao.itens_orcados || []).map(i => ({
-        produto_id: i.produto_id,
-        quantidade_orcada: Number(i.quantidade_orcada),
-      })));
       setCriada(null);
     } else {
       setForm(FORM_OS_INICIAL);
-      setItens([]);
       setCriada(null);
     }
   }, [aberto, edicao]);
 
-  // Totais calculados em tempo real: materiais orçados + custo de M.O.
-  const totalMateriais = useMemo(
-    () => itens.reduce((acc, i) => {
-      const prod = produtos.find(p => p.id === i.produto_id);
-      return acc + i.quantidade_orcada * Number(prod?.preco_unitario || 0);
-    }, 0),
-    [itens, produtos],
-  );
-  const totalGeral = totalMateriais + Number(form.custo_mo_orcado || 0);
-
-  const addItem = () => {
-    const pid = Number(produtoItem);
-    if (!pid || !produtos.some(p => p.id === pid)) {
-      mostrarToast('Selecione um produto para o orçamento.', 'error');
-      return;
-    }
-    setItens(prev => [...prev.filter(i => i.produto_id !== pid), { produto_id: pid, quantidade_orcada: Number(qtdItem) }]);
-    setProdutoItem('');
-    setQtdItem(1);
-  };
+  const totalGeral = Number(form.custo_mo_orcado || 0);
 
   const salvar = async (e) => {
     e.preventDefault();
@@ -1067,7 +1040,8 @@ function ModalNovaOS({ aberto, obras, equipes, produtos, onFechar, onCriada, mos
         prazo_entrega: form.prazo_entrega || null,
         descricao_escopo: form.descricao_escopo || null,
         custo_mo_orcado: Number(form.custo_mo_orcado || 0),
-        itens_orcados: itens,
+        // Materiais orçados desativados por enquanto (criação sem itens;
+        // edição preserva o orçamento existente ao omitir o campo).
         tipo: form.tipo,
         agencia: form.agencia || null,
         municipio: form.municipio || null,
@@ -1316,49 +1290,11 @@ function ModalNovaOS({ aberto, obras, equipes, produtos, onFechar, onCriada, mos
                 className="w-full px-3 py-2 border border-slate-200 rounded-xl text-sm focus:outline-none focus:border-primary-500" />
             </div>
           </div>
-
-          {/* Itens orçados */}
-          <div className="border border-slate-100 rounded-xl p-3 bg-slate-50">
-            <p className="text-xs font-bold text-slate-600 mb-2">Materiais orçados</p>
-            <div className="flex gap-2">
-              <select value={produtoItem} onChange={(e) => setProdutoItem(e.target.value)}
-                className="flex-1 px-2.5 py-2 border border-slate-200 rounded-lg text-xs">
-                <option value="">Produto...</option>
-                {produtos.map(p => <option key={p.id} value={p.id}>{p.nome} ({p.unidade})</option>)}
-              </select>
-              <input type="number" min="0.5" step="0.5" value={qtdItem} onChange={(e) => setQtdItem(e.target.value)}
-                className="w-20 px-2 py-2 border border-slate-200 rounded-lg text-xs text-center" />
-              <button type="button" onClick={addItem}
-                className="px-3 py-2 bg-primary-600 text-white rounded-lg text-xs font-bold cursor-pointer">Add</button>
-            </div>
-            <ul className="mt-2 space-y-1">
-              {itens.map(i => {
-                const prod = produtos.find(p => p.id === i.produto_id);
-                return (
-                  <li key={i.produto_id} className="flex justify-between items-center text-xs bg-white rounded-lg px-2.5 py-1.5 border border-slate-100">
-                    <span className="truncate">{prod?.nome} — {i.quantidade_orcada} {prod?.unidade}</span>
-                    <span className="flex items-center gap-2 shrink-0">
-                      <b className="text-slate-500">{brl(i.quantidade_orcada * Number(prod?.preco_unitario || 0))}</b>
-                      <button type="button" onClick={() => setItens(itens.filter(x => x.produto_id !== i.produto_id))}
-                        className="text-slate-300 hover:text-rose-600 cursor-pointer"><Trash2 size={13} /></button>
-                    </span>
-                  </li>
-                );
-              })}
-            </ul>
-            {/* Custo total em tempo real */}
-            {itens.length > 0 && (
-              <div className="mt-2 flex justify-between text-xs font-bold text-slate-600 bg-primary-50 border border-primary-100 rounded-lg px-2.5 py-1.5">
-                <span>Total de materiais orçados</span>
-                <span>{brl(totalMateriais)}</span>
-              </div>
-            )}
-          </div>
         </div>
-        {/* Resumo do custo geral (materiais + M.O.) antes de criar */}
-        {(itens.length > 0 || Number(form.custo_mo_orcado) > 0) && (
+        {/* Resumo do custo de M.O. previsto antes de salvar */}
+        {Number(form.custo_mo_orcado) > 0 && (
           <div className="mx-6 mb-3 rounded-xl bg-slate-900 text-white px-4 py-2.5 flex justify-between items-center">
-            <span className="text-xs font-semibold text-slate-300">Custo total previsto</span>
+            <span className="text-xs font-semibold text-slate-300">M.O. orçada prevista</span>
             <span className="text-base font-extrabold">{brl(totalGeral)}</span>
           </div>
         )}
@@ -1981,7 +1917,7 @@ function OrdensServico({ usuarioAtual }) {
       {ehGestor && (
         <ModalNovaOS
           aberto={modalNova || !!modalEdicao}
-          obras={obras} equipes={equipes} produtos={produtos}
+          obras={obras} equipes={equipes}
           edicao={modalEdicao}
           onFechar={() => { setModalNova(false); setModalEdicao(null); }}
           onCriada={recarregarLista}
