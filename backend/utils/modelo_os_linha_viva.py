@@ -199,7 +199,6 @@ def _pagina_1(pdf, ctx):
         (205, 64, "Equipe"),
         (359, 64, "ID Obra"),
         (506, 64, "Agência"),
-        (548, 64, "CDA"),
         (36, 89, "Data"),
         (183, 89, "Encarregado"),
         (36, 112, "Obra"),
@@ -223,7 +222,7 @@ def _pagina_1(pdf, ctx):
     _texto(pag, 65, 64, ctx["codigo"], 12, bold=True)
     _texto(pag, 241, 64, ctx["equipe"], 9)
     _texto(pag, 427, 64, ctx["id_obra"], 9)
-    _texto(pag, 532, 64, ctx["agencia"], 9)
+    _texto(pag, 543, 64, ctx["agencia"], 9)
     _texto(pag, 65, 89, ctx["data_placeholder"], 9)
     _texto(pag, 241, 89, ctx["encarregado"], 9)
     _texto(pag, 66, 112, ctx["obra"], 9)
