@@ -727,6 +727,8 @@ function AcoesStatus({ detalhe, podeEditar, mudarStatus, aoAplicado, ehGestor, t
             ? `Confirmar a conclusão da O.S ${detalhe.codigo}? Esta ação encerra os cronômetros e não pode ser desfeita.`
             : `Confirmar o cancelamento da O.S ${detalhe.codigo}? Esta ação não pode ser desfeita.`
         }
+        confirmarTexto={destinoConfirmar === 'concluida' ? 'Confirmar' : 'Cancelar O.S'}
+        perigo={destinoConfirmar !== 'concluida'}
         loading={processando}
         onConfirmar={aplicar}
         onCancelar={() => setDestinoConfirmar(null)}
