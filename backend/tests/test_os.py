@@ -308,10 +308,49 @@ class TestMateriaisEPermissao:
 
     def test_campo_ve_apenas_sua_equipe_na_listagem(self, os_gestor_client, os_campo_client, db_fake):
         _seed_cenario(db_fake)
-        _criar_os(os_gestor_client, equipe_id=100)  # própria equipe
+        propria = _criar_os(os_gestor_client, equipe_id=100).json()["id"]  # própria equipe
         _criar_os(os_gestor_client, equipe_id=200)  # outra equipe
+        # O campo só enxerga O.S em execução (aberta/em_andamento) da própria equipe.
+        os_gestor_client.put(f"/api/os/{propria}/status", json={"novo_status": "aberta"})
+
         lista = os_campo_client.get("/api/os/").json()
         assert len(lista) == 1
+        assert lista[0]["id"] == propria
+
+    def test_campo_ignora_os_encerradas_e_rascunho(self, os_gestor_client, os_campo_client, db_fake):
+        _seed_cenario(db_fake)
+        em_andamento = _criar_os(os_gestor_client, equipe_id=100).json()["id"]
+        impedida = _criar_os(os_gestor_client, equipe_id=100).json()["id"]
+        concluida = _criar_os(os_gestor_client, equipe_id=100).json()["id"]
+        cancelada = _criar_os(os_gestor_client, equipe_id=100).json()["id"]
+        rascunho = _criar_os(os_gestor_client, equipe_id=100).json()["id"]
+
+        os_gestor_client.put(f"/api/os/{em_andamento}/status", json={"novo_status": "aberta"})
+        os_campo_client.post(f"/api/os/{em_andamento}/apontamentos", json={"acao": "play"})  # -> em_andamento
+
+        # Impedida continua visível ao campo (para retomar).
+        os_gestor_client.put(f"/api/os/{impedida}/status", json={"novo_status": "aberta"})
+        os_campo_client.post(f"/api/os/{impedida}/apontamentos", json={"acao": "play"})
+        db_fake._dados["os_fotos"].append(
+            {"id": 700, "os_id": impedida, "nome_original": "x.jpg", "tamanho_bytes": 1,
+             "mime_type": "image/jpeg", "bucket_key": "k"}
+        )
+        os_campo_client.put(
+            f"/api/os/{impedida}/status",
+            json={"novo_status": "impedida", "justificativa": "Chuva forte inviabilizou o serviço hoje.", "fotos_ids": [700]},
+        )
+
+        os_gestor_client.put(f"/api/os/{concluida}/status", json={"novo_status": "aberta"})
+        os_campo_client.post(f"/api/os/{concluida}/apontamentos", json={"acao": "play"})
+        os_gestor_client.put(f"/api/os/{concluida}/status", json={"novo_status": "concluida"})
+        os_gestor_client.put(f"/api/os/{cancelada}/status", json={"novo_status": "cancelada"})
+
+        ids = [os["id"] for os in os_campo_client.get("/api/os/").json()]
+        assert em_andamento in ids
+        assert impedida in ids
+        assert concluida not in ids
+        assert cancelada not in ids
+        assert rascunho not in ids
 
     def test_campo_nao_cria_os(self, os_campo_client, db_fake):
         _seed_cenario(db_fake)

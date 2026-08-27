@@ -502,6 +502,9 @@ def listar_os(
                 if not equipes_usuario:
                     return None
                 q = q.in_("equipe_id", equipes_usuario)
+                # O campo vê apenas as O.S em execução (abertas/em andamento)
+                # e as impedidas (para retomar quando desbloquear).
+                q = q.in_("status", ("aberta", "em_andamento", "impedida"))
             if status:
                 q = q.eq("status", status)
             if prioridade:

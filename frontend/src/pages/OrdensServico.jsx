@@ -1722,6 +1722,12 @@ function OrdensServico({ usuarioAtual }) {
 
   // --- Agrupamento do Kanban ---------------------------------------------------
 
+  // Colunas visíveis: gestor vê todas; o campo vê as em execução + impedidas.
+  const colunasVisiveis = useMemo(
+    () => COLUNAS.filter(c => ehGestor || ['aberta', 'em_andamento', 'impedida'].includes(c.id)),
+    [ehGestor],
+  );
+
   const porColuna = useMemo(() => {
     const mapa = Object.fromEntries(COLUNAS.map(c => [c.id, []]));
     for (const os of listaOs) (mapa[os.status] || mapa.rascunho).push(os);
@@ -1831,7 +1837,7 @@ function OrdensServico({ usuarioAtual }) {
           {/* ===== KANBAN (desktop) ===== */}
           <DragDropContext onDragStart={aoArrastarInicio} onDragEnd={aoArrastarFim}>
             <div className="hidden lg:grid grid-cols-3 xl:grid-cols-6 gap-3 items-start relative">
-              {COLUNAS.map(col => {
+              {colunasVisiveis.map(col => {
                 // Durante o drag, calcula se esta coluna é um destino válido
                 const eDestinoInvalido = draggingOsStatus !== null
                   && draggingOsStatus !== col.id
@@ -1932,7 +1938,7 @@ function OrdensServico({ usuarioAtual }) {
                   <p className="text-center text-sm text-slate-400 py-12">Nenhuma O.S encontrada.</p>
                 )}
                 {/* Agrupada por status para localizar rapidamente as O.S em execução */}
-                {COLUNAS.filter(col => porColuna[col.id].length > 0).map(col => (
+                {colunasVisiveis.filter(col => porColuna[col.id].length > 0).map(col => (
                   <div key={col.id} className="space-y-2">
                     <div className="flex items-center gap-2 pt-1">
                       <span className={`text-[10px] font-extrabold uppercase tracking-wider ${
