@@ -23,10 +23,10 @@ import pymupdf
 logger = logging.getLogger(__name__)
 
 # ---------------------------------------------------------------------------
-# Constantes de layout (medidas em pontos, A4 = 595x842)
+# Constantes de layout (medidas em pontos, A4 = 595.2756 x 841.8898)
 # ---------------------------------------------------------------------------
 
-PAGINA = (595.0, 842.0)
+PAGINA = (595.2756, 841.8898)
 COR_TEXTO = (0.188, 0.188, 0.188)  # #303030
 COR_LINHA_TOP = (0.0, 0.0, 0.0)
 COR_CAIXA = (0.753, 0.753, 0.753)
