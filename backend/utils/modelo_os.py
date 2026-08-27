@@ -60,6 +60,9 @@ def gerar_modelo_os(
 
     Os campos não preenchidos no cadastro são derivados automaticamente:
     município/local da obra; se ainda assim vazios, ficam em branco no PDF.
+
+    O tipo "linha_viva" é renderizado diretamente em PDF (pymupdf) com a
+    geometria exata do modelo oficial; "construcao" usa o pipeline DOCX.
     """
     membros = membros or []
     equipe_parts = [p for p in [equipe_numero, equipe_nome] if p]
@@ -89,6 +92,36 @@ def gerar_modelo_os(
         "id_obra": os_data.get("obra_id") or "",
         "membros": membros,
     }
+
+    if tipo == "linha_viva":
+        try:
+            from utils.modelo_os_linha_viva import gerar_pdf_linha_viva
+
+            return gerar_pdf_linha_viva(
+                codigo=contexto["codigo"],
+                data=contexto["data"],
+                equipe=contexto["equipe"],
+                id_obra=str(contexto["id_obra"]),
+                agencia=contexto["agencia"],
+                encarregado=contexto["encarregado"],
+                obra=contexto["obra"],
+                atividade=contexto["atividade"],
+                local=contexto["local"],
+                municipio=contexto["municipio"],
+                servico=contexto["servico"],
+                obs=contexto["obs"],
+                h_desligar=contexto["h_desligar"],
+                h_religar=contexto["h_religar"],
+                alimentador=contexto["alimentador"],
+                chave=contexto["chave"],
+                bt=bool(contexto["bt"]),
+                at=bool(contexto["at"]),
+                bloqueio=bool(os_data.get("at_energizado_bloqueio")),
+                membros=membros,
+            )
+        except Exception:
+            logger.exception("Falha ao gerar PDF Linha Viva via pymupdf; usando template DOCX.")
+            # cai no pipeline DOCX abaixo
 
     template_path = os.path.join(TEMPLATES_DIR, f"OS_{tipo.upper()}.docx")
     if not os.path.exists(template_path):
