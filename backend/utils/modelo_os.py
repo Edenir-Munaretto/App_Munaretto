@@ -93,11 +93,14 @@ def gerar_modelo_os(
         "membros": membros,
     }
 
-    if tipo == "linha_viva":
+    if tipo in ("linha_viva", "construcao"):
         try:
-            from utils.modelo_os_linha_viva import gerar_pdf_linha_viva
+            if tipo == "linha_viva":
+                from utils.modelo_os_linha_viva import gerar_pdf_linha_viva as gerar_direto
+            else:
+                from utils.modelo_os_construcao import gerar_pdf_construcao as gerar_direto
 
-            return gerar_pdf_linha_viva(
+            return gerar_direto(
                 codigo=contexto["codigo"],
                 data=contexto["data"],
                 equipe=contexto["equipe"],
@@ -120,7 +123,7 @@ def gerar_modelo_os(
                 membros=membros,
             )
         except Exception:
-            logger.exception("Falha ao gerar PDF Linha Viva via pymupdf; usando template DOCX.")
+            logger.exception("Falha ao gerar PDF %s via pymupdf; usando template DOCX.", tipo.upper())
             # cai no pipeline DOCX abaixo
 
     template_path = os.path.join(TEMPLATES_DIR, f"OS_{tipo.upper()}.docx")
