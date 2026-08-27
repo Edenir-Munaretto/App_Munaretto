@@ -1007,7 +1007,7 @@ function ObraAutocomplete({ obras, value, disabled = false, onChange }) {
 
   const sugestoes = useMemo(() => {
     const t = termo.trim().toLowerCase();
-    if (!t) return obras.slice(0, 8);
+    if (!t) return []; // só sugere quando o usuário começa a digitar
     return obras
       .filter(o =>
         (o.nome || '').toLowerCase().includes(t) ||
