@@ -860,7 +860,8 @@ function PainelExecucao({ osId, produtos, geolocalizacao, capturarGps, onFechar,
           </div>
           <p className="text-lg font-extrabold text-slate-800 mt-1 leading-tight">{detalhe.obras?.nome}</p>
           <p className="text-xs text-slate-400">
-            Cliente: {detalhe.obras?.clientes?.nome || '-'} · Equipe: {detalhe.equipes?.nome || 'sem equipe'}
+            Cliente: {detalhe.obras?.clientes?.nome || '-'} · Equipe:{' '}
+            {detalhe.equipes ? (detalhe.equipes.numero ? `Nº ${detalhe.equipes.numero} - ${detalhe.equipes.nome}` : detalhe.equipes.nome) : 'sem equipe'}
           </p>
         </div>
         <button onClick={onFechar} className="w-10 h-10 flex items-center justify-center rounded-lg hover:bg-slate-100 text-slate-400 cursor-pointer">

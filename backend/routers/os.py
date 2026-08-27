@@ -637,7 +637,16 @@ def criar_os(payload: OSCreate, usuario: UsuarioAutenticado = Depends(get_curren
 @router.get("/{os_id}", summary="Detalhes completos da O.S")
 def detalhar_os(os_id: int, usuario: UsuarioAutenticado = Depends(get_current_user), db=Depends(get_supabase)):
     try:
-        os_data = _os_ou_404(db, os_id)
+        # Com as relações de obra/cliente/equipe (exibidas no painel e no modo campo).
+        resp = (
+            db.table("ordens_servico")
+            .select("*, obras(id, nome, cliente_id, clientes(nome)), equipes(id, nome, numero)")
+            .eq("id", os_id)
+            .execute()
+        )
+        if not resp.data:
+            raise HTTPException(status_code=404, detail="Ordem de Serviço não encontrada.")
+        os_data = resp.data[0]
         _garantir_acesso_os(db, usuario, os_data)
 
         materiais = _resumo_materiais(db, os_id)

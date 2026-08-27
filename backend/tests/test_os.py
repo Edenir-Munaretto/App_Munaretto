@@ -381,6 +381,15 @@ class TestMateriaisEPermissao:
         resp = client.get("/api/os/")
         assert resp.status_code == 401  # nem logado está (sem token)
 
+    def test_detalhe_carrega_com_relacoes(self, os_gestor_client, db_fake):
+        """O detalhe usa select com embedded resources (obras/equipes) — o fake
+        não resolve a relação, mas garante que o endpoint responde 200."""
+        _seed_cenario(db_fake)
+        os_id = _criar_os(os_gestor_client, equipe_id=100).json()["id"]
+        resp = os_gestor_client.get(f"/api/os/{os_id}")
+        assert resp.status_code == 200, resp.text
+        assert resp.json()["equipe_id"] == 100
+
     def test_transicoes_endpoint_e_fonte_unica(self, os_gestor_client, db_fake):
         _seed_cenario(db_fake)
         resp = os_gestor_client.get("/api/os/transicoes")
