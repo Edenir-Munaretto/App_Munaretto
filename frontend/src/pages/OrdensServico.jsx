@@ -983,7 +983,7 @@ const FORM_OS_INICIAL = {
   obra_id: '', equipe_id: '', prioridade: 'media', prazo_entrega: '',
   descricao_escopo: '', custo_mo_orcado: '',
   tipo: 'construcao', agencia: '', municipio: '', local_servico: '',
-  bt_energizado: false, at_energizado_bloqueio: false,
+  bt_energizado: false, at_energizado_bloqueio: false, bloqueio: false,
   hora_desligar: '', hora_religar: '', alimentador: '', chave: '', obs: '',
 };
 
@@ -1013,6 +1013,7 @@ function ModalNovaOS({ aberto, obras, equipes, produtos, onFechar, onCriada, mos
         local_servico: edicao.local_servico || '',
         bt_energizado: !!edicao.bt_energizado,
         at_energizado_bloqueio: !!edicao.at_energizado_bloqueio,
+        bloqueio: !!edicao.bloqueio,
         hora_desligar: edicao.hora_desligar || '',
         hora_religar: edicao.hora_religar || '',
         alimentador: edicao.alimentador || '',
@@ -1070,6 +1071,7 @@ function ModalNovaOS({ aberto, obras, equipes, produtos, onFechar, onCriada, mos
         local_servico: form.local_servico || null,
         bt_energizado: form.bt_energizado,
         at_energizado_bloqueio: form.at_energizado_bloqueio,
+        bloqueio: form.bloqueio,
         hora_desligar: form.hora_desligar || null,
         hora_religar: form.hora_religar || null,
         alimentador: form.alimentador || null,
@@ -1245,7 +1247,7 @@ function ModalNovaOS({ aberto, obras, equipes, produtos, onFechar, onCriada, mos
             <p className="text-xs font-extrabold text-slate-600 uppercase tracking-wide">Modelo de impressão</p>
             <div className="grid grid-cols-2 gap-3">
               <div>
-                <label className="block text-xs font-bold text-slate-700 mb-1">Agência CDA</label>
+                <label className="block text-xs font-bold text-slate-700 mb-1">Agência</label>
                 <input value={form.agencia} onChange={(e) => setForm({ ...form, agencia: e.target.value })}
                   className="w-full px-3 py-2 border border-slate-200 rounded-xl text-sm focus:outline-none focus:border-primary-500" />
               </div>
@@ -1271,7 +1273,13 @@ function ModalNovaOS({ aberto, obras, equipes, produtos, onFechar, onCriada, mos
                 <input type="checkbox" checked={form.at_energizado_bloqueio}
                   onChange={(e) => setForm({ ...form, at_energizado_bloqueio: e.target.checked })}
                   className="w-4 h-4 accent-primary-600" />
-                AT Energ. Bloqueio
+                AT Energ.
+              </label>
+              <label className="flex items-center gap-2 text-xs font-bold text-slate-700 cursor-pointer">
+                <input type="checkbox" checked={form.bloqueio}
+                  onChange={(e) => setForm({ ...form, bloqueio: e.target.checked })}
+                  className="w-4 h-4 accent-primary-600" />
+                Bloqueio
               </label>
             </div>
             <div className="grid grid-cols-2 gap-3">

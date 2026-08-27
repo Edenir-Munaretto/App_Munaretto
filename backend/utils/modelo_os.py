@@ -119,7 +119,7 @@ def gerar_modelo_os(
                 chave=contexto["chave"],
                 bt=bool(contexto["bt"]),
                 at=bool(contexto["at"]),
-                bloqueio=bool(os_data.get("at_energizado_bloqueio")),
+                bloqueio=bool(os_data.get("bloqueio")),
                 membros=membros,
             )
         except Exception:

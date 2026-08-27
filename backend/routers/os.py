@@ -105,6 +105,7 @@ class OSCreate(BaseModel):
     local_servico: str | None = None
     bt_energizado: bool = False
     at_energizado_bloqueio: bool = False
+    bloqueio: bool = False
     hora_desligar: str | None = None  # "HH:MM"
     hora_religar: str | None = None
     alimentador: str | None = None
@@ -127,6 +128,7 @@ class OSUpdate(BaseModel):
     local_servico: str | None = None
     bt_energizado: bool = False
     at_energizado_bloqueio: bool = False
+    bloqueio: bool = False
     hora_desligar: str | None = None
     hora_religar: str | None = None
     alimentador: str | None = None
@@ -603,6 +605,7 @@ def criar_os(payload: OSCreate, usuario: UsuarioAutenticado = Depends(get_curren
             "local_servico": payload.local_servico,
             "bt_energizado": payload.bt_energizado,
             "at_energizado_bloqueio": payload.at_energizado_bloqueio,
+            "bloqueio": payload.bloqueio,
             "hora_desligar": payload.hora_desligar,
             "hora_religar": payload.hora_religar,
             "alimentador": payload.alimentador,
@@ -717,6 +720,7 @@ def editar_os(
                     "local_servico": payload.local_servico,
                     "bt_energizado": payload.bt_energizado,
                     "at_energizado_bloqueio": payload.at_energizado_bloqueio,
+                    "bloqueio": payload.bloqueio,
                     "hora_desligar": payload.hora_desligar,
                     "hora_religar": payload.hora_religar,
                     "alimentador": payload.alimentador,
