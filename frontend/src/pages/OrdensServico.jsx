@@ -998,6 +998,7 @@ function ObraAutocomplete({ obras, value, disabled = false, onChange }) {
   const [aberto, setAberto] = useState(false);
   const [indiceAtivo, setIndiceAtivo] = useState(-1);
   const editando = useRef(false); // true enquanto o usuário digita (não sincronizar)
+  const itemRefs = useRef({}); // refs dos itens p/ rolar até o destacado
 
   const selecionada = obras.find(o => o.id === Number(value)) || null;
 
@@ -1024,6 +1025,13 @@ function ObraAutocomplete({ obras, value, disabled = false, onChange }) {
   // Reinicia o cursor ao mudar os resultados da busca.
   useEffect(() => { setIndiceAtivo(-1); }, [sugestoes]);
 
+  // Mantém o item destacado visível na lista (rolagem automática).
+  useEffect(() => {
+    if (indiceAtivo < 0) return;
+    const el = itemRefs.current[sugestoes[indiceAtivo]?.id];
+    el?.scrollIntoView({ block: 'nearest' });
+  }, [indiceAtivo, sugestoes]);
+
   const escolher = (o) => {
     editando.current = false;
     setTermo(`${o.nome} — ${o.clientes?.nome || ''}`);
@@ -1045,19 +1053,24 @@ function ObraAutocomplete({ obras, value, disabled = false, onChange }) {
 
   const aoTeclar = (e) => {
     if (disabled) return;
-    if (e.key === 'ArrowDown') {
+    const tecla = e.key || e.code;
+    const baixo = tecla === 'ArrowDown' || tecla === 'Down';
+    const cima = tecla === 'ArrowUp' || tecla === 'Up';
+
+    if (baixo || cima) {
       e.preventDefault();
-      if (!aberto) { setAberto(true); return; }
-      setIndiceAtivo(prev => (sugestoes.length ? (prev + 1) % sugestoes.length : -1));
-    } else if (e.key === 'ArrowUp') {
-      e.preventDefault();
-      setIndiceAtivo(prev => (sugestoes.length ? (prev <= 0 ? sugestoes.length - 1 : prev - 1) : -1));
-    } else if (e.key === 'Enter') {
+      if (sugestoes.length === 0) return;
+      setAberto(true);
+      setIndiceAtivo(prev => {
+        if (baixo) return (prev + 1) % sugestoes.length;
+        return prev <= 0 ? sugestoes.length - 1 : prev - 1;
+      });
+    } else if (tecla === 'Enter') {
       if (aberto && indiceAtivo >= 0 && sugestoes[indiceAtivo]) {
         e.preventDefault();
         escolher(sugestoes[indiceAtivo]);
       }
-    } else if (e.key === 'Escape') {
+    } else if (tecla === 'Escape' || tecla === 'Esc') {
       setAberto(false);
       setIndiceAtivo(-1);
     }
@@ -1080,12 +1093,17 @@ function ObraAutocomplete({ obras, value, disabled = false, onChange }) {
           {sugestoes.map((o, i) => (
             <li key={o.id} className="border-b border-slate-50 last:border-0">
               <button
+                ref={el => { itemRefs.current[o.id] = el; }}
                 type="button"
                 onMouseDown={() => escolher(o)}
                 onMouseEnter={() => setIndiceAtivo(i)}
-                className={`w-full text-left px-3.5 py-2.5 transition-colors cursor-pointer ${i === indiceAtivo ? 'bg-primary-50' : 'hover:bg-primary-50'}`}
+                className={`w-full text-left px-3.5 py-2.5 transition-colors cursor-pointer ${
+                  i === indiceAtivo
+                    ? 'bg-primary-100 ring-2 ring-inset ring-primary-200'
+                    : 'hover:bg-primary-50'
+                }`}
               >
-                <span className="block text-sm font-bold text-slate-800 truncate">{o.nome}</span>
+                <span className={`block text-sm font-bold truncate ${i === indiceAtivo ? 'text-primary-900' : 'text-slate-800'}`}>{o.nome}</span>
                 <span className="block text-xs text-slate-400 truncate">{o.clientes?.nome || 'Sem cliente'}</span>
               </button>
             </li>
