@@ -1,4 +1,4 @@
-"""Smoke test temporário: vínculo funcionario_id no cadastro de usuários."""
+"""Testes do vínculo funcionario_id no cadastro de usuários (Configurações)."""
 
 import hashlib
 
@@ -7,6 +7,35 @@ def _hash_senha(senha):
     salt = "0123456789abcdef"
     v = hashlib.pbkdf2_hmac("sha256", senha.encode("utf-8"), bytes.fromhex(salt), 100000).hex()
     return f"{salt}${v}"
+
+
+def _logar(client, email, senha):
+    resp = client.post("/api/usuarios/login", json={"email": email, "senha": senha})
+    assert resp.status_code == 200, resp.text
+    client.headers.update({"Authorization": f"Bearer {resp.json()['token']}"})
+
+
+def test_admin_somente_configuracoes_ve_funcionarios(client, db_fake):
+    """O cadastro de Usuários precisa da lista de funcionários para vincular
+    o responsável — a permissão 'configuracoes' deve bastar."""
+    db_fake._dados["funcionarios"].append(
+        {"id": 10, "nome": "Líder de Campo", "cpf": "11111111111", "ativo": True, "excluido": False}
+    )
+    db_fake._dados["usuarios"].append(
+        {
+            "id": 96,
+            "nome": "Admin Config",
+            "email": "config@munaretto.com",
+            "senha": _hash_senha("senhaConfig1"),
+            "permissoes": ["configuracoes"],
+            "ativo": True,
+            "precisa_trocar_senha": False,
+        }
+    )
+    _logar(client, "config@munaretto.com", "senhaConfig1")
+    resp = client.get("/api/funcionarios/")
+    assert resp.status_code == 200, resp.text
+    assert resp.json()[0]["nome"] == "Líder de Campo"
 
 
 def test_vinculo_funcionario_no_usuario(client, db_fake):

@@ -7,9 +7,12 @@ from auth import require_qualquer_permisao
 from supabase_client import get_supabase
 
 # O router é acessível por quem tem o módulo "funcionarios" (novo), além de
-# "clientes"/"ferias" (compatibilidade) e "sst" (o módulo de Segurança do
-# Trabalho usa a lista de funcionários para treinamentos, ASO e EPIs).
-router = APIRouter(dependencies=[Depends(require_qualquer_permisao(["funcionarios", "clientes", "ferias", "sst"]))])
+# "clientes"/"ferias" (compatibilidade), "sst" (o módulo de Segurança do
+# Trabalho usa a lista de funcionários para treinamentos, ASO e EPIs) e
+# "configuracoes" (o cadastro de Usuários vincula o funcionário ao login).
+router = APIRouter(
+    dependencies=[Depends(require_qualquer_permisao(["funcionarios", "clientes", "ferias", "sst", "configuracoes"]))]
+)
 
 logger = logging.getLogger(__name__)
 

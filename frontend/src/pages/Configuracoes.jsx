@@ -397,6 +397,11 @@ function Configuracoes({ usuarioAtual, onUsuarioAtualizado }) {
                   <p className="text-[10px] text-slate-400 mt-1 font-semibold">
                     Responsável de equipe: vincula o login ao funcionário para acessar as O.S da equipe.
                   </p>
+                  {funcionarios.length === 0 && (
+                    <p className="text-[10px] text-rose-500 mt-1 font-bold">
+                      Nenhum funcionário cadastrado — cadastre em Funcionários para poder vincular.
+                    </p>
+                  )}
                 </div>
 
                 <div>
