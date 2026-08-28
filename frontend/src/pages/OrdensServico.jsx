@@ -4,7 +4,7 @@ import {
   Plus, Search, X, Play, Pause, Camera, Package, ClipboardList, MapPin,
   AlertTriangle, Check, Clock, CalendarClock, Copy, FileDown, LayoutGrid,
   FolderKanban, HardHat, Boxes, Trash2, ChevronLeft, Image as ImageIcon,
-  Pencil, Building, Printer,
+  Pencil, Building, Printer, ListChecks,
 } from 'lucide-react';
 import { API_URL, apiFetch, erroDaResposta } from '../api';
 import ModalConfirmacao from '../components/ModalConfirmacao';
@@ -206,6 +206,268 @@ function CardOS({ os, onClick, draggableProps = {} }) {
       </div>
 
       <BarraMateriais os={os} />
+    </div>
+  );
+}
+
+function TabChecklist({ osDetalhe, onAtualizado, mostrarToast, podeEditar }) {
+  const [dados, setDados] = useState(null); // {itens, resumo}
+  const [carregando, setCarregando] = useState(false);
+  const [salvandoItem, setSalvandoItem] = useState(null); // item sendo respondido
+  const [enviandoFoto, setEnviandoFoto] = useState(null); // item recebendo foto
+  const [justificativas, setJustificativas] = useState({}); // item_id -> texto
+  const [fotoAlvo, setFotoAlvo] = useState(null); // item para anexar foto
+  const inputFotoRef = useRef(null);
+
+  const carregar = useCallback(async () => {
+    setCarregando(true);
+    try {
+      const res = await apiFetch(`${API_URL}/os/${osDetalhe.id}/checklist`);
+      if (res.ok) setDados(await res.json());
+      else mostrarToast(erroDaResposta(await res.json().catch(() => null), 'Erro ao carregar checklist.'), 'error');
+    } catch {
+      mostrarToast('Erro de conexão ao carregar checklist.', 'error');
+    } finally {
+      setCarregando(false);
+    }
+  }, [osDetalhe.id, mostrarToast]);
+
+  useEffect(() => { carregar(); }, [carregar]);
+
+  const responder = async (item, resposta) => {
+    if (!podeEditar) return;
+    if (resposta === 'nao' && !(justificativas[item.id] || '').trim()) {
+      mostrarToast('Resposta "não" exige justificativa.', 'error');
+      return;
+    }
+    setSalvandoItem(item.id);
+    try {
+      const gps = await capturarGeolocalizacao();
+      const res = await apiFetch(`${API_URL}/os/${osDetalhe.id}/checklist/${item.id}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          resposta,
+          justificativa: resposta === 'nao' ? (justificativas[item.id] || '').trim() : null,
+          geolocalizacao: gps,
+        }),
+      });
+      if (res.ok) {
+        carregar();
+        onAtualizado();
+      } else {
+        mostrarToast(erroDaResposta(await res.json().catch(() => null), 'Erro ao salvar resposta.'), 'error');
+      }
+    } catch {
+      mostrarToast('Erro de conexão ao salvar resposta.', 'error');
+    } finally {
+      setSalvandoItem(null);
+    }
+  };
+
+  const enviarFoto = async (files) => {
+    const item = fotoAlvo;
+    setFotoAlvo(null);
+    if (!item || !files?.length) return;
+    setEnviandoFoto(item.id);
+    const arquivo = await comprimirImagem(files[0]);
+    const fd = new FormData();
+    fd.append('arquivo', arquivo);
+    try {
+      const gps = await capturarGeolocalizacao();
+      const qs = gps ? `?geolocalizacao=${encodeURIComponent(gps)}` : '';
+      const res = await apiFetch(`${API_URL}/os/${osDetalhe.id}/checklist/${item.id}/foto${qs}`, {
+        method: 'POST',
+        body: fd,
+      });
+      if (res.ok) {
+        mostrarToast('Foto anexada ao item.');
+        carregar();
+        onAtualizado();
+      } else {
+        mostrarToast(erroDaResposta(await res.json().catch(() => null), 'Erro ao enviar foto.'), 'error');
+      }
+    } catch {
+      mostrarToast('Erro de conexão ao enviar foto.', 'error');
+    } finally {
+      setEnviandoFoto(null);
+    }
+  };
+
+  if (carregando && !dados) {
+    return <p className="text-xs text-slate-400 text-center py-8">Carregando checklist...</p>;
+  }
+  if (!dados) return null;
+
+  const resumo = dados.resumo;
+  const itensPorGrupo = {};
+  for (const item of dados.itens) {
+    (itensPorGrupo[item.grupo] = itensPorGrupo[item.grupo] || []).push(item);
+  }
+
+  const marcar = (marcado) => (marcado
+    ? 'bg-primary-600 text-white border-primary-600 shadow-sm'
+    : 'bg-white text-slate-500 border-slate-200 hover:bg-slate-50');
+
+  return (
+    <div className="space-y-4">
+      {/* Resumo geral */}
+      <div className={`rounded-xl border px-3 py-2.5 text-xs flex items-center justify-between gap-2 ${
+        resumo.inicio_liberado && resumo.completo ? 'bg-emerald-50 border-emerald-200 text-emerald-700'
+          : resumo.inicio_liberado ? 'bg-amber-50 border-amber-200 text-amber-700' : 'bg-rose-50 border-rose-200 text-rose-700'
+      }`}>
+        <span className="font-bold flex items-center gap-1.5">
+          <ListChecks size={14} />
+          {resumo.respondidos}/{resumo.total} respondidos
+          {!resumo.inicio_liberado && ' · checklist de início pendente'}
+          {resumo.inicio_liberado && !resumo.completo && ' · em andamento'}
+          {resumo.completo && ' · completo'}
+        </span>
+        <span className="text-[10px] font-semibold">{resumo.completo ? '✓' : ''}</span>
+      </div>
+
+      {!podeEditar && (
+        <p className="text-[10px] font-bold text-slate-400 text-center">O checklist desta O.S está encerrado (somente leitura).</p>
+      )}
+
+      {dados.itens.length === 0 && (
+        <p className="text-xs text-slate-400 text-center py-6">Nenhum item de checklist configurado para esta O.S.</p>
+      )}
+
+      {resumo.grupos.filter(g => g.total > 0).map(grupo => {
+        const itens = itensPorGrupo[grupo.grupo] || [];
+        return (
+          <div key={grupo.grupo} className="rounded-xl border border-slate-100 overflow-hidden">
+            <div className="flex items-center justify-between px-3 py-2 bg-slate-50 border-b border-slate-100">
+              <span className="text-[11px] font-extrabold text-slate-700 uppercase tracking-wide">
+                Grupo {grupo.grupo} · {grupo.nome}
+              </span>
+              <span className={`text-[10px] font-bold rounded-full px-2 py-0.5 ${
+                grupo.completo ? 'bg-emerald-100 text-emerald-700' : 'bg-slate-100 text-slate-500'
+              }`}>
+                {grupo.respondidos}/{grupo.total}
+              </span>
+            </div>
+            <div className="h-1 bg-slate-100">
+              <div className="h-full bg-primary-500 transition-all"
+                style={{ width: `${grupo.total ? (grupo.respondidos / grupo.total) * 100 : 0}%` }} />
+            </div>
+            <div className="divide-y divide-slate-50">
+              {itens.map(item => {
+                const resp = item.resposta;
+                const resposta = resp?.resposta;
+                const justificativa = resp?.justificativa || '';
+                const temFoto = item.fotos?.length > 0;
+                const botaoFoto = podeEditar && (item.exige_foto || temFoto);
+                return (
+                  <div key={item.id} className="px-3 py-2.5">
+                    <div className="flex items-start gap-2">
+                      <span className="font-mono text-[10px] font-bold text-slate-400 pt-1 w-9 shrink-0">{item.classificacao}</span>
+                      <div className="min-w-0 flex-1">
+                        <p className="text-xs font-semibold text-slate-700 leading-tight">{item.pergunta}</p>
+                        {item.exige_foto && (
+                          <p className="text-[9px] font-bold text-amber-600 mt-0.5">📷 evidência fotográfica</p>
+                        )}
+                        <div className="flex items-center gap-1.5 mt-1.5 flex-wrap">
+                          {podeEditar ? (
+                            <>
+                              {[['sim', 'Sim'], ['nao', 'Não'], ['na', 'N/A']].map(([valor, rotulo]) => (
+                                <button key={valor}
+                                  disabled={salvandoItem === item.id}
+                                  onClick={() => responder(item, valor)}
+                                  className={`px-3 py-1 rounded-lg border text-[11px] font-bold transition-all cursor-pointer disabled:opacity-40 ${marcar(resposta === valor)}`}>
+                                  {rotulo}
+                                </button>
+                              ))}
+                              {salvandoItem === item.id && <span className="text-[10px] text-slate-400">salvando...</span>}
+                            </>
+                          ) : (
+                            <span className={`text-[11px] font-bold px-2 py-0.5 rounded-full ${
+                              resposta === 'sim' ? 'bg-emerald-100 text-emerald-700'
+                                : resposta === 'nao' ? 'bg-rose-100 text-rose-700'
+                                : resposta === 'na' ? 'bg-slate-100 text-slate-500' : 'bg-white text-slate-300 border border-slate-200'
+                            }`}>
+                              {resposta ? ({ sim: 'Sim', nao: 'Não', na: 'N/A' })[resposta] : 'Sem resposta'}
+                            </span>
+                          )}
+                          {resposta && (
+                            <span className="text-[10px] text-slate-400 font-semibold">
+                              {fmtData(resp.criado_em)} {resp.respondido_por ? `· ${resp.respondido_por}` : ''}
+                            </span>
+                          )}
+                          {botaoFoto && (
+                            <button
+                              onClick={() => setFotoAlvo(item)}
+                              disabled={enviandoFoto === item.id}
+                              className="flex items-center gap-1 px-2.5 py-1 rounded-lg border border-primary-200 bg-primary-50 text-primary-700 text-[10px] font-bold hover:bg-primary-100 transition-all cursor-pointer disabled:opacity-40"
+                            >
+                              <Camera size={11} />
+                              {enviandoFoto === item.id ? 'Enviando...' : temFoto ? 'Trocar foto' : 'Foto'}
+                            </button>
+                          )}
+                        </div>
+                        {resposta === 'nao' && (
+                          <p className="text-[10px] text-rose-600 font-semibold mt-1">Justificativa: {justificativa || '—'}</p>
+                        )}
+                        {podeEditar && resposta === 'nao' && (
+                          <input
+                            value={justificativas[item.id] ?? justificativa}
+                            onChange={e => setJustificativas(j => ({ ...j, [item.id]: e.target.value }))}
+                            placeholder="Justificativa obrigatória para 'Não'..."
+                            className="mt-1.5 w-full px-2.5 py-1.5 border border-rose-200 rounded-lg text-[11px] focus:outline-none focus:border-rose-400"
+                          />
+                        )}
+                        {temFoto && (
+                          <div className="flex gap-2 mt-1.5">
+                            {item.fotos.map(f => (
+                              <a key={f.id} href={f.url_temporaria} target="_blank" rel="noopener noreferrer" title="Abrir foto">
+                                <img src={f.url_temporaria} alt={f.nome_original}
+                                  className="w-16 h-16 rounded-lg object-cover border border-slate-200" loading="lazy" />
+                              </a>
+                            ))}
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        );
+      })}
+
+      <input
+        ref={inputFotoRef}
+        type="file"
+        accept="image/*"
+        hidden
+        onChange={(e) => {
+          if (e.target.files?.length) enviarFoto(Array.from(e.target.files));
+          e.target.value = '';
+        }}
+      />
+      {fotoAlvo && (
+        <div className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-2xl shadow-2xl max-w-sm w-full p-6 text-center animate-in fade-in zoom-in duration-200">
+            <div className="w-12 h-12 mx-auto rounded-full bg-primary-50 border border-primary-100 flex items-center justify-center mb-3">
+              <Camera size={22} className="text-primary-600" />
+            </div>
+            <h4 className="text-sm font-extrabold text-slate-800 mb-1">Evidência fotográfica</h4>
+            <p className="text-xs text-slate-500 mb-5">{fotoAlvo.classificacao} {fotoAlvo.pergunta}</p>
+            <div className="space-y-2">
+              <button onClick={() => inputFotoRef.current?.click()}
+                className="w-full py-3 bg-primary-600 text-white rounded-xl text-sm font-bold hover:bg-primary-700 cursor-pointer">
+                Tirar / Escolher foto
+              </button>
+              <button onClick={() => setFotoAlvo(null)}
+                className="w-full py-2.5 border border-slate-200 text-slate-600 rounded-xl text-sm font-semibold hover:bg-slate-50 cursor-pointer">
+                Cancelar
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
@@ -666,7 +928,8 @@ function CronometroHH({ osDetalhe, geolocalizacao, capturarGps, onAtualizado, mo
 
 // Botões de transição de status direto no painel — essencial no modo campo,
 // onde não há drag-and-drop. Transições irreversíveis pedem confirmação.
-function AcoesStatus({ detalhe, podeEditar, mudarStatus, aoAplicado, ehGestor, transicoesMap }) {
+// O checklist de execução bloqueia o início (grupo 1) e a conclusão.
+function AcoesStatus({ detalhe, podeEditar, mudarStatus, aoAplicado, ehGestor, transicoesMap, onAbrirChecklist, mostrarToast }) {
   const [destinoConfirmar, setDestinoConfirmar] = useState(null);
   const [processando, setProcessando] = useState(false);
 
@@ -677,6 +940,30 @@ function AcoesStatus({ detalhe, podeEditar, mudarStatus, aoAplicado, ehGestor, t
   const retomar = detalhe.status === 'impedida' && alvos.has('em_andamento');
   const iniciar = detalhe.status === 'aberta' && alvos.has('em_andamento');
   const podeCancelar = alvos.has('cancelada') && ehGestor;
+  const concluir = alvos.has('concluida');
+
+  const checklist = detalhe.checklist;
+
+  const liberarInicio = async () => {
+    if (checklist && !checklist.inicio_liberado) {
+      mostrarToast('Preencha o checklist de início (Grupo 1 - Preparação) para liberar a execução.', 'error');
+      onAbrirChecklist?.();
+      return false;
+    }
+    const ok = await mudarStatus(detalhe, 'em_andamento');
+    if (ok) aoAplicado();
+    return ok;
+  };
+
+  const concluirOs = () => {
+    if (checklist && !checklist.completo) {
+      const faltam = checklist.total - checklist.respondidos;
+      mostrarToast(`O checklist da O.S está incompleto (${faltam} item(ns) pendente(s)).`, 'error');
+      onAbrirChecklist?.();
+      return;
+    }
+    setDestinoConfirmar('concluida');
+  };
 
   const aplicar = async () => {
     setProcessando(true);
@@ -686,22 +973,22 @@ function AcoesStatus({ detalhe, podeEditar, mudarStatus, aoAplicado, ehGestor, t
     if (ok) aoAplicado();
   };
 
-  if (!principal && !retomar && !iniciar && !alvos.has('concluida') && !podeCancelar) return null;
+  if (!principal && !retomar && !iniciar && !concluir && !podeCancelar) return null;
 
   return (
     <div className="space-y-2">
       {(principal || iniciar || retomar) && (
         <button
-          onClick={() => mudarStatus(detalhe, principal || 'em_andamento').then(ok => ok && aoAplicado())}
+          onClick={principal ? () => mudarStatus(detalhe, 'aberta').then(ok => ok && aoAplicado()) : liberarInicio}
           className="w-full h-11 rounded-xl border border-primary-200 bg-primary-50 hover:bg-primary-100 text-primary-700 text-sm font-bold flex items-center justify-center gap-2 cursor-pointer transition-all"
         >
           <Play size={16} /> {principal ? 'Ativar O.S' : retomar ? 'Retomar Execução' : 'Iniciar Execução'}
         </button>
       )}
-      <div className={`grid ${alvos.has('concluida') && podeCancelar ? 'grid-cols-2' : 'grid-cols-1'} gap-2`}>
-        {alvos.has('concluida') && (
+      <div className={`grid ${concluir && podeCancelar ? 'grid-cols-2' : 'grid-cols-1'} gap-2`}>
+        {concluir && (
           <button
-            onClick={() => setDestinoConfirmar('concluida')}
+            onClick={concluirOs}
             className="h-11 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold flex items-center justify-center gap-1.5 cursor-pointer transition-all disabled:opacity-40"
             disabled={processando}
           >
@@ -817,7 +1104,7 @@ function PainelExecucao({ osId, produtos, geolocalizacao, capturarGps, onFechar,
   const corpoAbas = (
     <>
       <div className="flex gap-1 bg-slate-100 rounded-xl p-1 mb-4">
-        {[['insumos', 'Insumos', Package], ['evidencias', 'Evidências', Camera], ['timeline', 'Histórico', Clock]].map(([key, label, Icon]) => (
+        {[['checklist', 'Checklist', ListChecks], ['insumos', 'Insumos', Package], ['evidencias', 'Evidências', Camera], ['timeline', 'Histórico', Clock]].map(([key, label, Icon]) => (
           <button
             key={key}
             onClick={() => setAba(key)}
@@ -829,6 +1116,14 @@ function PainelExecucao({ osId, produtos, geolocalizacao, capturarGps, onFechar,
           </button>
         ))}
       </div>
+      {aba === 'checklist' && (
+        <TabChecklist
+          osDetalhe={detalhe}
+          onAtualizado={() => { carregar(); recarregarLista(); }}
+          mostrarToast={mostrarToast}
+          podeEditar={podeEditar}
+        />
+      )}
       {aba === 'insumos' && (
         <TabInsumos
           osDetalhe={{ ...detalhe, lancamentos: detalhe.ultimos_lancamentos }}
@@ -875,6 +1170,27 @@ function PainelExecucao({ osId, produtos, geolocalizacao, capturarGps, onFechar,
         <p className="text-xs text-slate-500 bg-slate-50 border border-slate-100 rounded-xl p-3 mt-3 whitespace-pre-wrap">
           <b className="text-slate-600">Escopo:</b> {detalhe.descricao_escopo}
         </p>
+      )}
+
+      {/* Checklist de início pendente: bloqueia a liberação da execução */}
+      {detalhe.status === 'aberta' && detalhe.checklist && !detalhe.checklist.inicio_liberado && (
+        <div className="mt-3 rounded-xl border-2 border-rose-300 bg-rose-50 p-3 flex items-center justify-between gap-3">
+          <div className="flex items-center gap-2.5 min-w-0">
+            <ListChecks size={18} className="text-rose-600 shrink-0" />
+            <div className="min-w-0">
+              <p className="text-xs font-extrabold text-rose-700">Checklist de início pendente</p>
+              <p className="text-[10px] text-rose-500 font-semibold">
+                Preencha o Grupo 1 - Preparação para liberar a execução ({detalhe.checklist.respondidos}/{detalhe.checklist.total} respondidos).
+              </p>
+            </div>
+          </div>
+          <button
+            onClick={() => setAba('checklist')}
+            className="shrink-0 px-3 py-2 bg-rose-600 hover:bg-rose-700 text-white rounded-xl text-[11px] font-bold cursor-pointer transition-all"
+          >
+            Abrir checklist
+          </button>
+        </div>
       )}
 
       {/* Cartões de custo */}
@@ -933,6 +1249,8 @@ function PainelExecucao({ osId, produtos, geolocalizacao, capturarGps, onFechar,
           aoAplicado={() => { carregar(); recarregarLista(); }}
           ehGestor={ehGestor}
           transicoesMap={transicoes}
+          onAbrirChecklist={() => setAba('checklist')}
+          mostrarToast={mostrarToast}
         />        <div className={`grid gap-2 ${ehGestor ? 'grid-cols-2' : 'grid-cols-2'}`}>
           {ehGestor && (
             <button
@@ -961,6 +1279,12 @@ function PainelExecucao({ osId, produtos, geolocalizacao, capturarGps, onFechar,
             className="h-11 rounded-xl border border-slate-200 text-slate-600 text-xs font-bold flex items-center justify-center gap-1.5 hover:bg-slate-50 cursor-pointer"
           >
             <FileDown size={14} /> Relatório
+          </button>
+          <button
+            onClick={() => abrirPdf(`/os/${detalhe.id}/checklist/report`)}
+            className="h-11 rounded-xl border border-slate-200 text-slate-600 text-xs font-bold flex items-center justify-center gap-1.5 hover:bg-slate-50 cursor-pointer"
+          >
+            <ListChecks size={14} /> Checklist PDF
           </button>
         </div>
       </div>

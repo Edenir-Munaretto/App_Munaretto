@@ -13,6 +13,7 @@ Regras de negócio centrais:
 """
 
 import logging
+import os
 import re
 import uuid
 from datetime import UTC, datetime
@@ -24,6 +25,14 @@ from pydantic import BaseModel, Field, field_validator
 from auth import UsuarioAutenticado, get_current_user, require_qualquer_permisao
 from storage import bucket, get_s3_client
 from supabase_client import get_supabase
+from utils.checklist_os import (
+    GRUPO_LIBERACAO_INICIO,
+    RESPOSTAS_VALIDAS,
+    itens_com_respostas,
+    pendentes_para_conclusao,
+    resumo_checklist,
+    snapshot_checklist,
+)
 
 # O módulo é acessível ao gestor ("os") e ao usuário de campo ("os_campo").
 # O usuário de campo enxerga apenas as O.S das equipes em que atua e executa
@@ -674,6 +683,9 @@ def criar_os(payload: OSCreate, usuario: UsuarioAutenticado = Depends(get_curren
             ]
             db.table("os_itens_orcados").insert(linhas).execute()
 
+        # Checklist de execução: snapshot do catálogo para a O.S (histórico fiel).
+        snapshot_checklist(db, nova["id"])
+
         _gravar_historico(db, nova["id"], None, "rascunho", None, usuario.email, None)
         return nova
     except HTTPException:
@@ -737,6 +749,7 @@ def detalhar_os(os_id: int, usuario: UsuarioAutenticado = Depends(get_current_us
             "fotos": fotos,
             "itens_orcados": itens_orcados,
             "cronometro_aberto": apontamento_aberto[0] if apontamento_aberto else None,
+            "checklist": resumo_checklist(db, os_id),
         }
     except HTTPException:
         raise
@@ -842,6 +855,29 @@ def alterar_status(
         if novo == "impedida":
             justificativa = _validar_transicao_impedida(db, os_data, payload)
 
+        # Regra 3: checklist de execução — liberação matinal e conclusão.
+        if atual == "aberta" and novo == "em_andamento":
+            resumo = resumo_checklist(db, os_id)
+            if not resumo["inicio_liberado"]:
+                grupo = next(g for g in resumo["grupos"] if g["grupo"] == GRUPO_LIBERACAO_INICIO)
+                raise HTTPException(
+                    status_code=422,
+                    detail=(
+                        "O checklist de início precisa estar completo para liberar a execução. "
+                        f"Grupo 1 - {grupo['nome']}: {grupo['respondidos']}/{grupo['total']} respondidos."
+                    ),
+                )
+        if novo == "concluida":
+            resumo = resumo_checklist(db, os_id)
+            if not resumo["completo"]:
+                pendentes = pendentes_para_conclusao(db, os_id)
+                detalhe = f"Checklist da O.S incompleto ({resumo['respondidos']}/{resumo['total']})."
+                if pendentes:
+                    detalhe += " Pendentes: " + "; ".join(pendentes[:6])
+                    if len(pendentes) > 6:
+                        detalhe += f" e mais {len(pendentes) - 6}."
+                raise HTTPException(status_code=422, detail=detalhe)
+
         updates = {"status": novo}
         if novo in ("concluida", "cancelada"):
             updates["data_fim"] = _agora().isoformat()
@@ -904,6 +940,9 @@ def duplicar_os(os_id: int, usuario: UsuarioAutenticado = Depends(get_current_us
                 ]
             ).execute()
 
+        # A cópia nasce com um checklist próprio (snapshot do catálogo).
+        snapshot_checklist(db, copia["id"])
+
         _gravar_historico(
             db, copia["id"], None, "rascunho", f"Duplicada a partir da O.S {original['codigo']}.", usuario.email, None
         )
@@ -913,6 +952,219 @@ def duplicar_os(os_id: int, usuario: UsuarioAutenticado = Depends(get_current_us
     except Exception:
         logger.exception("Erro ao duplicar O.S %s", os_id)
         raise HTTPException(status_code=500, detail="Erro ao duplicar O.S.") from None
+
+
+# ---------------------------------------------------------------------------
+# Checklist de execução da O.S
+# ---------------------------------------------------------------------------
+
+
+class ChecklistRespostaIn(BaseModel):
+    resposta: str = Field(..., description="'sim', 'nao' ou 'na'")
+    justificativa: str | None = Field(None, max_length=500, description="Obrigatória quando resposta = 'nao'")
+    geolocalizacao: str | None = Field(None, max_length=100, description="'lat,lng' do dispositivo")
+
+
+def _item_checklist_ou_404(db, os_id: int, item_id: int) -> dict:
+    item = db.table("os_checklist_itens").select("*").eq("id", item_id).eq("os_id", os_id).execute().data
+    if not item:
+        raise HTTPException(status_code=404, detail="Item do checklist não encontrado nesta O.S.")
+    return item[0]
+
+
+@router.get("/{os_id}/checklist", summary="Itens e respostas do checklist")
+def obter_checklist(os_id: int, usuario: UsuarioAutenticado = Depends(get_current_user), db=Depends(get_supabase)):
+    """Retorna os itens do checklist com a resposta e as fotos (com URL temporária)."""
+    try:
+        os_data = _os_ou_404(db, os_id)
+        _garantir_acesso_os(db, usuario, os_data)
+
+        itens = itens_com_respostas(db, os_id)
+        # Adiciona presigned URL para as fotos de cada item.
+        s3 = get_s3_client()
+        for item in itens:
+            for foto in item.get("fotos", []):
+                try:
+                    foto["url_temporaria"] = s3.generate_presigned_url(
+                        "get_object",
+                        Params={"Bucket": bucket(), "Key": foto["bucket_key"]},
+                        ExpiresIn=VALIDADE_PRESIGNED_SEGUNDOS,
+                    )
+                except Exception:
+                    foto["url_temporaria"] = None
+        return {"itens": itens, "resumo": resumo_checklist(db, os_id)}
+    except HTTPException:
+        raise
+    except Exception:
+        logger.exception("Erro ao obter checklist da O.S %s", os_id)
+        raise HTTPException(status_code=500, detail="Erro ao obter checklist.") from None
+
+
+@router.put("/{os_id}/checklist/{item_id}", summary="Registra a resposta de um item")
+def responder_checklist(
+    os_id: int,
+    item_id: int,
+    payload: ChecklistRespostaIn,
+    usuario: UsuarioAutenticado = Depends(get_current_user),
+    db=Depends(get_supabase),
+):
+    """Responde um item do checklist (sim/nao/na). 'Não' exige justificativa."""
+    try:
+        os_data = _os_ou_404(db, os_id)
+        _garantir_acesso_os(db, usuario, os_data)
+        if os_data["status"] in ("concluida", "cancelada"):
+            raise HTTPException(status_code=400, detail="O checklist de uma O.S encerrada não pode ser alterado.")
+
+        item = _item_checklist_ou_404(db, os_id, item_id)
+        resposta = payload.resposta.strip().lower()
+        if resposta not in RESPOSTAS_VALIDAS:
+            raise HTTPException(status_code=400, detail="Resposta inválida. Use 'sim', 'nao' ou 'na'.")
+        justificativa = (payload.justificativa or "").strip() or None
+        if resposta == "nao" and not justificativa:
+            raise HTTPException(status_code=422, detail="Resposta 'não' exige uma justificativa.")
+
+        db.table("os_checklist_respostas").upsert(
+            {
+                "item_id": item["id"],
+                "resposta": resposta,
+                "justificativa": justificativa,
+                "respondido_por": usuario.email,
+                "geolocalizacao": payload.geolocalizacao,
+            },
+            on_conflict="item_id",
+        ).execute()
+        return {"success": True, "resumo": resumo_checklist(db, os_id)}
+    except HTTPException:
+        raise
+    except Exception:
+        logger.exception("Erro ao responder checklist da O.S %s", os_id)
+        raise HTTPException(status_code=500, detail="Erro ao salvar resposta do checklist.") from None
+
+
+@router.post("/{os_id}/checklist/{item_id}/foto", status_code=201, summary="Anexa foto a um item do checklist")
+async def enviar_foto_checklist(
+    os_id: int,
+    item_id: int,
+    arquivo: UploadFile = File(...),
+    geolocalizacao: str | None = Query(None, max_length=100),
+    usuario: UsuarioAutenticado = Depends(get_current_user),
+    db=Depends(get_supabase),
+):
+    """Faz upload da evidência fotográfica de um item (mesmo fluxo das fotos da O.S)."""
+    try:
+        os_data = _os_ou_404(db, os_id)
+        _garantir_acesso_os(db, usuario, os_data)
+        item = _item_checklist_ou_404(db, os_id, item_id)
+
+        mime = (arquivo.content_type or "").lower()
+        extensao = MIMES_FOTO_PERMITIDOS.get(mime)
+        if extensao is None:
+            raise HTTPException(status_code=400, detail="Tipo de arquivo não permitido. Envie JPG, PNG ou WEBP.")
+        conteudo = await arquivo.read()
+        if not conteudo:
+            raise HTTPException(status_code=400, detail="Arquivo vazio.")
+        if len(conteudo) > TAMANHO_MAXIMO_FOTO_BYTES:
+            raise HTTPException(status_code=400, detail="Arquivo excede o limite de 15 MB.")
+
+        s3 = get_s3_client()
+        bucket_key = f"os_fotos/{os_id}/checklist_{item_id}_{uuid.uuid4().hex}{extensao}"
+        s3.put_object(
+            Bucket=bucket(),
+            Key=bucket_key,
+            Body=conteudo,
+            ContentType=mime,
+        )
+
+        nome_original = os.path.basename((arquivo.filename or "").replace("\\", "/")).strip() or f"item_{item_id}.jpg"
+        resp = (
+            db.table("os_fotos")
+            .insert(
+                {
+                    "os_id": os_id,
+                    "checklist_item_id": item["id"],
+                    "nome_original": nome_original[:500],
+                    "tamanho_bytes": len(conteudo),
+                    "mime_type": mime,
+                    "bucket_key": bucket_key,
+                    "enviado_por": usuario.email,
+                }
+            )
+            .execute()
+        )
+        if not resp.data:
+            _remover_objeto(s3, bucket_key)
+            raise HTTPException(status_code=500, detail="Falha ao salvar a foto.")
+        return resp.data[0]
+    except HTTPException:
+        raise
+    except Exception:
+        logger.exception("Erro ao enviar foto do checklist da O.S %s", os_id)
+        raise HTTPException(status_code=500, detail="Erro ao enviar foto do checklist.") from None
+
+
+@router.get("/{os_id}/checklist/report", summary="Relatório em PDF do checklist de execução")
+def relatorio_checklist(os_id: int, usuario: UsuarioAutenticado = Depends(get_current_user), db=Depends(get_supabase)):
+    """Gera o PDF do checklist (capa + tabela + fotos + assinaturas) para impressão."""
+    try:
+        os_data = _os_ou_404(db, os_id)
+        _garantir_acesso_os(db, usuario, os_data)
+
+        resp = (
+            db.table("ordens_servico")
+            .select("*, obras(id, nome, cliente_id, clientes(nome)), equipes(id, nome, numero)")
+            .eq("id", os_id)
+            .execute()
+        )
+        obra = (resp.data[0] or {}).get("obras") or {}
+        equipe = (resp.data[0] or {}).get("equipes") or {}
+
+        # Encarregado e membros (com cargo) da equipe vinculada.
+        encarregado = ""
+        membros = []
+        equipe_id = os_data.get("equipe_id")
+        if equipe_id:
+            rel = (
+                db.table("equipe_membros")
+                .select("funcionario_id, lider, funcionarios(id, nome, cargo_id, cargos(nome))")
+                .eq("equipe_id", equipe_id)
+                .execute()
+                .data
+            )
+            for m in rel or []:
+                func = m.get("funcionarios") or {}
+                cargo = (func.get("cargos") or {}).get("nome") if isinstance(func.get("cargos"), dict) else ""
+                membros.append({"nome": func.get("nome") or "-", "cargo": cargo or "-"})
+                if m.get("lider"):
+                    encarregado = func.get("nome") or encarregado
+
+        itens = itens_com_respostas(db, os_id)
+        s3 = get_s3_client()
+
+        def _baixar_foto(chave):
+            try:
+                return s3.get_object(Bucket=bucket(), Key=chave)["Body"].read()
+            except Exception:
+                logger.exception("Erro ao baixar foto %s para o relatório", chave)
+                return None
+
+        from utils.pdf_os_checklist import gerar_pdf_checklist
+
+        caminho = gerar_pdf_checklist(
+            os_data=os_data,
+            obra=obra,
+            itens=itens,
+            equipe_nome=equipe.get("nome") or "",
+            equipe_numero=equipe.get("numero") or "",
+            encarregado=encarregado,
+            membros=membros,
+            baixar_foto=_baixar_foto,
+        )
+        return FileResponse(caminho, media_type="application/pdf", filename=f"{os_data['codigo']}_checklist.pdf")
+    except HTTPException:
+        raise
+    except Exception:
+        logger.exception("Erro ao gerar relatório do checklist da O.S %s", os_id)
+        raise HTTPException(status_code=500, detail="Erro ao gerar relatório do checklist.") from None
 
 
 # ---------------------------------------------------------------------------
@@ -1147,6 +1399,17 @@ def apontar_hora(
 
             # Início automático de serviço: 'aberta' -> 'em_andamento'.
             if os_data["status"] == "aberta":
+                resumo = resumo_checklist(db, os_id)
+                if not resumo["inicio_liberado"]:
+                    db.table("os_apontamentos").delete().eq("id", resp.data[0]["id"]).execute()
+                    grupo = next(g for g in resumo["grupos"] if g["grupo"] == GRUPO_LIBERACAO_INICIO)
+                    raise HTTPException(
+                        status_code=422,
+                        detail=(
+                            "O checklist de início precisa estar completo para liberar a execução. "
+                            f"Grupo 1 - {grupo['nome']}: {grupo['respondidos']}/{grupo['total']} respondidos."
+                        ),
+                    )
                 db.table("ordens_servico").update({"status": "em_andamento"}).eq("id", os_id).execute()
                 _gravar_historico(
                     db,

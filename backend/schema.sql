@@ -743,6 +743,94 @@ CREATE TABLE IF NOT EXISTS os_fotos (
     created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
 );
 
+-- Vínculo opcional de fotos com itens do checklist de execução (coluna nova).
+-- Obs.: criada após os_checklist_itens (mais abaixo) por causa da FK.
+-- ALTER TABLE IF EXISTS os_fotos
+--     ADD COLUMN IF NOT EXISTS checklist_item_id INTEGER REFERENCES os_checklist_itens(id) ON DELETE SET NULL;
+
+-- ============================================================================
+-- CHECKLIST DE EXECUÇÃO DA O.S (libera a execução pela manhã e é conferido
+-- na conclusão; relatório final é gerado sob demanda a partir destas tabelas)
+--
+-- Os itens são copiados do catálogo (os_checklist_modelos) para a O.S no
+-- momento da criação (os_checklist_itens = SNAPSHOT): alterações futuras no
+-- catálogo não mudam O.S antigas — histórico fiel.
+-- ============================================================================
+CREATE TABLE IF NOT EXISTS os_checklist_modelos (
+    id SERIAL PRIMARY KEY,
+    tipo VARCHAR(20) NOT NULL DEFAULT 'geral',   -- 'geral' (padrão) ou tipo da O.S
+    grupo INTEGER NOT NULL,                       -- 1 a 5 (ordem de exibição)
+    ordem INTEGER NOT NULL,                       -- ordem dentro do grupo
+    classificacao VARCHAR(10) NOT NULL,           -- rótulo impresso (ex.: '1.1', '2.4.1')
+    pergunta TEXT NOT NULL,
+    exige_foto BOOLEAN DEFAULT FALSE,             -- item com evidência fotográfica
+    ativo BOOLEAN DEFAULT TRUE,
+    UNIQUE (tipo, classificacao)
+);
+
+CREATE TABLE IF NOT EXISTS os_checklist_itens (
+    id SERIAL PRIMARY KEY,
+    os_id INTEGER NOT NULL REFERENCES ordens_servico(id) ON DELETE CASCADE,
+    modelo_id INTEGER REFERENCES os_checklist_modelos(id),
+    grupo INTEGER NOT NULL,
+    ordem INTEGER NOT NULL,
+    classificacao VARCHAR(10) NOT NULL,
+    pergunta TEXT NOT NULL,
+    exige_foto BOOLEAN DEFAULT FALSE,
+    UNIQUE (os_id, classificacao)
+);
+
+-- Respostas (uma por item). 'Não' exige justificativa (validado no backend).
+CREATE TABLE IF NOT EXISTS os_checklist_respostas (
+    id SERIAL PRIMARY KEY,
+    item_id INTEGER NOT NULL REFERENCES os_checklist_itens(id) ON DELETE CASCADE,
+    resposta VARCHAR(10) NOT NULL CHECK (resposta IN ('sim', 'nao', 'na')),
+    justificativa TEXT,                           -- obrigatória quando resposta = 'nao'
+    respondido_por VARCHAR(255),                  -- e-mail de quem respondeu
+    geolocalizacao VARCHAR(100),                  -- "lat,lng" capturada no dispositivo
+    foto_id INTEGER REFERENCES os_fotos(id) ON DELETE SET NULL,
+    criado_em TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+    UNIQUE (item_id)
+);
+
+-- Vínculo das fotos com os itens do checklist (após as tabelas existirem).
+ALTER TABLE IF EXISTS os_fotos
+    ADD COLUMN IF NOT EXISTS checklist_item_id INTEGER REFERENCES os_checklist_itens(id) ON DELETE SET NULL;
+
+-- Seed do catálogo padrão (29 perguntas do modelo oficial). Idempotente.
+INSERT INTO os_checklist_modelos (tipo, grupo, ordem, classificacao, pergunta, exige_foto) VALUES
+    ('geral', 1, 1,  '1.1',   'O projeto foi conferido?', FALSE),
+    ('geral', 1, 2,  '1.2',   'Os materiais foram conferidos?', FALSE),
+    ('geral', 1, 3,  '1.3',   'Os EPI''s, EPC''s e Ferramentas foram conferidos?', FALSE),
+    ('geral', 1, 4,  '1.4',   'Os equipamentos do caminhão foram conferidos?', FALSE),
+    ('geral', 1, 5,  '1.5',   'O sistema de escalada em altura foi conferido?', FALSE),
+    ('geral', 1, 6,  '1.6',   'Detector de Tensão foi conferido?', FALSE),
+    ('geral', 2, 1,  '2.1',   'Equipe verificou o local dos trabalhos?', FALSE),
+    ('geral', 2, 2,  '2.2',   'A equipe realizou a APR?', TRUE),
+    ('geral', 2, 3,  '2.3',   'A equipe realizou o DDS?', TRUE),
+    ('geral', 2, 4,  '2.4',   'A equipe conferiu os EPI''s e EPC''s?', FALSE),
+    ('geral', 2, 5,  '2.4.1', 'Capacete, luvas, óculos, botinas e vestimenta?', FALSE),
+    ('geral', 2, 6,  '2.4.2', 'Conjunto de aterramento AT e BT, Detector de Tensão?', FALSE),
+    ('geral', 2, 7,  '2.5',   'Todos os empregados possuem autorização?', FALSE),
+    ('geral', 2, 8,  '2.6',   'Todos entenderam os requisitos de segurança?', FALSE),
+    ('geral', 2, 9,  '2.7',   'Todos estão bem fisicamente e mentalmente?', FALSE),
+    ('geral', 3, 1,  '3.1',   'O trecho do trabalho foi desligado?', TRUE),
+    ('geral', 3, 2,  '3.2',   'Foram sinalizadas as chaves abertas?', TRUE),
+    ('geral', 3, 3,  '3.3',   'Foi realizado o teste de ausência de tensão?', TRUE),
+    ('geral', 3, 4,  '3.4',   'Foram realizados os aterramentos temporários?', TRUE),
+    ('geral', 3, 5,  '3.5',   'O local de trabalho foi sinalizado?', TRUE),
+    ('geral', 3, 6,  '3.6',   'Os trabalhos podem ser iniciados?', FALSE),
+    ('geral', 4, 1,  '4.1',   'Utiliza os EPI''s (Capacete, óculos e vestimenta)?', TRUE),
+    ('geral', 4, 2,  '4.2',   'Há necessidade de Linha de vida?', FALSE),
+    ('geral', 4, 3,  '4.3',   'Trabalhos realizados em dupla?', TRUE),
+    ('geral', 4, 4,  '4.4',   'Registrar o resultado da obra?', TRUE),
+    ('geral', 5, 1,  '5.1',   'Todos os trabalhadores foram retirados da rede?', TRUE),
+    ('geral', 5, 2,  '5.2',   'Todos os aterramentos foram retirados?', FALSE),
+    ('geral', 5, 3,  '5.3',   'Foi recebida a DTD?', TRUE),
+    ('geral', 5, 4,  '5.4',   'Religar conforme ordem de manobra descrita na SD?', FALSE),
+    ('geral', 5, 5,  '5.5',   'Ocorreram acidentes ou incidentes?', FALSE)
+ON CONFLICT (tipo, classificacao) DO NOTHING;
+
 -- Índices de integridade/performance (FKs consultadas com frequência)
 CREATE INDEX IF NOT EXISTS idx_obras_cliente ON obras (cliente_id);
 CREATE INDEX IF NOT EXISTS idx_equipe_membros_equipe ON equipe_membros (equipe_id);
@@ -757,6 +845,9 @@ CREATE INDEX IF NOT EXISTS idx_os_apont_os ON os_apontamentos (os_id);
 CREATE INDEX IF NOT EXISTS idx_os_apont_funcionario ON os_apontamentos (funcionario_id);
 CREATE INDEX IF NOT EXISTS idx_os_hist_os ON os_historico (os_id);
 CREATE INDEX IF NOT EXISTS idx_os_fotos_os ON os_fotos (os_id);
+CREATE INDEX IF NOT EXISTS idx_os_checklist_itens_os ON os_checklist_itens (os_id);
+CREATE INDEX IF NOT EXISTS idx_os_checklist_resp_item ON os_checklist_respostas (item_id);
+CREATE INDEX IF NOT EXISTS idx_os_fotos_checklist ON os_fotos (checklist_item_id);
 
 -- RLS: mesmo padrão dos demais módulos (service_role tem acesso pleno;
 -- anon/authenticated ficam bloqueados - o frontend só fala com a FastAPI).
@@ -770,6 +861,9 @@ ALTER TABLE IF EXISTS os_materiais    ENABLE ROW LEVEL SECURITY;
 ALTER TABLE IF EXISTS os_apontamentos ENABLE ROW LEVEL SECURITY;
 ALTER TABLE IF EXISTS os_historico    ENABLE ROW LEVEL SECURITY;
 ALTER TABLE IF EXISTS os_fotos        ENABLE ROW LEVEL SECURITY;
+ALTER TABLE IF EXISTS os_checklist_modelos   ENABLE ROW LEVEL SECURITY;
+ALTER TABLE IF EXISTS os_checklist_itens     ENABLE ROW LEVEL SECURITY;
+ALTER TABLE IF EXISTS os_checklist_respostas ENABLE ROW LEVEL SECURITY;
 
 DROP POLICY IF EXISTS "service_role_full_obras" ON obras;
 CREATE POLICY "service_role_full_obras" ON obras
@@ -809,6 +903,18 @@ CREATE POLICY "service_role_full_os_historico" ON os_historico
 
 DROP POLICY IF EXISTS "service_role_full_os_fotos" ON os_fotos;
 CREATE POLICY "service_role_full_os_fotos" ON os_fotos
+    FOR ALL TO service_role USING (true) WITH CHECK (true);
+
+DROP POLICY IF EXISTS "service_role_full_os_checklist_modelos" ON os_checklist_modelos;
+CREATE POLICY "service_role_full_os_checklist_modelos" ON os_checklist_modelos
+    FOR ALL TO service_role USING (true) WITH CHECK (true);
+
+DROP POLICY IF EXISTS "service_role_full_os_checklist_itens" ON os_checklist_itens;
+CREATE POLICY "service_role_full_os_checklist_itens" ON os_checklist_itens
+    FOR ALL TO service_role USING (true) WITH CHECK (true);
+
+DROP POLICY IF EXISTS "service_role_full_os_checklist_respostas" ON os_checklist_respostas;
+CREATE POLICY "service_role_full_os_checklist_respostas" ON os_checklist_respostas
     FOR ALL TO service_role USING (true) WITH CHECK (true);
 
 -- ============================================================================

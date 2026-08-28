@@ -77,6 +77,9 @@ def _montar_dados_banco():
         "os_apontamentos": [],
         "os_historico": [],
         "os_fotos": [],
+        "os_checklist_modelos": [],
+        "os_checklist_itens": [],
+        "os_checklist_respostas": [],
         # Documentos Diversos do módulo SST
         "sst_documentos": [],
     }
