@@ -486,7 +486,7 @@ def listar_os(
     prioridade: str | None = Query(None),
     obra_id: int | None = Query(None),
     equipe_id: int | None = Query(None),
-    busca: str | None = Query(None, description="Busca por código ou escopo"),
+    busca: str | None = Query(None, description="Busca por código, escopo, Nota PS ou nome do cliente"),
     limit: int = Query(100, ge=1, le=500, description="Máximo de O.S por página"),
     offset: int = Query(0, ge=0, description="Registros a pular (paginação)"),
     usuario: UsuarioAutenticado = Depends(get_current_user),
@@ -516,7 +516,14 @@ def listar_os(
                 q = q.eq("equipe_id", equipe_id)
             if busca:
                 termo = busca.replace("%", "").replace(",", "")
-                q = q.or_(f"codigo.ilike.%{termo}%,descricao_escopo.ilike.%{termo}%")
+                # Busca pelo código/escopo da O.S e pelo cliente vinculado
+                # (via obra): nome do cliente e Nota PS.
+                q = q.or_(
+                    f"codigo.ilike.%{termo}%,"
+                    f"descricao_escopo.ilike.%{termo}%,"
+                    f"obras.clientes.nome.ilike.%{termo}%,"
+                    f"obras.clientes.nota_ps.ilike.%{termo}%"
+                )
             return q
 
         # Total de registros (cabeçalho X-Total-Count para a paginação do Kanban).

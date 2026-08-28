@@ -452,6 +452,58 @@ class TestMateriaisEPermissao:
         assert len(resp2.json()) == 1
 
 
+class TestBuscaListagem:
+    """Busca do Kanban: código/escopo + nome do cliente e Nota PS."""
+
+    def _seed_os_com_clientes(self, db_fake):
+        _seed_cenario(db_fake)
+        db = db_fake._dados
+        db["clientes"].append(
+            {"id": 2, "nome": "Cooperativa Aurora", "cpf_cnpj": "00000000000",
+             "nota_ps": "PS-7788", "endereco": "Rua B, 200", "ativo": True,
+             "data_cadastro": "2026-01-01T00:00:00Z"}
+        )
+        db["obras"].append(
+            {"id": 6, "cliente_id": 2, "nome": "Obra Aurora", "ativo": True,
+             "created_at": "2026-01-01T00:00:00Z"}
+        )
+        base = {
+            "obra_id": 5, "status": "aberta", "prioridade": "media",
+            "descricao_escopo": "Serviço de rotina.",
+            "custo_mo_orcado": 0, "created_at": "2026-01-01T00:00:00Z",
+        }
+        # O fake não resolve embedded resources no select: as linhas já são
+        # semeadas com a estrutura aninhada que o PostgREST devolveria.
+        db["ordens_servico"].extend([
+            {"id": 1, "codigo": "OS-2026-0001", **base,
+             "obras": {"id": 5, "nome": "Obra Central", "cliente_id": 1,
+                       "clientes": {"nome": "Cliente Teste", "nota_ps": None}}},
+            {"id": 2, "codigo": "OS-2026-0002", **base, "obra_id": 6,
+             "obras": {"id": 6, "nome": "Obra Aurora", "cliente_id": 2,
+                       "clientes": {"nome": "Cooperativa Aurora", "nota_ps": "PS-7788"}}},
+        ])
+
+    def test_busca_por_nome_do_cliente(self, os_gestor_client, db_fake):
+        self._seed_os_com_clientes(db_fake)
+        resp = os_gestor_client.get("/api/os/?busca=aurora")
+        assert resp.status_code == 200
+        dados = resp.json()
+        assert [d["id"] for d in dados] == [2]
+
+    def test_busca_por_nota_ps(self, os_gestor_client, db_fake):
+        self._seed_os_com_clientes(db_fake)
+        resp = os_gestor_client.get("/api/os/?busca=ps-7788")
+        assert resp.status_code == 200
+        dados = resp.json()
+        assert [d["id"] for d in dados] == [2]
+        assert resp.headers.get("X-Total-Count") == "1"
+
+    def test_busca_por_codigo_continua_funcionando(self, os_gestor_client, db_fake):
+        self._seed_os_com_clientes(db_fake)
+        dados = os_gestor_client.get("/api/os/?busca=OS-2026-0001").json()
+        assert [d["id"] for d in dados] == [1]
+
+
 class TestEdicaoEValidacao:
     def test_editar_substitui_itens_orcados(self, os_gestor_client, db_fake):
         _seed_cenario(db_fake)

@@ -96,6 +96,9 @@ class _Query:
                 elif op_interno == "neq":
                     linhas = [r for r in linhas if r.get(coluna) == val]
                 continue
+            if filtro[0] == "or":
+                linhas = self._aplica_or(linhas, filtro[1])
+                continue
             op, coluna, valor = filtro
             if op == "eq":
                 linhas = [r for r in linhas if r.get(coluna) == valor]
@@ -108,21 +111,6 @@ class _Query:
                 linhas = [r for r in linhas if r.get(coluna) in valor]
             elif op == "isnull":
                 linhas = [r for r in linhas if r.get(coluna) is None]
-            elif op == "or":
-                termos = []
-                for parte in str(valor).split(","):
-                    pedacos = parte.split(".")
-                    if len(pedacos) != 3:
-                        continue
-                    col, operador, bruto = pedacos
-                    termo = bruto.replace("%", "").lower()
-                    termos.append((col, operador, termo))
-                if termos:
-
-                    def _casa_ou(r, termos=termos):
-                        return any(termo in str(r.get(col, "")).lower() for col, _, termo in termos)
-
-                    linhas = [r for r in linhas if _casa_ou(r)]
         if self.ordenacao:
             coluna, desc = self.ordenacao
             linhas = sorted(linhas, key=lambda r: str(r.get(coluna, "")), reverse=desc)
@@ -132,6 +120,38 @@ class _Query:
             inicio, fim = self.range_
             linhas = linhas[inicio : fim + 1]
         return list(linhas)
+
+    def _aplica_or(self, linhas, valor):
+        """Resolve o filtro `or` com suporte a caminhos aninhados
+        (ex.: 'obras.clientes.nome.ilike.%termo%')."""
+        termos = []
+        for parte in str(valor).split(","):
+            pedacos = parte.split(".")
+            if len(pedacos) < 3:
+                continue
+            bruto = pedacos[-1]
+            operador = pedacos[-2]
+            coluna = ".".join(pedacos[:-2])
+            termo = bruto.replace("%", "").lower()
+            termos.append((coluna, operador, termo))
+        if not termos:
+            return linhas
+
+        def _valor_aninhado(linha, caminho):
+            atual = linha
+            for parte in caminho.split("."):
+                if not isinstance(atual, dict) or parte not in atual:
+                    return ""
+                atual = atual[parte]
+            return str(atual)
+
+        def _casa_ou(r, termos=termos):
+            return any(
+                termo in _valor_aninhado(r, col).lower()
+                for col, _, termo in termos
+            )
+
+        return [r for r in linhas if _casa_ou(r)]
 
     def insert(self, payload):
         if isinstance(payload, dict):

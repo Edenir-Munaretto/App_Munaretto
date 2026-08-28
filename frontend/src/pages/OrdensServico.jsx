@@ -1828,7 +1828,7 @@ function OrdensServico({ usuarioAtual }) {
       <div className="relative flex-1 md:max-w-xs">
         <span className="absolute inset-y-0 left-0 flex items-center pl-3 text-slate-400"><Search size={16} /></span>
         <input value={filtroBusca} onChange={(e) => setFiltroBusca(e.target.value)}
-          placeholder="Buscar código ou escopo..."
+          placeholder="Buscar código, Nota PS ou cliente..."
           className="w-full pl-9 pr-3 py-2 rounded-xl border border-slate-200 bg-slate-50 focus:bg-white text-sm focus:outline-none focus:border-primary-500" />
       </div>
       {ehGestor && (
