@@ -496,16 +496,28 @@ def listar_os(
     try:
         base = db.table("ordens_servico")
 
-        # Busca combinada: código/escopo da O.S OU o cliente vinculado via
-        # obra (nome do cliente e Nota PS). O PostgREST não aceita caminhos
-        # embutidos dentro do operador `or`, então a busca pelo cliente é
-        # resolvida em duas etapas: clientes -> obras -> obra_id.in.(...).
-        # É computada uma única vez e reutilizada no total e na página.
+        # Busca combinada: código/escopo da O.S, código da obra (obra.nome,
+        # onde fica a Nota PS da obra) OU o cliente vinculado (nome do cliente
+        # e a Nota PS do cliente). O PostgREST não aceita caminhos embutidos
+        # dentro do operador `or`, então as obras candidatas são resolvidas
+        # em etapas e convertidas em obra_id.in.(...). É computada uma única
+        # vez e reutilizada no total e na página.
         busca_expr = None
         if busca:
             termo = busca.replace("%", "").replace(",", "")
             busca_expr = f"codigo.ilike.%{termo}%,descricao_escopo.ilike.%{termo}%"
             try:
+                obra_ids = set()
+                # 1) Obras cujo nome (código/Nota PS da obra) casa com o termo.
+                obras_por_nome = (
+                    db.table("obras")
+                    .select("id")
+                    .ilike("nome", f"%{termo}%")
+                    .execute()
+                    .data
+                )
+                obra_ids.update(o["id"] for o in obras_por_nome or [])
+                # 2) Obras cujo cliente (nome ou Nota PS) casa com o termo.
                 clientes_casa = (
                     db.table("clientes")
                     .select("id")
@@ -514,20 +526,21 @@ def listar_os(
                     .data
                 )
                 if clientes_casa:
-                    obras_casa = (
+                    obras_dos_clientes = (
                         db.table("obras")
                         .select("id")
                         .in_("cliente_id", [c["id"] for c in clientes_casa])
                         .execute()
                         .data
                     )
-                    if obras_casa:
-                        ids = ",".join(str(o["id"]) for o in obras_casa)
-                        busca_expr += f",obra_id.in.({ids})"
+                    obra_ids.update(o["id"] for o in obras_dos_clientes or [])
+                if obra_ids:
+                    ids = ",".join(str(i) for i in sorted(obra_ids))
+                    busca_expr += f",obra_id.in.({ids})"
             except Exception:
                 # Uma falha na busca secundária não pode derrubar a listagem:
                 # mantém apenas a busca por código/escopo.
-                logger.exception("Falha ao resolver busca por cliente/Nota PS")
+                logger.exception("Falha ao resolver busca por obra/cliente/Nota PS")
 
         def _aplicar_filtros(q):
             # Permissão granular: usuário de campo só enxerga O.S das suas equipes.

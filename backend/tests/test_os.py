@@ -464,7 +464,7 @@ class TestBuscaListagem:
              "data_cadastro": "2026-01-01T00:00:00Z"}
         )
         db["obras"].append(
-            {"id": 6, "cliente_id": 2, "nome": "Obra Aurora", "ativo": True,
+            {"id": 6, "cliente_id": 2, "nome": "9876543210", "ativo": True,
              "created_at": "2026-01-01T00:00:00Z"}
         )
         base = {
@@ -479,7 +479,7 @@ class TestBuscaListagem:
              "obras": {"id": 5, "nome": "Obra Central", "cliente_id": 1,
                        "clientes": {"nome": "Cliente Teste", "nota_ps": None}}},
             {"id": 2, "codigo": "OS-2026-0002", **base, "obra_id": 6,
-             "obras": {"id": 6, "nome": "Obra Aurora", "cliente_id": 2,
+             "obras": {"id": 6, "nome": "9876543210", "cliente_id": 2,
                        "clientes": {"nome": "Cooperativa Aurora", "nota_ps": "PS-7788"}}},
         ])
 
@@ -497,6 +497,11 @@ class TestBuscaListagem:
         dados = resp.json()
         assert [d["id"] for d in dados] == [2]
         assert resp.headers.get("X-Total-Count") == "1"
+
+    def test_busca_por_codigo_da_obra(self, os_gestor_client, db_fake):
+        self._seed_os_com_clientes(db_fake)
+        dados = os_gestor_client.get("/api/os/?busca=9876543210").json()
+        assert [d["id"] for d in dados] == [2]
 
     def test_busca_por_codigo_continua_funcionando(self, os_gestor_client, db_fake):
         self._seed_os_com_clientes(db_fake)
