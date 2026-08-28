@@ -123,17 +123,17 @@ class _Query:
 
     def _aplica_or(self, linhas, valor):
         """Resolve o filtro `or` com suporte a caminhos aninhados
-        (ex.: 'obras.clientes.nome.ilike.%termo%')."""
+        (ex.: 'obras.clientes.nome.ilike.%termo%') e ao operador `in`
+        (ex.: 'obra_id.in.(1,2,3)')."""
         termos = []
-        for parte in str(valor).split(","):
+        for parte in self._dividir_virgulas(str(valor)):
             pedacos = parte.split(".")
             if len(pedacos) < 3:
                 continue
             bruto = pedacos[-1]
             operador = pedacos[-2]
             coluna = ".".join(pedacos[:-2])
-            termo = bruto.replace("%", "").lower()
-            termos.append((coluna, operador, termo))
+            termos.append((coluna, operador, bruto))
         if not termos:
             return linhas
 
@@ -146,12 +146,40 @@ class _Query:
             return str(atual)
 
         def _casa_ou(r, termos=termos):
-            return any(
-                termo in _valor_aninhado(r, col).lower()
-                for col, _, termo in termos
-            )
+            for col, operador, bruto in termos:
+                valor_campo = _valor_aninhado(r, col).lower()
+                if operador == "in":
+                    itens = [i.strip() for i in bruto.strip("()").split(",")]
+                    if any(v in valor_campo for v in itens):
+                        return True
+                else:
+                    termo = bruto.replace("%", "").lower()
+                    if termo in valor_campo:
+                        return True
+            return False
 
         return [r for r in linhas if _casa_ou(r)]
+
+    @staticmethod
+    def _dividir_virgulas(texto):
+        """Divide por vírgulas ignorando as que estão dentro de parênteses
+        (ex.: 'obra_id.in.(1,2)' permanece como um único termo)."""
+        partes = []
+        atual = ""
+        profundidade = 0
+        for ch in texto:
+            if ch == "(":
+                profundidade += 1
+            elif ch == ")":
+                profundidade -= 1
+            if ch == "," and profundidade == 0:
+                partes.append(atual)
+                atual = ""
+            else:
+                atual += ch
+        if atual:
+            partes.append(atual)
+        return partes
 
     def insert(self, payload):
         if isinstance(payload, dict):

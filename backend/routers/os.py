@@ -496,6 +496,39 @@ def listar_os(
     try:
         base = db.table("ordens_servico")
 
+        # Busca combinada: código/escopo da O.S OU o cliente vinculado via
+        # obra (nome do cliente e Nota PS). O PostgREST não aceita caminhos
+        # embutidos dentro do operador `or`, então a busca pelo cliente é
+        # resolvida em duas etapas: clientes -> obras -> obra_id.in.(...).
+        # É computada uma única vez e reutilizada no total e na página.
+        busca_expr = None
+        if busca:
+            termo = busca.replace("%", "").replace(",", "")
+            busca_expr = f"codigo.ilike.%{termo}%,descricao_escopo.ilike.%{termo}%"
+            try:
+                clientes_casa = (
+                    db.table("clientes")
+                    .select("id")
+                    .or_(f"nome.ilike.%{termo}%,nota_ps.ilike.%{termo}%")
+                    .execute()
+                    .data
+                )
+                if clientes_casa:
+                    obras_casa = (
+                        db.table("obras")
+                        .select("id")
+                        .in_("cliente_id", [c["id"] for c in clientes_casa])
+                        .execute()
+                        .data
+                    )
+                    if obras_casa:
+                        ids = ",".join(str(o["id"]) for o in obras_casa)
+                        busca_expr += f",obra_id.in.({ids})"
+            except Exception:
+                # Uma falha na busca secundária não pode derrubar a listagem:
+                # mantém apenas a busca por código/escopo.
+                logger.exception("Falha ao resolver busca por cliente/Nota PS")
+
         def _aplicar_filtros(q):
             # Permissão granular: usuário de campo só enxerga O.S das suas equipes.
             if not _e_gestor(usuario):
@@ -514,16 +547,8 @@ def listar_os(
                 q = q.eq("obra_id", obra_id)
             if equipe_id:
                 q = q.eq("equipe_id", equipe_id)
-            if busca:
-                termo = busca.replace("%", "").replace(",", "")
-                # Busca pelo código/escopo da O.S e pelo cliente vinculado
-                # (via obra): nome do cliente e Nota PS.
-                q = q.or_(
-                    f"codigo.ilike.%{termo}%,"
-                    f"descricao_escopo.ilike.%{termo}%,"
-                    f"obras.clientes.nome.ilike.%{termo}%,"
-                    f"obras.clientes.nota_ps.ilike.%{termo}%"
-                )
+            if busca_expr:
+                q = q.or_(busca_expr)
             return q
 
         # Total de registros (cabeçalho X-Total-Count para a paginação do Kanban).
