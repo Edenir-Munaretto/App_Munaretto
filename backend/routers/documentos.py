@@ -22,6 +22,12 @@ logger = logging.getLogger(__name__)
 # Limite máximo de 10 MB para upload de templates
 MAX_TEMPLATE_SIZE = 10 * 1024 * 1024
 
+# Modelos de O.S usados EXCLUSIVAMENTE pela impressão do módulo Controle de
+# O.S (fallback DOCX do utils/modelo_os.py). NÃO são documentos de cliente:
+# suas variáveis (obra, equipe, servico, ...) não existem no contexto do
+# Gerador de Documentos, então ficam fora da listagem e da geração.
+TEMPLATES_OS = {"OS_CONSTRUCAO", "OS_LINHA_VIVA"}
+
 
 def _sanitizar_nome_arquivo(nome: str) -> str:
     """Remove componentes de caminho e caracteres inválidos, deixando só o nome base."""
@@ -42,10 +48,13 @@ def listar_modelos():
 
     try:
         for arquivo in sorted(os.listdir(TEMPLATES_DIR)):
+            nome_base = os.path.splitext(arquivo)[0]
+            if nome_base in TEMPLATES_OS:
+                continue  # modelos de O.S pertencem ao Controle de O.S
             if arquivo.lower().endswith(".docx"):
-                templates_word.append(os.path.splitext(arquivo)[0])
+                templates_word.append(nome_base)
             elif arquivo.lower().endswith(".xlsx"):
-                templates_excel.append(os.path.splitext(arquivo)[0])
+                templates_excel.append(nome_base)
 
         return {"word": templates_word, "excel": templates_excel}
     except Exception:
@@ -119,6 +128,11 @@ def gerar_documento(
     template_name = _sanitizar_nome_arquivo(template_name)
     if not template_name:
         raise HTTPException(status_code=400, detail="Nome do template inválido.")
+    if os.path.splitext(template_name)[0] in TEMPLATES_OS:
+        raise HTTPException(
+            status_code=400,
+            detail="Modelos de O.S são gerados pelo módulo Controle de O.S, não pelo Gerador de Documentos.",
+        )
 
     # 2. Busca dados do cliente no Supabase
     cliente_resp = db.table("clientes").select("*").eq("id", cliente_id).execute()
