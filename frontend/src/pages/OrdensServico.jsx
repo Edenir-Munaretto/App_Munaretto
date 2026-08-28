@@ -2,7 +2,7 @@ import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react'
 import { DragDropContext, Droppable, Draggable } from '@hello-pangea/dnd';
 import {
   Plus, Search, X, Play, Pause, Camera, Package, ClipboardList, MapPin,
-  AlertTriangle, Check, Clock, CalendarClock, Copy, FileDown, LayoutGrid,
+  AlertTriangle, Check, Clock, CalendarClock, FileDown, LayoutGrid,
   FolderKanban, HardHat, Boxes, Trash2, ChevronLeft, Image as ImageIcon,
   Pencil, Building, Printer, ListChecks,
 } from 'lucide-react';
@@ -1067,20 +1067,6 @@ function PainelExecucao({ osId, produtos, geolocalizacao, capturarGps, onFechar,
   const podeExcluir = ehGestor && podeEditar;
   const prazo = situacaoPrazo(detalhe);
 
-  const duplicar = async () => {
-    try {
-      const res = await apiFetch(`${API_URL}/os/${detalhe.id}/duplicar`, { method: 'POST' });
-      if (res.ok) {
-        mostrarToast(`O.S duplicada como ${(await res.json()).codigo}.`);
-        recarregarLista();
-      } else {
-        mostrarToast(erroDaResposta(await res.json().catch(() => null), 'Erro ao duplicar.'), 'error');
-      }
-    } catch {
-      mostrarToast('Erro de conexão ao duplicar.', 'error');
-    }
-  };
-
   const abrirPdf = async (caminho) => {
     // Abre uma aba imediatamente (evita bloqueio de popup) e navega para o
     // PDF gerado (o download exige o token, então usamos fetch + blob URL).
@@ -1258,14 +1244,6 @@ function PainelExecucao({ osId, produtos, geolocalizacao, capturarGps, onFechar,
               className="h-11 rounded-xl border border-slate-200 text-slate-600 text-xs font-bold flex items-center justify-center gap-1.5 hover:bg-slate-50 cursor-pointer"
             >
               <Pencil size={14} /> Editar
-            </button>
-          )}
-          {ehGestor && (
-            <button
-              onClick={duplicar}
-              className="h-11 rounded-xl border border-slate-200 text-slate-600 text-xs font-bold flex items-center justify-center gap-1.5 hover:bg-slate-50 cursor-pointer"
-            >
-              <Copy size={14} /> Duplicar
             </button>
           )}
           <button

@@ -37,7 +37,7 @@ from utils.checklist_os import (
 # O módulo é acessível ao gestor ("os") e ao usuário de campo ("os_campo").
 # O usuário de campo enxerga apenas as O.S das equipes em que atua e executa
 # tarefas (status, H.H., fotos, materiais, impressão); ações de gestão
-# (criar/editar/duplicar O.S, estorno, exclusão de evidências) exigem "os".
+# (criar/editar O.S, estorno, exclusão de evidências) exigem "os".
 router = APIRouter(dependencies=[Depends(require_qualquer_permisao(["os", "os_campo"]))])
 
 logger = logging.getLogger(__name__)
@@ -906,52 +906,6 @@ def alterar_status(
     except Exception:
         logger.exception("Erro ao alterar status da O.S %s", os_id)
         raise HTTPException(status_code=500, detail="Erro ao alterar status da O.S.") from None
-
-
-@router.post("/{os_id}/duplicar", status_code=201, summary="Clona a O.S como rascunho")
-def duplicar_os(os_id: int, usuario: UsuarioAutenticado = Depends(get_current_user), db=Depends(get_supabase)):
-    try:
-        _exigir_gestor(usuario)
-        original = _os_ou_404(db, os_id)
-        _garantir_acesso_os(db, usuario, original)
-
-        nova = {
-            "codigo": _gerar_codigo_os(db),
-            "obra_id": original["obra_id"],
-            "equipe_id": original["equipe_id"],
-            "status": "rascunho",
-            "prioridade": original["prioridade"],
-            "prazo_entrega": None,
-            "descricao_escopo": original.get("descricao_escopo"),
-            "custo_mo_orcado": original.get("custo_mo_orcado", 0),
-            "criado_por": usuario.email,
-        }
-        resp = db.table("ordens_servico").insert(nova).execute()
-        if not resp.data:
-            raise HTTPException(status_code=500, detail="Falha ao duplicar O.S.")
-        copia = resp.data[0]
-
-        itens = db.table("os_itens_orcados").select("produto_id, quantidade_orcada").eq("os_id", os_id).execute()
-        if itens.data:
-            db.table("os_itens_orcados").insert(
-                [
-                    {"os_id": copia["id"], "produto_id": i["produto_id"], "quantidade_orcada": i["quantidade_orcada"]}
-                    for i in itens.data
-                ]
-            ).execute()
-
-        # A cópia nasce com um checklist próprio (snapshot do catálogo).
-        snapshot_checklist(db, copia["id"])
-
-        _gravar_historico(
-            db, copia["id"], None, "rascunho", f"Duplicada a partir da O.S {original['codigo']}.", usuario.email, None
-        )
-        return copia
-    except HTTPException:
-        raise
-    except Exception:
-        logger.exception("Erro ao duplicar O.S %s", os_id)
-        raise HTTPException(status_code=500, detail="Erro ao duplicar O.S.") from None
 
 
 # ---------------------------------------------------------------------------

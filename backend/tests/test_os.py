@@ -405,16 +405,6 @@ class TestMateriaisEPermissao:
         assert resp.status_code == 200, resp.text
         assert resp.content.startswith(b"%PDF")
 
-    def test_duplicar_clona_itens_orcados_como_rascunho(self, os_gestor_client, db_fake):
-        _seed_cenario(db_fake)
-        original = _criar_os(os_gestor_client).json()
-        copia = os_gestor_client.post(f"/api/os/{original['id']}/duplicar").json()
-
-        assert copia["status"] == "rascunho"
-        assert copia["codigo"] != original["codigo"]
-        itens = [i for i in db_fake._dados["os_itens_orcados"] if i["os_id"] == copia["id"]]
-        assert itens and itens[0]["quantidade_orcada"] == 10
-
     def test_endpoint_exige_permissao_do_modulo(self, client):
         # Usuário sem nenhuma permissão em 'os' recebe 403 antes dos handlers.
         resp = client.get("/api/os/")
