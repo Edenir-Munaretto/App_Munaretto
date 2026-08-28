@@ -552,6 +552,30 @@ CREATE POLICY "service_role_full_certificados" ON certificados
     FOR ALL TO service_role USING (true) WITH CHECK (true);
 
 -- ============================================================================
+-- TABELA: sst_documentos (Documentos Diversos do módulo SST)
+-- Pasta de documentos avulsos (PDF/imagem) com upload/download pelo usuário.
+-- O arquivo NÃO fica no banco: é armazenado no bucket privado do Backblaze B2.
+-- `tamanho_original` registra o tamanho enviado ANTES da compactação (para
+-- mostrar a economia de espaço); `tamanho_bytes` é o que foi efetivamente salvo.
+-- ============================================================================
+CREATE TABLE IF NOT EXISTS sst_documentos (
+    id SERIAL PRIMARY KEY,
+    nome_original VARCHAR(500) NOT NULL,
+    tamanho_bytes BIGINT NOT NULL,
+    tamanho_original BIGINT,
+    mime_type VARCHAR(100) NOT NULL,
+    bucket_key TEXT NOT NULL UNIQUE,
+    criado_por VARCHAR(255),
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+);
+
+ALTER TABLE IF EXISTS sst_documentos ENABLE ROW LEVEL SECURITY;
+
+DROP POLICY IF EXISTS "service_role_full_sst_documentos" ON sst_documentos;
+CREATE POLICY "service_role_full_sst_documentos" ON sst_documentos
+    FOR ALL TO service_role USING (true) WITH CHECK (true);
+
+-- ============================================================================
 -- MÓDULO: CONTROLE DE ORDENS DE SERVIÇO (O.S.)
 -- ============================================================================
 -- Gestão de Ordens de Serviço de obras: cadastro de obras (por cliente),

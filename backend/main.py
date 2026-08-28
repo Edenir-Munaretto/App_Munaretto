@@ -14,6 +14,7 @@ from routers import (
     comprovantes,
     dashboard,
     documentos,
+    documentos_diversos,
     ferias,
     fluxo_caixa,
     funcionarios,
@@ -94,6 +95,7 @@ app.include_router(notificacoes.router, prefix="/api/notificacoes", tags=["Notif
 app.include_router(funcionarios.router, prefix="/api/funcionarios", tags=["Funcionários"])
 app.include_router(sst.router, prefix="/api/sst", tags=["Segurança do Trabalho (SST)"])
 app.include_router(certificados.router, prefix="/api/certificados", tags=["Certificados"])
+app.include_router(documentos_diversos.router, prefix="/api/sst", tags=["SST - Documentos Diversos"])
 app.include_router(dashboard.router, prefix="/api/dashboard", tags=["Dashboard"])
 app.include_router(manutencao.router, prefix="/api/manutencao", tags=["Manutenção"])
 # Cadastros de apoio ANTES do router principal: as rotas estáticas

@@ -77,6 +77,8 @@ def _montar_dados_banco():
         "os_apontamentos": [],
         "os_historico": [],
         "os_fotos": [],
+        # Documentos Diversos do módulo SST
+        "sst_documentos": [],
     }
 
 

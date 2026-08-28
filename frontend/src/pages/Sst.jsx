@@ -1,7 +1,7 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
 import {
   Search, Plus, Edit2, Trash2, X, Check, AlertTriangle,
-  HardHat, GraduationCap, Stethoscope, Link2, Unlink, Briefcase, FileText, User, Printer, ListChecks, BookOpen, Download, Upload
+  HardHat, GraduationCap, Stethoscope, Link2, Unlink, Briefcase, FileText, User, Printer, ListChecks, FolderOpen, Download, Upload
 } from 'lucide-react';
 import { API_URL, apiFetch, erroDaResposta } from '../api';
 import ModalConfirmacao from '../components/ModalConfirmacao';
@@ -60,6 +60,7 @@ function Sst() {
   const listaAso = useFetchState();
   const listaFe = useFetchState();
   const [confirmarAcao, setConfirmarAcao] = useState(null);
+  const [showDocsModal, setShowDocsModal] = useState(false);
 
   // ---- Dados compartilhados ----
   const [funcionarios, setFuncionarios] = useState([]);
@@ -1087,16 +1088,14 @@ function Sst() {
             </button>
           );
         })}
-        <a
-          href="/manuais/Guia_Modulo_SST.pdf"
-          target="_blank"
-          rel="noopener noreferrer"
-          title="Baixar guia de uso do módulo SST (PDF)"
-          className="flex items-center gap-2 px-4 py-2.5 rounded-xl text-sm font-bold border border-dashed border-primary-300 text-primary-700 bg-primary-50 hover:bg-primary-100 transition-all"
+        <button
+          onClick={() => setShowDocsModal(true)}
+          title="Abrir pasta de Documentos Diversos (upload e download)"
+          className="flex items-center gap-2 px-4 py-2.5 rounded-xl text-sm font-bold border border-dashed border-primary-300 text-primary-700 bg-primary-50 hover:bg-primary-100 transition-all cursor-pointer"
         >
-          <BookOpen size={16} />
-          Guia de Uso
-        </a>
+          <FolderOpen size={16} />
+          Documentos Diversos
+        </button>
       </div>
 
       {/* ================= ABAS ================= */}
@@ -2480,7 +2479,217 @@ function Sst() {
         onConfirmar={confirmarExecucao}
         onCancelar={() => setConfirmarAcao(null)}
       />
+
+      <ModalDocumentosDiversos aberto={showDocsModal} onFechar={() => setShowDocsModal(false)} mostrarToast={showToast} />
     </div>
+  );
+}
+
+// Redimensiona/comprime imagens ANTES do upload (canvas no navegador):
+// reduz fotos de celular para no máx. 1600px e converte para JPEG ~82%,
+// economizando armazenamento no B2 e tempo de envio no campo.
+async function comprimirImagem(arquivo, maxLado = 1600, qualidade = 0.82) {
+  if (!arquivo || !arquivo.type || !arquivo.type.startsWith('image/')) return arquivo;
+  try {
+    const bitmap = await createImageBitmap(arquivo);
+    const escala = Math.min(1, maxLado / Math.max(bitmap.width, bitmap.height));
+    if (escala >= 1) {
+      bitmap.close();
+      return arquivo;
+    }
+    const canvas = document.createElement('canvas');
+    canvas.width = Math.max(1, Math.round(bitmap.width * escala));
+    canvas.height = Math.max(1, Math.round(bitmap.height * escala));
+    canvas.getContext('2d').drawImage(bitmap, 0, 0, canvas.width, canvas.height);
+    bitmap.close();
+    const blob = await new Promise((resolve) => canvas.toBlob(resolve, 'image/jpeg', qualidade));
+    if (!blob) return arquivo;
+    return new File([blob], arquivo.name.replace(/\.(png|webp)$/i, '.jpg') || 'imagem.jpg', { type: 'image/jpeg' });
+  } catch {
+    return arquivo;
+  }
+}
+
+function formatarTamanho(bytes) {
+  if (!bytes && bytes !== 0) return '-';
+  if (bytes < 1024) return `${bytes} B`;
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
+  return `${(bytes / (1024 * 1024)).toFixed(2)} MB`;
+}
+
+function ModalDocumentosDiversos({ aberto, onFechar, mostrarToast }) {
+  const [documentos, setDocumentos] = useState([]);
+  const [carregando, setCarregando] = useState(false);
+  const [enviando, setEnviando] = useState(false);
+  const [excluirAlvo, setExcluirAlvo] = useState(null);
+  const inputRef = useRef(null);
+
+  const MIMES = ['application/pdf', 'image/jpeg', 'image/png', 'image/webp'];
+  const LIMITE_BYTES = 15 * 1024 * 1024;
+
+  const carregar = useCallback(async () => {
+    setCarregando(true);
+    try {
+      const res = await apiFetch(`${API_URL}/sst/documentos-diversos`);
+      if (res.ok) setDocumentos(await res.json());
+      else mostrarToast(erroDaResposta(await res.json().catch(() => null), 'Erro ao carregar documentos.'), 'error');
+    } catch {
+      mostrarToast('Erro de conexão ao carregar documentos.', 'error');
+    } finally {
+      setCarregando(false);
+    }
+  }, [mostrarToast]);
+
+  useEffect(() => {
+    if (aberto) carregar();
+  }, [aberto, carregar]);
+
+  if (!aberto) return null;
+
+  const enviarArquivos = async (files) => {
+    let ok = 0;
+    setEnviando(true);
+    for (const original of files) {
+      if (!MIMES.includes(original.type)) {
+        mostrarToast(`"${original.name}" deve ser PDF, JPG, PNG ou WEBP.`, 'error');
+        continue;
+      }
+      if (original.size > LIMITE_BYTES) {
+        mostrarToast(`"${original.name}" excede o limite de 15 MB.`, 'error');
+        continue;
+      }
+      const arquivo = await comprimirImagem(original);
+      const fd = new FormData();
+      fd.append('arquivo', arquivo);
+      try {
+        const res = await apiFetch(`${API_URL}/sst/documentos-diversos`, { method: 'POST', body: fd });
+        if (res.ok) ok += 1;
+        else mostrarToast(erroDaResposta(await res.json().catch(() => null), `Falha ao enviar ${arquivo.name}.`), 'error');
+      } catch {
+        mostrarToast(`Erro de conexão ao enviar ${arquivo.name}.`, 'error');
+      }
+    }
+    if (ok) mostrarToast(`${ok} documento(s) enviado(s).`);
+    setEnviando(false);
+    carregar();
+  };
+
+  const excluir = async (id) => {
+    setExcluirAlvo(null);
+    try {
+      const res = await apiFetch(`${API_URL}/sst/documentos-diversos/${id}`, { method: 'DELETE' });
+      if (res.ok) {
+        mostrarToast('Documento excluído.');
+        carregar();
+      } else {
+        mostrarToast(erroDaResposta(await res.json().catch(() => null), 'Erro ao excluir documento.'), 'error');
+      }
+    } catch {
+      mostrarToast('Erro de conexão ao excluir documento.', 'error');
+    }
+  };
+
+  const totalBytes = documentos.reduce((soma, d) => soma + Number(d.tamanho_bytes || 0), 0);
+
+  return (
+    <ModalShell titulo="Documentos Diversos" onClose={onFechar} largura="max-w-2xl">
+      <div className="p-4 md:p-6 space-y-4">
+        {/* Resumo */}
+        <div className="flex items-center justify-between gap-3 flex-wrap bg-slate-50 border border-slate-100 rounded-xl px-4 py-3">
+          <div className="flex items-center gap-2 text-xs font-bold text-slate-600">
+            <FolderOpen size={15} className="text-primary-600" />
+            {documentos.length} documento(s) · {formatarTamanho(totalBytes)} na pasta
+          </div>
+          <p className="text-[10px] text-slate-400 font-semibold">PDFs e imagens são compactados automaticamente.</p>
+        </div>
+
+        {/* Upload */}
+        <div>
+          <button
+            type="button"
+            disabled={enviando}
+            onClick={() => inputRef.current?.click()}
+            className="w-full h-20 rounded-2xl border-2 border-dashed border-primary-300 bg-primary-50/60 hover:bg-primary-50 text-primary-700 font-bold flex flex-col items-center justify-center gap-1 disabled:opacity-40 cursor-pointer transition-all"
+          >
+            <Upload size={22} />
+            {enviando ? 'Enviando...' : 'Enviar documentos (PDF ou imagem)'}
+          </button>
+          <input
+            ref={inputRef}
+            type="file"
+            accept="application/pdf,image/*"
+            multiple
+            hidden
+            onChange={(e) => {
+              if (e.target.files?.length) enviarArquivos(Array.from(e.target.files));
+              e.target.value = '';
+            }}
+          />
+        </div>
+
+        {/* Lista */}
+        <div className="bg-white border border-slate-100 rounded-xl divide-y divide-slate-100 max-h-[45vh] overflow-y-auto">
+          {carregando && documentos.length === 0 && (
+            <p className="px-4 py-10 text-center text-xs text-slate-400">Carregando documentos...</p>
+          )}
+          {!carregando && documentos.length === 0 && (
+            <p className="px-4 py-10 text-center text-xs text-slate-400 flex flex-col items-center gap-1.5">
+              <FileText size={20} />
+              Nenhum documento anexado ainda.
+            </p>
+          )}
+          {documentos.map(d => {
+            const economizou = d.tamanho_original && d.tamanho_bytes && d.tamanho_original > d.tamanho_bytes;
+            return (
+              <div key={d.id} className="flex items-center gap-3 px-3 py-2.5">
+                <span className="w-9 h-9 rounded-lg bg-primary-50 text-primary-600 flex items-center justify-center shrink-0">
+                  <FileText size={16} />
+                </span>
+                <div className="min-w-0 flex-1">
+                  <p className="text-sm font-bold text-slate-800 truncate" title={d.nome_original}>{d.nome_original}</p>
+                  <p className="text-[10px] text-slate-400 font-semibold flex items-center gap-1.5 flex-wrap">
+                    {formatarTamanho(d.tamanho_bytes)}
+                    {economizou && (
+                      <span className="text-emerald-600" title={`Original: ${formatarTamanho(d.tamanho_original)}`}>
+                        ↓ economia de {formatarTamanho(d.tamanho_original - d.tamanho_bytes)}
+                      </span>
+                    )}
+                    <span>·</span>
+                    {d.criado_por || 'SST'}
+                    <span>·</span>
+                    {new Date(d.created_at).toLocaleString('pt-BR', { day: '2-digit', month: '2-digit', year: 'numeric' })}
+                  </p>
+                </div>
+                <a
+                  href={d.url_temporaria}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  title="Baixar documento"
+                  className="w-10 h-10 flex items-center justify-center rounded-lg bg-primary-50 hover:bg-primary-100 text-primary-700 border border-primary-100 transition-colors cursor-pointer shrink-0"
+                >
+                  <Download size={15} />
+                </a>
+                <button
+                  onClick={() => setExcluirAlvo(d)}
+                  title="Excluir"
+                  className="w-10 h-10 flex items-center justify-center rounded-lg bg-slate-50 hover:bg-rose-50 text-slate-400 hover:text-rose-600 border border-slate-100 transition-colors cursor-pointer shrink-0"
+                >
+                  <Trash2 size={14} />
+                </button>
+              </div>
+            );
+          })}
+        </div>
+      </div>
+
+      <ModalConfirmacao
+        aberto={excluirAlvo != null}
+        titulo="Excluir documento"
+        mensagem={`Excluir "${excluirAlvo?.nome_original}"? Esta ação não pode ser desfeita.`}
+        onConfirmar={() => excluir(excluirAlvo?.id)}
+        onCancelar={() => setExcluirAlvo(null)}
+      />
+    </ModalShell>
   );
 }
 
