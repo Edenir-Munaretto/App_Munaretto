@@ -20,7 +20,7 @@ from datetime import UTC, datetime
 
 from fastapi import APIRouter, Depends, File, HTTPException, Query, Response, UploadFile
 from fastapi.responses import FileResponse
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, Field, ValidationError, field_validator
 
 from auth import UsuarioAutenticado, get_current_user, require_qualquer_permisao
 from storage import bucket, get_s3_client
@@ -167,6 +167,30 @@ class MaterialLancamento(BaseModel):
 
 class ApontamentoAcao(BaseModel):
     acao: str = Field(..., description="'play' para iniciar ou 'pause' para encerrar o bloco")
+
+
+# ---------------------------------------------------------------------------
+# Sincronização offline (Modo Campo)
+# ---------------------------------------------------------------------------
+# Operações aceitas no lote de sincronização enviado pelo tablet ao voltar
+# para a base. Cada operação é revalidada no servidor na ordem cronológica.
+TIPOS_SYNC_VALIDOS = {"checklist_resposta", "status", "apontamento_play", "apontamento_pause"}
+
+
+class OperacaoSyncIn(BaseModel):
+    id_local: str = Field(..., max_length=64, description="Identificador local único da operação (uuid do tablet)")
+    tipo: str = Field(..., description="'checklist_resposta', 'status', 'apontamento_play' ou 'apontamento_pause'")
+    os_id: int
+    criado_em: str | None = Field(None, description="Timestamp ISO no momento em que a ação foi feita no dispositivo")
+    payload: dict = Field(default_factory=dict)
+
+
+class SincronizarIn(BaseModel):
+    operacoes: list[OperacaoSyncIn] = Field(default_factory=list, max_length=500)
+    # Fotos enviadas ANTES do lote: mapeia id_local da foto (uuid do tablet)
+    # -> id do registro no servidor. Usado em operações 'status' cujo payload
+    # referencia evidências tiradas offline (fotos_ids com ids locais).
+    mapa_fotos: dict[str, int] = Field(default_factory=dict)
 
 
 # ---------------------------------------------------------------------------
@@ -1122,6 +1146,135 @@ def relatorio_checklist(os_id: int, usuario: UsuarioAutenticado = Depends(get_cu
 
 
 # ---------------------------------------------------------------------------
+# Sincronização offline (Modo Campo)
+# ---------------------------------------------------------------------------
+
+
+def _parse_criado_em(valor: str | None):
+    """Timestamp do dispositivo para comparação de ordem (assume UTC)."""
+    if not valor:
+        return None
+    try:
+        dt = datetime.fromisoformat(str(valor).replace("Z", "+00:00"))
+        if dt.tzinfo is None:
+            dt = dt.replace(tzinfo=UTC)
+        return dt
+    except ValueError:
+        return None
+
+
+@router.post("/sincronizar", summary="Sincroniza as operações feitas offline no campo")
+def sincronizar(
+    payload: SincronizarIn,
+    usuario: UsuarioAutenticado = Depends(get_current_user),
+    db=Depends(get_supabase),
+):
+    """Aplica o lote de operações gravadas no tablet sem internet.
+
+    As operações são aplicadas EM ORDEM CRONOLÓGICA (por O.S) reutilizando as
+    mesmas validações dos endpoints normais: máquina de estados, gates do
+    checklist, travas de impedimento, permissão por equipe. Uma operação que
+    falha NÃO aborta o restante do lote — cada resultado é reportado com o
+    id_local para o dispositivo marcar como pendente/revisão.
+
+    Tipos aceitos:
+      - checklist_resposta : {item_id, resposta, justificativa?, geolocalizacao?}
+      - status             : {novo_status, justificativa?, fotos_ids?, geolocalizacao?}
+      - apontamento_play   : {geolocalizacao?, inicio?} — inicio: hora REAL do play
+      - apontamento_pause  : {geolocalizacao?, fim?} — fim: hora REAL do pause
+    """
+    resultados = []
+    if not payload.operacoes:
+        return {"resultados": resultados}
+
+    # Ordenação estável: por O.S e pela hora registrada no dispositivo;
+    # operações sem timestamp mantêm a ordem de chegada.
+    operacoes = sorted(
+        payload.operacoes,
+        key=lambda op: (op.os_id, _parse_criado_em(op.criado_em) or datetime.min.replace(tzinfo=UTC)),
+    )
+
+    for op in operacoes:
+        try:
+            if op.tipo not in TIPOS_SYNC_VALIDOS:
+                raise HTTPException(status_code=400, detail=f"Tipo de operação inválido: '{op.tipo}'.")
+
+            if op.tipo == "checklist_resposta":
+                item_id = op.payload.get("item_id")
+                if item_id is None:
+                    raise HTTPException(status_code=400, detail="Operação 'checklist_resposta' sem 'item_id'.")
+                dados = responder_checklist(
+                    op.os_id,
+                    int(item_id),
+                    ChecklistRespostaIn(
+                        resposta=op.payload.get("resposta", ""),
+                        justificativa=op.payload.get("justificativa"),
+                        geolocalizacao=op.payload.get("geolocalizacao"),
+                    ),
+                    usuario,
+                    db,
+                )
+            elif op.tipo == "status":
+                fotos_ids = op.payload.get("fotos_ids") or []
+
+                def _resolve_foto_id(foto):
+                    """Aceita id do servidor (int/dígitos) ou id_local do tablet
+                    (uuid) já mapeado pelas fotos enviadas antes do lote."""
+                    if isinstance(foto, int) or (isinstance(foto, str) and foto.strip().isdigit()):
+                        return int(foto)
+                    chave = str(foto)
+                    if chave in payload.mapa_fotos:
+                        return payload.mapa_fotos[chave]
+                    raise HTTPException(
+                        status_code=400,
+                        detail=f"Evidência '{chave}' ainda não foi sincronizada (envie as fotos antes do lote).",
+                    )
+
+                try:
+                    fotos_ids = [_resolve_foto_id(f) for f in fotos_ids]
+                except HTTPException:
+                    raise
+                except (TypeError, ValueError):
+                    raise HTTPException(status_code=400, detail="'fotos_ids' deve ser uma lista de números.") from None
+                dados = alterar_status(
+                    op.os_id,
+                    StatusUpdate(
+                        novo_status=op.payload.get("novo_status", ""),
+                        justificativa=op.payload.get("justificativa"),
+                        fotos_ids=fotos_ids,
+                        geolocalizacao=op.payload.get("geolocalizacao"),
+                    ),
+                    usuario,
+                    db,
+                )
+            else:
+                dados = apontar_hora(
+                    op.os_id,
+                    ApontamentoAcao(acao="play" if op.tipo == "apontamento_play" else "pause"),
+                    geolocalizacao=op.payload.get("geolocalizacao"),
+                    # O horário REAL da ação (registrado no dispositivo offline)
+                    # é carregado para o H.H. não zerar na sincronização.
+                    inicio=op.payload.get("inicio") or op.criado_em,
+                    fim=op.payload.get("fim") or op.criado_em,
+                    usuario=usuario,
+                    db=db,
+                )
+
+            resultados.append({"id_local": op.id_local, "ok": True, "dados": dados})
+        except HTTPException as exc:
+            resultados.append({"id_local": op.id_local, "ok": False, "status": exc.status_code, "erro": exc.detail})
+        except ValidationError as exc:
+            resultados.append({"id_local": op.id_local, "ok": False, "status": 422, "erro": f"Dados inválidos: {exc}"})
+        except Exception:
+            logger.exception("Erro ao aplicar operação %s do sync", op.id_local)
+            resultados.append(
+                {"id_local": op.id_local, "ok": False, "status": 500, "erro": "Erro interno ao aplicar a operação."}
+            )
+
+    return {"resultados": resultados}
+
+
+# ---------------------------------------------------------------------------
 # Impressão da O.S no modelo oficial (capa de campo)
 # ---------------------------------------------------------------------------
 
@@ -1294,6 +1447,8 @@ def apontar_hora(
     os_id: int,
     payload: ApontamentoAcao,
     geolocalizacao: str | None = Query(None, max_length=100),
+    inicio: str | None = Query(None, description="ISO timestamp real do play (sync offline)"),
+    fim: str | None = Query(None, description="ISO timestamp real do pause (sync offline)"),
     usuario: UsuarioAutenticado = Depends(get_current_user),
     db=Depends(get_supabase),
 ):
@@ -1302,10 +1457,25 @@ def apontar_hora(
     - 'play': abre um bloco. Se a O.S estiver 'aberta', promove automaticamente
       para 'em_andamento' (início de serviço pelo campo), registrando histórico.
     - 'pause': fecha o bloco aberto calculando os minutos trabalhados.
+
+    Os parâmetros `inicio`/`fim` permitem carregar o horário REAL registrado
+    no dispositivo offline (a sincronização acontece horas depois; sem isso
+    o bloco seria gravado com a hora do envio e as horas H.H. se perderiam).
     """
     acao = payload.acao.strip().lower()
     if acao not in ("play", "pause"):
         raise HTTPException(status_code=400, detail="Ação inválida. Use 'play' ou 'pause'.")
+
+    def _timestamp_ou_agora(valor):
+        if not valor:
+            return _agora()
+        try:
+            dt = datetime.fromisoformat(str(valor).replace("Z", "+00:00"))
+            if dt.tzinfo is None:
+                dt = dt.replace(tzinfo=UTC)
+            return dt
+        except ValueError:
+            raise HTTPException(status_code=400, detail="Timestamp inválido. Use o formato ISO 8601.") from None
 
     try:
         os_data = _os_ou_404(db, os_id)
@@ -1337,13 +1507,14 @@ def apontar_hora(
         if acao == "play":
             if abertos.data:
                 raise HTTPException(status_code=409, detail="Já existe um cronômetro em andamento para você nesta O.S.")
+            inicio_real = _timestamp_ou_agora(inicio)
             resp = (
                 db.table("os_apontamentos")
                 .insert(
                     {
                         "os_id": os_id,
                         "funcionario_id": func["id"],
-                        "inicio": _agora().isoformat(),
+                        "inicio": inicio_real.isoformat(),
                     }
                 )
                 .execute()
@@ -1380,13 +1551,14 @@ def apontar_hora(
         if not abertos.data:
             raise HTTPException(status_code=409, detail="Nenhum cronômetro em andamento para você nesta O.S.")
         bloco = abertos.data[0]
-        inicio = datetime.fromisoformat(bloco["inicio"])
-        minutos = max(0, int(((_agora() - inicio).total_seconds()) // 60))
+        inicio_real = datetime.fromisoformat(bloco["inicio"])
+        fim_real = _timestamp_ou_agora(fim)
+        minutos = max(0, int(((fim_real - inicio_real).total_seconds()) // 60))
         resp = (
             db.table("os_apontamentos")
             .update(
                 {
-                    "fim": _agora().isoformat(),
+                    "fim": fim_real.isoformat(),
                     "minutos_trabalhados": minutos,
                 }
             )
