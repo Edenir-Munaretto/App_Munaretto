@@ -19,6 +19,10 @@ self.addEventListener('activate', (event) => {
 
 self.addEventListener('fetch', (event) => {
   if (event.request.method !== 'GET') return;
+  // Requisições da API nunca são cacheadas: os dados são dinâmicos e
+  // autenticados, e uma cópia antiga em cache ficaria servida por tempo
+  // indeterminado durante uma queda de rede.
+  if (event.request.url.includes('/api/')) return;
   event.respondWith(
     fetch(event.request)
       .then((response) => {

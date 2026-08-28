@@ -1029,14 +1029,20 @@ function PainelExecucao({ osId, produtos, geolocalizacao, capturarGps, onFechar,
   const [erro, setErro] = useState('');
   const [aba, setAba] = useState('insumos');
 
-  const carregar = useCallback(async () => {
+  const carregar = useCallback(async (tentativa = 0) => {
     try {
       const res = await apiFetch(`${API_URL}/os/${osId}`);
       const data = await res.json().catch(() => null);
       if (res.ok) setDetalhe(data);
       else setErro(erroDaResposta(data, 'Erro ao carregar O.S.'));
     } catch {
-      setErro('Erro de conexão ao carregar a O.S.');
+      // Falhas de conexão costumam ser transitórias (cold start do servidor):
+      // tenta uma segunda vez antes de exibir o erro.
+      if (tentativa === 0) {
+        setTimeout(() => carregar(1), 1500);
+      } else {
+        setErro('Erro de conexão ao carregar a O.S.');
+      }
     }
   }, [osId]);
 
@@ -1044,9 +1050,23 @@ function PainelExecucao({ osId, produtos, geolocalizacao, capturarGps, onFechar,
 
   if (erro) {
     return (
-      <div className="fixed inset-0 w-full lg:left-auto lg:w-[560px] xl:w-[680px] bg-white z-40 flex items-center justify-center">
-        <p className="text-sm text-rose-600">{erro}</p>
-        <button onClick={onFechar} className="ml-3 text-sm text-primary-600 underline">Voltar</button>
+      <div className="fixed inset-0 w-full lg:left-auto lg:w-[560px] xl:w-[680px] bg-white z-40 flex flex-col items-center justify-center gap-4 p-6">
+        <div className="text-center space-y-2">
+          <AlertTriangle size={28} className="text-rose-500 mx-auto" />
+          <p className="text-sm font-bold text-rose-600">{erro}</p>
+          <p className="text-xs text-slate-400 max-w-sm">Verifique sua conexão com a internet e tente novamente.</p>
+        </div>
+        <div className="flex gap-3">
+          <button
+            onClick={() => { setErro(''); carregar(); }}
+            className="px-5 py-2.5 bg-primary-600 text-white rounded-xl text-sm font-bold hover:bg-primary-700 transition-all cursor-pointer"
+          >
+            Tentar novamente
+          </button>
+          <button onClick={onFechar} className="px-5 py-2.5 border border-slate-200 text-slate-600 rounded-xl text-sm font-semibold hover:bg-slate-50 transition-all cursor-pointer">
+            Voltar
+          </button>
+        </div>
       </div>
     );
   }
