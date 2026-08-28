@@ -668,6 +668,7 @@ CREATE TABLE IF NOT EXISTS ordens_servico (
     local_servico TEXT,
     bt_energizado BOOLEAN DEFAULT FALSE,
     at_energizado_bloqueio BOOLEAN DEFAULT FALSE,
+    bloqueio BOOLEAN DEFAULT FALSE,
     hora_desligar TIME,
     hora_religar TIME,
     alimentador VARCHAR(100),
@@ -844,6 +845,7 @@ ALTER TABLE IF EXISTS ordens_servico
     ADD COLUMN IF NOT EXISTS local_servico TEXT,
     ADD COLUMN IF NOT EXISTS bt_energizado BOOLEAN DEFAULT FALSE,
     ADD COLUMN IF NOT EXISTS at_energizado_bloqueio BOOLEAN DEFAULT FALSE,
+    ADD COLUMN IF NOT EXISTS bloqueio BOOLEAN DEFAULT FALSE,
     ADD COLUMN IF NOT EXISTS hora_desligar TIME,
     ADD COLUMN IF NOT EXISTS hora_religar TIME,
     ADD COLUMN IF NOT EXISTS alimentador VARCHAR(100),
@@ -858,4 +860,4 @@ BEGIN
     END IF;
 END $$;
 ALTER TABLE IF EXISTS ordens_servico
-    ADD CONSTRAINT ordens_servico_tipo_check CHECK (tipo IN ('construcao', 'linha_viva'));
+    ADD CONSTRAINT ordens_servico_tipo_check CHECK (tipo IN ('construcao', 'manutencao', 'linha_viva'));
