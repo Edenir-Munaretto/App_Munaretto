@@ -2353,7 +2353,24 @@ function PainelCadastros({ obras, equipes, produtos, recarregar, mostrarToast })
                   </p>
                 )}
               </div>
-              <ClientesSelect clientes={listaClientes} value={novaObra.cliente_id} onChange={(v) => setNovaObra({ ...novaObra, cliente_id: v })} />
+              <ClienteAutocomplete
+                clientes={listaClientes}
+                value={novaObra.cliente_id}
+                onChange={(cliente) => {
+                  if (!cliente) {
+                    setNovaObra({ ...novaObra, cliente_id: '' });
+                    return;
+                  }
+                  // Ao selecionar o cliente, preenche Nota PS, cidade e endereço.
+                  setNovaObra({
+                    ...novaObra,
+                    cliente_id: String(cliente.id),
+                    nome: cliente.nota_ps || novaObra.nome,
+                    cidade: cliente.cidade || '',
+                    endereco: cliente.endereco || '',
+                  });
+                }}
+              />
               <CampoTexto label="Cidade" value={novaObra.cidade} onChange={e => setNovaObra({ ...novaObra, cidade: e.target.value })} />
               <CampoTexto label="Endereço" value={novaObra.endereco} onChange={e => setNovaObra({ ...novaObra, endereco: e.target.value })} />
             </div>
@@ -2698,14 +2715,133 @@ function PainelCadastros({ obras, equipes, produtos, recarregar, mostrarToast })
   );
 }
 
-// Select de clientes (controlado — a lista vem do PainelCadastros).
-function ClientesSelect({ clientes, value, onChange }) {
+// Autocomplete de clientes: sugere conforme digita (nome, CPF/CNPJ ou Nota
+// PS) e chama onChange com o cliente selecionado (ou null ao limpar).
+// Suporta teclado: setas ↑/↓ para navegar e Enter para confirmar.
+function ClienteAutocomplete({ clientes, value, disabled = false, onChange }) {
+  const [termo, setTermo] = useState('');
+  const [aberto, setAberto] = useState(false);
+  const [indiceAtivo, setIndiceAtivo] = useState(-1);
+  const editando = useRef(false); // true enquanto o usuário digita (não sincronizar)
+  const itemRefs = useRef({}); // refs dos itens p/ rolar até o destacado
+
+  const selecionado = clientes.find(c => c.id === Number(value)) || null;
+
+  // Ao receber um cliente selecionado externamente (modo edição/prefill),
+  // exibe o nome dele. Durante a digitação, não sobrescreve o texto.
+  useEffect(() => {
+    if (editando.current) return;
+    if (selecionado) setTermo(selecionado.nome);
+    else if (!value) setTermo('');
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [value]);
+
+  const sugestoes = useMemo(() => {
+    const t = termo.trim().toLowerCase();
+    if (!t) return []; // só sugere quando o usuário começa a digitar
+    return clientes
+      .filter(c =>
+        (c.nome || '').toLowerCase().includes(t) ||
+        (c.cpf_cnpj || '').toLowerCase().includes(t) ||
+        (c.nota_ps || '').toLowerCase().includes(t)
+      )
+      .slice(0, 8);
+  }, [termo, clientes]);
+
+  // Reinicia o cursor ao mudar os resultados da busca.
+  useEffect(() => { setIndiceAtivo(-1); }, [sugestoes]);
+
+  // Mantém o item destacado visível na lista (rolagem automática).
+  useEffect(() => {
+    if (indiceAtivo < 0) return;
+    const el = itemRefs.current[sugestoes[indiceAtivo]?.id];
+    el?.scrollIntoView({ block: 'nearest' });
+  }, [indiceAtivo, sugestoes]);
+
+  const escolher = (c) => {
+    editando.current = false;
+    setTermo(c.nome);
+    setAberto(false);
+    setIndiceAtivo(-1);
+    onChange(c);
+  };
+
+  const aoDigitar = (texto) => {
+    editando.current = true;
+    setTermo(texto);
+    setAberto(true);
+    // Se o texto deixou de corresponder ao cliente selecionado, limpa a seleção.
+    const selecionadaAtual = clientes.find(c => c.id === Number(value));
+    if (selecionadaAtual && texto.trim() !== selecionadaAtual.nome) {
+      onChange(null);
+    }
+  };
+
+  const aoTeclar = (e) => {
+    if (disabled) return;
+    const tecla = e.key || e.code;
+    const baixo = tecla === 'ArrowDown' || tecla === 'Down';
+    const cima = tecla === 'ArrowUp' || tecla === 'Up';
+
+    if (baixo || cima) {
+      e.preventDefault();
+      if (sugestoes.length === 0) return;
+      setAberto(true);
+      setIndiceAtivo(prev => {
+        if (baixo) return (prev + 1) % sugestoes.length;
+        return prev <= 0 ? sugestoes.length - 1 : prev - 1;
+      });
+    } else if (tecla === 'Enter') {
+      if (aberto && indiceAtivo >= 0 && sugestoes[indiceAtivo]) {
+        e.preventDefault();
+        escolher(sugestoes[indiceAtivo]);
+      }
+    } else if (tecla === 'Escape' || tecla === 'Esc') {
+      setAberto(false);
+      setIndiceAtivo(-1);
+    }
+  };
+
   return (
-    <select value={value} onChange={(e) => onChange(e.target.value)}
-      className="w-full px-3 py-2 border border-slate-200 rounded-xl text-sm">
-      <option value="">Selecione o cliente *</option>
-      {clientes.map(c => <option key={c.id} value={c.id}>{c.nome}</option>)}
-    </select>
+    <div className="relative">
+      <label className="block text-xs font-bold text-slate-700 mb-1">Cliente *</label>
+      <input
+        value={termo}
+        disabled={disabled}
+        onChange={(e) => aoDigitar(e.target.value)}
+        onKeyDown={aoTeclar}
+        onFocus={() => setAberto(true)}
+        onBlur={() => setTimeout(() => { setAberto(false); setIndiceAtivo(-1); }, 150)}
+        placeholder="Digite o nome, CPF/CNPJ ou Nota PS..."
+        className="w-full px-3 py-2 border border-slate-200 rounded-xl text-sm font-semibold focus:outline-none focus:border-primary-500 disabled:bg-slate-100 disabled:text-slate-500"
+      />
+      {aberto && !disabled && sugestoes.length > 0 && (
+        <ul className="absolute z-20 left-0 right-0 mt-1 bg-white border border-slate-200 rounded-xl shadow-lg overflow-hidden max-h-64 overflow-y-auto">
+          {sugestoes.map((c, i) => (
+            <li key={c.id} className="border-b border-slate-50 last:border-0">
+              <button
+                ref={el => { itemRefs.current[c.id] = el; }}
+                type="button"
+                onMouseDown={() => escolher(c)}
+                onMouseEnter={() => setIndiceAtivo(i)}
+                className={`w-full text-left px-3.5 py-2.5 transition-colors cursor-pointer ${
+                  i === indiceAtivo
+                    ? 'bg-primary-100 ring-2 ring-inset ring-primary-200'
+                    : 'hover:bg-primary-50'
+                }`}
+              >
+                <span className={`block text-sm font-bold truncate ${i === indiceAtivo ? 'text-primary-900' : 'text-slate-800'}`}>{c.nome}</span>
+                <span className="block text-xs text-slate-400 truncate">
+                  {c.cpf_cnpj || ''}
+                  {c.nota_ps ? ` · Nota PS ${c.nota_ps}` : ''}
+                  {c.cidade ? ` · ${c.cidade}` : ''}
+                </span>
+              </button>
+            </li>
+          ))}
+        </ul>
+      )}
+    </div>
   );
 }
 
