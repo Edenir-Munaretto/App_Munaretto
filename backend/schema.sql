@@ -659,8 +659,10 @@ CREATE TABLE IF NOT EXISTS ordens_servico (
     custo_mo_orcado NUMERIC(12, 2) DEFAULT 0.00,   -- mão de obra prevista (R$)
     criado_por VARCHAR(255),                        -- e-mail do usuário criador
     -- Campos do modelo de impressão da O.S (capa de campo).
+    -- 'manutencao' usa o mesmo layout de 'construcao' (o CHECK abaixo também
+    -- foi aplicado em produção: ALTER TABLE ... DROP/ADD CONSTRAINT).
     tipo VARCHAR(20) NOT NULL DEFAULT 'construcao'
-        CHECK (tipo IN ('construcao', 'linha_viva')),
+        CHECK (tipo IN ('construcao', 'manutencao', 'linha_viva')),
     agencia VARCHAR(100),
     municipio VARCHAR(100),
     local_servico TEXT,
