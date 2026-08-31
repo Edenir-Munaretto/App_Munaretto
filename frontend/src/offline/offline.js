@@ -26,13 +26,58 @@ export function setModoCampo(ativo) {
   else localStorage.removeItem(CHAVE_MODO_CAMPO);
 }
 
-export function isOffline() {
-  return typeof navigator !== 'undefined' && navigator.onLine === false;
+// ---------------------------------------------------------------------------
+// Conectividade real (sonda)
+// ---------------------------------------------------------------------------
+// `navigator.onLine` sozinho engana: no campo o tablet costuma estar num WiFi
+// SEM internet (roteador do canteiro/hotspot), e o navegador reporta online.
+// Por isso mantemos uma sonda HTTP com timeout curto — só erro de rede/timeout
+// marca como desconectado; qualquer resposta HTTP (401/500 inclusive) = online.
+
+let _conectividade = true;
+
+export function setConectividade(ok) {
+  _conectividade = !!ok;
 }
 
-/** Deve-se operar com os dados locais (sem internet). */
+/** Marca como desconectado após uma falha de rede real (failover imediato). */
+export function registrarFalhaDeRede() {
+  _conectividade = false;
+}
+
+export function conectividadeOk() {
+  return _conectividade;
+}
+
+/** Sonda leve no servidor (endpoint barato já usado pela página). */
+export async function testarConexao() {
+  try {
+    await fetch(`${API_URL}/os/transicoes`, {
+      cache: 'no-store',
+      signal: AbortSignal.timeout(5000),
+    });
+    _conectividade = true;
+    return true;
+  } catch {
+    _conectividade = false;
+    return false;
+  }
+}
+
+export function isOffline() {
+  return (typeof navigator !== 'undefined' && navigator.onLine === false) || _conectividade === false;
+}
+
+/**
+ * Deve-se operar com os dados locais.
+ * - Modo Campo: sempre que houver indicação de falta de internet — sonda HTTP
+ *   falhou (WiFi sem internet) OU navegador detectou queda de rede;
+ * - Fora do Modo Campo: apenas quando o navegador confirma a queda (sem
+ *   pacote local, o usuário deve ver erros de conexão, não dados vazios).
+ */
 export function usarLocal() {
-  return isOffline();
+  if (isModoCampo()) return isOffline();
+  return typeof navigator !== 'undefined' && navigator.onLine === false;
 }
 
 // ---------------------------------------------------------------------------

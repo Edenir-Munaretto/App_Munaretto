@@ -17,6 +17,7 @@ import {
   atualizarStatusLocal, atualizarRespostaLocal, recalcularResumo,
   enfileirarOperacao, enfileirarFoto, contarPendentes,
   salvarResponsavelLocal,
+  registrarFalhaDeRede, testarConexao,
 } from '../offline/offline';
 import { sincronizar } from '../offline/sync';
 
@@ -230,7 +231,7 @@ function TabChecklist({ osDetalhe, onAtualizado, mostrarToast, podeEditar }) {
 
   useEffect(() => { carregar(); }, [carregar]);
 
-  const responder = async (item, resposta) => {
+  const responder = async (item, resposta, tentativa = 0) => {
     if (!podeEditar) return;
     if (resposta === 'nao' && !(justificativas[item.id] || '').trim()) {
       mostrarToast('Resposta "não" exige justificativa.', 'error');
@@ -285,13 +286,18 @@ function TabChecklist({ osDetalhe, onAtualizado, mostrarToast, podeEditar }) {
         mostrarToast(erroDaResposta(await res.json().catch(() => null), 'Erro ao salvar resposta.'), 'error');
       }
     } catch {
+      // Sem internet real (WiFi sem dados): cai para a fila local no Modo Campo.
+      if (tentativa === 0 && isModoCampo()) {
+        registrarFalhaDeRede();
+        return responder(item, resposta, 1);
+      }
       mostrarToast('Erro de conexão ao salvar resposta.', 'error');
     } finally {
       setSalvandoItem(null);
     }
   };
 
-  const enviarFoto = async (files) => {
+  const enviarFoto = async (files, tentativa = 0) => {
     const item = fotoAlvo;
     setFotoAlvo(null);
     if (!item || !files?.length) return;
@@ -330,6 +336,11 @@ function TabChecklist({ osDetalhe, onAtualizado, mostrarToast, podeEditar }) {
         mostrarToast(erroDaResposta(await res.json().catch(() => null), 'Erro ao enviar foto.'), 'error');
       }
     } catch {
+      // Sem internet real: guarda no dispositivo (Modo Campo).
+      if (tentativa === 0 && isModoCampo()) {
+        registrarFalhaDeRede();
+        return enviarFoto(files, 1);
+      }
       mostrarToast('Erro de conexão ao enviar foto.', 'error');
     } finally {
       setEnviandoFoto(null);
@@ -966,7 +977,7 @@ function CronometroHH({ osDetalhe, geolocalizacao, capturarGps, onAtualizado, mo
     return () => clearInterval(intervalo);
   }, [aberto?.inicio]);
 
-  const acionar = async (acao) => {
+  const acionar = async (acao, tentativa = 0) => {
     setProcessando(true);
     let gps = geolocalizacao;
     if (!gps) gps = await capturarGps();
@@ -1007,6 +1018,11 @@ function CronometroHH({ osDetalhe, geolocalizacao, capturarGps, onAtualizado, mo
         mostrarToast(erroDaResposta(data, 'Erro no apontamento.'), 'error');
       }
     } catch {
+      // Sem internet real: registra na fila local (Modo Campo).
+      if (tentativa === 0 && isModoCampo()) {
+        registrarFalhaDeRede();
+        return acionar(acao, 1);
+      }
       mostrarToast('Erro de conexão no apontamento de horas.', 'error');
     } finally {
       setProcessando(false);
@@ -1168,9 +1184,11 @@ function PainelExecucao({ osId, produtos, geolocalizacao, capturarGps, onFechar,
         setTimeout(() => carregar(1), 1500);
       } else setErro(erroDaResposta(data, 'Erro ao carregar O.S.'));
     } catch {
-      // Falhas de conexão costumam ser transitórias (cold start do servidor):
-      // tenta uma segunda vez antes de exibir o erro.
-      if (tentativa === 0 && !usarLocal()) {
+      // Falhas de conexão costumam ser transitórias (cold start do servidor,
+      // WiFi sem internet no campo): tenta uma segunda vez — no Modo Campo a
+      // segunda tentativa já cai no pacote local graças à sonda.
+      registrarFalhaDeRede();
+      if (tentativa === 0) {
         setTimeout(() => carregar(1), 1500);
       } else {
         setErro('Erro de conexão ao carregar a O.S.');
@@ -1932,7 +1950,18 @@ function ModalImpedimento({ aberto, osAlvo, onConfirmar, onCancelar, processando
           const data = await res.json();
           novosFotoIds = [...novosFotoIds, data.id];
         }
-      } catch { /* continua */ }
+      } catch {
+        // Sem internet real no campo: a evidência vira foto local (id local
+        // referenciado no status de impedimento e mapeado na sincronização).
+        if (isModoCampo()) {
+          registrarFalhaDeRede();
+          try {
+            const gps = await capturarGeolocalizacao();
+            const foto = await enfileirarFoto({ os_id: osAlvo.id, checklist_item_id: null, arquivo, geolocalizacao: gps });
+            novosFotoIds = [...novosFotoIds, foto.id_local];
+          } catch { /* continua */ }
+        }
+      }
     }
     setFotos(novosFotoIds);
     setEnviandoFoto(false);
@@ -2075,7 +2104,7 @@ function OrdensServico({ usuarioAtual }) {
   }, []);
 
   const sincronizarAgora = useCallback(async (silencioso = false) => {
-    if (!navigator.onLine) {
+    if (isOffline()) {
       if (!silencioso) mostrarToast('Sem conexão — sincronize quando voltar à internet.', 'error');
       return;
     }
@@ -2106,26 +2135,40 @@ function OrdensServico({ usuarioAtual }) {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [sincronizando, mostrarToast, usuarioAtual?.nome]);
 
-  // Monitora a conexão: atualiza o estado e sincroniza automaticamente ao
-  // voltar para a internet.
+  // Monitora a conexão de verdade (sonda HTTP a cada 10s — o navigator.onLine
+  // engana em WiFi sem internet, comum no campo). Ao reconectar com pendências
+  // na fila, sincroniza automaticamente.
   useEffect(() => {
-    const atualizar = () => {
-      setOffline(isOffline());
-      if (isOffline() === false) {
+    let sondaEmAndamento = false;
+    const atualizar = async (daSonda = false) => {
+      if (!sondaEmAndamento && daSonda) {
+        sondaEmAndamento = true;
+        await testarConexao();
+        sondaEmAndamento = false;
+      }
+      const offlineAtual = isOffline();
+      setOffline(offlineAtual);
+      if (offlineAtual === false) {
         contarPendentes().then(p => { setPendentes(p); if (p.total > 0) sincronizarAgora(true); });
       }
     };
-    window.addEventListener('online', atualizar);
-    window.addEventListener('offline', atualizar);
-    const intervalo = setInterval(() => {
+    const noEvento = () => atualizar(false);
+    const naSonda = () => atualizar(true);
+    window.addEventListener('online', noEvento);
+    window.addEventListener('offline', noEvento);
+    // Sonda imediata ao montar (Modo Campo) e a cada 10s.
+    if (modoCampo) naSonda();
+    const sonda = setInterval(naSonda, 10000);
+    const contador = setInterval(() => {
       contarPendentes().then(setPendentes);
     }, 4000);
     return () => {
-      window.removeEventListener('online', atualizar);
-      window.removeEventListener('offline', atualizar);
-      clearInterval(intervalo);
+      window.removeEventListener('online', noEvento);
+      window.removeEventListener('offline', noEvento);
+      clearInterval(sonda);
+      clearInterval(contador);
     };
-  }, [sincronizarAgora]);
+  }, [sincronizarAgora, modoCampo]);
 
   useEffect(() => {
     if (modoCampo) infoPacote().then(setInfoPacoteLocal).catch(() => setInfoPacoteLocal(null));
@@ -2248,7 +2291,15 @@ function OrdensServico({ usuarioAtual }) {
         if (resProdutos.ok) setProdutos(await resProdutos.json());
       }
     } catch {
-      mostrarToast('Erro de conexão ao carregar o módulo de O.S.', 'error');
+      // Sem internet real (WiFi sem dados): usa o pacote local no Modo Campo.
+      registrarFalhaDeRede();
+      if (usarLocal()) {
+        const lista = await getListaLocal();
+        setTotalOs(lista.length);
+        setListaOs(lista);
+      } else {
+        mostrarToast('Erro de conexão ao carregar o módulo de O.S.', 'error');
+      }
     } finally {
       setLoading(false);
     }
@@ -2265,7 +2316,7 @@ function OrdensServico({ usuarioAtual }) {
 
   // --- Transição de status --------------------------------------------------
 
-  const mudarStatus = useCallback(async (os, novoStatus, extras = {}) => {
+  const mudarStatus = useCallback(async (os, novoStatus, extras = {}, tentativa = 0) => {
     setProcessando(true);
     let gps = geolocalizacao;
     if (!gps) gps = await capturarGps();
@@ -2313,6 +2364,11 @@ function OrdensServico({ usuarioAtual }) {
       mostrarToast(erroDaResposta(data, 'Transição não permitida.'), 'error');
       return false;
     } catch {
+      // Sem internet real: a transição entra na fila local (Modo Campo).
+      if (tentativa === 0 && isModoCampo()) {
+        registrarFalhaDeRede();
+        return mudarStatus(os, novoStatus, extras, 1);
+      }
       mostrarToast('Erro de conexão ao alterar status.', 'error');
       return false;
     } finally {
