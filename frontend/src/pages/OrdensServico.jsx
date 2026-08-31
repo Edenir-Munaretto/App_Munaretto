@@ -119,14 +119,26 @@ function BadgeStatus({ status }) {
 
 function Toast({ toast }) {
   if (!toast) return null;
+  const cor = toast.type === 'error'
+    ? 'bg-rose-50 border-rose-200 text-rose-800'
+    : 'bg-emerald-50 border-emerald-200 text-emerald-800';
+  const icone = toast.type === 'error' ? 'bg-rose-100 text-rose-600' : 'bg-emerald-100 text-emerald-600';
   return (
-    <div className={`fixed top-4 right-4 z-[60] p-4 rounded-xl shadow-xl flex items-center gap-3 border text-sm max-w-sm animate-in slide-in-from-top-4 duration-300 ${
-      toast.type === 'error' ? 'bg-rose-50 border-rose-200 text-rose-800' : 'bg-emerald-50 border-emerald-200 text-emerald-800'
-    }`}>
-      <div className={`p-1 rounded-full ${toast.type === 'error' ? 'bg-rose-100 text-rose-600' : 'bg-emerald-100 text-emerald-600'}`}>
+    <div className={`fixed z-[70] rounded-xl shadow-xl border text-sm p-4 flex items-start gap-3 max-w-[calc(100vw-2rem)] sm:max-w-sm animate-in slide-in-from-bottom-4 sm:slide-in-from-top-4 duration-300 ${cor} bottom-4 left-4 right-4 sm:left-auto sm:right-4 sm:top-4 sm:bottom-auto`}>
+      <div className={`p-1 rounded-full shrink-0 ${icone}`}>
         {toast.type === 'error' ? <AlertTriangle size={16} /> : <Check size={16} />}
       </div>
-      <p className="font-semibold">{toast.message}</p>
+      <div className="min-w-0 flex-1">
+        <p className="font-semibold whitespace-pre-line break-words">{toast.message}</p>
+        {toast.acao && (
+          <button
+            onClick={toast.acao.onClick}
+            className="mt-1.5 text-xs font-extrabold underline underline-offset-2 hover:opacity-80 cursor-pointer"
+          >
+            {toast.acao.label}
+          </button>
+        )}
+      </div>
     </div>
   );
 }
@@ -2098,9 +2110,10 @@ function OrdensServico({ usuarioAtual }) {
   const [modalPendenciasAberto, setModalPendenciasAberto] = useState(false);
   const [ultimoResumo, setUltimoResumo] = useState(null);
 
-  const mostrarToast = useCallback((message, type = 'success') => {
-    setToast({ message, type });
-    setTimeout(() => setToast(null), 4500);
+  const mostrarToast = useCallback((message, type = 'success', acao = null) => {
+    setToast({ message, type, acao });
+    // Erros ficam mais tempo na tela (móvel); sucesso some antes.
+    setTimeout(() => setToast(null), type === 'error' ? 8000 : 4500);
   }, []);
 
   const sincronizarAgora = useCallback(async (silencioso = false) => {
@@ -2116,9 +2129,11 @@ function OrdensServico({ usuarioAtual }) {
       if (usuarioAtual?.nome) salvarResponsavelLocal(usuarioAtual.nome);
       if (!silencioso || resumo.fotosEnviadas || resumo.operacoesEnviadas || resumo.falhas.length) {
         if (resumo.falhas.length) {
+          const resumosErros = [...new Set(resumo.falhas.slice(0, 3).map(f => f.erro))].join('\n');
           mostrarToast(
-            `${resumo.fotosEnviadas + resumo.operacoesEnviadas} sincronizado(s), ${resumo.falhas.length} com erro (veja as pendências).`,
+            `${resumo.fotosEnviadas + resumo.operacoesEnviadas} sincronizado(s), ${resumo.falhas.length} com erro.\n${resumosErros}`,
             'error',
+            { label: 'Ver pendências', onClick: () => setModalPendenciasAberto(true) },
           );
         } else {
           mostrarToast(`${resumo.fotosEnviadas + resumo.operacoesEnviadas} item(ns) sincronizado(s).`);
