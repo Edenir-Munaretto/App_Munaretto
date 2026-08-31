@@ -227,3 +227,21 @@ export async function listarPendentes() {
   const [ops, fotos] = await Promise.all([dbGetAll('fila'), dbGetAll('fotos')]);
   return { operacoes: ops, fotos };
 }
+
+/** Remove do dispositivo um item pendente (foto ou operação) sem enviar. */
+export async function descartarPendente(tipo, idLocal) {
+  if (tipo === 'foto') return dbDel('fotos', idLocal);
+  return dbDel('fila', idLocal);
+}
+
+// ---------------------------------------------------------------------------
+// Responsável local (quem preparou/sincronizou — tablet compartilhado)
+// ---------------------------------------------------------------------------
+
+export async function salvarResponsavelLocal(nome) {
+  await dbPut('meta', { chave: 'responsavel', nome, em: new Date().toISOString() });
+}
+
+export async function responsavelLocal() {
+  return dbGet('meta', 'responsavel');
+}

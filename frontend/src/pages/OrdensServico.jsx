@@ -8,6 +8,7 @@ import {
 } from 'lucide-react';
 import { API_URL, apiFetch, erroDaResposta } from '../api';
 import ModalConfirmacao from '../components/ModalConfirmacao';
+import ModalPendenciasSync from '../components/ModalPendenciasSync';
 import { comprimirImagem } from '../utils/imagem';
 import {
   isModoCampo, setModoCampo, isOffline, usarLocal,
@@ -15,6 +16,7 @@ import {
   getOSLocal, getChecklistLocal, getListaLocal, salvarDetalheLocal, salvarChecklistLocal,
   atualizarStatusLocal, atualizarRespostaLocal, recalcularResumo,
   enfileirarOperacao, enfileirarFoto, contarPendentes,
+  salvarResponsavelLocal,
 } from '../offline/offline';
 import { sincronizar } from '../offline/sync';
 
@@ -2008,6 +2010,13 @@ function OrdensServico({ usuarioAtual }) {
   const [sincronizando, setSincronizando] = useState(false);
   const [preparandoPacote, setPreparandoPacote] = useState(false);
   const [infoPacoteLocal, setInfoPacoteLocal] = useState(null);
+  const [modalPendenciasAberto, setModalPendenciasAberto] = useState(false);
+  const [ultimoResumo, setUltimoResumo] = useState(null);
+
+  const mostrarToast = useCallback((message, type = 'success') => {
+    setToast({ message, type });
+    setTimeout(() => setToast(null), 4500);
+  }, []);
 
   const sincronizarAgora = useCallback(async (silencioso = false) => {
     if (!navigator.onLine) {
@@ -2018,6 +2027,8 @@ function OrdensServico({ usuarioAtual }) {
     setSincronizando(true);
     try {
       const resumo = await sincronizar();
+      setUltimoResumo(resumo);
+      if (usuarioAtual?.nome) salvarResponsavelLocal(usuarioAtual.nome);
       if (!silencioso || resumo.fotosEnviadas || resumo.operacoesEnviadas || resumo.falhas.length) {
         if (resumo.falhas.length) {
           mostrarToast(
@@ -2037,7 +2048,7 @@ function OrdensServico({ usuarioAtual }) {
       setPendentes(p);
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [sincronizando, mostrarToast]);
+  }, [sincronizando, mostrarToast, usuarioAtual?.nome]);
 
   // Monitora a conexão: atualiza o estado e sincroniza automaticamente ao
   // voltar para a internet.
@@ -2083,6 +2094,7 @@ function OrdensServico({ usuarioAtual }) {
     setPreparandoPacote(true);
     try {
       const qtd = await prepararPacoteCampo();
+      if (usuarioAtual?.nome) await salvarResponsavelLocal(usuarioAtual.nome);
       setModoCampo(true);
       setModoCampoState(true);
       setInfoPacoteLocal({ quantidade: qtd, preparado_em: new Date().toISOString() });
@@ -2128,11 +2140,6 @@ function OrdensServico({ usuarioAtual }) {
         if (dados.gps) setGeolocalizacao(dados.gps);
       }
     } catch { /* armazenamento indisponível */ }
-  }, []);
-
-  const mostrarToast = useCallback((message, type = 'success') => {
-    setToast({ message, type });
-    setTimeout(() => setToast(null), 4500);
   }, []);
 
   // Gestor do módulo O.S (permissão "os"); o usuário de campo ("os_campo")
@@ -2451,12 +2458,12 @@ function OrdensServico({ usuarioAtual }) {
           {/* Pendências + sincronizar (visível quando há fila offline) */}
           {pendentes.total > 0 && (
             <button
-              onClick={() => sincronizarAgora()}
-              disabled={offline || sincronizando}
-              className="flex items-center gap-2 px-4 py-2.5 rounded-xl border border-amber-300 bg-amber-50 text-amber-700 font-bold text-xs hover:bg-amber-100 transition-all cursor-pointer disabled:opacity-50"
+              onClick={() => setModalPendenciasAberto(true)}
+              title="Abrir pendências de sincronização"
+              className="flex items-center gap-2 px-4 py-2.5 rounded-xl border border-amber-300 bg-amber-50 text-amber-700 font-bold text-xs hover:bg-amber-100 transition-all cursor-pointer"
             >
               <RefreshCw size={15} className={sincronizando ? 'animate-spin' : ''} />
-              {sincronizando ? 'Sincronizando...' : `Sincronizar (${pendentes.total})`}
+              {sincronizando ? 'Sincronizando...' : `Pendências (${pendentes.total})`}
             </button>
           )}
           {botaoNova}
@@ -2668,6 +2675,19 @@ function OrdensServico({ usuarioAtual }) {
           if (ok) setConfirmacaoEncerrar(null);
         }}
         onCancelar={() => setConfirmacaoEncerrar(null)}
+      />
+
+      <ModalPendenciasSync
+        aberto={modalPendenciasAberto}
+        onFechar={() => setModalPendenciasAberto(false)}
+        sincronizando={sincronizando}
+        offline={offline}
+        ultimoResumo={ultimoResumo}
+        onSincronizarTudo={() => sincronizarAgora()}
+        onItemSincronizado={async () => {
+          const p = await contarPendentes();
+          setPendentes(p);
+        }}
       />
     </div>
   );

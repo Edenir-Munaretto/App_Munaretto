@@ -13,7 +13,10 @@ import { API_URL, apiFetch, erroDaResposta } from '../api';
 import { dbDel, dbGetAll, dbPut } from './db';
 import { contarPendentes } from './offline';
 
-export async function sincronizar(onProgress) {
+// `seletor` (opcional) restringe o envio a itens específicos — usado no
+// reenvio individual da tela de pendências:
+//   { fotos: [id_local, ...], operacoes: [id_local, ...] }
+export async function sincronizar(onProgress, seletor = null) {
   const resumo = {
     fotosEnviadas: 0,
     operacoesEnviadas: 0,
@@ -22,8 +25,11 @@ export async function sincronizar(onProgress) {
   };
   const mapaFotos = {};
 
-  // 1) Fotos pendentes
-  const fotos = await dbGetAll('fotos');
+  // 1) Fotos pendentes (filtradas pelo seletor, se informado)
+  let fotos = await dbGetAll('fotos');
+  if (seletor?.fotos?.length) {
+    fotos = fotos.filter(f => seletor.fotos.includes(f.id_local));
+  }
   for (const foto of fotos) {
     try {
       const fd = new FormData();
@@ -55,8 +61,11 @@ export async function sincronizar(onProgress) {
     onProgress?.(resumo);
   }
 
-  // 2) Operações pendentes (lote)
-  const ops = await dbGetAll('fila');
+  // 2) Operações pendentes (lote), filtradas pelo seletor quando informado
+  let ops = await dbGetAll('fila');
+  if (seletor?.operacoes?.length) {
+    ops = ops.filter(op => seletor.operacoes.includes(op.id_local));
+  }
   if (ops.length) {
     try {
       const res = await apiFetch(`${API_URL}/os/sincronizar`, {

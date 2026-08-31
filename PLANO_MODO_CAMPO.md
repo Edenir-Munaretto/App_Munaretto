@@ -59,20 +59,24 @@ online-only) · gestor edita raramente (conflitos raros).
 
 ---
 
-## Fase C — Pendências/conflitos + reenvio (PRÓXIMA)
+## Fase C — Pendências/conflitos + reenvio (entregue)
 
-- Tela/modal dedicado de **pendências de sincronização**:
-  - Lista fotos e operações com estado (pendente/erro), erro do servidor e
-    tentativas;
-  - **Reenvio individual** e "reenviar todos";
-  - **Resolução de conflitos** (ex.: O.S alterada pelo gestor no meio do dia,
-    transição rejeitada) com a mensagem do servidor e ações sugeridas
-    (revisar/descartar operação).
-- Melhorar feedback do sync atual (hoje só toast): manter no modal o resumo
-  `{fotosEnviadas, operacoesEnviadas, falhas, conflitos}` já retornado pelo
-  `sincronizar()` em `frontend/src/offline/sync.js`.
-- Badge "pendências" clicável no cabeçalho abrindo a tela.
-- Opcional: persistir `usuarioAtual` localmente para exibir "sincronizado por".
+- **Tela/modal dedicado de pendências de sincronização**
+  (`frontend/src/components/ModalPendenciasSync.jsx`):
+  - Lista fotos (com miniatura Blob) e operações com estado
+    (pendente/erro), erro do servidor e tentativas, ordenadas por hora;
+  - **Reenvio individual** (fotos e operações) via seletor no
+    `sincronizar()` de `frontend/src/offline/sync.js` + **"Reenviar tudo"**;
+  - **Resolução de conflitos**: cada item com erro mostra a mensagem do
+    servidor e as ações **Reenviar** / **Descartar** (remove do dispositivo);
+  - Resumo da última sincronização no topo:
+    `{fotosEnviadas, operacoesEnviadas, falhas, conflitos}`.
+- Botão **"Pendências (N)"** no cabeçalho agora abre a tela (antes era só o
+  sync via toast); auto-sync ao reconectar continua.
+- **"Sincronizado por"**: `usuarioAtual` é persistido localmente
+  (`salvarResponsavelLocal`/`responsavelLocal` em `offline.js`) ao preparar o
+  pacote e ao sincronizar; exibido no rodapé do modal.
+- Descartar item: `descartarPendente(tipo, id_local)` em `offline.js`.
 
 ## Fase D — Testes e ajustes finais (PRÓXIMA)
 
