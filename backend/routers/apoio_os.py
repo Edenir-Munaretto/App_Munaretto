@@ -59,7 +59,7 @@ class EquipeResponse(BaseModel):
 
 
 class ProdutoCreate(BaseModel):
-    nome: str = Field(..., min_length=2, description="Nome/descrição do produto")
+    nome: str = Field(..., min_length=2, description="Nome/descrição do serviço")
     codigo: str | None = Field(None, description="SKU/código de barras p/ bipagem")
     unidade: str = Field("UN", max_length=20)
     preco_unitario: float = Field(0, ge=0)
@@ -306,7 +306,7 @@ def listar_produtos(
         return query.order("nome").limit(50).execute().data
     except Exception:
         logger.exception("Erro ao listar produtos")
-        raise HTTPException(status_code=500, detail="Erro ao listar produtos.") from None
+        raise HTTPException(status_code=500, detail="Erro ao listar serviços.") from None
 
 
 @router.post("/produtos", response_model=ProdutoResponse, status_code=201)
@@ -315,45 +315,45 @@ def criar_produto(produto: ProdutoCreate, db=Depends(get_supabase)):
         if produto.codigo:
             dup = db.table("produtos").select("id").eq("codigo", produto.codigo).execute()
             if dup.data:
-                raise HTTPException(status_code=400, detail="Já existe um produto com este código.")
+                raise HTTPException(status_code=400, detail="Já existe um serviço com este código.")
         resp = db.table("produtos").insert(produto.model_dump()).execute()
         if not resp.data:
-            raise HTTPException(status_code=500, detail="Falha ao criar produto.")
+            raise HTTPException(status_code=500, detail="Falha ao criar serviço.")
         return resp.data[0]
     except HTTPException:
         raise
     except Exception:
         logger.exception("Erro ao criar produto")
-        raise HTTPException(status_code=500, detail="Erro ao criar produto.") from None
+        raise HTTPException(status_code=500, detail="Erro ao criar serviço.") from None
 
 
 @router.put("/produtos/{produto_id}", response_model=ProdutoResponse)
 def atualizar_produto(produto_id: int, produto: ProdutoCreate, db=Depends(get_supabase)):
     try:
-        _obter_ou_404(db, "produtos", produto_id, "Produto")
+        _obter_ou_404(db, "produtos", produto_id, "Serviço")
         resp = db.table("produtos").update(produto.model_dump()).eq("id", produto_id).execute()
         if not resp.data:
-            raise HTTPException(status_code=500, detail="Falha ao atualizar produto.")
+            raise HTTPException(status_code=500, detail="Falha ao atualizar serviço.")
         return resp.data[0]
     except HTTPException:
         raise
     except Exception:
         logger.exception("Erro ao atualizar produto %s", produto_id)
-        raise HTTPException(status_code=500, detail="Erro ao atualizar produto.") from None
+        raise HTTPException(status_code=500, detail="Erro ao atualizar serviço.") from None
 
 
 @router.delete("/produtos/{produto_id}")
 def excluir_produto(produto_id: int, db=Depends(get_supabase)):
     try:
-        _obter_ou_404(db, "produtos", produto_id, "Produto")
+        _obter_ou_404(db, "produtos", produto_id, "Serviço")
         usadas = db.table("os_materiais").select("id").eq("produto_id", produto_id).limit(1).execute()
         if usadas.data:
             db.table("produtos").update({"ativo": False}).eq("id", produto_id).execute()
-            return {"success": True, "message": "Produto possui lançamentos e foi apenas inativado."}
+            return {"success": True, "message": "Serviço possui lançamentos e foi apenas inativado."}
         db.table("produtos").delete().eq("id", produto_id).execute()
-        return {"success": True, "message": "Produto excluído com sucesso."}
+        return {"success": True, "message": "Serviço excluído com sucesso."}
     except HTTPException:
         raise
     except Exception:
         logger.exception("Erro ao excluir produto %s", produto_id)
-        raise HTTPException(status_code=500, detail="Erro ao excluir produto.") from None
+        raise HTTPException(status_code=500, detail="Erro ao excluir serviço.") from None

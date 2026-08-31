@@ -152,7 +152,7 @@ function BarraMateriais({ os }) {
   return (
     <div className="mt-2">
       <div className="flex justify-between text-[10px] font-semibold text-slate-500">
-        <span>Materiais</span>
+        <span>Serviços</span>
         <span>{brl(apl)} {orc ? `/ ${brl(orc)}` : '(sem orçado)'}</span>
       </div>
       <div className="h-1.5 bg-slate-100 rounded-full overflow-hidden mt-0.5">
@@ -547,11 +547,11 @@ function TabInsumos({ osDetalhe, produtos, onAtualizado, mostrarToast, podeEdita
   );
 
   const lancar = async () => {
-    const produto = selecionado || (sugestoes.length === 1 ? sugestoes[0] : null);
-    if (!produto) {
-      mostrarToast('Selecione um produto da lista.', 'error');
-      return;
-    }
+  const produto = selecionado || (sugestoes.length === 1 ? sugestoes[0] : null);
+  if (!produto) {
+    mostrarToast('Selecione um serviço da lista.', 'error');
+    return;
+  }
     setSalvando(true);
     try {
       const res = await apiFetch(`${API_URL}/os/${osDetalhe.id}/materiais`, {
@@ -561,15 +561,15 @@ function TabInsumos({ osDetalhe, produtos, onAtualizado, mostrarToast, podeEdita
       });
       const data = await res.json().catch(() => null);
       if (res.ok) {
-        mostrarToast(`Material "${produto.nome}" lançado.`);
+        mostrarToast(`Serviço "${produto.nome}" lançado.`);
         setBuscaProduto('');
         setQtd(1);
         onAtualizado();
       } else {
-        mostrarToast(erroDaResposta(data, 'Erro ao lançar material.'), 'error');
+        mostrarToast(erroDaResposta(data, 'Erro ao lançar serviço.'), 'error');
       }
     } catch {
-      mostrarToast('Erro de conexão ao lançar material.', 'error');
+      mostrarToast('Erro de conexão ao lançar serviço.', 'error');
     } finally {
       setSalvando(false);
     }
@@ -595,7 +595,7 @@ function TabInsumos({ osDetalhe, produtos, onAtualizado, mostrarToast, podeEdita
     <div className="space-y-4">
       {/* Busca rápida com autocompletar (bipagem ou digitação) */}
       <div className="relative">
-        <label className="block text-xs font-bold text-slate-700 mb-1.5">Buscar material (nome ou código)</label>
+            <label className="block text-xs font-bold text-slate-700 mb-1.5">Buscar serviço (nome ou código)</label>
         <input
           type="text"
           value={buscaProduto}
@@ -622,7 +622,7 @@ function TabInsumos({ osDetalhe, produtos, onAtualizado, mostrarToast, podeEdita
         {/* Feedback explícito quando não há produtos encontrados */}
         {!selecionado && buscaProduto.trim().length >= 2 && sugestoes.length === 0 && (
           <div className="absolute z-20 left-0 right-0 mt-1 bg-white border border-slate-200 rounded-xl shadow-lg overflow-hidden">
-            <p className="px-3 py-3 text-xs text-slate-400 text-center">Nenhum produto encontrado para “{buscaProduto}”</p>
+            <p className="px-3 py-3 text-xs text-slate-400 text-center">Nenhum serviço encontrado para “{buscaProduto}”</p>
           </div>
         )}
       </div>
@@ -708,7 +708,7 @@ function TabInsumos({ osDetalhe, produtos, onAtualizado, mostrarToast, podeEdita
           </div>
         ))}
         {!(osDetalhe.materiais?.itens || []).length && (
-          <p className="px-3 py-4 text-center text-xs text-slate-400">Nenhum material aplicado ainda.</p>
+            <p className="px-3 py-4 text-center text-xs text-slate-400">Nenhum serviço aplicado ainda.</p>
         )}
       </div>
 
@@ -738,7 +738,7 @@ function TabInsumos({ osDetalhe, produtos, onAtualizado, mostrarToast, podeEdita
       <ModalConfirmacao
         aberto={estornandoId != null}
         titulo="Estornar lançamento"
-        mensagem="Estornar este lançamento de material? Esta ação não pode ser desfeita."
+            mensagem="Estornar este lançamento de serviço? Esta ação não pode ser desfeita."
         confirmarTexto="Estornar"
         onConfirmar={() => estornar(estornandoId)}
         onCancelar={() => setEstornandoId(null)}
@@ -1206,7 +1206,7 @@ function PainelExecucao({ osId, produtos, geolocalizacao, capturarGps, onFechar,
   const corpoAbas = (
     <>
       <div className="flex gap-1 bg-slate-100 rounded-xl p-1 mb-4">
-        {[['checklist', 'Checklist', ListChecks], ['insumos', 'Insumos', Package], ['evidencias', 'Evidências', Camera], ['timeline', 'Histórico', Clock]].map(([key, label, Icon]) => (
+        {[['checklist', 'Checklist', ListChecks], ['insumos', 'Serviços', Package], ['evidencias', 'Evidências', Camera], ['timeline', 'Histórico', Clock]].map(([key, label, Icon]) => (
           <button
             key={key}
             onClick={() => setAba(key)}
@@ -2899,7 +2899,7 @@ function PainelCadastros({ obras, equipes, produtos, recarregar, mostrarToast })
   const ABAS = [
     { id: 'obras', label: 'Obras', icone: FolderKanban },
     { id: 'equipes', label: 'Equipes', icone: HardHat },
-    { id: 'produtos', label: 'Produtos / Insumos', icone: Boxes }
+    { id: 'produtos', label: 'Serviços', icone: Boxes }
   ];
 
   return (
@@ -3258,12 +3258,12 @@ function PainelCadastros({ obras, equipes, produtos, recarregar, mostrarToast })
           {/* Esquerda: Lista e Busca */}
           <div className="lg:col-span-2 space-y-4">
             <div className="flex flex-col sm:flex-row gap-3 sm:items-center justify-between">
-              <h3 className="font-extrabold text-slate-800 text-sm">Produtos & Insumos ({produtosFiltrados.length})</h3>
+              <h3 className="font-extrabold text-slate-800 text-sm">Serviços ({produtosFiltrados.length})</h3>
               {/* Barra de Busca */}
               <div className="relative w-full sm:max-w-xs">
                 <input
                   type="text"
-                  placeholder="Buscar produto ou código..."
+                  placeholder="Buscar serviço ou código..."
                   value={filtroProdutoLista}
                   onChange={e => setFiltroProdutoLista(e.target.value)}
                   className="w-full pl-8 pr-7 py-1.5 border border-slate-200 rounded-xl text-xs focus:outline-none focus:border-primary-500 bg-slate-50 focus:bg-white"
@@ -3279,7 +3279,7 @@ function PainelCadastros({ obras, equipes, produtos, recarregar, mostrarToast })
 
             <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-3 max-h-[450px] overflow-y-auto pr-1">
               {produtosFiltrados.length === 0 ? (
-                <div className="col-span-full text-center text-xs text-slate-400 py-12">Nenhum produto encontrado.</div>
+                <div className="col-span-full text-center text-xs text-slate-400 py-12">Nenhum serviço encontrado.</div>
               ) : (
                 produtosFiltrados.map(p => (
                   <div key={p.id} className="group relative flex flex-col gap-1 text-xs bg-slate-50 hover:bg-slate-100/70 rounded-xl p-3 border border-slate-100 transition-all">
@@ -3288,7 +3288,7 @@ function PainelCadastros({ obras, equipes, produtos, recarregar, mostrarToast })
                       <button
                         onClick={() => setExcluirProdutoAlvo(p)}
                         className="text-slate-400 hover:text-rose-600 cursor-pointer p-1 rounded hover:bg-white border hover:border-slate-200 opacity-60 group-hover:opacity-100 transition-opacity flex-shrink-0"
-                        title="Excluir produto"
+                        title="Excluir serviço"
                       >
                         <Trash2 size={11} />
                       </button>
@@ -3311,10 +3311,10 @@ function PainelCadastros({ obras, equipes, produtos, recarregar, mostrarToast })
 
           {/* Direita: Formulário */}
           <div className="bg-slate-50/50 rounded-2xl border border-slate-100 p-5 space-y-4 h-fit">
-            <h4 className="text-xs font-extrabold uppercase tracking-wider text-slate-500">Novo Produto / Insumo</h4>
+            <h4 className="text-xs font-extrabold uppercase tracking-wider text-slate-500">Novo Serviço</h4>
             
             <div className="space-y-3">
-              <CampoTexto label="Nome do produto *" value={novoProduto.nome} onChange={e => setNovoProduto({ ...novoProduto, nome: e.target.value })} />
+              <CampoTexto label="Nome do serviço *" value={novoProduto.nome} onChange={e => setNovoProduto({ ...novoProduto, nome: e.target.value })} />
               <CampoTexto label="Código (SKU)" value={novoProduto.codigo} onChange={e => setNovoProduto({ ...novoProduto, codigo: e.target.value })} />
               <div className="grid grid-cols-2 gap-2">
                 <CampoTexto label="Unidade" value={novoProduto.unidade} onChange={e => setNovoProduto({ ...novoProduto, unidade: e.target.value })} />
@@ -3325,17 +3325,17 @@ function PainelCadastros({ obras, equipes, produtos, recarregar, mostrarToast })
 
             <button
               onClick={async () => {
-                if (!novoProduto.nome) { mostrarToast('Informe o nome do produto.', 'error'); return; }
+                if (!novoProduto.nome) { mostrarToast('Informe o nome do serviço.', 'error'); return; }
                 const ok = await post(`${API_URL}/os/produtos`, {
                   nome: novoProduto.nome,
                   codigo: novoProduto.codigo || null,
                   unidade: novoProduto.unidade || 'UN',
                   preco_unitario: Number(novoProduto.preco_unitario || 0)
-                }, 'Produto criado.');
+                }, 'Serviço criado.');
                 if (ok) setNovoProduto({ nome: '', codigo: '', unidade: 'UN', preco_unitario: '' });
               }}
               className="w-full py-2.5 bg-primary-600 text-white rounded-xl text-xs font-bold hover:bg-primary-700 transition-all cursor-pointer">
-              Cadastrar Produto
+              Cadastrar Serviço
             </button>
           </div>
         </div>
@@ -3375,17 +3375,17 @@ function PainelCadastros({ obras, equipes, produtos, recarregar, mostrarToast })
         onCancelar={() => setExcluirEquipeAlvo(null)}
       />
 
-      {/* Modal de Confirmação para Produtos */}
+      {/* Modal de Confirmação para Serviços */}
       <ModalConfirmacao
         aberto={!!excluirProdutoAlvo}
-        titulo="Confirmar exclusão de produto"
-        mensagem={`Deseja realmente excluir o produto "${excluirProdutoAlvo?.nome}"?`}
+        titulo="Confirmar exclusão de serviço"
+        mensagem={`Deseja realmente excluir o serviço "${excluirProdutoAlvo?.nome}"?`}
         confirmarTexto="Excluir"
         cancelarTexto="Cancelar"
         perigo
         onConfirmar={async () => {
           if (excluirProdutoAlvo) {
-            await inativar(`${API_URL}/os/produtos/${excluirProdutoAlvo.id}`, 'Produto excluído.');
+            await inativar(`${API_URL}/os/produtos/${excluirProdutoAlvo.id}`, 'Serviço excluído.');
             setExcluirProdutoAlvo(null);
           }
         }}

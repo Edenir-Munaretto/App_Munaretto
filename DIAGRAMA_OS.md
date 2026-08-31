@@ -12,7 +12,7 @@ Explicação visual do funcionamento do módulo, passo a passo. Fontes:
 flowchart LR
     subgraph Frontend["Frontend (React/Vite)"]
         Kanban["Kanban + lista mobile"]
-        Painel["Painel de execução<br/>(checklist, H.H., materiais, fotos)"]
+        Painel["Painel de execução<br/>(checklist, H.H., serviços, fotos)"]
         Campo["Modo Campo<br/>(IndexedDB + fila offline)"]
     end
 
@@ -125,7 +125,7 @@ flowchart TD
     A["1. GESTOR cria a O.S<br/>obra + equipe + prioridade + prazo + orçamento<br/>capa (tipo construção / linha viva)"] --> B
     B["2. NA BASE (online)<br/>check-in (hora + GPS) e preenchimento do<br/>Grupo 1 'Preparação (base)'"] --> C
     C["3. LIBERAÇÃO: aberta → em_andamento<br/>botão de status (gate Grupo 1) ou play do H.H."] --> D
-    D["4. NO CAMPO — Painel de Execução (abas)<br/>checklist (2–5) · cronômetro H.H. · materiais<br/>evidências (fotos) · timeline"] --> E
+    D["4. NO CAMPO — Painel de Execução (abas)<br/>checklist (2–5) · cronômetro H.H. · serviços<br/>evidências (fotos) · timeline"] --> E
     E["5. IMPEDIMENTO (se necessário)<br/>justificativa ≥20 + fotos → impedida<br/>retomar → em_andamento"] --> F
     F["6. CONCLUSÃO<br/>checklist 100% → concluída (encerra H.H.<br/>esquecidos, registra data_fim, notifica criador)"] --> G
     G["7. RELATÓRIOS<br/>PDF do checklist · PDF de execução<br/>capa oficial (imprimir) · aplicado vs orçado + custo M.O."]
@@ -149,7 +149,7 @@ flowchart TD
                     (justificativa opcional); itens podem exigir foto
     · Cronômetro ─► PLAY abre bloco de H.H. (só 1 aberto por pessoa/O.S);
                     PAUSE fecha e calcula minutos; impedida/concluída não aponta
-    · Materiais  ─► lançar aplicado x orçado; estorno só gestor
+    · Serviços   ─► lançar aplicado x orçado; estorno só gestor
     · Evidências ─► fotos (câmera/galeria) no S3; excluir só gestor
     · Timeline   ─► histórico de transições (quem/quando/GPS)
 
@@ -202,7 +202,7 @@ flowchart LR
 
 | Perfil | Permissão | Pode |
 |---|---|---|
-| Gestor | `os` | Criar/editar/cancelar O.S, estornar materiais, excluir evidências, ver tudo |
-| Campo | `os_campo` | Executar tarefas (status, H.H., fotos, materiais, imprimir) das O.S das equipes em que atua |
+| Gestor | `os` | Criar/editar/cancelar O.S, estornar serviços, excluir evidências, ver tudo |
+| Campo | `os_campo` | Executar tarefas (status, H.H., fotos, serviços, imprimir) das O.S das equipes em que atua |
 
 O vínculo do usuário com o funcionário/equipe é feito em **Configurações → Usuários**.

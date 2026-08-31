@@ -1426,7 +1426,7 @@ def lancar_material(
             )
         produto = db.table("produtos").select("*").eq("id", payload.produto_id).execute()
         if not produto.data:
-            raise HTTPException(status_code=404, detail="Produto não encontrado.")
+            raise HTTPException(status_code=404, detail="Serviço não encontrado.")
 
         resp = (
             db.table("os_materiais")
@@ -1442,13 +1442,13 @@ def lancar_material(
             .execute()
         )
         if not resp.data:
-            raise HTTPException(status_code=500, detail="Falha ao lançar material.")
+            raise HTTPException(status_code=500, detail="Falha ao lançar serviço.")
         return {**resp.data[0], "produto_nome": produto.data[0]["nome"]}
     except HTTPException:
         raise
     except Exception:
-        logger.exception("Erro ao lançar material na O.S %s", os_id)
-        raise HTTPException(status_code=500, detail="Erro ao lançar material.") from None
+        logger.exception("Erro ao lançar serviço na O.S %s", os_id)
+        raise HTTPException(status_code=500, detail="Erro ao lançar serviço.") from None
 
 
 @router.delete("/{os_id}/materiais/{lancamento_id}", summary="Estorna um lançamento de material")
