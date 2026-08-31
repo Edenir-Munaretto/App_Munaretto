@@ -282,3 +282,174 @@ def test_relatorio_pdf(os_gestor_client, db_fake):
     assert resp.status_code == 200, resp.text
     assert resp.headers["content-type"] == "application/pdf"
     assert resp.content.startswith(b"%PDF")
+
+
+# ---------------------------------------------------------------------------
+# Relatório do checklist com dados reais de produção (O.S concluída)
+# ---------------------------------------------------------------------------
+
+
+def _png_bytes():
+    import struct
+    import zlib
+
+    def _chunk(tipo, dados):
+        crc = zlib.crc32(tipo + dados) & 0xFFFFFFFF
+        return struct.pack(">I", len(dados)) + tipo + dados + struct.pack(">I", crc)
+
+    ihdr = struct.pack(">IIBBBBB", 4, 4, 8, 2, 0, 0, 0)
+    idat = zlib.compress(b"\x00" + b"\x01\x02\x03" * 16)
+    return (
+        b"\x89PNG\r\n\x1a\n"
+        + _chunk(b"IHDR", ihdr)
+        + _chunk(b"IDAT", idat)
+        + _chunk(b"IEND", b"")
+    )
+
+
+class _FakeS3:
+    def __init__(self):
+        self.objetos = {}
+
+    def put_object(self, **kwargs):
+        self.objetos[kwargs["Key"]] = kwargs["Body"]
+        return {}
+
+    def get_object(self, Bucket=None, Key=None):
+        class _Corpo:
+            def __init__(self, dados):
+                self._dados = dados
+
+            def read(self):
+                return self._dados
+
+        return {"Body": _Corpo(self.objetos[Key])}
+
+    def generate_presigned_url(self, operacao, Params=None, ExpiresIn=None):
+        return f"https://presigned.invalido/{Params['Key']}"
+
+
+def test_relatorio_pdf_com_foto_no_item(os_gestor_client, db_fake, monkeypatch):
+    from tests.test_os import _criar_os, _seed_cenario
+
+    _seed_cenario(db_fake)
+    _seed_modelos(db_fake)
+    os_id = _criar_os(os_gestor_client, equipe_id=100).json()["id"]
+    itens = _itens(os_gestor_client, os_id)
+    for item in itens:
+        _responder(os_gestor_client, os_id, item, "sim")
+
+    fake = _FakeS3()
+    monkeypatch.setattr("routers.os.get_s3_client", lambda: fake)
+    monkeypatch.setattr("routers.os.bucket", lambda: "bucket-teste")
+
+    item = next(i for i in itens if i["exige_foto"])
+    resp = os_gestor_client.post(
+        f"/api/os/{os_id}/checklist/{item['id']}/foto",
+        files={"arquivo": ("foto.png", _png_bytes(), "image/png")},
+    )
+    assert resp.status_code == 201, resp.text
+
+    resp = os_gestor_client.get(f"/api/os/{os_id}/checklist/report")
+    assert resp.status_code == 200, resp.text
+    assert resp.content.startswith(b"%PDF")
+
+
+def test_relatorio_pdf_os_concluida_realista(os_gestor_client, os_campo_client, db_fake, monkeypatch):
+    """Dia completo pelo sync: respostas com GPS, 'não' com justificativa,
+    fotos e conclusão — o relatório deve sair sem erro."""
+    from tests.test_os import _criar_os, _seed_cenario
+    from tests.test_sync_os import _op, _sync
+
+    _seed_cenario(db_fake)
+    _seed_modelos(db_fake)
+    os_id = _criar_os(os_gestor_client, equipe_id=100).json()["id"]
+    os_campo_client.put(f"/api/os/{os_id}/status", json={"novo_status": "aberta"})
+
+    itens = _itens(os_campo_client, os_id)
+    ops = []
+    for i, item in enumerate(itens):
+        if item["id"] == 3:
+            ops.append(_op(f"r{item['id']}", "checklist_resposta", os_id,
+                           {"item_id": item["id"], "resposta": "nao",
+                            "justificativa": "Conferência refeita no local com novo resultado.",
+                            "geolocalizacao": "-26.9,-52.3"}, f"2026-08-28T06:{50 + i:02d}:00Z"))
+        else:
+            ops.append(_op(f"r{item['id']}", "checklist_resposta", os_id,
+                           {"item_id": item["id"], "resposta": "sim",
+                            "geolocalizacao": "-26.9,-52.3"}, f"2026-08-28T06:{50 + i:02d}:00Z"))
+    ops.append(_op("s1", "status", os_id, {"novo_status": "em_andamento"}, "2026-08-28T08:05:00Z"))
+    ops.append(_op("s2", "status", os_id, {"novo_status": "concluida"}, "2026-08-28T17:00:00Z"))
+    resp = _sync(os_campo_client, ops)
+    assert all(r["ok"] for r in resp.json()["resultados"]), resp.json()
+
+    fake = _FakeS3()
+    monkeypatch.setattr("routers.os.get_s3_client", lambda: fake)
+    monkeypatch.setattr("routers.os.bucket", lambda: "bucket-teste")
+
+    item3 = next(i for i in itens if i["id"] == 3)
+    for nome in ("f1.png", "f2.png"):
+        resp = os_campo_client.post(
+            f"/api/os/{os_id}/checklist/{item3['id']}/foto",
+            files={"arquivo": (nome, _png_bytes(), "image/png")},
+        )
+        assert resp.status_code == 201, resp.text
+
+    resp = os_gestor_client.get(f"/api/os/{os_id}/checklist/report")
+    assert resp.status_code == 200, resp.text
+    assert resp.content.startswith(b"%PDF")
+
+
+def test_relatorio_pdf_foto_webp_nao_quebra(os_gestor_client, db_fake, monkeypatch):
+    """Fotos WEBP (originais enviados sem compressão, <1600px) não podem
+    derrubar o relatório — extensão temporária acompanha o conteúdo."""
+    from tests.test_os import _criar_os, _seed_cenario
+
+    _seed_cenario(db_fake)
+    _seed_modelos(db_fake)
+    os_id = _criar_os(os_gestor_client, equipe_id=100).json()["id"]
+    itens = _itens(os_gestor_client, os_id)
+    for item in itens:
+        _responder(os_gestor_client, os_id, item, "sim")
+
+    fake = _FakeS3()
+    monkeypatch.setattr("routers.os.get_s3_client", lambda: fake)
+    monkeypatch.setattr("routers.os.bucket", lambda: "bucket-teste")
+
+    item = next(i for i in itens if i["exige_foto"])
+    resp = os_gestor_client.post(
+        f"/api/os/{os_id}/checklist/{item['id']}/foto",
+        files={"arquivo": ("foto.webp", b"RIFF\x00\x00\x00\x00WEBPVP8 ", "image/webp")},
+    )
+    assert resp.status_code == 201, resp.text
+
+    resp = os_gestor_client.get(f"/api/os/{os_id}/checklist/report")
+    assert resp.status_code == 200, resp.text
+    assert resp.content.startswith(b"%PDF")
+
+
+def test_relatorio_pdf_embeds_como_array_nao_quebra(os_gestor_client, db_fake):
+    """PostgREST às vezes devolve to-one embeds como lista: o relatório deve
+    normalizar (dict ou array de 1) e gerar o PDF mesmo assim."""
+    from tests.test_os import _criar_os, _seed_cenario
+
+    _seed_cenario(db_fake)
+    _seed_modelos(db_fake)
+    os_id = _criar_os(os_gestor_client, equipe_id=100).json()["id"]
+    itens = _itens(os_gestor_client, os_id)
+    for item in itens:
+        _responder(os_gestor_client, os_id, item, "sim")
+
+    # Força o formato ARRAY nos embeds (como alguns ambientes PostgREST devolvem).
+    db = db_fake._dados
+    for linha in db["ordens_servico"]:
+        if linha["id"] == os_id:
+            if isinstance(linha.get("obras"), dict):
+                linha["obras"] = [linha["obras"]]
+    for linha in db["equipe_membros"]:
+        if isinstance(linha.get("funcionarios"), dict):
+            linha["funcionarios"] = [linha["funcionarios"]]
+
+    resp = os_gestor_client.get(f"/api/os/{os_id}/checklist/report")
+    assert resp.status_code == 200, resp.text
+    assert resp.content.startswith(b"%PDF")

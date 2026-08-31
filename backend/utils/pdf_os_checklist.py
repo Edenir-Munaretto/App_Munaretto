@@ -94,6 +94,18 @@ def _marcar(valor) -> str:
     return "X" if valor else ""
 
 
+def _ext_foto(mime_type) -> str:
+    """Extensão compatível com o conteúdo (evita gravar WEBP como .png)."""
+    mime = str(mime_type or "").lower()
+    if mime == "image/jpeg":
+        return ".jpg"
+    if mime == "image/png":
+        return ".png"
+    if mime == "image/webp":
+        return ".webp"
+    return ".jpg"
+
+
 def _capa(pdf: _PdfChecklist, os_data: dict, obra: dict, equipe_nome: str, equipe_numero: str, encarregado: str, membros: list):
     """Página 1: dados da O.S + membros da equipe."""
     pdf.add_page()
@@ -302,7 +314,7 @@ def _paginas_fotos(pdf: _PdfChecklist, itens: list, baixar_foto):
         bytes_foto = baixar_foto(foto.get("bucket_key"))
         if bytes_foto:
             try:
-                ext = ".jpg" if foto.get("mime_type") == "image/jpeg" else ".png"
+                ext = _ext_foto(foto.get("mime_type"))
                 caminho = os.path.join(tempfile.gettempdir(), f"os_check_foto_{idx}{ext}")
                 with open(caminho, "wb") as f:
                     f.write(bytes_foto)

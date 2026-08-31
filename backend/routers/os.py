@@ -1080,6 +1080,14 @@ async def enviar_foto_checklist(
         raise HTTPException(status_code=500, detail="Erro ao enviar foto do checklist.") from None
 
 
+def _emb(valor):
+    """Normaliza um embedded resource do PostgREST: retorna dict mesmo quando
+    o servidor devolve lista (relações to-one às vezes vêm como array de 1)."""
+    if isinstance(valor, list):
+        return valor[0] if valor else {}
+    return valor or {}
+
+
 @router.get("/{os_id}/checklist/report", summary="Relatório em PDF do checklist de execução")
 def relatorio_checklist(os_id: int, usuario: UsuarioAutenticado = Depends(get_current_user), db=Depends(get_supabase)):
     """Gera o PDF do checklist (capa + tabela + fotos + assinaturas) para impressão."""
@@ -1093,8 +1101,9 @@ def relatorio_checklist(os_id: int, usuario: UsuarioAutenticado = Depends(get_cu
             .eq("id", os_id)
             .execute()
         )
-        obra = (resp.data[0] or {}).get("obras") or {}
-        equipe = (resp.data[0] or {}).get("equipes") or {}
+        obra = _emb((resp.data[0] or {}).get("obras"))
+        equipe = _emb((resp.data[0] or {}).get("equipes"))
+        obra["clientes"] = _emb(obra.get("clientes"))
 
         # Encarregado e membros (com cargo) da equipe vinculada.
         encarregado = ""
@@ -1109,11 +1118,13 @@ def relatorio_checklist(os_id: int, usuario: UsuarioAutenticado = Depends(get_cu
                 .data
             )
             for m in rel or []:
-                func = m.get("funcionarios") or {}
-                cargo = (func.get("cargos") or {}).get("nome") if isinstance(func.get("cargos"), dict) else ""
-                membros.append({"nome": func.get("nome") or "-", "cargo": cargo or "-"})
+                func = _emb(m.get("funcionarios"))
+                cargos = _emb(func.get("cargos"))
+                nome = func.get("nome") or "-"
+                cargo = cargos.get("nome") if isinstance(cargos, dict) else ""
+                membros.append({"nome": nome, "cargo": cargo or "-"})
                 if m.get("lider"):
-                    encarregado = func.get("nome") or encarregado
+                    encarregado = nome
 
         itens = itens_com_respostas(db, os_id)
         s3 = get_s3_client()
@@ -1140,9 +1151,9 @@ def relatorio_checklist(os_id: int, usuario: UsuarioAutenticado = Depends(get_cu
         return FileResponse(caminho, media_type="application/pdf", filename=f"{os_data['codigo']}_checklist.pdf")
     except HTTPException:
         raise
-    except Exception:
+    except Exception as exc:
         logger.exception("Erro ao gerar relatório do checklist da O.S %s", os_id)
-        raise HTTPException(status_code=500, detail="Erro ao gerar relatório do checklist.") from None
+        raise HTTPException(status_code=500, detail=f"Erro ao gerar relatório do checklist: {exc}") from None
 
 
 # ---------------------------------------------------------------------------
