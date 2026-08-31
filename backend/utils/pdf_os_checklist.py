@@ -282,34 +282,42 @@ def _tabela_checklist(pdf: _PdfChecklist, itens: list):
 
 
 def _paginas_fotos(pdf: _PdfChecklist, itens: list, baixar_foto):
-    """Páginas de fotos: 2 por página, com legenda, data/hora e GPS."""
+    """Páginas de fotos em grade 2x2: 4 fotos por página, alinhadas e sem
+    espaços vazios — quebra de página apenas quando a grade enche."""
     com_foto = [(i, i["fotos"]) for i in itens if i.get("fotos")]
     if not com_foto:
         return
-    pdf.add_page()
-    pdf.set_fill_color(15, 23, 42)
-    pdf.set_text_color(255, 255, 255)
-    pdf.set_font("Arial", "B", 11)
-    pdf.cell(0, 9, " FOTOS", ln=True, fill=True)
-    pdf.ln(2)
 
-    larg_celula = (LARGURA_PAGINA - 2 * MARGEM) / 2
-    y_inicio = pdf.get_y()
+    COLUNAS = 2
+    LINHAS = 2
+    FOTOS_POR_PAGINA = COLUNAS * LINHAS
+    ESPACO_COLUNAS = 4
+    larg_celula = (LARGURA_PAGINA - 2 * MARGEM - ESPACO_COLUNAS * (COLUNAS - 1)) / COLUNAS
+    alt_foto = 80
+    passo = 100  # imagem + legenda (pergunta + data/GPS)
+
+    def _cabecalho_fotos():
+        pdf.add_page()
+        pdf.set_fill_color(15, 23, 42)
+        pdf.set_text_color(255, 255, 255)
+        pdf.set_font("Arial", "B", 11)
+        pdf.cell(0, 9, " FOTOS", ln=True, fill=True)
+        pdf.ln(2)
+
+    _cabecalho_fotos()
+    topo = pdf.get_y()
+
     for idx, (item, fotos) in enumerate(com_foto):
-        coluna = idx % 2
-        if coluna == 0 and idx > 0:
-            pdf.add_page()
-            pdf.set_fill_color(15, 23, 42)
-            pdf.set_text_color(255, 255, 255)
-            pdf.set_font("Arial", "B", 11)
-            pdf.cell(0, 9, " FOTOS", ln=True, fill=True)
-            pdf.ln(2)
-            y_inicio = pdf.get_y()
-        x = MARGEM + coluna * (larg_celula + 4)
-        y = y_inicio + (idx // 2) * 105
-        if y > 265:
-            pdf.add_page()
-            y = 15
+        posicao = idx % FOTOS_POR_PAGINA
+        if posicao == 0 and idx > 0:
+            _cabecalho_fotos()
+            topo = pdf.get_y()
+
+        coluna = posicao % COLUNAS
+        linha = posicao // COLUNAS
+        x = MARGEM + coluna * (larg_celula + ESPACO_COLUNAS)
+        y = topo + linha * passo
+
         foto = fotos[0]
         bytes_foto = baixar_foto(foto.get("bucket_key"))
         if bytes_foto:
@@ -318,25 +326,25 @@ def _paginas_fotos(pdf: _PdfChecklist, itens: list, baixar_foto):
                 caminho = os.path.join(tempfile.gettempdir(), f"os_check_foto_{idx}{ext}")
                 with open(caminho, "wb") as f:
                     f.write(bytes_foto)
-                pdf.image(caminho, x, y, w=larg_celula, h=80)
+                pdf.image(caminho, x, y, w=larg_celula, h=alt_foto)
                 os.remove(caminho)
             except Exception:
                 logger.exception("Erro ao embutir foto do checklist")
         else:
-            pdf.rect(x, y, larg_celula, 80)
+            pdf.rect(x, y, larg_celula, alt_foto)
             pdf.set_font("Arial", "I", 8)
             pdf.text(x + 10, y + 40, "Foto indisponível")
 
         resp = item.get("resposta") or {}
         pdf.set_font("Arial", "B", 8)
         pdf.set_text_color(15, 23, 42)
-        pdf.set_xy(x, y + 82)
+        pdf.set_xy(x, y + alt_foto + 2)
         pdf.multi_cell(larg_celula, 4, f"{item.get('classificacao', '')} {_txt(item.get('pergunta', ''))}", align="L")
         pdf.set_font("Arial", "", 7.5)
         pdf.set_text_color(100, 116, 139)
         data = _fmt_data(foto.get("created_at")) + " " + _fmt_hora(foto.get("created_at"))
         gps = resp.get("geolocalizacao") or ""
-        pdf.set_xy(x, y + 96)
+        pdf.set_xy(x, y + alt_foto + 2 + 9)
         pdf.multi_cell(larg_celula, 4, f"{data}{f'  ·  GPS {gps}' if gps else ''}", align="L")
 
 

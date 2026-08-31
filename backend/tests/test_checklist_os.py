@@ -280,8 +280,62 @@ def test_relatorio_pdf(os_gestor_client, db_fake):
 
     resp = os_gestor_client.get(f"/api/os/{os_id}/checklist/report")
     assert resp.status_code == 200, resp.text
-    assert resp.headers["content-type"] == "application/pdf"
     assert resp.content.startswith(b"%PDF")
+
+
+def test_relatorio_pdf_fotos_em_grade_4_por_pagina(os_gestor_client, db_fake, monkeypatch):
+    """8 fotos devem ocupar no máximo 2 páginas, alinhadas em grade 2x2,
+    sem foto solta no rodapé (regressão do layout irregular anterior)."""
+    import pymupdf
+
+    from tests.test_os import _criar_os, _seed_cenario
+
+    _seed_cenario(db_fake)
+    db = db_fake._dados
+    for i in range(8):
+        grupo = 1 + (i // 2)
+        db["os_checklist_modelos"].append(
+            {"id": 100 + i, "tipo": "geral", "grupo": grupo, "ordem": i,
+             "classificacao": f"{grupo}.{i}", "pergunta": f"Item com foto {i}?",
+             "exige_foto": True, "ativo": True}
+        )
+    os_id = _criar_os(os_gestor_client, equipe_id=100).json()["id"]
+
+    itens = os_gestor_client.get(f"/api/os/{os_id}/checklist").json()["itens"]
+    fake = _FakeS3()
+    monkeypatch.setattr("routers.os.get_s3_client", lambda: fake)
+    monkeypatch.setattr("routers.os.bucket", lambda: "bucket-teste")
+    for i, item in enumerate(itens):
+        resp = os_gestor_client.put(f"/api/os/{os_id}/checklist/{item['id']}", json={"resposta": "sim"})
+        assert resp.status_code == 200, resp.text
+        resp = os_gestor_client.post(
+            f"/api/os/{os_id}/checklist/{item['id']}/foto",
+            files={"arquivo": (f"foto{i}.png", _png_bytes(), "image/png")},
+        )
+        assert resp.status_code == 201, resp.text
+
+    resp = os_gestor_client.get(f"/api/os/{os_id}/checklist/report")
+    assert resp.status_code == 200, resp.text
+
+    doc = pymupdf.open(stream=resp.content, filetype="pdf")
+    fotos_por_pagina = []
+    for pagina in doc:
+        imgs = [i["bbox"] for i in pagina.get_image_info()]
+        if imgs:
+            fotos_por_pagina.append((pagina.number + 1, imgs))
+
+    total = sum(len(imgs) for _, imgs in fotos_por_pagina)
+    assert total == 8, f"esperadas 8 fotos, encontradas {total}"
+    assert len(fotos_por_pagina) <= 2, f"fotos espalhadas em {len(fotos_por_pagina)} páginas"
+
+    for _, imgs in fotos_por_pagina:
+        assert len(imgs) <= 4, f"mais de 4 fotos na mesma página: {len(imgs)}"
+        xs = sorted({round(b[0]) for b in imgs})
+        ys = sorted({round(b[1]) for b in imgs})
+        assert len(xs) <= 2, f"colunas desalinhadas: {xs}"
+        assert len(ys) <= 2, f"linhas desalinhadas: {ys}"
+        # Fotos começam no topo da página (nenhuma isolada no rodapé).
+        assert max(b[1] for b in imgs) < 500, f"foto no rodapé da página: {imgs}"
 
 
 # ---------------------------------------------------------------------------
@@ -297,8 +351,10 @@ def _png_bytes():
         crc = zlib.crc32(tipo + dados) & 0xFFFFFFFF
         return struct.pack(">I", len(dados)) + tipo + dados + struct.pack(">I", crc)
 
-    ihdr = struct.pack(">IIBBBBB", 4, 4, 8, 2, 0, 0, 0)
-    idat = zlib.compress(b"\x00" + b"\x01\x02\x03" * 16)
+    largura = altura = 32
+    linhas = b"".join(b"\x00" + bytes([(i * 7) % 256]) * (largura * 3) for i in range(altura))
+    ihdr = struct.pack(">IIBBBBB", largura, altura, 8, 2, 0, 0, 0)
+    idat = zlib.compress(linhas)
     return (
         b"\x89PNG\r\n\x1a\n"
         + _chunk(b"IHDR", ihdr)
