@@ -63,11 +63,20 @@ class ProdutoCreate(BaseModel):
     codigo: str | None = Field(None, description="SKU/código de barras p/ bipagem")
     unidade: str = Field("UN", max_length=20)
     preco_unitario: float = Field(0, ge=0)
+    # Contrato (tipo de O.S) dono do serviço: construcao, manutencao ou linha_viva.
+    # Obrigatório ao criar/editar; NULL só existe em registros legados.
+    tipo: str = Field(..., description="Contrato do serviço: 'construcao', 'manutencao' ou 'linha_viva'")
 
 
-class ProdutoResponse(ProdutoCreate):
+class ProdutoResponse(BaseModel):
     id: int
-    ativo: bool
+    ativo: bool = True  # default do banco
+    nome: str
+    codigo: str | None = None
+    unidade: str = "UN"
+    preco_unitario: float = 0
+    # NULL = legado (disponível em todos os contratos)
+    tipo: str | None = None
 
 
 # ---------------------------------------------------------------------------
@@ -290,20 +299,35 @@ def excluir_equipe(equipe_id: int, db=Depends(get_supabase)):
 
 
 # ---------------------------------------------------------------------------
-# Produtos
+# Produtos (serviços por contrato)
 # ---------------------------------------------------------------------------
+
+TIPOS_SERVICO = {"construcao", "manutencao", "linha_viva"}
+
+
+def _validar_tipo_servico(tipo: str) -> None:
+    if tipo not in TIPOS_SERVICO:
+        raise HTTPException(
+            status_code=422,
+            detail=f"Contrato inválido: '{tipo}'. Use 'construcao', 'manutencao' ou 'linha_viva'.",
+        )
 
 
 @router.get("/produtos", response_model=list[ProdutoResponse])
 def listar_produtos(
     busca: str | None = Query(None, description="Busca por nome ou código (autocompletar)"),
+    tipo: str | None = Query(None, description="Filtra pelo contrato (legados sem tipo valem para todos)"),
     db=Depends(get_supabase),
 ):
     try:
         query = db.table("produtos").select("*").eq("ativo", True)
         if busca:
             query = query.or_(f"nome.ilike.%{busca}%,codigo.ilike.%{busca}%")
-        return query.order("nome").limit(50).execute().data
+        dados = query.order("nome").limit(50).execute().data
+        if tipo:
+            # Serviços legados (tipo NULL) são válidos em todos os contratos.
+            dados = [p for p in dados if p.get("tipo") is None or p["tipo"] == tipo]
+        return dados
     except Exception:
         logger.exception("Erro ao listar produtos")
         raise HTTPException(status_code=500, detail="Erro ao listar serviços.") from None
@@ -312,6 +336,7 @@ def listar_produtos(
 @router.post("/produtos", response_model=ProdutoResponse, status_code=201)
 def criar_produto(produto: ProdutoCreate, db=Depends(get_supabase)):
     try:
+        _validar_tipo_servico(produto.tipo)
         if produto.codigo:
             dup = db.table("produtos").select("id").eq("codigo", produto.codigo).execute()
             if dup.data:
@@ -331,6 +356,7 @@ def criar_produto(produto: ProdutoCreate, db=Depends(get_supabase)):
 def atualizar_produto(produto_id: int, produto: ProdutoCreate, db=Depends(get_supabase)):
     try:
         _obter_ou_404(db, "produtos", produto_id, "Serviço")
+        _validar_tipo_servico(produto.tipo)
         resp = db.table("produtos").update(produto.model_dump()).eq("id", produto_id).execute()
         if not resp.data:
             raise HTTPException(status_code=500, detail="Falha ao atualizar serviço.")

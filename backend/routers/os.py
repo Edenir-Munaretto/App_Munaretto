@@ -52,6 +52,35 @@ PRIORIDADES = {"baixa", "media", "alta", "critica"}
 # mesmo layout; LINHA VIVA tem modelo próprio).
 TIPOS_OS = {"construcao", "linha_viva", "manutencao"}
 
+ROTULOS_TIPO = {
+    "construcao": "Construção",
+    "manutencao": "Manutenção",
+    "linha_viva": "Linha Viva",
+}
+
+
+def _validar_servico_do_contrato(db, produto_id: int, tipo_os: str) -> dict:
+    """Garante que o serviço pertence ao contrato (tipo) da O.S.
+
+    Serviços legados (produtos.tipo NULL) são válidos em todos os contratos;
+    serviços tipados só podem ser usados no contrato correspondente.
+    """
+    resp = db.table("produtos").select("id, nome, tipo").eq("id", produto_id).execute()
+    if not resp.data:
+        raise HTTPException(status_code=404, detail="Serviço não encontrado.")
+    produto = resp.data[0]
+    tipo_servico = produto.get("tipo")
+    if tipo_servico and tipo_servico != tipo_os:
+        raise HTTPException(
+            status_code=422,
+            detail=(
+                f"O serviço '{produto.get('nome')}' pertence ao contrato de "
+                f"{ROTULOS_TIPO.get(tipo_servico, tipo_servico)} e não pode ser "
+                f"lançado em uma O.S de {ROTULOS_TIPO.get(tipo_os, tipo_os)}."
+            ),
+        )
+    return produto
+
 # Máquina de estados: origem -> destinos permitidos. Qualquer transição fora
 # deste mapa é rejeitada com 422 (evita saltos como Rascunho -> Concluída).
 TRANSICOES_STATUS = {
@@ -714,6 +743,9 @@ def criar_os(payload: OSCreate, usuario: UsuarioAutenticado = Depends(get_curren
         nova = resp.data[0]
 
         if payload.itens_orcados:
+            # Itens orçados precisam pertencer ao contrato (tipo) da O.S.
+            for item in payload.itens_orcados:
+                _validar_servico_do_contrato(db, item.produto_id, payload.tipo)
             linhas = [
                 {"os_id": nova["id"], "produto_id": i.produto_id, "quantidade_orcada": i.quantidade_orcada}
                 for i in {i.produto_id: i for i in payload.itens_orcados}.values()
@@ -868,8 +900,11 @@ def editar_os(
         if not resp.data:
             raise HTTPException(status_code=500, detail="Falha ao atualizar O.S.")
 
-        # Substituição do orçamento de materiais quando enviado na edição.
+        # Substituição do orçamento de serviços quando enviado na edição.
         if payload.itens_orcados is not None:
+            # Itens orçados precisam pertencer ao contrato (tipo) da O.S.
+            for item in payload.itens_orcados:
+                _validar_servico_do_contrato(db, item.produto_id, payload.tipo)
             db.table("os_itens_orcados").delete().eq("os_id", os_id).execute()
             itens = [
                 {"os_id": os_id, "produto_id": i.produto_id, "quantidade_orcada": i.quantidade_orcada}
@@ -1424,9 +1459,7 @@ def lancar_material(
                 status_code=400,
                 detail="Materiais só podem ser lançados em O.S abertas ou em andamento.",
             )
-        produto = db.table("produtos").select("*").eq("id", payload.produto_id).execute()
-        if not produto.data:
-            raise HTTPException(status_code=404, detail="Serviço não encontrado.")
+        produto = _validar_servico_do_contrato(db, payload.produto_id, os_data["tipo"])
 
         resp = (
             db.table("os_materiais")
@@ -1443,7 +1476,7 @@ def lancar_material(
         )
         if not resp.data:
             raise HTTPException(status_code=500, detail="Falha ao lançar serviço.")
-        return {**resp.data[0], "produto_nome": produto.data[0]["nome"]}
+        return {**resp.data[0], "produto_nome": produto["nome"]}
     except HTTPException:
         raise
     except Exception:

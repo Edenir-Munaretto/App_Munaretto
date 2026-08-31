@@ -641,6 +641,11 @@ CREATE TABLE IF NOT EXISTS produtos (
     created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
 );
 
+-- Catálogo de serviços por CONTRATO (tipo de O.S): cada tipo de O.S
+-- (construcao/manutencao/linha_viva) só pode lançar serviços do seu contrato.
+-- NULL = serviço legado, disponível em todos os contratos.
+ALTER TABLE IF EXISTS produtos ADD COLUMN IF NOT EXISTS tipo VARCHAR(20);
+
 -- TABELA: ordens_servico
 -- `codigo` é gerado no backend no formato OS-<ANO>-<NNNN> (sequencial por ano).
 CREATE TABLE IF NOT EXISTS ordens_servico (

@@ -532,18 +532,24 @@ function TabInsumos({ osDetalhe, produtos, onAtualizado, mostrarToast, podeEdita
   const [salvando, setSalvando] = useState(false);
   const [estornandoId, setEstornandoId] = useState(null); // ID do lançamento aguardando confirmação
 
+  // Catálogo do CONTRATO da O.S: só serviços do mesmo tipo (ou legados sem tipo).
+  const catalogoDoContrato = useMemo(() => {
+    const tipoOs = osDetalhe.tipo;
+    return produtos.filter(p => !p.tipo || p.tipo === tipoOs);
+  }, [produtos, osDetalhe.tipo]);
+
   // Autocompletar: filtra o catálogo local pelo que foi digitado/bipado.
   const sugestoes = useMemo(() => {
     const termo = buscaProduto.trim().toLowerCase();
     if (!termo) return [];
-    return produtos
+    return catalogoDoContrato
       .filter(p => p.nome.toLowerCase().includes(termo) || (p.codigo || '').toLowerCase().includes(termo))
       .slice(0, 6);
-  }, [buscaProduto, produtos]);
+  }, [buscaProduto, catalogoDoContrato]);
 
   const selecionado = useMemo(
-    () => produtos.find(p => p.id === Number(buscaProduto)) || null,
-    [buscaProduto, produtos],
+    () => catalogoDoContrato.find(p => p.id === Number(buscaProduto)) || null,
+    [buscaProduto, catalogoDoContrato],
   );
 
   const lancar = async () => {
@@ -624,6 +630,11 @@ function TabInsumos({ osDetalhe, produtos, onAtualizado, mostrarToast, podeEdita
           <div className="absolute z-20 left-0 right-0 mt-1 bg-white border border-slate-200 rounded-xl shadow-lg overflow-hidden">
             <p className="px-3 py-3 text-xs text-slate-400 text-center">Nenhum serviço encontrado para “{buscaProduto}”</p>
           </div>
+        )}
+        {catalogoDoContrato.length === 0 && (
+          <p className="text-[10px] font-bold text-amber-600 mt-1.5">
+            Nenhum serviço cadastrado para este contrato. Cadastre em Serviços (com o contrato correspondente).
+          </p>
         )}
       </div>
 
@@ -2794,9 +2805,11 @@ function PainelCadastros({ obras, equipes, produtos, recarregar, mostrarToast })
   const [equipeEmEdicao, setEquipeEmEdicao] = useState(null);
   const [excluirEquipeAlvo, setExcluirEquipeAlvo] = useState(null);
 
-  // Produtos
-  const [novoProduto, setNovoProduto] = useState({ nome: '', codigo: '', unidade: 'UN', preco_unitario: '' });
+  // Produtos (serviços por contrato)
+  const [novoProduto, setNovoProduto] = useState({ nome: '', codigo: '', unidade: 'UN', preco_unitario: '', tipo: '' });
   const [filtroProdutoLista, setFiltroProdutoLista] = useState('');
+  const [filtroTipoProduto, setFiltroTipoProduto] = useState('todos');
+  const [produtoEmEdicao, setProdutoEmEdicao] = useState(null);
   const [excluirProdutoAlvo, setExcluirProdutoAlvo] = useState(null);
 
   const post = async (url, corpo, msgOk) => {
@@ -2888,13 +2901,42 @@ function PainelCadastros({ obras, equipes, produtos, recarregar, mostrarToast })
   }, [equipes, filtroEquipeLista]);
 
   const produtosFiltrados = useMemo(() => {
-    if (!filtroProdutoLista) return produtos;
-    const termo = filtroProdutoLista.toLowerCase();
-    return produtos.filter(p =>
-      (p.nome || '').toLowerCase().includes(termo) ||
-      (p.codigo || '').toLowerCase().includes(termo)
-    );
-  }, [produtos, filtroProdutoLista]);
+    let lista = produtos;
+    // Filtro por contrato: legados (sem tipo) valem para todos os contratos.
+    if (filtroTipoProduto !== 'todos') {
+      lista = lista.filter(p => !p.tipo || p.tipo === filtroTipoProduto);
+    }
+    if (filtroProdutoLista) {
+      const termo = filtroProdutoLista.toLowerCase();
+      lista = lista.filter(p =>
+        (p.nome || '').toLowerCase().includes(termo) ||
+        (p.codigo || '').toLowerCase().includes(termo)
+      );
+    }
+    return lista;
+  }, [produtos, filtroProdutoLista, filtroTipoProduto]);
+
+  const ROTULOS_TIPO_SERVICO = {
+    construcao: 'Construção',
+    manutencao: 'Manutenção',
+    linha_viva: 'Linha Viva',
+  };
+
+  const iniciarProdutoEdicao = (p) => {
+    setProdutoEmEdicao(p);
+    setNovoProduto({
+      nome: p.nome || '',
+      codigo: p.codigo || '',
+      unidade: p.unidade || 'UN',
+      preco_unitario: p.preco_unitario != null ? String(p.preco_unitario) : '',
+      tipo: p.tipo || '',
+    });
+  };
+
+  const cancelarProdutoEdicao = () => {
+    setProdutoEmEdicao(null);
+    setNovoProduto({ nome: '', codigo: '', unidade: 'UN', preco_unitario: '', tipo: '' });
+  };
 
   const ABAS = [
     { id: 'obras', label: 'Obras', icone: FolderKanban },
@@ -3259,21 +3301,37 @@ function PainelCadastros({ obras, equipes, produtos, recarregar, mostrarToast })
           <div className="lg:col-span-2 space-y-4">
             <div className="flex flex-col sm:flex-row gap-3 sm:items-center justify-between">
               <h3 className="font-extrabold text-slate-800 text-sm">Serviços ({produtosFiltrados.length})</h3>
-              {/* Barra de Busca */}
-              <div className="relative w-full sm:max-w-xs">
-                <input
-                  type="text"
-                  placeholder="Buscar serviço ou código..."
-                  value={filtroProdutoLista}
-                  onChange={e => setFiltroProdutoLista(e.target.value)}
-                  className="w-full pl-8 pr-7 py-1.5 border border-slate-200 rounded-xl text-xs focus:outline-none focus:border-primary-500 bg-slate-50 focus:bg-white"
-                />
-                <Search size={12} className="absolute left-2.5 top-2.5 text-slate-400" />
-                {filtroProdutoLista && (
-                  <button onClick={() => setFiltroProdutoLista('')} className="absolute right-2.5 top-2.5 text-slate-400 hover:text-slate-600">
-                    <X size={12} />
-                  </button>
-                )}
+              <div className="flex flex-wrap items-center gap-2">
+                {/* Filtro por contrato */}
+                <div className="flex bg-slate-100 rounded-xl p-1">
+                  {[['todos', 'Todos'], ['construcao', 'Construção'], ['manutencao', 'Manutenção'], ['linha_viva', 'Linha Viva']].map(([valor, rotulo]) => (
+                    <button
+                      key={valor}
+                      onClick={() => setFiltroTipoProduto(valor)}
+                      className={`px-2.5 py-1.5 rounded-lg text-[10px] font-bold transition-all cursor-pointer ${
+                        filtroTipoProduto === valor ? 'bg-white text-primary-700 shadow-sm' : 'text-slate-500 hover:text-slate-700'
+                      }`}
+                    >
+                      {rotulo}
+                    </button>
+                  ))}
+                </div>
+                {/* Barra de Busca */}
+                <div className="relative w-full sm:max-w-xs">
+                  <input
+                    type="text"
+                    placeholder="Buscar serviço ou código..."
+                    value={filtroProdutoLista}
+                    onChange={e => setFiltroProdutoLista(e.target.value)}
+                    className="w-full pl-8 pr-7 py-1.5 border border-slate-200 rounded-xl text-xs focus:outline-none focus:border-primary-500 bg-slate-50 focus:bg-white"
+                  />
+                  <Search size={12} className="absolute left-2.5 top-2.5 text-slate-400" />
+                  {filtroProdutoLista && (
+                    <button onClick={() => setFiltroProdutoLista('')} className="absolute right-2.5 top-2.5 text-slate-400 hover:text-slate-600">
+                      <X size={12} />
+                    </button>
+                  )}
+                </div>
               </div>
             </div>
 
@@ -3285,13 +3343,22 @@ function PainelCadastros({ obras, equipes, produtos, recarregar, mostrarToast })
                   <div key={p.id} className="group relative flex flex-col gap-1 text-xs bg-slate-50 hover:bg-slate-100/70 rounded-xl p-3 border border-slate-100 transition-all">
                     <div className="flex items-start justify-between gap-2">
                       <span className="font-extrabold text-slate-800 break-words leading-tight">{p.nome}</span>
-                      <button
-                        onClick={() => setExcluirProdutoAlvo(p)}
-                        className="text-slate-400 hover:text-rose-600 cursor-pointer p-1 rounded hover:bg-white border hover:border-slate-200 opacity-60 group-hover:opacity-100 transition-opacity flex-shrink-0"
-                        title="Excluir serviço"
-                      >
-                        <Trash2 size={11} />
-                      </button>
+                      <div className="flex items-center gap-1 flex-shrink-0">
+                        <button
+                          onClick={() => iniciarProdutoEdicao(p)}
+                          className="text-slate-400 hover:text-amber-600 cursor-pointer p-1 rounded hover:bg-white border hover:border-slate-200 opacity-60 group-hover:opacity-100 transition-opacity"
+                          title="Editar serviço"
+                        >
+                          <Pencil size={11} />
+                        </button>
+                        <button
+                          onClick={() => setExcluirProdutoAlvo(p)}
+                          className="text-slate-400 hover:text-rose-600 cursor-pointer p-1 rounded hover:bg-white border hover:border-slate-200 opacity-60 group-hover:opacity-100 transition-opacity"
+                          title="Excluir serviço"
+                        >
+                          <Trash2 size={11} />
+                        </button>
+                      </div>
                     </div>
                     
                     {p.codigo && (
@@ -3303,6 +3370,14 @@ function PainelCadastros({ obras, equipes, produtos, recarregar, mostrarToast })
                     <div className="text-emerald-600 font-bold mt-1 text-[11px]">
                       {brl(p.preco_unitario)} <span className="text-slate-400 font-normal">/ {p.unidade}</span>
                     </div>
+
+                    <span className={`mt-1 text-[9px] font-bold px-2 py-0.5 rounded-full self-start ${
+                      p.tipo
+                        ? 'bg-primary-50 text-primary-700 border border-primary-100'
+                        : 'bg-slate-100 text-slate-500 border border-slate-200'
+                    }`}>
+                      {ROTULOS_TIPO_SERVICO[p.tipo] || 'Todos os contratos'}
+                    </span>
                   </div>
                 ))
               )}
@@ -3311,7 +3386,9 @@ function PainelCadastros({ obras, equipes, produtos, recarregar, mostrarToast })
 
           {/* Direita: Formulário */}
           <div className="bg-slate-50/50 rounded-2xl border border-slate-100 p-5 space-y-4 h-fit">
-            <h4 className="text-xs font-extrabold uppercase tracking-wider text-slate-500">Novo Serviço</h4>
+            <h4 className="text-xs font-extrabold uppercase tracking-wider text-slate-500">
+              {produtoEmEdicao ? 'Editar Serviço' : 'Novo Serviço'}
+            </h4>
             
             <div className="space-y-3">
               <CampoTexto label="Nome do serviço *" value={novoProduto.nome} onChange={e => setNovoProduto({ ...novoProduto, nome: e.target.value })} />
@@ -3321,22 +3398,48 @@ function PainelCadastros({ obras, equipes, produtos, recarregar, mostrarToast })
                 <CampoTexto label="Preço Unitário (R$)" type="number" step="0.01" min="0" value={novoProduto.preco_unitario}
                   onChange={e => setNovoProduto({ ...novoProduto, preco_unitario: e.target.value })} />
               </div>
+              <div>
+                <label className="block text-xs font-bold text-slate-700 mb-1.5">Contrato *</label>
+                <select
+                  value={novoProduto.tipo}
+                  onChange={e => setNovoProduto({ ...novoProduto, tipo: e.target.value })}
+                  className="w-full px-3 py-2 border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-primary-500/20 focus:border-primary-500 text-sm font-semibold bg-white"
+                >
+                  <option value="">Selecione o contrato...</option>
+                  {[['construcao', 'Construção'], ['manutencao', 'Manutenção'], ['linha_viva', 'Linha Viva']].map(([valor, rotulo]) => (
+                    <option key={valor} value={valor}>{rotulo}</option>
+                  ))}
+                </select>
+              </div>
             </div>
 
             <button
               onClick={async () => {
                 if (!novoProduto.nome) { mostrarToast('Informe o nome do serviço.', 'error'); return; }
-                const ok = await post(`${API_URL}/os/produtos`, {
+                if (!novoProduto.tipo) { mostrarToast('Selecione o contrato do serviço.', 'error'); return; }
+                const corpo = {
                   nome: novoProduto.nome,
                   codigo: novoProduto.codigo || null,
                   unidade: novoProduto.unidade || 'UN',
-                  preco_unitario: Number(novoProduto.preco_unitario || 0)
-                }, 'Serviço criado.');
-                if (ok) setNovoProduto({ nome: '', codigo: '', unidade: 'UN', preco_unitario: '' });
+                  preco_unitario: Number(novoProduto.preco_unitario || 0),
+                  tipo: novoProduto.tipo,
+                };
+                const ok = produtoEmEdicao
+                  ? await put(`${API_URL}/os/produtos/${produtoEmEdicao.id}`, corpo, 'Serviço atualizado.')
+                  : await post(`${API_URL}/os/produtos`, corpo, 'Serviço criado.');
+                if (ok) cancelarProdutoEdicao();
               }}
               className="w-full py-2.5 bg-primary-600 text-white rounded-xl text-xs font-bold hover:bg-primary-700 transition-all cursor-pointer">
-              Cadastrar Serviço
+              {produtoEmEdicao ? 'Salvar Alterações' : 'Cadastrar Serviço'}
             </button>
+            {produtoEmEdicao && (
+              <button
+                onClick={cancelarProdutoEdicao}
+                className="w-full py-2 border border-slate-200 text-slate-600 rounded-xl text-xs font-semibold hover:bg-slate-50 transition-all cursor-pointer"
+              >
+                Cancelar edição
+              </button>
+            )}
           </div>
         </div>
       )}

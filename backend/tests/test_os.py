@@ -654,3 +654,109 @@ def test_detalhe_tenta_novamente_em_falha_transitoria_de_conexao(os_gestor_clien
     resp2 = os_gestor_client.get(f"/api/os/{os_id}")
     assert resp2.status_code == 500
     assert "divisão por zero" in resp2.json()["detail"]
+
+
+# ---------------------------------------------------------------------------
+# Catálogo de serviços por contrato (tipo de O.S)
+# ---------------------------------------------------------------------------
+
+
+def _seed_servicos_por_contrato(db_fake):
+    """Serviço legado (sem tipo), de construção e de manutenção."""
+    db = db_fake._dados
+    db["produtos"].append(
+        {"id": 8, "codigo": "SVC-LG", "nome": "Serviço Legado", "unidade": "UN",
+         "preco_unitario": 10, "ativo": True, "tipo": None}
+    )
+    db["produtos"].append(
+        {"id": 9, "codigo": "SVC-C", "nome": "Serviço Construção", "unidade": "UN",
+         "preco_unitario": 20, "ativo": True, "tipo": "construcao"}
+    )
+    db["produtos"].append(
+        {"id": 10, "codigo": "SVC-M", "nome": "Serviço Manutenção", "unidade": "UN",
+         "preco_unitario": 30, "ativo": True, "tipo": "manutencao"}
+    )
+
+
+def _abrir_os(client, os_id):
+    assert client.put(f"/api/os/{os_id}/status", json={"novo_status": "aberta"}).status_code == 200
+
+
+def test_lancar_servico_de_outro_contrato_rejeitado(os_gestor_client, db_fake):
+    _seed_cenario(db_fake)
+    _seed_servicos_por_contrato(db_fake)
+    # O.S de CONSTRUÇÃO: serviço de manutenção não pode ser lançado.
+    os_id = _criar_os(os_gestor_client).json()["id"]  # tipo default = construcao
+    _abrir_os(os_gestor_client, os_id)
+
+    resp = os_gestor_client.post(
+        f"/api/os/{os_id}/materiais", json={"produto_id": 10, "quantidade_usada": 1}
+    )
+    assert resp.status_code == 422
+    assert "contrato de Manutenção" in resp.json()["detail"]
+    assert "Construção" in resp.json()["detail"]
+
+
+def test_lancar_servico_do_contrato_ok(os_gestor_client, db_fake):
+    _seed_cenario(db_fake)
+    _seed_servicos_por_contrato(db_fake)
+    os_id = _criar_os(os_gestor_client).json()["id"]  # construcao
+    _abrir_os(os_gestor_client, os_id)
+
+    resp = os_gestor_client.post(
+        f"/api/os/{os_id}/materiais", json={"produto_id": 9, "quantidade_usada": 2}
+    )
+    assert resp.status_code == 201, resp.text
+
+
+def test_lancar_servico_legado_vale_para_qualquer_contrato(os_gestor_client, db_fake):
+    _seed_cenario(db_fake)
+    _seed_servicos_por_contrato(db_fake)
+    # O.S de LINHA VIVA: serviço legado (sem tipo) é aceito.
+    os_id = _criar_os(os_gestor_client, tipo="linha_viva").json()["id"]
+    _abrir_os(os_gestor_client, os_id)
+
+    resp = os_gestor_client.post(
+        f"/api/os/{os_id}/materiais", json={"produto_id": 8, "quantidade_usada": 1}
+    )
+    assert resp.status_code == 201, resp.text
+
+
+def test_cadastro_servico_exige_contrato(os_gestor_client, db_fake):
+    _seed_cenario(db_fake)
+
+    # Sem contrato → 422.
+    resp = os_gestor_client.post(
+        "/api/os/produtos", json={"nome": "Serviço sem contrato", "unidade": "UN", "preco_unitario": 5}
+    )
+    assert resp.status_code == 422
+
+    # Contrato inválido → 422.
+    resp = os_gestor_client.post(
+        "/api/os/produtos", json={"nome": "Inválido", "unidade": "UN", "tipo": "outro"}
+    )
+    assert resp.status_code == 422
+
+    # Contrato válido → 201.
+    resp = os_gestor_client.post(
+        "/api/os/produtos", json={"nome": "Serviço Construção", "unidade": "UN", "preco_unitario": 15, "tipo": "construcao"}
+    )
+    assert resp.status_code == 201, resp.text
+    assert resp.json()["tipo"] == "construcao"
+
+
+def test_listar_servicos_filtra_por_contrato_incluindo_legados(os_gestor_client, db_fake):
+    _seed_cenario(db_fake)
+    _seed_servicos_por_contrato(db_fake)
+
+    resp = os_gestor_client.get("/api/os/produtos?tipo=construcao")
+    assert resp.status_code == 200
+    ids = {p["id"] for p in resp.json()}
+    assert 7 in ids   # produto do seed (legado, sem tipo)
+    assert 8 in ids   # legado
+    assert 9 in ids   # construção
+    assert 10 not in ids  # manutenção fica de fora
+
+    # Sem filtro traz tudo.
+    resp2 = os_gestor_client.get("/api/os/produtos")
+    assert len(resp2.json()) == 4
