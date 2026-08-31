@@ -1112,7 +1112,9 @@ def relatorio_checklist(os_id: int, usuario: UsuarioAutenticado = Depends(get_cu
         if equipe_id:
             rel = (
                 db.table("equipe_membros")
-                .select("funcionario_id, lider, funcionarios(id, nome, cargo_id, cargos(nome))")
+                # 'cargos' tem DOIS relacionamentos com funcionarios (cargo_id e
+                # cargo_id_2): o PostgREST precisa do FK explícito para embutir.
+                .select("funcionario_id, lider, funcionarios(id, nome, cargo_id, cargos!funcionarios_cargo_id_fkey(nome))")
                 .eq("equipe_id", equipe_id)
                 .execute()
                 .data
