@@ -23,7 +23,13 @@ class RelatorioSocio(FPDF):
         self.set_text_color(128, 128, 128)
         self.cell(0, 10, f"Gerado em {datetime.now().strftime('%d/%m/%Y')} - Página {self.page_no()}", align="C")
 
-    def criar_tabela_financeira(self, titulo, dados, cor_header):
+    def criar_tabela_financeira(self, titulo, dados, cor_header, manter_junto=False):
+        # Título (10) + cabeçalho (8) + linhas (8 cada) + espaçamento (5).
+        altura_total = 10 + 8 + len(dados) * 8 + 5
+        # Se a tabela não couber inteira na página (ex.: sócios no fim da
+        # primeira), empurra tudo para a página seguinte — nada de linha órfã.
+        if manter_junto and self.get_y() + altura_total > self.page_break_trigger:
+            self.add_page()
         self.set_font("Arial", "B", 12)
         self.set_text_color(0, 0, 0)
         self.cell(0, 10, titulo, ln=True)
@@ -93,7 +99,9 @@ def gerar_pdf_mensal(mes_ref, dados_usinas, dados_despesas, total_liquido, nome_
         "Nei Rigo (10%)": formatar(valor_num * 0.10),
         "Gilmar T. (5%)": formatar(valor_num * 0.05),
     }
-    pdf.criar_tabela_financeira("DISTRIBUIÇÃO DE LUCROS (TODOS OS SÓCIOS)", socios, (26, 54, 104))
+    pdf.criar_tabela_financeira(
+        "DISTRIBUIÇÃO DE LUCROS (TODOS OS SÓCIOS)", socios, (26, 54, 104), manter_junto=True
+    )
 
     caminho_temp = os.path.join(tempfile.gettempdir(), nome_arquivo)
     pdf.output(caminho_temp)
