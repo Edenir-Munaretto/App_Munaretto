@@ -978,7 +978,7 @@ def alterar_status(
 
 class ChecklistRespostaIn(BaseModel):
     resposta: str = Field(..., description="'sim', 'nao' ou 'na'")
-    justificativa: str | None = Field(None, max_length=500, description="Obrigatória quando resposta = 'nao'")
+    justificativa: str | None = Field(None, max_length=500, description="Opcional (legado: respostas antigas 'não' podem ter justificativa)")
     geolocalizacao: str | None = Field(None, max_length=100, description="'lat,lng' do dispositivo")
 
 
@@ -1025,7 +1025,7 @@ def responder_checklist(
     usuario: UsuarioAutenticado = Depends(get_current_user),
     db=Depends(get_supabase),
 ):
-    """Responde um item do checklist (sim/nao/na). 'Não' exige justificativa."""
+    """Responde um item do checklist (sim/nao/na). A justificativa é opcional."""
     try:
         os_data = _os_ou_404(db, os_id)
         _garantir_acesso_os(db, usuario, os_data)
@@ -1037,8 +1037,6 @@ def responder_checklist(
         if resposta not in RESPOSTAS_VALIDAS:
             raise HTTPException(status_code=400, detail="Resposta inválida. Use 'sim', 'nao' ou 'na'.")
         justificativa = (payload.justificativa or "").strip() or None
-        if resposta == "nao" and not justificativa:
-            raise HTTPException(status_code=422, detail="Resposta 'não' exige uma justificativa.")
 
         db.table("os_checklist_respostas").upsert(
             {

@@ -225,9 +225,9 @@ def _tabela_checklist(pdf: _PdfChecklist, itens: list):
         largura = col_larg["pergunta"]
         if len(pergunta) > 70:
             pdf.multi_cell(largura, 7, f" {pergunta}", border=1)
+            # Após o multi_cell, x já está no fim da célula (new_x padrão = RIGHT).
             alt = pdf.get_y()
-            x = pdf.get_x()
-            pdf.set_xy(x + largura, alt - 7)
+            pdf.set_xy(pdf.get_x(), alt - 7)
         else:
             pdf.cell(largura, 7, f" {pergunta}", border=1)
         for chave in ("sim", "nao", "na"):
@@ -254,17 +254,23 @@ def _tabela_checklist(pdf: _PdfChecklist, itens: list):
     pdf.set_font("Arial", "B", 8)
     pdf.cell(0, 6, f"Perguntas: {len(itens)} | Respondidas: {respondidos}", ln=True)
 
-    # Observação sobre respostas 'Não'
+    # Observação sobre respostas 'Não' (a seleção basta; a justificativa só
+    # aparece quando existir — respostas antigas podem ter).
     naos = [i for i in itens if (i.get("resposta") or {}).get("resposta") == "nao"]
     if naos:
         pdf.ln(1)
         pdf.set_font("Arial", "B", 8)
         pdf.set_text_color(185, 28, 28)
-        pdf.cell(0, 6, "RESPOSTAS 'NÃO' (com justificativa):", ln=True)
+        pdf.cell(0, 6, "RESPOSTAS 'NÃO':", ln=True)
         pdf.set_font("Arial", "", 8)
         for i in naos:
             just = (i["resposta"].get("justificativa") or "").strip()
-            pdf.multi_cell(0, 5, f"{i['classificacao']} {_txt(i['pergunta'])} - {_txt(just) or 'sem justificativa'}")
+            linha = f"{i['classificacao']} {_txt(i['pergunta'])}"
+            if just:
+                linha += f" - {_txt(just)}"
+            # new_x="LMARGIN": sem isso, com 2+ respostas o x fica na margem
+            # direita e o próximo multi_cell(0) fica sem largura (crash).
+            pdf.multi_cell(0, 5, linha, new_x="LMARGIN")
         pdf.set_text_color(15, 23, 42)
 
     # Assinaturas

@@ -145,8 +145,8 @@ flowchart TD
     · via botão de status (gate ①) OU automaticamente ao dar PLAY no H.H.
 
  4. NO CAMPO — dentro do Painel de Execução (abas):
-    · Checklist  ─► grupos 2–5; respostas sim/nao/na; "não" exige justificativa;
-                    itens podem exigir foto
+    · Checklist  ─► grupos 2–5; respostas sim/nao/na; "não" registra a seleção
+                    (justificativa opcional); itens podem exigir foto
     · Cronômetro ─► PLAY abre bloco de H.H. (só 1 aberto por pessoa/O.S);
                     PAUSE fecha e calcula minutos; impedida/concluída não aponta
     · Materiais  ─► lançar aplicado x orçado; estorno só gestor

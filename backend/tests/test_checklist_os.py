@@ -4,7 +4,7 @@ Cobre:
 - Snapshot do catálogo para a O.S ao criar;
 - Gate de início (aberta -> em_andamento e Play do cronômetro) exige grupo 1;
 - Gate de conclusão exige todos os grupos;
-- Resposta 'Não' exige justificativa; N/A é aceito;
+- Resposta 'Não' registra a seleção (justificativa opcional); N/A é aceito;
 - Respostas não podem ser alteradas em O.S encerrada;
 - Relatório em PDF é gerado.
 """
@@ -150,7 +150,7 @@ def test_concluir_completo_ok(os_gestor_client, db_fake):
     assert resp.status_code == 200, resp.text
 
 
-def test_resposta_nao_exige_justificativa(os_gestor_client, db_fake):
+def test_resposta_nao_sem_justificativa_aceita(os_gestor_client, db_fake):
     from tests.test_os import _criar_os, _seed_cenario
 
     _seed_cenario(db_fake)
@@ -158,13 +158,19 @@ def test_resposta_nao_exige_justificativa(os_gestor_client, db_fake):
     os_id = _criar_os(os_gestor_client).json()["id"]
     item = _itens(os_gestor_client, os_id)[0]
 
+    # 'Não' registra a seleção sem exigir justificativa.
     resp = _responder(os_gestor_client, os_id, item, "nao")
-    assert resp.status_code == 422
-    assert "justificativa" in resp.json()["detail"].lower()
+    assert resp.status_code == 200, resp.text
 
+    # Se a justificativa vier (legado/sync), ela é armazenada.
     resp = _responder(os_gestor_client, os_id, item, "nao", justificativa="Material em falta no estoque.")
     assert resp.status_code == 200, resp.text
-    # 'Não' com justificativa não bloqueia o início (grupo completo).
+    detalhe = os_gestor_client.get(f"/api/os/{os_id}/checklist").json()
+    resposta = next(i["resposta"] for i in detalhe["itens"] if i["id"] == item["id"])
+    assert resposta["resposta"] == "nao"
+    assert resposta["justificativa"] == "Material em falta no estoque."
+
+    # 'Não' sem justificativa não bloqueia o início (grupo completo).
     itens = _itens(os_gestor_client, os_id)
     _responder_grupo(os_gestor_client, os_id, itens, 1)
     os_gestor_client.put(f"/api/os/{os_id}/status", json={"novo_status": "aberta"})
@@ -505,6 +511,28 @@ def test_relatorio_pdf_embeds_como_array_nao_quebra(os_gestor_client, db_fake):
     for linha in db["equipe_membros"]:
         if isinstance(linha.get("funcionarios"), dict):
             linha["funcionarios"] = [linha["funcionarios"]]
+
+    resp = os_gestor_client.get(f"/api/os/{os_id}/checklist/report")
+    assert resp.status_code == 200, resp.text
+    assert resp.content.startswith(b"%PDF")
+
+
+def test_relatorio_pdf_naos_sem_justificativa(os_gestor_client, db_fake):
+    """Regressão do crash 'Not enough horizontal space': o relatório deve gerar
+    mesmo com VÁRIAS respostas 'não' sem justificativa (a seleção basta)."""
+    from tests.test_os import _criar_os, _seed_cenario
+
+    _seed_cenario(db_fake)
+    _seed_modelos(db_fake)
+    os_id = _criar_os(os_gestor_client, equipe_id=100).json()["id"]
+    itens = _itens(os_gestor_client, os_id)
+    for item in itens:
+        resp = _responder(os_gestor_client, os_id, item, "sim")
+        assert resp.status_code == 200, resp.text
+    itens = _itens(os_gestor_client, os_id)
+    for item in itens[:2]:
+        resp = _responder(os_gestor_client, os_id, item, "nao")
+        assert resp.status_code == 200, resp.text
 
     resp = os_gestor_client.get(f"/api/os/{os_id}/checklist/report")
     assert resp.status_code == 200, resp.text

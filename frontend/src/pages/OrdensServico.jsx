@@ -214,8 +214,6 @@ function TabChecklist({ osDetalhe, onAtualizado, mostrarToast, podeEditar }) {
   const [carregando, setCarregando] = useState(false);
   const [salvandoItem, setSalvandoItem] = useState(null); // item sendo respondido
   const [enviandoFoto, setEnviandoFoto] = useState(null); // item recebendo foto
-  const [justificativas, setJustificativas] = useState({}); // item_id -> texto
-  const [pendenteNao, setPendenteNao] = useState({}); // item_id -> aguardando justificativa do "não"
   const [fotoAlvo, setFotoAlvo] = useState(null); // item para anexar foto
   const inputFotoRef = useRef(null);
 
@@ -245,12 +243,7 @@ function TabChecklist({ osDetalhe, onAtualizado, mostrarToast, podeEditar }) {
 
   const responder = async (item, resposta, tentativa = 0) => {
     if (!podeEditar) return;
-    if (resposta === 'nao' && !(justificativas[item.id] || '').trim()) {
-      mostrarToast('Resposta "não" exige justificativa.', 'error');
-      return;
-    }
     setSalvandoItem(item.id);
-    const justificativa = resposta === 'nao' ? (justificativas[item.id] || '').trim() : null;
     const gps = await capturarGeolocalizacao();
 
     // Offline: grava na fila e reflete localmente.
@@ -259,13 +252,13 @@ function TabChecklist({ osDetalhe, onAtualizado, mostrarToast, podeEditar }) {
         await enfileirarOperacao({
           tipo: 'checklist_resposta',
           os_id: osDetalhe.id,
-          payload: { item_id: item.id, resposta, justificativa, geolocalizacao: gps },
+          payload: { item_id: item.id, resposta, geolocalizacao: gps },
         });
-        await atualizarRespostaLocal(osDetalhe.id, item.id, resposta, justificativa, gps);
+        await atualizarRespostaLocal(osDetalhe.id, item.id, resposta, null, gps);
         setDados(prev => {
           if (!prev) return prev;
           const itens = prev.itens.map(i => (i.id === item.id
-            ? { ...i, resposta: { item_id: item.id, resposta, justificativa, geolocalizacao: gps, criado_em: new Date().toISOString(), respondido_por: 'dispositivo' } }
+            ? { ...i, resposta: { item_id: item.id, resposta, justificativa: null, geolocalizacao: gps, criado_em: new Date().toISOString(), respondido_por: 'dispositivo' } }
             : i));
           const resumo = recalcularResumo(itens);
           // Preserva os nomes reais dos grupos vindos do servidor.
@@ -289,7 +282,7 @@ function TabChecklist({ osDetalhe, onAtualizado, mostrarToast, podeEditar }) {
       const res = await apiFetch(`${API_URL}/os/${osDetalhe.id}/checklist/${item.id}`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ resposta, justificativa, geolocalizacao: gps }),
+        body: JSON.stringify({ resposta, geolocalizacao: gps }),
       });
       if (res.ok) {
         carregar();
@@ -374,34 +367,6 @@ function TabChecklist({ osDetalhe, onAtualizado, mostrarToast, podeEditar }) {
     ? 'bg-primary-600 text-white border-primary-600 shadow-sm'
     : 'bg-white text-slate-500 border-slate-200 hover:bg-slate-50');
 
-  // "Não" exige justificativa: ao clicar, abre o campo ANTES de salvar;
-  // "Sim"/"N/A" salvam imediatamente como antes.
-  const selecionar = async (item, valor) => {
-    if (valor === 'nao') {
-      setPendenteNao(prev => ({ ...prev, [item.id]: !prev[item.id] }));
-      return;
-    }
-    setPendenteNao(prev => {
-      const n = { ...prev };
-      delete n[item.id];
-      return n;
-    });
-    await responder(item, valor);
-  };
-
-  const confirmarNao = async (item) => {
-    if (!(justificativas[item.id] || '').trim()) {
-      mostrarToast('Resposta "não" exige justificativa.', 'error');
-      return;
-    }
-    setPendenteNao(prev => {
-      const n = { ...prev };
-      delete n[item.id];
-      return n;
-    });
-    await responder(item, 'nao');
-  };
-
   return (
     <div className="space-y-4">
       {/* Resumo geral */}
@@ -467,8 +432,8 @@ function TabChecklist({ osDetalhe, onAtualizado, mostrarToast, podeEditar }) {
                               {[['sim', 'Sim'], ['nao', 'Não'], ['na', 'N/A']].map(([valor, rotulo]) => (
                                 <button key={valor}
                                   disabled={salvandoItem === item.id}
-                                  onClick={() => selecionar(item, valor)}
-                                  className={`px-3 py-1 rounded-lg border text-[11px] font-bold transition-all cursor-pointer disabled:opacity-40 ${marcar(resposta === valor || (valor === 'nao' && pendenteNao[item.id]))}`}>
+                                  onClick={() => responder(item, valor)}
+                                  className={`px-3 py-1 rounded-lg border text-[11px] font-bold transition-all cursor-pointer disabled:opacity-40 ${marcar(resposta === valor)}`}>
                                   {rotulo}
                                 </button>
                               ))}
@@ -499,39 +464,8 @@ function TabChecklist({ osDetalhe, onAtualizado, mostrarToast, podeEditar }) {
                             </button>
                           )}
                         </div>
-                        {resposta === 'nao' && (
-                          <p className="text-[10px] text-rose-600 font-semibold mt-1">Justificativa: {justificativa || '—'}</p>
-                        )}
-                        {podeEditar && (resposta === 'nao' || pendenteNao[item.id]) && (
-                          <div className="mt-1.5">
-                            <input
-                              value={justificativas[item.id] ?? justificativa}
-                              onChange={e => setJustificativas(j => ({ ...j, [item.id]: e.target.value }))}
-                              placeholder="Justificativa obrigatória para 'Não'..."
-                              className="w-full px-2.5 py-1.5 border border-rose-200 rounded-lg text-[11px] focus:outline-none focus:border-rose-400"
-                            />
-                            {pendenteNao[item.id] && (
-                              <div className="flex gap-1.5 mt-1.5">
-                                <button
-                                  onClick={() => confirmarNao(item)}
-                                  disabled={salvandoItem === item.id}
-                                  className="px-3 py-1 rounded-lg bg-rose-500 text-white text-[10px] font-bold hover:bg-rose-600 transition-all cursor-pointer disabled:opacity-40"
-                                >
-                                  {salvandoItem === item.id ? 'Salvando...' : 'Confirmar resposta'}
-                                </button>
-                                <button
-                                  onClick={() => setPendenteNao(prev => {
-                                    const n = { ...prev };
-                                    delete n[item.id];
-                                    return n;
-                                  })}
-                                  className="px-3 py-1 rounded-lg border border-slate-200 text-slate-500 text-[10px] font-bold hover:bg-slate-50 transition-all cursor-pointer"
-                                >
-                                  Cancelar
-                                </button>
-                              </div>
-                            )}
-                          </div>
+                        {resposta === 'nao' && justificativa && (
+                          <p className="text-[10px] text-rose-600 font-semibold mt-1">Justificativa: {justificativa}</p>
                         )}
                         {temFoto && (
                           <div className="flex gap-2 mt-1.5">
