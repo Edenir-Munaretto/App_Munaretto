@@ -78,7 +78,12 @@ export async function limparPacote() {
   await dbClearStore('os_lista');
   await dbClearStore('os');
   await dbClearStore('checklist');
+  // Ao sair do Modo Campo o tablet é apagado por completo (é da equipe):
+  // fila de operações e fotos pendentes não podem vazar para o próximo usuário.
+  await dbClearStore('fila');
+  await dbClearStore('fotos');
   await dbDel('meta', 'pacote');
+  await dbDel('meta', 'responsavel');
 }
 
 // ---------------------------------------------------------------------------

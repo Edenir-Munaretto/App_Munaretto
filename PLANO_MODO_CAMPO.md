@@ -78,14 +78,32 @@ online-only) · gestor edita raramente (conflitos raros).
   pacote e ao sincronizar; exibido no rodapé do modal.
 - Descartar item: `descartarPendente(tipo, id_local)` em `offline.js`.
 
-## Fase D — Testes e ajustes finais (PRÓXIMA)
+## Fase D — Testes e ajustes finais
 
-- Teste manual completo simulando offline (DevTools → Network → Offline):
-  preparar pacote → responder checklist → fotos → play/pause → concluir →
-  voltar online → sync → conferir servidor e PDF do checklist.
-- Testar impedida offline (foto local mapeada) e conflito real (editar a O.S
-  no backend enquanto o tablet está offline).
-- Verificar limpeza do dispositivo ao sair do Modo Campo e ao trocar de usuário.
+### Automatizado (nível de API/backend) — entregue
+- **Fluxo completo do dia** (`test_sync_fluxo_completo_do_dia`): preparar
+  pacote → checklist → play/pause → concluir → conferir servidor + PDF
+  (`test_relatorio_pdf` em `test_checklist_os.py`).
+- **Impedida offline** com foto local mapeada
+  (`test_sync_status_impedida_com_foto_local_mapeada`).
+- **Conflito real** (novos testes em `test_sync_os.py`):
+  - Gestor conclui a O.S enquanto o tablet está offline → resposta de
+    checklist rejeitada (400 "encerrada"), transição rejeitada (422),
+    apontamento rejeitado (400); lote não aborta e o estado do servidor é
+    preservado.
+  - Gestor cancela a O.S offline → transição divergente rejeitada (422).
+  - Resposta duplicada (gestor e campo no mesmo item) → upsert: última vence.
+- **Limpeza do dispositivo** (correção de falha encontrada na verificação):
+  - `limparPacote` agora apaga também a **fila** e as **fotos** (antes
+    vazavam para o próximo usuário) + meta de responsável;
+  - Troca de usuário (login/logout em `App.jsx`) encerra o Modo Campo e
+    apaga os dados locais do dispositivo.
+- **Verificação:** 169 testes backend passando; lint e build do frontend OK.
+
+### Manual (navegador — precisa de internet/simulação) — PENDENTE
+- Teste no navegador com DevTools → Network → **Offline**: preparar pacote →
+  responder checklist → fotos → play/pause → concluir → voltar online →
+  auto-sync → conferir servidor e PDF do checklist.
 - Revisar UX mobile (tablet) dos botões grandes no painel.
 
 ## Pendências / observações

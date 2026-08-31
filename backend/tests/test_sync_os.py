@@ -239,3 +239,128 @@ def test_sync_status_impedida_com_foto_local_mapeada(os_gestor_client, os_campo_
     )
     assert resp2.json()["resultados"][0]["ok"] is False
     assert "ainda não foi sincronizada" in resp2.json()["resultados"][0]["erro"]
+
+
+# ---------------------------------------------------------------------------
+# Fase D — conflito real: o gestor altera a O.S enquanto o tablet está offline
+# ---------------------------------------------------------------------------
+
+
+def _responder_tudo(client, os_id):
+    """Responde todos os itens do checklist (online) — usado pelo gestor."""
+    itens = client.get(f"/api/os/{os_id}/checklist").json()["itens"]
+    for item in itens:
+        resp = client.put(
+            f"/api/os/{os_id}/checklist/{item['id']}",
+            json={"resposta": "sim", "justificativa": None},
+        )
+        assert resp.status_code == 200, resp.text
+
+
+def test_sync_conflito_gestor_conclui_enquanto_tablet_offline(os_gestor_client, os_campo_client, db_fake):
+    """O gestor conclui a O.S no meio do dia; o lote do tablet é rejeitado
+    operação por operação (com status de conflito), sem abortar o restante."""
+    from tests.test_os import _criar_os, _seed_cenario
+
+    _seed_cenario(db_fake)
+    _seed_modelos(db_fake)
+    os_id = _criar_os(os_gestor_client, equipe_id=100).json()["id"]
+    os_campo_client.put(f"/api/os/{os_id}/status", json={"novo_status": "aberta"})
+
+    # O gestor responde o checklist e CONCLUI a O.S enquanto o tablet está offline.
+    _responder_tudo(os_gestor_client, os_id)
+    resp = os_gestor_client.put(f"/api/os/{os_id}/status", json={"novo_status": "em_andamento"})
+    assert resp.status_code == 200, resp.text
+    resp = os_gestor_client.put(f"/api/os/{os_id}/status", json={"novo_status": "concluida"})
+    assert resp.status_code == 200, resp.text
+
+    # O tablet (que ainda "pensava" a O.S aberta) sincroniza horas depois.
+    itens = _itens(os_campo_client, os_id)
+    ops = [
+        _op("r1", "checklist_resposta", os_id,
+            {"item_id": itens[0]["id"], "resposta": "nao", "justificativa": "Item mudou durante o dia."},
+            "2026-08-28T10:00:00Z"),
+        _op("s1", "status", os_id, {"novo_status": "em_andamento"}, "2026-08-28T10:05:00Z"),
+        _op("play", "apontamento_play", os_id, {}, "2026-08-28T10:06:00Z"),
+    ]
+    resp = _sync(os_campo_client, ops)
+    assert resp.status_code == 200
+    resultados = {r["id_local"]: r for r in resp.json()["resultados"]}
+
+    # Conflito 1: checklist de O.S encerrada não pode ser alterado.
+    assert resultados["r1"]["ok"] is False
+    assert resultados["r1"]["status"] == 400
+    assert "encerrada" in resultados["r1"]["erro"].lower()
+
+    # Conflito 2: transição inválida a partir do estado REAL (concluida).
+    assert resultados["s1"]["ok"] is False
+    assert resultados["s1"]["status"] == 422
+    assert "transição inválida" in resultados["s1"]["erro"].lower()
+
+    # Conflito 3: não aponta horas em O.S concluída.
+    assert resultados["play"]["ok"] is False
+    assert resultados["play"]["status"] == 400
+
+    # O estado no servidor permanece o que o gestor definiu.
+    detalhe = os_gestor_client.get(f"/api/os/{os_id}").json()
+    assert detalhe["status"] == "concluida"
+
+
+def test_sync_conflito_gestor_cancela_os_offline(os_gestor_client, os_campo_client, db_fake):
+    """Cancelamento pelo gestor enquanto o tablet está offline: a transição
+    divergente do tablet é rejeitada e a O.S permanece cancelada."""
+    from tests.test_os import _criar_os, _seed_cenario
+
+    _seed_cenario(db_fake)
+    _seed_modelos(db_fake)
+    os_id = _criar_os(os_gestor_client, equipe_id=100).json()["id"]
+    os_campo_client.put(f"/api/os/{os_id}/status", json={"novo_status": "aberta"})
+
+    resp = os_gestor_client.put(f"/api/os/{os_id}/status", json={"novo_status": "cancelada"})
+    assert resp.status_code == 200, resp.text
+
+    # Tablet ainda via a O.S 'aberta' e tenta liberar a execução.
+    itens = _itens(os_campo_client, os_id)
+    ops = [
+        _op("r1", "checklist_resposta", os_id, {"item_id": itens[0]["id"], "resposta": "sim"},
+            "2026-08-28T08:00:00Z"),
+        _op("s1", "status", os_id, {"novo_status": "em_andamento"}, "2026-08-28T08:05:00Z"),
+    ]
+    resp = _sync(os_campo_client, ops)
+    resultados = {r["id_local"]: r for r in resp.json()["resultados"]}
+    assert resultados["r1"]["ok"] is False
+    assert resultados["s1"]["ok"] is False
+    assert resultados["s1"]["status"] == 422
+
+    assert os_campo_client.get(f"/api/os/{os_id}").json()["status"] == "cancelada"
+
+
+def test_sync_resposta_duplicada_ultimo_vence(os_gestor_client, os_campo_client, db_fake):
+    """Gestor e campo responderam o MESMO item (upsert): a última operação
+    aplicada vence — comportamento documentado (conflito benigno)."""
+    from tests.test_os import _criar_os, _seed_cenario
+
+    _seed_cenario(db_fake)
+    _seed_modelos(db_fake)
+    os_id = _criar_os(os_gestor_client, equipe_id=100).json()["id"]
+    os_campo_client.put(f"/api/os/{os_id}/status", json={"novo_status": "aberta"})
+
+    itens = _itens(os_campo_client, os_id)
+    g1 = [i for i in itens if i["grupo"] == 1]
+
+    # Gestor responde 'sim' online; tablet responde 'nao' + justificativa depois.
+    resp = os_gestor_client.put(
+        f"/api/os/{os_id}/checklist/{g1[0]['id']}", json={"resposta": "sim"}
+    )
+    assert resp.status_code == 200
+
+    resp = _sync(os_campo_client, [_op("r1", "checklist_resposta", os_id,
+                                       {"item_id": g1[0]["id"], "resposta": "nao",
+                                        "justificativa": "Conferência refeita no local com novo resultado."},
+                                       "2026-08-28T10:00:00Z")])
+    assert resp.json()["resultados"][0]["ok"] is True
+
+    detalhe = os_campo_client.get(f"/api/os/{os_id}/checklist").json()
+    resposta = next(i["resposta"] for i in detalhe["itens"] if i["id"] == g1[0]["id"])
+    assert resposta["resposta"] == "nao"
+    assert resposta["justificativa"]

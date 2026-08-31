@@ -37,6 +37,8 @@ import Login from './pages/Login';
 import { MODULOS } from './modules';
 import { API_URL, apiFetch, getToken, setToken, clearToken, segundosAteExpiracao, renovarSessao } from './api';
 import ModalConfirmacao from './components/ModalConfirmacao';
+import { isModoCampo, setModoCampo } from './offline/offline';
+import { limparTudoLocal } from './offline/db';
 
 const ICONES = {
   dashboard: LayoutDashboard,
@@ -313,7 +315,17 @@ function App() {
   const notificacoesNaoLidas = notificacoes.filter(n => !n.lida).length;
   const totalSinos = notificacoesNaoLidas + alerts.length + sstAlerts.length;
 
+  // Tablet compartilhado: ao trocar de usuário o Modo Campo é encerrado e os
+  // dados locais (pacote, fila e fotos) são apagados do dispositivo.
+  const limparDispositivoSeModoCampo = () => {
+    if (isModoCampo()) {
+      setModoCampo(false);
+      limparTudoLocal().catch(() => { /* segue */ });
+    }
+  };
+
   const handleLogin = (user) => {
+    limparDispositivoSeModoCampo();
     if (user?.token) setToken(user.token);
     const { token, ...dadosUsuario } = user || {};
     localStorage.setItem('munaretto_usuario', JSON.stringify(dadosUsuario));
@@ -323,6 +335,7 @@ function App() {
   };
 
   const handleLogout = () => {
+    limparDispositivoSeModoCampo();
     clearToken();
     localStorage.removeItem('munaretto_usuario');
     setUsuario(null);
