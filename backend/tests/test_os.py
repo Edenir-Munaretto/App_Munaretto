@@ -621,3 +621,36 @@ def test_detalhe_nao_quebra_com_cronometro_aberto_de_timestamp_invalido(os_gesto
     detalhe = resp.json()
     assert detalhe["mao_de_obra"]["total_horas"] == 0
     assert detalhe["cronometro_aberto"] is not None
+
+
+def test_detalhe_tenta_novamente_em_falha_transitoria_de_conexao(os_gestor_client, db_fake, monkeypatch):
+    """Queda de conexão com o banco ('server disconnected') é transitória:
+    o detalhe da O.S deve ser tentado uma segunda vez antes de falhar."""
+    import routers.os as routers_os
+
+    _seed_cenario(db_fake)
+    os_id = _criar_os(os_gestor_client, equipe_id=100).json()["id"]
+
+    original = routers_os._obter_detalhe_os
+    chamadas = {"n": 0}
+
+    def _queimar_na_primeira(db, usuario, os_id):
+        chamadas["n"] += 1
+        if chamadas["n"] == 1:
+            raise RuntimeError("Server disconnected")
+        return original(db, usuario, os_id)
+
+    monkeypatch.setattr(routers_os, "_obter_detalhe_os", _queimar_na_primeira)
+
+    resp = os_gestor_client.get(f"/api/os/{os_id}")
+    assert resp.status_code == 200, resp.text
+    assert chamadas["n"] == 2
+
+    # Erro não-transitório (ex.: bug) não é repetido: falha direto.
+    def _falha_permanente(db, usuario, os_id):
+        raise RuntimeError("divisão por zero no cálculo")
+
+    monkeypatch.setattr(routers_os, "_obter_detalhe_os", _falha_permanente)
+    resp2 = os_gestor_client.get(f"/api/os/{os_id}")
+    assert resp2.status_code == 500
+    assert "divisão por zero" in resp2.json()["detail"]

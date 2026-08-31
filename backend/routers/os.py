@@ -732,67 +732,93 @@ def criar_os(payload: OSCreate, usuario: UsuarioAutenticado = Depends(get_curren
         raise HTTPException(status_code=500, detail="Erro ao criar Ordem de Serviço.") from None
 
 
+def _erro_conexao(exc: Exception) -> bool:
+    """Falhas transitórias de rede/HTTP (ex.: httpcore 'Server disconnected')
+    entre o backend e o Supabase — vale a pena tentar a requisição de novo."""
+    texto = str(exc).lower()
+    return any(
+        marca in texto
+        for marca in ("disconnected", "connection", "timeout", "timed out", "remote protocol", "network")
+    )
+
+
 @router.get("/{os_id}", summary="Detalhes completos da O.S")
 def detalhar_os(os_id: int, usuario: UsuarioAutenticado = Depends(get_current_user), db=Depends(get_supabase)):
     try:
-        # Com as relações de obra/cliente/equipe (exibidas no painel e no modo campo).
-        resp = (
-            db.table("ordens_servico")
-            .select("*, obras(id, nome, cliente_id, clientes(nome)), equipes(id, nome, numero)")
-            .eq("id", os_id)
-            .execute()
-        )
-        if not resp.data:
-            raise HTTPException(status_code=404, detail="Ordem de Serviço não encontrada.")
-        os_data = resp.data[0]
-        _garantir_acesso_os(db, usuario, os_data)
-
-        materiais = _resumo_materiais(db, os_id)
-        mao_de_obra = _resumo_mao_de_obra(db, os_id, os_data.get("custo_mo_orcado"))
-        historico = (
-            db.table("os_historico").select("*").eq("os_id", os_id).order("criado_em", desc=False).execute().data
-        )
-        fotos = (
-            db.table("os_fotos").select("id, nome_original, mime_type, created_at").eq("os_id", os_id).execute().data
-        )
-        apontamento_aberto = (
-            db.table("os_apontamentos").select("id, inicio").eq("os_id", os_id).is_("fim", "null").execute().data
-        )
-
-        # Itens orçados com nome do produto (usados na edição da O.S).
-        itens_orc = (
-            db.table("os_itens_orcados").select("produto_id, quantidade_orcada").eq("os_id", os_id).execute().data
-        )
-        prod_ids = sorted({i["produto_id"] for i in (itens_orc or [])})
-        nomes = {}
-        if prod_ids:
-            resp = db.table("produtos").select("id, nome, unidade").in_("id", prod_ids).execute()
-            nomes = {p["id"]: p for p in resp.data or []}
-        itens_orcados = [
-            {
-                "produto_id": i["produto_id"],
-                "quantidade_orcada": i["quantidade_orcada"],
-                "nome": (nomes.get(i["produto_id"]) or {}).get("nome"),
-                "unidade": (nomes.get(i["produto_id"]) or {}).get("unidade"),
-            }
-            for i in (itens_orc or [])
-        ]
-
-        return {
-            **os_data,
-            "materiais": materiais,
-            "mao_de_obra": mao_de_obra,
-            "historico": historico,
-            "fotos": fotos,
-            "itens_orcados": itens_orcados,
-            "cronometro_aberto": apontamento_aberto[0] if apontamento_aberto else None,
-            "checklist": resumo_checklist(db, os_id),
-        }
+        return _obter_detalhe_os(db, usuario, os_id)
     except HTTPException:
         raise
     except Exception as exc:
+        # Queda de conexão com o Supabase é transitória: tenta uma segunda vez
+        # antes de reportar o erro (comum ao recarregar o painel após o checklist).
+        if _erro_conexao(exc):
+            logger.warning("Falha de conexão ao detalhar O.S %s; tentando novamente.", os_id)
+            try:
+                return _obter_detalhe_os(db, usuario, os_id)
+            except HTTPException:
+                raise
+            except Exception as exc2:
+                logger.exception("Erro ao detalhar O.S %s (após retry)", os_id)
+                raise HTTPException(status_code=500, detail=f"Erro ao obter detalhes da O.S: {exc2}") from None
         logger.exception("Erro ao detalhar O.S %s", os_id)
         raise HTTPException(status_code=500, detail=f"Erro ao obter detalhes da O.S: {exc}") from None
+
+
+def _obter_detalhe_os(db, usuario: UsuarioAutenticado, os_id: int) -> dict:
+    """Monta o detalhe completo da O.S (chamado pelo endpoint, com retry de conexão)."""
+    # Com as relações de obra/cliente/equipe (exibidas no painel e no modo campo).
+    resp = (
+        db.table("ordens_servico")
+        .select("*, obras(id, nome, cliente_id, clientes(nome)), equipes(id, nome, numero)")
+        .eq("id", os_id)
+        .execute()
+    )
+    if not resp.data:
+        raise HTTPException(status_code=404, detail="Ordem de Serviço não encontrada.")
+    os_data = resp.data[0]
+    _garantir_acesso_os(db, usuario, os_data)
+
+    materiais = _resumo_materiais(db, os_id)
+    mao_de_obra = _resumo_mao_de_obra(db, os_id, os_data.get("custo_mo_orcado"))
+    historico = (
+        db.table("os_historico").select("*").eq("os_id", os_id).order("criado_em", desc=False).execute().data
+    )
+    fotos = (
+        db.table("os_fotos").select("id, nome_original, mime_type, created_at").eq("os_id", os_id).execute().data
+    )
+    apontamento_aberto = (
+        db.table("os_apontamentos").select("id, inicio").eq("os_id", os_id).is_("fim", "null").execute().data
+    )
+
+    # Itens orçados com nome do produto (usados na edição da O.S).
+    itens_orc = (
+        db.table("os_itens_orcados").select("produto_id, quantidade_orcada").eq("os_id", os_id).execute().data
+    )
+    prod_ids = sorted({i["produto_id"] for i in (itens_orc or [])})
+    nomes = {}
+    if prod_ids:
+        resp = db.table("produtos").select("id, nome, unidade").in_("id", prod_ids).execute()
+        nomes = {p["id"]: p for p in resp.data or []}
+    itens_orcados = [
+        {
+            "produto_id": i["produto_id"],
+            "quantidade_orcada": i["quantidade_orcada"],
+            "nome": (nomes.get(i["produto_id"]) or {}).get("nome"),
+            "unidade": (nomes.get(i["produto_id"]) or {}).get("unidade"),
+        }
+        for i in (itens_orc or [])
+    ]
+
+    return {
+        **os_data,
+        "materiais": materiais,
+        "mao_de_obra": mao_de_obra,
+        "historico": historico,
+        "fotos": fotos,
+        "itens_orcados": itens_orcados,
+        "cronometro_aberto": apontamento_aberto[0] if apontamento_aberto else None,
+        "checklist": resumo_checklist(db, os_id),
+    }
 
 
 @router.put("/{os_id}", summary="Edita dados da O.S")

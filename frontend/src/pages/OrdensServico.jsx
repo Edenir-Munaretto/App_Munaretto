@@ -1162,6 +1162,10 @@ function PainelExecucao({ osId, produtos, geolocalizacao, capturarGps, onFechar,
         setDetalhe(data);
         // Em Modo Campo, mantém o pacote local atualizado para o campo.
         if (isModoCampo()) salvarDetalheLocal(data);
+      } else if (res.status === 500 && tentativa === 0 && !usarLocal()) {
+        // Erros 500 no detalhe costumam ser transitórios (queda de conexão com
+        // o banco no servidor): tenta uma segunda vez antes de exibir o erro.
+        setTimeout(() => carregar(1), 1500);
       } else setErro(erroDaResposta(data, 'Erro ao carregar O.S.'));
     } catch {
       // Falhas de conexão costumam ser transitórias (cold start do servidor):
