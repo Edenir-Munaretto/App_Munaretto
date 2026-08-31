@@ -327,12 +327,24 @@ def _notificar_criador(db, os_data: dict, novo_status: str, ator_email: str | No
         logger.exception("Falha ao criar notificação para %s", destino)
 
 
+def _parse_ts(valor):
+    """Converte timestamp ISO do banco para datetime (tolerante a formatos
+    como '+00:00', 'Z', microsegundos). Retorna None se inválido."""
+    if not valor:
+        return None
+    try:
+        dt = datetime.fromisoformat(str(valor).replace("Z", "+00:00"))
+        return dt if dt.tzinfo else dt.replace(tzinfo=UTC)
+    except (ValueError, TypeError):
+        return None
+
+
 def _encerrar_apontamentos_abertos(db, os_id: int) -> None:
     """Ao concluir/cancelar uma O.S, fecha qualquer cronômetro esquecido aberto."""
     abertos = db.table("os_apontamentos").select("*").eq("os_id", os_id).is_("fim", "null").execute()
     for apt in abertos.data or []:
-        inicio = datetime.fromisoformat(apt["inicio"])
-        minutos = max(0, int(((_agora() - inicio).total_seconds()) // 60))
+        inicio = _parse_ts(apt.get("inicio"))
+        minutos = 0 if inicio is None else max(0, int(((_agora() - inicio).total_seconds()) // 60))
         db.table("os_apontamentos").update(
             {
                 "fim": _agora().isoformat(),
@@ -475,8 +487,9 @@ def _resumo_mao_de_obra(db, os_id: int, custo_mo_orcado: float) -> dict:
             minutos = int(apt["minutos_trabalhados"])
         else:
             # Cronômetro ainda aberto: conta o tempo decorrido até agora.
-            inicio = datetime.fromisoformat(apt["inicio"])
-            minutos = max(0, int(((agora - inicio).total_seconds()) // 60))
+            # Timestamp inválido/ausente não pode derrubar o detalhe da O.S.
+            inicio = _parse_ts(apt.get("inicio"))
+            minutos = 0 if inicio is None else max(0, int(((agora - inicio).total_seconds()) // 60))
         total_minutos += minutos
         acum = por_funcionario.setdefault(
             apt["funcionario_id"],
@@ -777,9 +790,9 @@ def detalhar_os(os_id: int, usuario: UsuarioAutenticado = Depends(get_current_us
         }
     except HTTPException:
         raise
-    except Exception:
+    except Exception as exc:
         logger.exception("Erro ao detalhar O.S %s", os_id)
-        raise HTTPException(status_code=500, detail="Erro ao obter detalhes da O.S.") from None
+        raise HTTPException(status_code=500, detail=f"Erro ao obter detalhes da O.S: {exc}") from None
 
 
 @router.put("/{os_id}", summary="Edita dados da O.S")

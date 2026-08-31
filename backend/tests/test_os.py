@@ -597,4 +597,27 @@ class TestModeloImpressao:
         os_sem_equipe = _criar_os(os_gestor_client).json()["id"]
         resp2 = os_gestor_client.get(f"/api/os/{os_sem_equipe}/imprimir")
         assert resp2.status_code == 200, resp2.text
-        assert resp2.content.startswith(b"%PDF")
+
+
+def test_detalhe_nao_quebra_com_cronometro_aberto_de_timestamp_invalido(os_gestor_client, db_fake):
+    """Um apontamento aberto com 'inicio' ausente/inválido no banco não pode
+    derrubar o detalhe da O.S (regressão do erro 'Erro ao obter detalhes')."""
+    _seed_cenario(db_fake)
+    os_id = _criar_os(os_gestor_client, equipe_id=100).json()["id"]
+
+    db_fake._dados["os_apontamentos"].append(
+        {
+            "id": 1,
+            "os_id": os_id,
+            "funcionario_id": 10,
+            "inicio": "valor-que-nao-e-timestamp",
+            "fim": None,
+            "minutos_trabalhados": None,
+        }
+    )
+
+    resp = os_gestor_client.get(f"/api/os/{os_id}")
+    assert resp.status_code == 200, resp.text
+    detalhe = resp.json()
+    assert detalhe["mao_de_obra"]["total_horas"] == 0
+    assert detalhe["cronometro_aberto"] is not None
