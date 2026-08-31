@@ -327,15 +327,7 @@ function Funcionarios({ usuarioAtual }) {
                   <tr key={f.id} className={`hover:bg-slate-50/50 transition-colors ${!f.ativo ? 'opacity-60' : ''}`}>
                     <td className="px-3 py-3 md:px-6 md:py-4 font-bold text-slate-900">{f.nome}</td>
                     <td className="px-3 py-3 md:px-6 md:py-4 font-mono text-xs">{f.cpf}</td>
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                <div className="sm:col-span-2">
-                  <p className="text-[11px] text-slate-400 font-semibold bg-slate-50 border border-slate-100 rounded-xl px-3.5 py-2.5">
-                    O vínculo com o login do responsável de equipe é feito em Configurações → Usuários.
-                  </p>
-                </div>
-              </div>
-
-              {temSst && (
+                    {temSst && (
                       <td className="px-3 py-3 md:px-6 md:py-4">
                         <div className="flex flex-wrap gap-1">
                           {f.cargo_id ? (
