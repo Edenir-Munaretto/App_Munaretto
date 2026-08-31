@@ -62,7 +62,10 @@ class ProdutoCreate(BaseModel):
     nome: str = Field(..., min_length=2, description="Nome/descrição do serviço")
     codigo: str | None = Field(None, description="SKU/código de barras p/ bipagem")
     unidade: str = Field("UN", max_length=20)
-    preco_unitario: float = Field(0, ge=0)
+    # Qtd USC (quantidade de unidades de serviço de construção) — a coluna
+    # física continua `preco_unitario` (reaproveitada); o valor é exibido como USC.
+    preco_unitario: float = Field(0, ge=0, description="Qtd USC")
+    qtd_usc_especial: float = Field(0, ge=0, description="Qtd USC especial (adicional)")
     # Contrato (tipo de O.S) dono do serviço: construcao, manutencao ou linha_viva.
     # Obrigatório ao criar/editar; NULL só existe em registros legados.
     tipo: str = Field(..., description="Contrato do serviço: 'construcao', 'manutencao' ou 'linha_viva'")
@@ -74,7 +77,8 @@ class ProdutoResponse(BaseModel):
     nome: str
     codigo: str | None = None
     unidade: str = "UN"
-    preco_unitario: float = 0
+    preco_unitario: float = 0  # Qtd USC
+    qtd_usc_especial: float = 0  # default do banco
     # NULL = legado (disponível em todos os contratos)
     tipo: str | None = None
 

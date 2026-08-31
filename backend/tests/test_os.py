@@ -739,10 +739,13 @@ def test_cadastro_servico_exige_contrato(os_gestor_client, db_fake):
 
     # Contrato válido → 201.
     resp = os_gestor_client.post(
-        "/api/os/produtos", json={"nome": "Serviço Construção", "unidade": "UN", "preco_unitario": 15, "tipo": "construcao"}
+        "/api/os/produtos", json={"nome": "Serviço Construção", "unidade": "UN", "preco_unitario": 15,
+                                  "qtd_usc_especial": 3, "tipo": "construcao"}
     )
     assert resp.status_code == 201, resp.text
     assert resp.json()["tipo"] == "construcao"
+    assert resp.json()["preco_unitario"] == 15
+    assert resp.json()["qtd_usc_especial"] == 3
 
 
 def test_listar_servicos_filtra_por_contrato_incluindo_legados(os_gestor_client, db_fake):

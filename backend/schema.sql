@@ -646,6 +646,9 @@ CREATE TABLE IF NOT EXISTS produtos (
 -- NULL = serviço legado, disponível em todos os contratos.
 ALTER TABLE IF EXISTS produtos ADD COLUMN IF NOT EXISTS tipo VARCHAR(20);
 
+-- Qtd USC especial (quantidade de unidades de serviço de construção adicionais).
+ALTER TABLE IF EXISTS produtos ADD COLUMN IF NOT EXISTS qtd_usc_especial NUMERIC(12, 2) DEFAULT 0;
+
 -- TABELA: ordens_servico
 -- `codigo` é gerado no backend no formato OS-<ANO>-<NNNN> (sequencial por ano).
 CREATE TABLE IF NOT EXISTS ordens_servico (

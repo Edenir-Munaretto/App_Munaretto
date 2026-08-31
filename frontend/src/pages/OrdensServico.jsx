@@ -620,7 +620,7 @@ function TabInsumos({ osDetalhe, produtos, onAtualizado, mostrarToast, podeEdita
                 className="w-full text-left px-3 py-2.5 hover:bg-primary-50 text-sm text-slate-700 flex justify-between gap-2"
               >
                 <span className="font-semibold truncate">{p.nome}</span>
-                <span className="text-xs text-slate-400 shrink-0">{p.unidade} · {brl(p.preco_unitario)}</span>
+                <span className="text-xs text-slate-400 shrink-0">{p.unidade} · USC {p.preco_unitario}{Number(p.qtd_usc_especial || 0) > 0 ? ` + ${p.qtd_usc_especial}` : ''}</span>
               </button>
             ))}
           </div>
@@ -2806,7 +2806,7 @@ function PainelCadastros({ obras, equipes, produtos, recarregar, mostrarToast })
   const [excluirEquipeAlvo, setExcluirEquipeAlvo] = useState(null);
 
   // Produtos (serviços por contrato)
-  const [novoProduto, setNovoProduto] = useState({ nome: '', codigo: '', unidade: 'UN', preco_unitario: '', tipo: '' });
+  const [novoProduto, setNovoProduto] = useState({ nome: '', codigo: '', unidade: 'UN', preco_unitario: '', qtd_usc_especial: '', tipo: '' });
   const [filtroProdutoLista, setFiltroProdutoLista] = useState('');
   const [filtroTipoProduto, setFiltroTipoProduto] = useState('todos');
   const [produtoEmEdicao, setProdutoEmEdicao] = useState(null);
@@ -2929,13 +2929,14 @@ function PainelCadastros({ obras, equipes, produtos, recarregar, mostrarToast })
       codigo: p.codigo || '',
       unidade: p.unidade || 'UN',
       preco_unitario: p.preco_unitario != null ? String(p.preco_unitario) : '',
+      qtd_usc_especial: p.qtd_usc_especial != null ? String(p.qtd_usc_especial) : '',
       tipo: p.tipo || '',
     });
   };
 
   const cancelarProdutoEdicao = () => {
     setProdutoEmEdicao(null);
-    setNovoProduto({ nome: '', codigo: '', unidade: 'UN', preco_unitario: '', tipo: '' });
+    setNovoProduto({ nome: '', codigo: '', unidade: 'UN', preco_unitario: '', qtd_usc_especial: '', tipo: '' });
   };
 
   const ABAS = [
@@ -3368,7 +3369,10 @@ function PainelCadastros({ obras, equipes, produtos, recarregar, mostrarToast })
                     )}
                     
                     <div className="text-emerald-600 font-bold mt-1 text-[11px]">
-                      {brl(p.preco_unitario)} <span className="text-slate-400 font-normal">/ {p.unidade}</span>
+                      Qtd USC: {p.preco_unitario} <span className="text-slate-400 font-normal">/ {p.unidade}</span>
+                      {Number(p.qtd_usc_especial || 0) > 0 && (
+                        <span className="text-violet-600 font-semibold ml-2">Especial: {p.qtd_usc_especial}</span>
+                      )}
                     </div>
 
                     <span className={`mt-1 text-[9px] font-bold px-2 py-0.5 rounded-full self-start ${
@@ -3391,13 +3395,15 @@ function PainelCadastros({ obras, equipes, produtos, recarregar, mostrarToast })
             </h4>
             
             <div className="space-y-3">
-              <CampoTexto label="Nome do serviço *" value={novoProduto.nome} onChange={e => setNovoProduto({ ...novoProduto, nome: e.target.value })} />
-              <CampoTexto label="Código (SKU)" value={novoProduto.codigo} onChange={e => setNovoProduto({ ...novoProduto, codigo: e.target.value })} />
+              <CampoTexto label="Serviço *" value={novoProduto.nome} onChange={e => setNovoProduto({ ...novoProduto, nome: e.target.value })} />
+              <CampoTexto label="Código" value={novoProduto.codigo} onChange={e => setNovoProduto({ ...novoProduto, codigo: e.target.value })} />
               <div className="grid grid-cols-2 gap-2">
                 <CampoTexto label="Unidade" value={novoProduto.unidade} onChange={e => setNovoProduto({ ...novoProduto, unidade: e.target.value })} />
-                <CampoTexto label="Preço Unitário (R$)" type="number" step="0.01" min="0" value={novoProduto.preco_unitario}
+                <CampoTexto label="Qtd USC" type="number" step="0.01" min="0" value={novoProduto.preco_unitario}
                   onChange={e => setNovoProduto({ ...novoProduto, preco_unitario: e.target.value })} />
               </div>
+              <CampoTexto label="Qtd USC especial" type="number" step="0.01" min="0" value={novoProduto.qtd_usc_especial}
+                onChange={e => setNovoProduto({ ...novoProduto, qtd_usc_especial: e.target.value })} />
               <div>
                 <label className="block text-xs font-bold text-slate-700 mb-1.5">Contrato *</label>
                 <select
@@ -3422,6 +3428,7 @@ function PainelCadastros({ obras, equipes, produtos, recarregar, mostrarToast })
                   codigo: novoProduto.codigo || null,
                   unidade: novoProduto.unidade || 'UN',
                   preco_unitario: Number(novoProduto.preco_unitario || 0),
+                  qtd_usc_especial: Number(novoProduto.qtd_usc_especial || 0),
                   tipo: novoProduto.tipo,
                 };
                 const ok = produtoEmEdicao
