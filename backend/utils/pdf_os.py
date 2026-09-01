@@ -156,26 +156,32 @@ def gerar_pdf_os(
     # --- Materiais -----------------------------------------------------------
     pdf._titulo_secao("MATERIAIS APLICADOS (USC)")
 
-    def _aplicado_com_tipo(item):
-        """Ex.: '4.8 N' ou '4.8 N + 6.7 E' (N = USC normal, E = USC especial)."""
-        normal = float(item.get("aplicado_normal") or 0)
-        especial = float(item.get("aplicado_especial") or 0)
-        unidade = item.get("unidade", "")
-        texto = f"{normal:g} N" if normal else ""
-        if especial > 0:
-            texto += f"{' + ' if texto else ''}{especial:g} E"
-        if not texto:
-            texto = f"{item.get('aplicado', 0):g}"
-        return f"{texto} {unidade}".strip()
+    rotulos_tipo = {"normal": "USC normal", "especial": "USC especial"}
 
-    linhas_mat = [
-        [
-            item.get("nome"),
-            _aplicado_com_tipo(item),
-        ]
-        for item in materiais.get("itens", [])
-    ]
-    pdf._tabela({"Produto": 80, "Aplicado (USC)": 70}, linhas_mat)
+    def _linha_material(item):
+        """Uma linha por (produto, tipo, fator) registrado no lançamento."""
+        linhas = []
+        for d in item.get("detalhe") or []:
+            nome = item.get("nome") or "Produto"
+            if d.get("tipo") != "normal":
+                nome = f"{nome} ({rotulos_tipo.get(d.get('tipo'), d.get('tipo'))})"
+            pecas = float(d.get("pecas") or 0)
+            fator = float(d.get("fator") or 0)
+            linhas.append(
+                [
+                    nome,
+                    f"{pecas:g}" if pecas > 0 else "—",
+                    f"{fator:g}" if fator > 0 else "—",
+                    f"{float(d.get('total') or 0):g} USC",
+                ]
+            )
+        # Legado: sem detalhe (dados antigos), mantém apenas o total real.
+        if not linhas and float(item.get("aplicado") or 0) > 0:
+            linhas.append([item.get("nome") or "Produto", "—", "—", f"{float(item['aplicado']):g} USC"])
+        return linhas
+
+    linhas_mat = [linha for item in materiais.get("itens", []) for linha in _linha_material(item)]
+    pdf._tabela({"Produto": 62, "Qtd serviços": 28, "USC unit.": 30, "Total USC": 35}, linhas_mat)
     pdf.set_font("Arial", "B", 9)
     pdf.cell(
         0,

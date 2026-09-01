@@ -410,11 +410,16 @@ def _validar_transicao_impedida(db, os_data: dict, payload: StatusUpdate) -> str
 def _resumo_materiais(db, os_id: int) -> dict:
     """Total aplicado por produto, com desdobramento por tipo de USC.
 
-    A quantidade já vem convertida para USC no lançamento (peças x fator);
-    não há custo em R$ — preco_unitario é a Qtd USC do cadastro, não um preço.
+    A quantidade já vem convertida para USC no lançamento (peças x fator) e o
+    resumo usa SEMPRE os valores registrados no lançamento (quantidade_pecas,
+    fator_usc) — mudanças posteriores no cadastro do serviço não alteram o
+    que já foi lançado.
     """
     aplicacoes = (
-        db.table("os_materiais").select("produto_id, quantidade_usada, tipo_usc").eq("os_id", os_id).execute()
+        db.table("os_materiais")
+        .select("produto_id, quantidade_usada, quantidade_pecas, fator_usc, tipo_usc")
+        .eq("os_id", os_id)
+        .execute()
     )
 
     # Catálogo dos produtos envolvidos (consulta única, sem N+1 e sem depender
@@ -438,16 +443,30 @@ def _resumo_materiais(db, os_id: int) -> dict:
                 "aplicado": 0.0,
                 "aplicado_normal": 0.0,
                 "aplicado_especial": 0.0,
+                # Linhas para o relatório: um item por (tipo, fator) registrado,
+                # para que "peças x USC unit." seja sempre fiel ao lançamento.
+                "detalhe": {},
             },
         )
         quantidade = float(lanc["quantidade_usada"])
+        tipo = lanc.get("tipo_usc") or "normal"
+        fator = float(lanc.get("fator_usc") or 0)
         p["aplicado"] += quantidade
-        if (lanc.get("tipo_usc") or "normal") == "especial":
+        if tipo == "especial":
             p["aplicado_especial"] += quantidade
         else:
             p["aplicado_normal"] += quantidade
 
+        linha = p["detalhe"].setdefault((tipo, fator), {"tipo": tipo, "fator": fator, "pecas": 0.0, "total": 0.0})
+        linha["pecas"] += float(lanc.get("quantidade_pecas") or 0)
+        linha["total"] += quantidade
+
     itens = sorted(por_produto.values(), key=lambda i: i["nome"] or "")
+    for p in itens:
+        p["aplicado"] = round(p["aplicado"], 3)
+        p["aplicado_normal"] = round(p["aplicado_normal"], 3)
+        p["aplicado_especial"] = round(p["aplicado_especial"], 3)
+        p["detalhe"] = sorted(p["detalhe"].values(), key=lambda d: (d["tipo"], d["fator"]))
     return {
         "itens": itens,
         "total_aplicado": round(sum(i["aplicado"] for i in itens), 3),

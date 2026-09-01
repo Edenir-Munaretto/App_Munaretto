@@ -419,6 +419,100 @@ class TestMateriaisEPermissao:
         quantidades = sorted(l["quantidade_usada"] for l in lancamentos)
         assert quantidades == [6.7, 80.0]  # 10x0.67 especial e 2x40 normal
 
+    def test_resumo_detalhe_nao_muda_com_cadastro_alterado(self, os_gestor_client, db_fake):
+        """O relatório usa o fator REGISTRADO no lançamento: alterar o cadastro
+        do serviço depois não muda o que já foi lançado."""
+        _seed_cenario(db_fake)
+        db_fake._dados["produtos"].append(
+            {
+                "id": 8,
+                "codigo": "ROCA-01",
+                "nome": "Limpeza ou Roçada de Capoeira",
+                "unidade": "UN",
+                "preco_unitario": 6.66,
+                "qtd_usc_especial": 0,
+                "tipo": "construcao",
+                "ativo": True,
+            }
+        )
+        os_id = _criar_os(os_gestor_client).json()["id"]
+        os_gestor_client.put(f"/api/os/{os_id}/status", json={"novo_status": "aberta"})
+
+        resp = os_gestor_client.post(
+            f"/api/os/{os_id}/materiais",
+            json={"produto_id": 8, "quantidade_usada": 2, "tipo_usc": "normal"},
+        )
+        assert resp.status_code == 201, resp.text
+        assert resp.json()["quantidade_usada"] == 13.32  # 2 x 6.66
+
+        # Mudança posterior no cadastro não pode alterar o lançamento registrado.
+        atualizado = os_gestor_client.put(
+            "/api/os/produtos/8",
+            json={
+                "nome": "Limpeza ou Roçada de Capoeira",
+                "codigo": "ROCA-01",
+                "unidade": "UN",
+                "preco_unitario": 9.99,
+                "qtd_usc_especial": 0,
+                "tipo": "construcao",
+            },
+        )
+        assert atualizado.status_code == 200, atualizado.text
+
+        item = next(
+            i for i in os_gestor_client.get(f"/api/os/{os_id}").json()["materiais"]["itens"] if i["produto_id"] == 8
+        )
+        assert item["aplicado"] == 13.32
+        assert item["aplicado_normal"] == 13.32
+        assert item["detalhe"] == [{"tipo": "normal", "fator": 6.66, "pecas": 2.0, "total": 13.32}]
+
+        # Relatório continua saindo com os valores registrados.
+        pdf = os_gestor_client.get(f"/api/os/{os_id}/pdf")
+        assert pdf.status_code == 200, pdf.text
+        assert pdf.content.startswith(b"%PDF")
+
+    def test_resumo_mistura_fatores_apos_mudanca_de_cadastro(self, os_gestor_client, db_fake):
+        """Cadastro alterado no meio da execução: o detalhe mantém uma linha por
+        fator registrado, cada uma consistente (peças x USC = total)."""
+        _seed_cenario(db_fake)
+        db_fake._dados["produtos"].append(
+            {
+                "id": 8,
+                "codigo": "ROCA-01",
+                "nome": "Limpeza ou Roçada de Capoeira",
+                "unidade": "UN",
+                "preco_unitario": 6.66,
+                "qtd_usc_especial": 0,
+                "tipo": "construcao",
+                "ativo": True,
+            }
+        )
+        os_id = _criar_os(os_gestor_client).json()["id"]
+        os_gestor_client.put(f"/api/os/{os_id}/status", json={"novo_status": "aberta"})
+
+        os_gestor_client.post(f"/api/os/{os_id}/materiais", json={"produto_id": 8, "quantidade_usada": 2})
+        os_gestor_client.put(
+            "/api/os/produtos/8",
+            json={
+                "nome": "Limpeza ou Roçada de Capoeira",
+                "codigo": "ROCA-01",
+                "unidade": "UN",
+                "preco_unitario": 9.99,
+                "qtd_usc_especial": 0,
+                "tipo": "construcao",
+            },
+        )
+        os_gestor_client.post(f"/api/os/{os_id}/materiais", json={"produto_id": 8, "quantidade_usada": 1})
+
+        item = next(
+            i for i in os_gestor_client.get(f"/api/os/{os_id}").json()["materiais"]["itens"] if i["produto_id"] == 8
+        )
+        assert item["aplicado"] == 23.31  # 13.32 + 9.99
+        assert item["detalhe"] == [
+            {"tipo": "normal", "fator": 6.66, "pecas": 2.0, "total": 13.32},
+            {"tipo": "normal", "fator": 9.99, "pecas": 1.0, "total": 9.99},
+        ]
+
     def test_lancamento_bloqueado_fora_de_execucao(self, os_gestor_client, db_fake):
         _seed_cenario(db_fake)
         os_id = _criar_os(os_gestor_client).json()["id"]  # rascunho
