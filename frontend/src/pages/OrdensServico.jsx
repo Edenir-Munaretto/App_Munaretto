@@ -144,12 +144,12 @@ function Toast({ toast }) {
 }
 
 function BarraMateriais({ os }) {
-  const apl = os.custo_materiais_aplicado;
+  const apl = os.total_materiais_aplicado;
   if (!apl) return null;
   return (
     <div className="mt-2 flex justify-between items-center text-[10px] font-semibold text-slate-500">
       <span>Serviços aplicados</span>
-      <span>{brl(apl)}</span>
+      <span>{apl} USC</span>
     </div>
   );
 }
@@ -732,7 +732,7 @@ function TabInsumos({ osDetalhe, produtos, onAtualizado, mostrarToast, podeEdita
           <Package size={18} />{salvando ? 'Salvando...' : 'Aplicar'}
         </button>
       </div>
-      {/* Resumo do serviço selecionado: total já aplicado */}
+      {/* Resumo do serviço selecionado: total já aplicado (USC) */}
       {selecionado && (() => {
         const item = (osDetalhe.materiais?.itens || []).find(i => i.produto_id === selecionado.id);
         const aplicado = item?.aplicado ?? 0;
@@ -740,15 +740,7 @@ function TabInsumos({ osDetalhe, produtos, onAtualizado, mostrarToast, podeEdita
           <div className="rounded-xl border px-3 py-2 text-xs flex flex-wrap gap-3 items-center -mt-1 bg-slate-50 border-slate-100">
             <span className="text-slate-500">Selecionado: <b className="text-slate-700">{selecionado.nome}</b> ({selecionado.unidade})</span>
             <span className="text-slate-400">│</span>
-            <span className="text-slate-500">Aplicado até agora: <b className="text-slate-700">{aplicado}</b></span>
-            {item && (Number(item.aplicado_especial || 0) > 0) && (
-              <>
-                <span className="text-slate-400">│</span>
-                <span className="text-slate-500">USC normal: <b>{item.aplicado_normal}</b></span>
-                <span className="text-slate-400">│</span>
-                <span className="text-violet-600 font-semibold">USC especial: <b>{item.aplicado_especial}</b></span>
-              </>
-            )}
+            <span className="text-slate-500">Aplicado até agora: <b className="text-slate-700">{aplicado} USC</b></span>
           </div>
         );
       })()}
@@ -760,16 +752,11 @@ function TabInsumos({ osDetalhe, produtos, onAtualizado, mostrarToast, podeEdita
             <div className="min-w-0">
               <p className="text-sm font-semibold text-slate-700 truncate">{item.nome}</p>
               <p className="text-xs text-slate-400">
-                {(() => {
-                  const partes = [];
-                  if (Number(item.aplicado_normal || 0) > 0) partes.push(`${item.aplicado_normal} N`);
-                  if (Number(item.aplicado_especial || 0) > 0) partes.push(`${item.aplicado_especial} E`);
-                  return (partes.length ? partes.join(' + ') : `${item.aplicado || 0}`) + ` ${item.unidade}`;
-                })()}
+                {item.aplicado} USC {item.unidade}
               </p>
             </div>
             <span className="text-xs font-bold shrink-0 text-slate-500">
-              {brl(item.custo_aplicado)}
+              {item.aplicado} USC
             </span>
           </div>
         ))}
@@ -782,27 +769,39 @@ function TabInsumos({ osDetalhe, produtos, onAtualizado, mostrarToast, podeEdita
       <div>
         <p className="text-xs font-bold text-slate-400 uppercase mb-1.5">Últimos lançamentos</p>
         <div className="space-y-1">
-          {(osDetalhe.lancamentos || []).slice(0, 8).map(l => (
-            <div key={l.id} className="flex items-center justify-between bg-white border border-slate-100 rounded-lg px-3 py-2">
-              <span className="text-xs text-slate-600 truncate flex items-center gap-2 min-w-0">
-                <span className="truncate">{fmtData(l.data_lancamento)} · {l.quantidade_usada} × {l.produtos?.nome || l.produto_nome || ''}</span>
-                {l.tipo_usc && (
-                  <span className={`shrink-0 text-[9px] font-bold px-1.5 py-0.5 rounded-full border ${
-                    l.tipo_usc === 'especial'
-                      ? 'bg-violet-50 text-violet-700 border-violet-200'
-                      : 'bg-primary-50 text-primary-700 border-primary-200'
-                  }`}>
-                    USC {l.tipo_usc === 'especial' ? 'especial' : 'normal'}
+          {(osDetalhe.lancamentos || []).slice(0, 8).map(l => {
+            const pecas = Number(l.quantidade_pecas || 0);
+            const fator = Number(l.fator_usc || 0);
+            const nome = l.produtos?.nome || l.produto_nome || '';
+            const rotuloTipo = l.tipo_usc === 'especial' ? 'USC especial' : 'USC normal';
+            const usaConta = pecas > 0 && fator > 0;
+            return (
+              <div key={l.id} className="flex items-center justify-between bg-white border border-slate-100 rounded-lg px-3 py-2 gap-2">
+                <span className="text-xs text-slate-600 min-w-0 truncate">
+                  <span className="truncate">
+                    {fmtData(l.data_lancamento)} · {nome} —{' '}
+                    {usaConta
+                      ? `${pecas} × ${rotuloTipo} (${fator}) = ${l.quantidade_usada} USC`
+                      : `${l.quantidade_usada} × ${nome}`}
                   </span>
+                  {l.tipo_usc && (
+                    <span className={`ml-1.5 shrink-0 text-[9px] font-bold px-1.5 py-0.5 rounded-full border ${
+                      l.tipo_usc === 'especial'
+                        ? 'bg-violet-50 text-violet-700 border-violet-200'
+                        : 'bg-primary-50 text-primary-700 border-primary-200'
+                    }`}>
+                      {rotuloTipo}
+                    </span>
+                  )}
+                </span>
+                {podeEstornar && (
+                  <button onClick={() => setEstornandoId(l.id)} className="text-slate-300 hover:text-rose-600 cursor-pointer shrink-0" title="Estornar">
+                    <Trash2 size={14} />
+                  </button>
                 )}
-              </span>
-              {podeEstornar && (
-                <button onClick={() => setEstornandoId(l.id)} className="text-slate-300 hover:text-rose-600 cursor-pointer" title="Estornar">
-                  <Trash2 size={14} />
-                </button>
-              )}
-            </div>
-          ))}
+              </div>
+            );
+          })}
           {!(osDetalhe.lancamentos || []).length && (
             <p className="text-xs text-slate-400">Sem lançamentos individuais.</p>
           )}
@@ -1387,7 +1386,7 @@ function PainelExecucao({ osId, produtos, geolocalizacao, capturarGps, onFechar,
         </div>
         <div className="bg-amber-50 rounded-xl p-2.5 border border-amber-100">
           <p className="text-[9px] font-bold text-amber-600 uppercase">Materiais</p>
-          <p className="text-sm font-extrabold text-amber-800">{brl(mat.total_aplicado_rs)}</p>
+          <p className="text-sm font-extrabold text-amber-800">{mat.total_aplicado ?? 0} USC</p>
         </div>
       </div>
 

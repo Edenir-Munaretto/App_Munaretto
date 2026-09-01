@@ -97,7 +97,7 @@ def gerar_pdf_os(
 ) -> str:
     """Monta o PDF da O.S e retorna o caminho temporário do arquivo."""
     historico = historico or []
-    materiais = materiais or {"itens": [], "total_aplicado_rs": 0}
+    materiais = materiais or {"itens": [], "total_aplicado": 0}
     mao_de_obra = mao_de_obra or {}
 
     def brl(valor) -> str:
@@ -154,7 +154,7 @@ def gerar_pdf_os(
     pdf._tabela({"Data/Hora": 30, "Transição": 45, "Justificativa": 70, "Usuário": 40}, linhas_hist)
 
     # --- Materiais -----------------------------------------------------------
-    pdf._titulo_secao("MATERIAIS APLICADOS")
+    pdf._titulo_secao("MATERIAIS APLICADOS (USC)")
 
     def _aplicado_com_tipo(item):
         """Ex.: '4.8 N' ou '4.8 N + 6.7 E' (N = USC normal, E = USC especial)."""
@@ -172,16 +172,15 @@ def gerar_pdf_os(
         [
             item.get("nome"),
             _aplicado_com_tipo(item),
-            brl(item.get("custo_aplicado")),
         ]
         for item in materiais.get("itens", [])
     ]
-    pdf._tabela({"Produto": 70, "Aplicado": 55, "Custo aplicado": 40}, linhas_mat)
+    pdf._tabela({"Produto": 80, "Aplicado (USC)": 70}, linhas_mat)
     pdf.set_font("Arial", "B", 9)
     pdf.cell(
         0,
         7,
-        f"Total aplicado: {brl(materiais.get('total_aplicado_rs'))}",
+        f"Total aplicado: {materiais.get('total_aplicado', 0):g} USC",
         ln=True,
     )
 

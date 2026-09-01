@@ -407,30 +407,24 @@ def _validar_transicao_impedida(db, os_data: dict, payload: StatusUpdate) -> str
     return justificativa
 
 
-def _precos_dos_produtos(db, produto_ids) -> dict:
-    """Mapa {id: preco_unitario} em consulta única (evita N+1)."""
-    ids = sorted({pid for pid in produto_ids if pid})
-    if not ids:
-        return {}
-    resp = db.table("produtos").select("id, preco_unitario").in_("id", ids).execute()
-    return {p["id"]: float(p.get("preco_unitario") or 0) for p in resp.data or []}
-
-
 def _resumo_materiais(db, os_id: int) -> dict:
-    """Total aplicado por produto, com desdobramento por tipo de USC."""
+    """Total aplicado por produto, com desdobramento por tipo de USC.
+
+    A quantidade já vem convertida para USC no lançamento (peças x fator);
+    não há custo em R$ — preco_unitario é a Qtd USC do cadastro, não um preço.
+    """
     aplicacoes = (
         db.table("os_materiais").select("produto_id, quantidade_usada, tipo_usc").eq("os_id", os_id).execute()
     )
 
-    # Catálogo e preços dos produtos envolvidos (consultas únicas, sem N+1
-    # e sem depender de embedded resources do PostgREST).
+    # Catálogo dos produtos envolvidos (consulta única, sem N+1 e sem depender
+    # de embedded resources do PostgREST).
     todos_ids = [m["produto_id"] for m in (aplicacoes.data or [])]
     catalogo = {}
     ids_unicos = sorted(set(todos_ids))
     if ids_unicos:
         resp = db.table("produtos").select("id, nome, unidade").in_("id", ids_unicos).execute()
         catalogo = {p["id"]: p for p in resp.data or []}
-    precos = _precos_dos_produtos(db, todos_ids)
 
     por_produto = {}
     for lanc in aplicacoes.data or []:
@@ -441,7 +435,6 @@ def _resumo_materiais(db, os_id: int) -> dict:
                 "produto_id": pid,
                 "nome": (catalogo.get(pid) or {}).get("nome") or "Produto",
                 "unidade": (catalogo.get(pid) or {}).get("unidade") or "-",
-                "preco_unitario": precos.get(pid, 0),
                 "aplicado": 0.0,
                 "aplicado_normal": 0.0,
                 "aplicado_especial": 0.0,
@@ -454,16 +447,10 @@ def _resumo_materiais(db, os_id: int) -> dict:
         else:
             p["aplicado_normal"] += quantidade
 
-    itens = []
-    total_aplicado_rs = 0.0
-    for p in por_produto.values():
-        custo_aplicado = p["aplicado"] * p["preco_unitario"]
-        total_aplicado_rs += custo_aplicado
-        itens.append({**p, "custo_aplicado": round(custo_aplicado, 2)})
-
+    itens = sorted(por_produto.values(), key=lambda i: i["nome"] or "")
     return {
-        "itens": sorted(itens, key=lambda i: i["nome"] or ""),
-        "total_aplicado_rs": round(total_aplicado_rs, 2),
+        "itens": itens,
+        "total_aplicado": round(sum(i["aplicado"] for i in itens), 3),
     }
 
 
@@ -630,12 +617,12 @@ def listar_os(
         )
 
         # Contadores "Materiais aplicados" por O.S em UMA viagem só (evita
-        # N+1 no frontend): soma o custo de cada item (qtde x preço unitário).
+        # N+1 no frontend): soma da quantidade aplicada em USC (já convertida).
         if dados:
             os_ids = [d["id"] for d in dados]
             aplicacoes = (
                 db.table("os_materiais")
-                .select("os_id, quantidade_usada, produtos(preco_unitario)")
+                .select("os_id, quantidade_usada")
                 .in_("os_id", os_ids)
                 .execute()
                 .data
@@ -644,13 +631,12 @@ def listar_os(
             fotos_count = {}
             for f in fotos or []:
                 fotos_count[f["os_id"]] = fotos_count.get(f["os_id"], 0) + 1
-            custo_aplicado = {}
+            total_aplicado = {}
             for m in aplicacoes or []:
-                preco = float((m.get("produtos") or {}).get("preco_unitario") or 0)
-                custo_aplicado[m["os_id"]] = custo_aplicado.get(m["os_id"], 0) + float(m["quantidade_usada"]) * preco
+                total_aplicado[m["os_id"]] = total_aplicado.get(m["os_id"], 0.0) + float(m["quantidade_usada"])
 
             for d in dados:
-                d["custo_materiais_aplicado"] = round(custo_aplicado.get(d["id"], 0.0), 2)
+                d["total_materiais_aplicado"] = round(total_aplicado.get(d["id"], 0.0), 3)
                 d["fotos_count"] = fotos_count.get(d["id"], 0)
 
         return dados
@@ -774,7 +760,10 @@ def _obter_detalhe_os(db, usuario: UsuarioAutenticado, os_id: int) -> dict:
     )
     ultimos_lancamentos = (
         db.table("os_materiais")
-        .select("id, produto_id, quantidade_usada, tipo_usc, data_lancamento, produtos(nome, unidade)")
+        .select(
+            "id, produto_id, quantidade_usada, quantidade_pecas, fator_usc, tipo_usc, data_lancamento, "
+            "produtos(nome, unidade)"
+        )
         .eq("os_id", os_id)
         .order("data_lancamento", desc=True)
         .limit(10)
@@ -1424,6 +1413,8 @@ def lancar_material(
                     "os_id": os_id,
                     "produto_id": payload.produto_id,
                     "quantidade_usada": quantidade,
+                    "quantidade_pecas": payload.quantidade_usada,
+                    "fator_usc": round(fator_usc, 3),
                     "tipo_usc": tipo_usc,
                     "usuario_email": usuario.email,
                     "observacao": payload.observacao,

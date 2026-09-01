@@ -707,6 +707,11 @@ CREATE TABLE IF NOT EXISTS os_materiais (
 -- gravada já vem convertida (peças x fator do cadastro do produto).
 ALTER TABLE IF EXISTS os_materiais ADD COLUMN IF NOT EXISTS tipo_usc VARCHAR(10) NOT NULL DEFAULT 'normal';
 
+-- Peças aplicadas (sem conversão) e o fator USC usado no lançamento, para
+-- reconstruir a conta "peças x USC = total" na listagem do lançamento.
+ALTER TABLE IF EXISTS os_materiais ADD COLUMN IF NOT EXISTS quantidade_pecas NUMERIC(12, 3) NOT NULL DEFAULT 0;
+ALTER TABLE IF EXISTS os_materiais ADD COLUMN IF NOT EXISTS fator_usc NUMERIC(12, 3) NOT NULL DEFAULT 0;
+
 -- TABELA: os_apontamentos (H.H.: Play/Pause por membro da equipe)
 -- Cada linha é um bloco de trabalho: `inicio` no Play, `fim`/`minutos` no Pause.
 -- Custo Real de M.O. = SUM(minutos) x funcionarios.valor_hora / 60.

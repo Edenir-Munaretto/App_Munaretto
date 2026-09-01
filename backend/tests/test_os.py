@@ -284,7 +284,7 @@ class TestMateriaisEPermissao:
         assert item["aplicado"] == 160.0
         assert item["aplicado_normal"] == 160.0
         assert item["aplicado_especial"] == 0.0
-        assert resumo["total_aplicado_rs"] == 6400.0  # 160 x R$ 40
+        assert resumo["total_aplicado"] == 160.0
 
     def test_lancamento_usc_especial_converte(self, os_gestor_client, db_fake):
         _seed_cenario(db_fake)
@@ -309,6 +309,8 @@ class TestMateriaisEPermissao:
         assert resp.status_code == 201, resp.text
         assert resp.json()["quantidade_usada"] == 6.7  # 10 x 0.67
         assert resp.json()["tipo_usc"] == "especial"
+        assert resp.json()["quantidade_pecas"] == 10
+        assert resp.json()["fator_usc"] == 0.67
 
         item = next(i for i in os_gestor_client.get(f"/api/os/{os_id}").json()["materiais"]["itens"] if i["produto_id"] == 8)
         assert item["aplicado"] == 6.7
@@ -337,6 +339,8 @@ class TestMateriaisEPermissao:
         )
         assert resp.status_code == 201, resp.text
         assert resp.json()["quantidade_usada"] == 4.8  # 10 x 0.48
+        assert resp.json()["quantidade_pecas"] == 10
+        assert resp.json()["fator_usc"] == 0.48
 
     def test_lancamento_usc_zero_mantem_quantidade_bruta(self, os_gestor_client, db_fake):
         _seed_cenario(db_fake)
@@ -361,6 +365,8 @@ class TestMateriaisEPermissao:
         assert resp.status_code == 201, resp.text
         assert resp.json()["quantidade_usada"] == 3  # sem fator, mantém o bruto
         assert resp.json()["tipo_usc"] == "normal"
+        assert resp.json()["quantidade_pecas"] == 3
+        assert resp.json()["fator_usc"] == 0
 
     def test_lancamento_especial_sem_cadastro_rejeitado(self, os_gestor_client, db_fake):
         _seed_cenario(db_fake)
