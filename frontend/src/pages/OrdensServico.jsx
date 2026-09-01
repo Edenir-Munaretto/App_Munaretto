@@ -1430,34 +1430,34 @@ function PainelExecucao({ osId, produtos, geolocalizacao, capturarGps, onFechar,
           transicoesMap={transicoes}
           onAbrirChecklist={() => setAba('checklist')}
           mostrarToast={mostrarToast}
-        />        <div className={`grid gap-2 ${ehGestor ? 'grid-cols-2' : 'grid-cols-2'}`}>
-          {ehGestor && (
+        />        {ehGestor && (
+          <div className="grid gap-2 grid-cols-2">
             <button
               onClick={() => onEditar(detalhe)}
               className="h-11 rounded-xl border border-slate-200 text-slate-600 text-xs font-bold flex items-center justify-center gap-1.5 hover:bg-slate-50 cursor-pointer"
             >
               <Pencil size={14} /> Editar
             </button>
-          )}
-          <button
-            onClick={() => abrirPdf(`/os/${detalhe.id}/imprimir`)}
-            className="h-11 rounded-xl bg-primary-600 text-white text-xs font-bold flex items-center justify-center gap-1.5 hover:bg-primary-700 cursor-pointer"
-          >
-            <Printer size={14} /> Imprimir O.S
-          </button>
-          <button
-            onClick={() => abrirPdf(`/os/${detalhe.id}/pdf`)}
-            className="h-11 rounded-xl border border-slate-200 text-slate-600 text-xs font-bold flex items-center justify-center gap-1.5 hover:bg-slate-50 cursor-pointer"
-          >
-            <FileDown size={14} /> Relatório
-          </button>
-          <button
-            onClick={() => abrirPdf(`/os/${detalhe.id}/checklist/report`)}
-            className="h-11 rounded-xl border border-slate-200 text-slate-600 text-xs font-bold flex items-center justify-center gap-1.5 hover:bg-slate-50 cursor-pointer"
-          >
-            <ListChecks size={14} /> Checklist PDF
-          </button>
-        </div>
+            <button
+              onClick={() => abrirPdf(`/os/${detalhe.id}/imprimir`)}
+              className="h-11 rounded-xl bg-primary-600 text-white text-xs font-bold flex items-center justify-center gap-1.5 hover:bg-primary-700 cursor-pointer"
+            >
+              <Printer size={14} /> Imprimir O.S
+            </button>
+            <button
+              onClick={() => abrirPdf(`/os/${detalhe.id}/pdf`)}
+              className="h-11 rounded-xl border border-slate-200 text-slate-600 text-xs font-bold flex items-center justify-center gap-1.5 hover:bg-slate-50 cursor-pointer"
+            >
+              <FileDown size={14} /> Relatório
+            </button>
+            <button
+              onClick={() => abrirPdf(`/os/${detalhe.id}/checklist/report`)}
+              className="h-11 rounded-xl border border-slate-200 text-slate-600 text-xs font-bold flex items-center justify-center gap-1.5 hover:bg-slate-50 cursor-pointer"
+            >
+              <ListChecks size={14} /> Checklist PDF
+            </button>
+          </div>
+        )}
       </div>
     </>
   );
