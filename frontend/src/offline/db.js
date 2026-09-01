@@ -4,17 +4,19 @@
 //   - os          : detalhe completo da O.S            (keyPath: os_id)
 //   - checklist   : {os_id, itens, resumo}             (keyPath: os_id)
 //   - os_lista    : itens do Kanban (resumo da lista)  (keyPath: os_id)
+//   - produtos    : catálogo de serviços (lançamento)  (keyPath: id)
 //   - fila        : operações aguardando sincronização (keyPath: id_local)
 //   - fotos       : evidências tiradas offline (Blob)  (keyPath: id_local)
 //   - meta        : metadados (pacote de campo etc.)   (keyPath: chave)
 
 const DB_NAME = 'munaretto-campo';
-const DB_VERSION = 1;
+const DB_VERSION = 2;
 
 const STORES = {
   os: 'os_id',
   checklist: 'os_id',
   os_lista: 'os_id',
+  produtos: 'id',
   fila: 'id_local',
   fotos: 'id_local',
   meta: 'chave',

@@ -549,6 +549,22 @@ class TestMateriaisEPermissao:
         resp = os_campo_client.post(f"/api/os/{os_id}/materiais", json={"produto_id": 7, "quantidade_usada": 1})
         assert resp.status_code == 400
 
+    def test_campo_lanca_material_em_os_impedida(self, os_gestor_client, os_campo_client, db_fake):
+        _seed_cenario(db_fake)
+        os_id = _criar_os(os_gestor_client, equipe_id=100).json()["id"]
+        assert os_gestor_client.put(f"/api/os/{os_id}/status", json={"novo_status": "aberta"}).status_code == 200
+        assert os_gestor_client.put(f"/api/os/{os_id}/status", json={"novo_status": "em_andamento"}).status_code == 200
+        _anexar_foto_via_banco(db_fake, os_id)
+        resp = os_gestor_client.put(
+            f"/api/os/{os_id}/status",
+            json={"novo_status": "impedida", "justificativa": "Chuva forte inviabilizou o serviço hoje.", "fotos_ids": [900]},
+        )
+        assert resp.status_code == 200, resp.text
+
+        lanc = os_campo_client.post(f"/api/os/{os_id}/materiais", json={"produto_id": 7, "quantidade_usada": 2})
+        assert lanc.status_code == 201, lanc.text
+        assert lanc.json()["quantidade_usada"] == 80.0  # 2 x 40
+
     def test_campo_nao_acessa_os_de_outra_equipe(self, os_gestor_client, os_campo_client, db_fake):
         _seed_cenario(db_fake)
         # O gestor cria as O.S; o campo só acessa a da própria equipe (100).
@@ -644,9 +660,12 @@ class TestMateriaisEPermissao:
 
     def test_campo_nao_acessa_cadastros_de_apoio(self, os_campo_client, db_fake):
         _seed_cenario(db_fake)
+        # O catálogo de serviços é necessário ao campo (lançamento na O.S);
+        # obras/equipes e mutações continuam restritas ao gestor.
+        assert os_campo_client.get("/api/os/produtos").status_code == 200
         assert os_campo_client.get("/api/os/obras").status_code == 403
         assert os_campo_client.get("/api/os/equipes").status_code == 403
-        assert os_campo_client.get("/api/os/produtos").status_code == 403
+        assert os_campo_client.post("/api/os/produtos", json={"nome": "X", "tipo": "construcao"}).status_code == 403
 
     def test_campo_nao_edita_os(self, os_gestor_client, os_campo_client, db_fake):
         _seed_cenario(db_fake)

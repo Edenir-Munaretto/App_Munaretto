@@ -9,10 +9,14 @@ import logging
 from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel, Field
 
-from auth import require_permisao
+from auth import require_permisao, require_qualquer_permisao
 from supabase_client import get_supabase
 
-router = APIRouter(dependencies=[Depends(require_permisao("os"))])
+# Catálogo de produtos é leitura necessária ao usuário de campo (lançamento de
+# serviços na O.S); as demais operações de cadastro seguem restritas ao gestor.
+router = APIRouter(dependencies=[Depends(require_qualquer_permisao(["os", "os_campo"]))])
+
+GESTOR_ONLY = [Depends(require_permisao("os"))]
 
 logger = logging.getLogger(__name__)
 
@@ -133,7 +137,7 @@ def _membros_da_equipe(db, equipe_id: int) -> list[dict]:
 # ---------------------------------------------------------------------------
 
 
-@router.get("/obras", response_model=list[ObraResponse])
+@router.get("/obras", response_model=list[ObraResponse], dependencies=GESTOR_ONLY)
 def listar_obras(
     busca: str | None = Query(None),
     incluir_inativas: bool = False,
@@ -152,7 +156,7 @@ def listar_obras(
         raise HTTPException(status_code=500, detail="Erro ao listar obras.") from None
 
 
-@router.post("/obras", response_model=ObraResponse, status_code=201)
+@router.post("/obras", response_model=ObraResponse, status_code=201, dependencies=GESTOR_ONLY)
 def criar_obra(obra: ObraCreate, db=Depends(get_supabase)):
     try:
         _obter_ou_404(db, "clientes", obra.cliente_id, "Cliente")
@@ -167,7 +171,7 @@ def criar_obra(obra: ObraCreate, db=Depends(get_supabase)):
         raise HTTPException(status_code=500, detail="Erro ao criar obra.") from None
 
 
-@router.put("/obras/{obra_id}", response_model=ObraResponse)
+@router.put("/obras/{obra_id}", response_model=ObraResponse, dependencies=GESTOR_ONLY)
 def atualizar_obra(obra_id: int, obra: ObraCreate, db=Depends(get_supabase)):
     try:
         _obter_ou_404(db, "obras", obra_id, "Obra")
@@ -183,7 +187,7 @@ def atualizar_obra(obra_id: int, obra: ObraCreate, db=Depends(get_supabase)):
         raise HTTPException(status_code=500, detail="Erro ao atualizar obra.") from None
 
 
-@router.delete("/obras/{obra_id}")
+@router.delete("/obras/{obra_id}", dependencies=GESTOR_ONLY)
 def excluir_obra(obra_id: int, db=Depends(get_supabase)):
     """Exclusão lógica: mantém o histórico de O.S íntegro."""
     try:
@@ -206,7 +210,7 @@ def excluir_obra(obra_id: int, db=Depends(get_supabase)):
 # ---------------------------------------------------------------------------
 
 
-@router.get("/equipes", response_model=list[EquipeResponse])
+@router.get("/equipes", response_model=list[EquipeResponse], dependencies=GESTOR_ONLY)
 def listar_equipes(db=Depends(get_supabase)):
     try:
         equipes = db.table("equipes").select("*").order("nome").execute().data
@@ -224,7 +228,7 @@ def listar_equipes(db=Depends(get_supabase)):
         raise HTTPException(status_code=500, detail="Erro ao listar equipes.") from None
 
 
-@router.post("/equipes", response_model=EquipeResponse, status_code=201)
+@router.post("/equipes", response_model=EquipeResponse, status_code=201, dependencies=GESTOR_ONLY)
 def criar_equipe(equipe: EquipeCreate, db=Depends(get_supabase)):
     try:
         dup = db.table("equipes").select("id").eq("nome", equipe.nome).execute()
@@ -256,7 +260,7 @@ def criar_equipe(equipe: EquipeCreate, db=Depends(get_supabase)):
         raise HTTPException(status_code=500, detail="Erro ao criar equipe.") from None
 
 
-@router.put("/equipes/{equipe_id}", response_model=EquipeResponse)
+@router.put("/equipes/{equipe_id}", response_model=EquipeResponse, dependencies=GESTOR_ONLY)
 def atualizar_equipe(equipe_id: int, equipe: EquipeCreate, db=Depends(get_supabase)):
     try:
         _obter_ou_404(db, "equipes", equipe_id, "Equipe")
@@ -285,7 +289,7 @@ def atualizar_equipe(equipe_id: int, equipe: EquipeCreate, db=Depends(get_supaba
         raise HTTPException(status_code=500, detail="Erro ao atualizar equipe.") from None
 
 
-@router.delete("/equipes/{equipe_id}")
+@router.delete("/equipes/{equipe_id}", dependencies=GESTOR_ONLY)
 def excluir_equipe(equipe_id: int, db=Depends(get_supabase)):
     try:
         _obter_ou_404(db, "equipes", equipe_id, "Equipe")
@@ -337,7 +341,7 @@ def listar_produtos(
         raise HTTPException(status_code=500, detail="Erro ao listar serviços.") from None
 
 
-@router.post("/produtos", response_model=ProdutoResponse, status_code=201)
+@router.post("/produtos", response_model=ProdutoResponse, status_code=201, dependencies=GESTOR_ONLY)
 def criar_produto(produto: ProdutoCreate, db=Depends(get_supabase)):
     try:
         _validar_tipo_servico(produto.tipo)
@@ -356,7 +360,7 @@ def criar_produto(produto: ProdutoCreate, db=Depends(get_supabase)):
         raise HTTPException(status_code=500, detail="Erro ao criar serviço.") from None
 
 
-@router.put("/produtos/{produto_id}", response_model=ProdutoResponse)
+@router.put("/produtos/{produto_id}", response_model=ProdutoResponse, dependencies=GESTOR_ONLY)
 def atualizar_produto(produto_id: int, produto: ProdutoCreate, db=Depends(get_supabase)):
     try:
         _obter_ou_404(db, "produtos", produto_id, "Serviço")
@@ -372,7 +376,7 @@ def atualizar_produto(produto_id: int, produto: ProdutoCreate, db=Depends(get_su
         raise HTTPException(status_code=500, detail="Erro ao atualizar serviço.") from None
 
 
-@router.delete("/produtos/{produto_id}")
+@router.delete("/produtos/{produto_id}", dependencies=GESTOR_ONLY)
 def excluir_produto(produto_id: int, db=Depends(get_supabase)):
     try:
         _obter_ou_404(db, "produtos", produto_id, "Serviço")

@@ -13,6 +13,7 @@ const LABEL_TIPO = {
   status: 'Transição de status',
   apontamento_play: 'Início de H.H.',
   apontamento_pause: 'Pausa de H.H.',
+  material: 'Lançamento de serviço',
 };
 
 function fmtHora(iso) {
@@ -237,6 +238,12 @@ function ModalPendenciasSync({
                       {op.tipo === 'status' && op.payload?.novo_status && (
                         <p className="text-[10px] text-slate-500 font-semibold mt-0.5">
                           → {String(op.payload.novo_status).replace(/_/g, ' ')}
+                        </p>
+                      )}
+                      {op.tipo === 'material' && (
+                        <p className="text-[10px] text-slate-500 font-semibold mt-0.5">
+                          Serviço #{op.payload?.produto_id} · {op.payload?.quantidade_usada} peça(s) ·{' '}
+                          USC {op.payload?.tipo_usc === 'especial' ? 'especial' : 'normal'}
                         </p>
                       )}
                       <div className="flex items-center gap-2 mt-1 flex-wrap">

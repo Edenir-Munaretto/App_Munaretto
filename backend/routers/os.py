@@ -199,12 +199,21 @@ class ApontamentoAcao(BaseModel):
 # ---------------------------------------------------------------------------
 # Operações aceitas no lote de sincronização enviado pelo tablet ao voltar
 # para a base. Cada operação é revalidada no servidor na ordem cronológica.
-TIPOS_SYNC_VALIDOS = {"checklist_resposta", "status", "apontamento_play", "apontamento_pause"}
+TIPOS_SYNC_VALIDOS = {
+    "checklist_resposta",
+    "status",
+    "apontamento_play",
+    "apontamento_pause",
+    "material",
+}
 
 
 class OperacaoSyncIn(BaseModel):
     id_local: str = Field(..., max_length=64, description="Identificador local único da operação (uuid do tablet)")
-    tipo: str = Field(..., description="'checklist_resposta', 'status', 'apontamento_play' ou 'apontamento_pause'")
+    tipo: str = Field(
+        ...,
+        description="'checklist_resposta', 'status', 'apontamento_play', 'apontamento_pause' ou 'material'",
+    )
     os_id: int
     criado_em: str | None = Field(None, description="Timestamp ISO no momento em que a ação foi feita no dispositivo")
     payload: dict = Field(default_factory=dict)
@@ -1203,6 +1212,7 @@ def sincronizar(
       - status             : {novo_status, justificativa?, fotos_ids?, geolocalizacao?}
       - apontamento_play   : {geolocalizacao?, inicio?} — inicio: hora REAL do play
       - apontamento_pause  : {geolocalizacao?, fim?} — fim: hora REAL do pause
+      - material           : {produto_id, quantidade_usada, tipo_usc?}
     """
     resultados = []
     if not payload.operacoes:
@@ -1264,6 +1274,17 @@ def sincronizar(
                         justificativa=op.payload.get("justificativa"),
                         fotos_ids=fotos_ids,
                         geolocalizacao=op.payload.get("geolocalizacao"),
+                    ),
+                    usuario,
+                    db,
+                )
+            elif op.tipo == "material":
+                dados = lancar_material(
+                    op.os_id,
+                    MaterialLancamento(
+                        produto_id=op.payload.get("produto_id"),
+                        quantidade_usada=op.payload.get("quantidade_usada"),
+                        tipo_usc=op.payload.get("tipo_usc", "normal"),
                     ),
                     usuario,
                     db,
@@ -1389,18 +1410,18 @@ def lancar_material(
     try:
         os_data = _os_ou_404(db, os_id)
         _garantir_acesso_os(db, usuario, os_data)
-        # Lançamentos fazem sentido apenas com serviço em execução (ou aberto).
-        # O gestor pode lançar mesmo em O.S encerrada (ajustes pós-conclusão);
-        # o rascunho permanece bloqueado para todos.
+        # O campo lança em O.S em execução ou impedida (materiais já aplicados
+        # antes do impedimento); o gestor também em O.S encerrada (ajustes
+        # pós-conclusão). Rascunho permanece bloqueado para todos.
         if os_data["status"] == "rascunho":
             raise HTTPException(
                 status_code=400,
                 detail="Materiais não podem ser lançados em uma O.S em rascunho.",
             )
-        if not _e_gestor_os(usuario) and os_data["status"] not in ("aberta", "em_andamento"):
+        if not _e_gestor_os(usuario) and os_data["status"] not in ("aberta", "em_andamento", "impedida"):
             raise HTTPException(
                 status_code=400,
-                detail="Materiais só podem ser lançados em O.S abertas ou em andamento.",
+                detail="Materiais só podem ser lançados em O.S abertas, em andamento ou impedidas.",
             )
         produto = _validar_servico_do_contrato(db, payload.produto_id, os_data["tipo"])
 

@@ -94,6 +94,18 @@ export async function prepararPacoteCampo() {
   await dbClearStore('os');
   await dbClearStore('checklist');
 
+  // Catálogo de serviços (lançamento de materiais) também vai para o tablet.
+  try {
+    const resP = await apiFetch(`${API_URL}/os/produtos`);
+    if (resP.ok) {
+      await dbClearStore('produtos');
+      const catalogo = await resP.json();
+      for (const p of catalogo) await dbPut('produtos', p);
+    }
+  } catch {
+    /* falha no catálogo não impede o restante do pacote */
+  }
+
   for (const os of lista) {
     try {
       await dbPut('os_lista', os);
@@ -123,6 +135,7 @@ export async function limparPacote() {
   await dbClearStore('os_lista');
   await dbClearStore('os');
   await dbClearStore('checklist');
+  await dbClearStore('produtos');
   // Ao sair do Modo Campo o tablet é apagado por completo (é da equipe):
   // fila de operações e fotos pendentes não podem vazar para o próximo usuário.
   await dbClearStore('fila');
@@ -156,6 +169,12 @@ export async function salvarChecklistLocal(osId, dados) {
 export async function getListaLocal() {
   const lista = await dbGetAll('os_lista');
   return lista.sort((a, b) => String(b.created_at || '').localeCompare(String(a.created_at || '')));
+}
+
+/** Catálogo de serviços baixado no pacote de campo (lançamento offline). */
+export async function getProdutosLocal() {
+  const catalogo = await dbGetAll('produtos');
+  return catalogo.sort((a, b) => String(a.nome || '').localeCompare(String(b.nome || '')));
 }
 
 /** Reflete uma mudança de status também no pacote local. */

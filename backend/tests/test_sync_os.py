@@ -364,3 +364,69 @@ def test_sync_resposta_duplicada_ultimo_vence(os_gestor_client, os_campo_client,
     resposta = next(i["resposta"] for i in detalhe["itens"] if i["id"] == g1[0]["id"])
     assert resposta["resposta"] == "nao"
     assert resposta["justificativa"]
+
+
+def test_sync_lanca_material_com_conversao_usc(os_gestor_client, os_campo_client, db_fake):
+    """Lançamento de serviço offline: operação 'material' é revalidada no
+    servidor com a mesma lógica USC (peças x fator) e grava o registro."""
+    from tests.test_os import _criar_os, _seed_cenario
+
+    _seed_cenario(db_fake)
+    db_fake._dados["produtos"].append(
+        {
+            "id": 8,
+            "codigo": "ROCA-01",
+            "nome": "Limpeza ou Roçada de Capoeira",
+            "unidade": "UN",
+            "preco_unitario": 6.66,
+            "qtd_usc_especial": 0.67,
+            "tipo": "construcao",
+            "ativo": True,
+        }
+    )
+    os_id = _criar_os(os_gestor_client, equipe_id=100).json()["id"]
+    os_campo_client.put(f"/api/os/{os_id}/status", json={"novo_status": "aberta"})
+
+    resp = _sync(
+        os_campo_client,
+        [
+            _op("m1", "material", os_id,
+                {"produto_id": 8, "quantidade_usada": 2, "tipo_usc": "normal"}, "2026-08-28T09:00:00Z"),
+            _op("m2", "material", os_id,
+                {"produto_id": 8, "quantidade_usada": 3, "tipo_usc": "especial"}, "2026-08-28T09:05:00Z"),
+        ],
+    )
+    assert resp.status_code == 200, resp.text
+    r1, r2 = resp.json()["resultados"]
+    assert r1["ok"] is True, r1
+    assert r1["dados"]["quantidade_usada"] == 13.32  # 2 x 6.66
+    assert r1["dados"]["quantidade_pecas"] == 2
+    assert r1["dados"]["fator_usc"] == 6.66
+    assert r2["ok"] is True, r2
+    assert r2["dados"]["quantidade_usada"] == 2.01  # 3 x 0.67
+    assert r2["dados"]["tipo_usc"] == "especial"
+
+
+def test_sync_material_em_os_concluida_rejeitado(os_gestor_client, os_campo_client, db_fake):
+    """O campo não pode lançar em O.S concluída nem via sync (gate revalidado)."""
+    from tests.test_os import _criar_os, _seed_cenario
+
+    _seed_cenario(db_fake)
+    os_id = _criar_os(os_gestor_client, equipe_id=100).json()["id"]
+    os_campo_client.put(f"/api/os/{os_id}/status", json={"novo_status": "aberta"})
+    # Play promove para em_andamento (sem checklist cadastrado, gate libera).
+    assert os_campo_client.post(f"/api/os/{os_id}/apontamentos", json={"acao": "play"}).status_code == 200
+
+    resp = _sync(
+        os_campo_client,
+        [
+            _op("m1", "material", os_id, {"produto_id": 7, "quantidade_usada": 1}, "2026-08-28T09:00:00Z"),
+            _op("s1", "status", os_id, {"novo_status": "concluida"}, "2026-08-28T17:00:00Z"),
+            _op("m2", "material", os_id, {"produto_id": 7, "quantidade_usada": 1}, "2026-08-28T17:30:00Z"),
+        ],
+    )
+    resultados = {r["id_local"]: r for r in resp.json()["resultados"]}
+    assert resultados["m1"]["ok"] is True
+    assert resultados["s1"]["ok"] is True
+    assert resultados["m2"]["ok"] is False
+    assert resultados["m2"]["status"] == 400

@@ -13,7 +13,7 @@ import { comprimirImagem } from '../utils/imagem';
 import {
   isModoCampo, setModoCampo, isOffline, usarLocal,
   prepararPacoteCampo, limparPacote, infoPacote,
-  getOSLocal, getChecklistLocal, getListaLocal, salvarDetalheLocal, salvarChecklistLocal,
+  getOSLocal, getChecklistLocal, getListaLocal, getProdutosLocal, salvarDetalheLocal, salvarChecklistLocal,
   atualizarStatusLocal, atualizarRespostaLocal, recalcularResumo,
   enfileirarOperacao, enfileirarFoto, contarPendentes,
   salvarResponsavelLocal,
@@ -560,6 +560,53 @@ function TabInsumos({ osDetalhe, produtos, onAtualizado, mostrarToast, podeEdita
   }
     setSalvando(true);
     try {
+      // Offline (Modo Campo): entra na fila e reflete localmente; o servidor
+      // revalida e converte na sincronização (mesma lógica USC do gestor).
+      if (usarLocal()) {
+        await enfileirarOperacao({
+          tipo: 'material',
+          os_id: osDetalhe.id,
+          payload: { produto_id: produto.id, quantidade_usada: qtd, tipo_usc: tipoUsc },
+        });
+        const local = await getOSLocal(osDetalhe.id);
+        if (local) {
+          const materiais = local.materiais || { itens: [], total_aplicado: 0 };
+          const itens = materiais.itens || [];
+          let item = itens.find(i => i.produto_id === produto.id);
+          if (!item) {
+            item = {
+              produto_id: produto.id, nome: produto.nome, unidade: produto.unidade || '-',
+              aplicado: 0, aplicado_normal: 0, aplicado_especial: 0,
+            };
+            itens.push(item);
+          }
+          item.aplicado = Number((item.aplicado + totalUsc).toFixed(3));
+          if (tipoUsc === 'especial') item.aplicado_especial = Number((item.aplicado_especial + totalUsc).toFixed(3));
+          else item.aplicado_normal = Number((item.aplicado_normal + totalUsc).toFixed(3));
+          materiais.total_aplicado = Number(((materiais.total_aplicado || 0) + totalUsc).toFixed(3));
+          local.materiais = materiais;
+          local.ultimos_lancamentos = [
+            {
+              id: Date.now(),
+              produto_id: produto.id,
+              quantidade_usada: totalUsc,
+              quantidade_pecas: qtd,
+              fator_usc: temUsc && fatorUsc > 0 ? fatorUsc : 0,
+              tipo_usc: tipoUsc,
+              data_lancamento: new Date().toISOString(),
+              produtos: { nome: produto.nome, unidade: produto.unidade || '-' },
+            },
+            ...(local.ultimos_lancamentos || []),
+          ].slice(0, 10);
+          await salvarDetalheLocal(local);
+        }
+        mostrarToast(`Serviço "${produto.nome}" lançado (${totalUsc} USC) — será sincronizado ao reconectar.`);
+        setBuscaProduto('');
+        setQtd(1);
+        setTipoUsc('normal');
+        onAtualizado();
+        return;
+      }
       const res = await apiFetch(`${API_URL}/os/${osDetalhe.id}/materiais`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -2306,16 +2353,16 @@ function OrdensServico({ usuarioAtual }) {
       } else {
         mostrarToast('Erro ao carregar O.S.', 'error');
       }
-      if (ehGestor) {
-        const [resObras, resEquipes, resProdutos] = await Promise.all([
-          apiFetch(`${API_URL}/os/obras`),
-          apiFetch(`${API_URL}/os/equipes`),
-          apiFetch(`${API_URL}/os/produtos`),
-        ]);
-        if (resObras.ok) setObras(await resObras.json());
-        if (resEquipes.ok) setEquipes(await resEquipes.json());
-        if (resProdutos.ok) setProdutos(await resProdutos.json());
-      }
+      // Catálogo de serviços: necessário ao gestor (cadastro) e ao campo
+      // (lançamento de serviços na O.S). Obras/equipes são apenas do gestor.
+      const [resProdutos, resObras, resEquipes] = await Promise.all([
+        apiFetch(`${API_URL}/os/produtos`),
+        ehGestor ? apiFetch(`${API_URL}/os/obras`) : Promise.resolve(null),
+        ehGestor ? apiFetch(`${API_URL}/os/equipes`) : Promise.resolve(null),
+      ]);
+      if (resProdutos.ok) setProdutos(await resProdutos.json());
+      if (ehGestor && resObras?.ok) setObras(await resObras.json());
+      if (ehGestor && resEquipes?.ok) setEquipes(await resEquipes.json());
     } catch {
       // Sem internet real (WiFi sem dados): usa o pacote local no Modo Campo.
       registrarFalhaDeRede();
@@ -2323,6 +2370,8 @@ function OrdensServico({ usuarioAtual }) {
         const lista = await getListaLocal();
         setTotalOs(lista.length);
         setListaOs(lista);
+        const catalogo = await getProdutosLocal();
+        if (catalogo.length) setProdutos(catalogo);
       } else {
         mostrarToast('Erro de conexão ao carregar o módulo de O.S.', 'error');
       }
