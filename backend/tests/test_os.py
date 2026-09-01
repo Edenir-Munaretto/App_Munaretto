@@ -273,6 +273,7 @@ class TestMateriaisEPermissao:
         os_id = _criar_os(os_gestor_client).json()["id"]
         os_gestor_client.put(f"/api/os/{os_id}/status", json={"novo_status": "aberta"})
 
+        # USC normal: a quantidade gravada = peças x Qtd USC do cadastro (4 x 40).
         resp = os_gestor_client.post(
             f"/api/os/{os_id}/materiais",
             json={"produto_id": 7, "quantidade_usada": 4},
@@ -282,10 +283,139 @@ class TestMateriaisEPermissao:
         resumo = os_gestor_client.get(f"/api/os/{os_id}").json()["materiais"]
         item = next(i for i in resumo["itens"] if i["produto_id"] == 7)
         assert item["orcado"] == 10
-        assert item["aplicado"] == 4
-        assert item["perc_aplicado"] == 40.0
-        assert resumo["total_aplicado_rs"] == 160.0  # 4 sacos x R$ 40
+        assert item["aplicado"] == 160.0
+        assert item["aplicado_normal"] == 160.0
+        assert item["aplicado_especial"] == 0.0
+        assert item["perc_aplicado"] == 1600.0
+        assert resumo["total_aplicado_rs"] == 6400.0  # 160 x R$ 40
         assert resumo["total_orcado_rs"] == 400.0
+
+    def test_lancamento_usc_especial_converte(self, os_gestor_client, db_fake):
+        _seed_cenario(db_fake)
+        db_fake._dados["produtos"].append(
+            {
+                "id": 8,
+                "codigo": "GRP-01",
+                "nome": "Graparina Especial",
+                "unidade": "pç",
+                "preco_unitario": 0.48,
+                "qtd_usc_especial": 0.67,
+                "ativo": True,
+            }
+        )
+        os_id = _criar_os(os_gestor_client).json()["id"]
+        os_gestor_client.put(f"/api/os/{os_id}/status", json={"novo_status": "aberta"})
+
+        resp = os_gestor_client.post(
+            f"/api/os/{os_id}/materiais",
+            json={"produto_id": 8, "quantidade_usada": 10, "tipo_usc": "especial"},
+        )
+        assert resp.status_code == 201, resp.text
+        assert resp.json()["quantidade_usada"] == 6.7  # 10 x 0.67
+        assert resp.json()["tipo_usc"] == "especial"
+
+        item = next(i for i in os_gestor_client.get(f"/api/os/{os_id}").json()["materiais"]["itens"] if i["produto_id"] == 8)
+        assert item["aplicado"] == 6.7
+        assert item["aplicado_especial"] == 6.7
+        assert item["aplicado_normal"] == 0.0
+
+    def test_lancamento_usc_normal_converte(self, os_gestor_client, db_fake):
+        _seed_cenario(db_fake)
+        db_fake._dados["produtos"].append(
+            {
+                "id": 8,
+                "codigo": "GRP-01",
+                "nome": "Graparina",
+                "unidade": "pç",
+                "preco_unitario": 0.48,
+                "qtd_usc_especial": 0.67,
+                "ativo": True,
+            }
+        )
+        os_id = _criar_os(os_gestor_client).json()["id"]
+        os_gestor_client.put(f"/api/os/{os_id}/status", json={"novo_status": "aberta"})
+
+        resp = os_gestor_client.post(
+            f"/api/os/{os_id}/materiais",
+            json={"produto_id": 8, "quantidade_usada": 10, "tipo_usc": "normal"},
+        )
+        assert resp.status_code == 201, resp.text
+        assert resp.json()["quantidade_usada"] == 4.8  # 10 x 0.48
+
+    def test_lancamento_usc_zero_mantem_quantidade_bruta(self, os_gestor_client, db_fake):
+        _seed_cenario(db_fake)
+        db_fake._dados["produtos"].append(
+            {
+                "id": 8,
+                "codigo": "LEG-01",
+                "nome": "Serviço Legado",
+                "unidade": "UN",
+                "preco_unitario": 0,
+                "qtd_usc_especial": 0,
+                "ativo": True,
+            }
+        )
+        os_id = _criar_os(os_gestor_client).json()["id"]
+        os_gestor_client.put(f"/api/os/{os_id}/status", json={"novo_status": "aberta"})
+
+        resp = os_gestor_client.post(
+            f"/api/os/{os_id}/materiais",
+            json={"produto_id": 8, "quantidade_usada": 3},
+        )
+        assert resp.status_code == 201, resp.text
+        assert resp.json()["quantidade_usada"] == 3  # sem fator, mantém o bruto
+        assert resp.json()["tipo_usc"] == "normal"
+
+    def test_lancamento_especial_sem_cadastro_rejeitado(self, os_gestor_client, db_fake):
+        _seed_cenario(db_fake)
+        os_id = _criar_os(os_gestor_client).json()["id"]
+        os_gestor_client.put(f"/api/os/{os_id}/status", json={"novo_status": "aberta"})
+
+        # Produto 7 não possui Qtd USC especial.
+        resp = os_gestor_client.post(
+            f"/api/os/{os_id}/materiais",
+            json={"produto_id": 7, "quantidade_usada": 1, "tipo_usc": "especial"},
+        )
+        assert resp.status_code == 400
+        assert "especial" in resp.json()["detail"].lower()
+
+    def test_lancamento_tipo_usc_invalido_rejeitado(self, os_gestor_client, db_fake):
+        _seed_cenario(db_fake)
+        os_id = _criar_os(os_gestor_client).json()["id"]
+        os_gestor_client.put(f"/api/os/{os_id}/status", json={"novo_status": "aberta"})
+
+        resp = os_gestor_client.post(
+            f"/api/os/{os_id}/materiais",
+            json={"produto_id": 7, "quantidade_usada": 1, "tipo_usc": "dupla"},
+        )
+        assert resp.status_code == 400
+
+    def test_detalhe_inclui_ultimos_lancamentos_com_tipo(self, os_gestor_client, db_fake):
+        _seed_cenario(db_fake)
+        db_fake._dados["produtos"].append(
+            {
+                "id": 8,
+                "codigo": "GRP-01",
+                "nome": "Graparina",
+                "unidade": "pç",
+                "preco_unitario": 0.48,
+                "qtd_usc_especial": 0.67,
+                "ativo": True,
+            }
+        )
+        os_id = _criar_os(os_gestor_client).json()["id"]
+        os_gestor_client.put(f"/api/os/{os_id}/status", json={"novo_status": "aberta"})
+
+        os_gestor_client.post(f"/api/os/{os_id}/materiais", json={"produto_id": 7, "quantidade_usada": 2})
+        os_gestor_client.post(f"/api/os/{os_id}/materiais", json={"produto_id": 8, "quantidade_usada": 10, "tipo_usc": "especial"})
+
+        detalhe = os_gestor_client.get(f"/api/os/{os_id}").json()
+        lancamentos = detalhe["ultimos_lancamentos"]
+        assert len(lancamentos) == 2
+        tipos = {l["tipo_usc"] for l in lancamentos}
+        assert tipos == {"normal", "especial"}
+        quantidades = sorted(l["quantidade_usada"] for l in lancamentos)
+        assert quantidades == [6.7, 80.0]  # 10x0.67 especial e 2x40 normal
 
     def test_lancamento_bloqueado_fora_de_execucao(self, os_gestor_client, db_fake):
         _seed_cenario(db_fake)
@@ -302,7 +432,7 @@ class TestMateriaisEPermissao:
         assert resp.status_code == 201, resp.text
 
         item = next(i for i in os_gestor_client.get(f"/api/os/{os_id}").json()["materiais"]["itens"] if i["produto_id"] == 7)
-        assert item["aplicado"] == 2
+        assert item["aplicado"] == 80.0  # 2 peças x Qtd USC 40
 
     def test_gestor_lanca_material_em_os_cancelada(self, os_gestor_client, db_fake):
         _seed_cenario(db_fake)

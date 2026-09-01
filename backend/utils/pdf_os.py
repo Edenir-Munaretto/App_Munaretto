@@ -155,11 +155,24 @@ def gerar_pdf_os(
 
     # --- Materiais -----------------------------------------------------------
     pdf._titulo_secao("MATERIAIS APLICADOS vs. ORÇADOS")
+
+    def _aplicado_com_tipo(item):
+        """Ex.: '4.8 N' ou '4.8 N + 6.7 E' (N = USC normal, E = USC especial)."""
+        normal = float(item.get("aplicado_normal") or 0)
+        especial = float(item.get("aplicado_especial") or 0)
+        unidade = item.get("unidade", "")
+        texto = f"{normal:g} N" if normal else ""
+        if especial > 0:
+            texto += f"{' + ' if texto else ''}{especial:g} E"
+        if not texto:
+            texto = f"{item.get('aplicado', 0):g}"
+        return f"{texto} {unidade}".strip()
+
     linhas_mat = [
         [
             item.get("nome"),
             f"{item.get('orcado', 0):g} {item.get('unidade', '')}",
-            f"{item.get('aplicado', 0):g} {item.get('unidade', '')}",
+            _aplicado_com_tipo(item),
             f"{item['perc_aplicado']}%" if item.get("perc_aplicado") is not None else "-",
             brl(item.get("custo_aplicado")),
         ]

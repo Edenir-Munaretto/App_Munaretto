@@ -529,6 +529,7 @@ function TabChecklist({ osDetalhe, onAtualizado, mostrarToast, podeEditar }) {
 function TabInsumos({ osDetalhe, produtos, onAtualizado, mostrarToast, podeEditar, podeEstornar }) {
   const [buscaProduto, setBuscaProduto] = useState('');
   const [qtd, setQtd] = useState(1);
+  const [tipoUsc, setTipoUsc] = useState('normal');
   const [salvando, setSalvando] = useState(false);
   const [estornandoId, setEstornandoId] = useState(null); // ID do lançamento aguardando confirmação
 
@@ -552,6 +553,16 @@ function TabInsumos({ osDetalhe, produtos, onAtualizado, mostrarToast, podeEdita
     [buscaProduto, catalogoDoContrato],
   );
 
+  // Ao selecionar uma sugestão, exibe o nome do serviço (o estado guarda o ID).
+  const textoBusca = selecionado ? selecionado.nome : buscaProduto;
+
+  // Fatores de conversão do cadastro do produto (USC normal / USC especial).
+  const uscNormal = Number(selecionado?.preco_unitario || 0);
+  const uscEspecial = Number(selecionado?.qtd_usc_especial || 0);
+  const temUsc = uscNormal > 0 || uscEspecial > 0;
+  const fatorUsc = tipoUsc === 'especial' ? uscEspecial : uscNormal;
+  const totalUsc = temUsc && fatorUsc > 0 ? Number((qtd * fatorUsc).toFixed(3)) : qtd;
+
   const lancar = async () => {
   const produto = selecionado || (sugestoes.length === 1 ? sugestoes[0] : null);
   if (!produto) {
@@ -563,13 +574,14 @@ function TabInsumos({ osDetalhe, produtos, onAtualizado, mostrarToast, podeEdita
       const res = await apiFetch(`${API_URL}/os/${osDetalhe.id}/materiais`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ produto_id: produto.id, quantidade_usada: qtd }),
+        body: JSON.stringify({ produto_id: produto.id, quantidade_usada: qtd, tipo_usc: tipoUsc }),
       });
       const data = await res.json().catch(() => null);
       if (res.ok) {
-        mostrarToast(`Serviço "${produto.nome}" lançado.`);
+        mostrarToast(`Serviço "${produto.nome}" lançado (${totalUsc} ${temUsc ? (tipoUsc === 'especial' ? 'USC especial' : 'USC normal') : produto.unidade}).`);
         setBuscaProduto('');
         setQtd(1);
+        setTipoUsc('normal');
         onAtualizado();
       } else {
         mostrarToast(erroDaResposta(data, 'Erro ao lançar serviço.'), 'error');
@@ -611,19 +623,29 @@ function TabInsumos({ osDetalhe, produtos, onAtualizado, mostrarToast, podeEdita
             <label className="block text-xs font-bold text-slate-700 mb-1.5">Buscar serviço (nome ou código)</label>
         <input
           type="text"
-          value={buscaProduto}
+          value={textoBusca}
           onChange={(e) => setBuscaProduto(e.target.value)}
           placeholder="Bipe ou digite o nome..."
           disabled={!podeEditar}
-          className="w-full px-3.5 py-3 border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-primary-500/20 focus:border-primary-500 text-sm"
+          className={`w-full px-3.5 py-3 border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-primary-500/20 focus:border-primary-500 text-sm ${selecionado ? 'pr-9' : ''}`}
         />
+        {selecionado && (
+          <button
+            type="button"
+            onClick={() => { setBuscaProduto(''); setTipoUsc('normal'); }}
+            title="Limpar seleção"
+            className="absolute right-2.5 top-[30px] w-7 h-7 flex items-center justify-center rounded-full text-slate-400 hover:text-slate-600 hover:bg-slate-100 cursor-pointer"
+          >
+            <X size={14} />
+          </button>
+        )}
         {!selecionado && sugestoes.length > 0 && (
           <div className="absolute z-20 left-0 right-0 mt-1 bg-white border border-slate-200 rounded-xl shadow-lg overflow-hidden">
             {sugestoes.map(p => (
               <button
                 key={p.id}
                 type="button"
-                onClick={() => setBuscaProduto(String(p.id))}
+                onClick={() => { setBuscaProduto(String(p.id)); setTipoUsc('normal'); }}
                 className="w-full text-left px-3 py-2.5 hover:bg-primary-50 text-sm text-slate-700 flex justify-between gap-2"
               >
                 <span className="font-semibold truncate">{p.nome}</span>
@@ -644,6 +666,46 @@ function TabInsumos({ osDetalhe, produtos, onAtualizado, mostrarToast, podeEdita
           </p>
         )}
       </div>
+
+      {/* Tipo de USC: o fator vem do cadastro do serviço (ex.: 0.48 normal / 0.67 especial) */}
+      {selecionado && temUsc && (
+        <div>
+          <label className="block text-xs font-bold text-slate-700 mb-1.5">Tipo de USC</label>
+          <div className="flex gap-2">
+            <button
+              type="button"
+              disabled={!podeEditar}
+              onClick={() => setTipoUsc('normal')}
+              className={`flex-1 py-2.5 rounded-xl text-xs font-bold transition-all border cursor-pointer disabled:opacity-40 ${
+                tipoUsc === 'normal'
+                  ? 'bg-primary-600 text-white border-primary-600 shadow-sm'
+                  : 'bg-white text-slate-600 border-slate-200 hover:border-primary-300'
+              }`}
+            >
+              USC normal {uscNormal > 0 && <span className={tipoUsc === 'normal' ? 'text-primary-100' : 'text-slate-400'}>· {uscNormal}</span>}
+            </button>
+            {uscEspecial > 0 && (
+              <button
+                type="button"
+                disabled={!podeEditar}
+                onClick={() => setTipoUsc('especial')}
+                className={`flex-1 py-2.5 rounded-xl text-xs font-bold transition-all border cursor-pointer disabled:opacity-40 ${
+                  tipoUsc === 'especial'
+                    ? 'bg-violet-600 text-white border-violet-600 shadow-sm'
+                    : 'bg-white text-slate-600 border-slate-200 hover:border-violet-300'
+                }`}
+              >
+                USC especial · {uscEspecial}
+              </button>
+            )}
+          </div>
+          {temUsc && fatorUsc > 0 && (
+            <p className="text-[10px] font-semibold text-slate-400 mt-1.5">
+              {qtd} {selecionado.unidade} × {fatorUsc} USC = <b className="text-slate-600">{totalUsc} USC {tipoUsc === 'especial' ? 'especial' : 'normal'}</b>
+            </p>
+          )}
+        </div>
+      )}
 
       {/* Seletor numérico grande "+" e "-" */}
       <div className="flex items-center gap-3">
@@ -736,8 +798,17 @@ function TabInsumos({ osDetalhe, produtos, onAtualizado, mostrarToast, podeEdita
         <div className="space-y-1">
           {(osDetalhe.lancamentos || []).slice(0, 8).map(l => (
             <div key={l.id} className="flex items-center justify-between bg-white border border-slate-100 rounded-lg px-3 py-2">
-              <span className="text-xs text-slate-600 truncate">
-                {fmtData(l.data_lancamento)} · {l.quantidade_usada} × {l.produtos?.nome || l.produto_nome || ''}
+              <span className="text-xs text-slate-600 truncate flex items-center gap-2 min-w-0">
+                <span className="truncate">{fmtData(l.data_lancamento)} · {l.quantidade_usada} × {l.produtos?.nome || l.produto_nome || ''}</span>
+                {l.tipo_usc && (
+                  <span className={`shrink-0 text-[9px] font-bold px-1.5 py-0.5 rounded-full border ${
+                    l.tipo_usc === 'especial'
+                      ? 'bg-violet-50 text-violet-700 border-violet-200'
+                      : 'bg-primary-50 text-primary-700 border-primary-200'
+                  }`}>
+                    USC {l.tipo_usc === 'especial' ? 'especial' : 'normal'}
+                  </span>
+                )}
               </span>
               {podeEstornar && (
                 <button onClick={() => setEstornandoId(l.id)} className="text-slate-300 hover:text-rose-600 cursor-pointer" title="Estornar">

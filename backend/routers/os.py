@@ -65,7 +65,7 @@ def _validar_servico_do_contrato(db, produto_id: int, tipo_os: str) -> dict:
     Serviços legados (produtos.tipo NULL) são válidos em todos os contratos;
     serviços tipados só podem ser usados no contrato correspondente.
     """
-    resp = db.table("produtos").select("id, nome, tipo").eq("id", produto_id).execute()
+    resp = db.table("produtos").select("id, nome, tipo, preco_unitario, qtd_usc_especial").eq("id", produto_id).execute()
     if not resp.data:
         raise HTTPException(status_code=404, detail="Serviço não encontrado.")
     produto = resp.data[0]
@@ -190,7 +190,10 @@ class StatusUpdate(BaseModel):
 
 class MaterialLancamento(BaseModel):
     produto_id: int
+    # Quantidade de PEÇAS aplicadas (não convertida). O backend converte para
+    # USC multiplicando pelo fator do cadastro do produto conforme o tipo.
     quantidade_usada: float = Field(..., gt=0)
+    tipo_usc: str = Field("normal", description="'normal' (Qtd USC) ou 'especial' (Qtd USC especial)")
     observacao: str | None = None
 
 
@@ -423,7 +426,9 @@ def _precos_dos_produtos(db, produto_ids) -> dict:
 def _resumo_materiais(db, os_id: int) -> dict:
     """Compara orçado vs. aplicado por produto e calcula custos."""
     orcados = db.table("os_itens_orcados").select("produto_id, quantidade_orcada").eq("os_id", os_id).execute()
-    aplicacoes = db.table("os_materiais").select("produto_id, quantidade_usada").eq("os_id", os_id).execute()
+    aplicacoes = (
+        db.table("os_materiais").select("produto_id, quantidade_usada, tipo_usc").eq("os_id", os_id).execute()
+    )
 
     # Catálogo e preços dos produtos envolvidos (consultas únicas, sem N+1
     # e sem depender de embedded resources do PostgREST).
@@ -447,6 +452,8 @@ def _resumo_materiais(db, os_id: int) -> dict:
                 "preco_unitario": precos.get(pid, 0),
                 "orcado": 0.0,
                 "aplicado": 0.0,
+                "aplicado_normal": 0.0,
+                "aplicado_especial": 0.0,
             },
         )
         p["orcado"] += float(item["quantidade_orcada"])
@@ -462,9 +469,16 @@ def _resumo_materiais(db, os_id: int) -> dict:
                 "preco_unitario": precos.get(pid, 0),
                 "orcado": 0.0,
                 "aplicado": 0.0,
+                "aplicado_normal": 0.0,
+                "aplicado_especial": 0.0,
             },
         )
-        p["aplicado"] += float(lanc["quantidade_usada"])
+        quantidade = float(lanc["quantidade_usada"])
+        p["aplicado"] += quantidade
+        if (lanc.get("tipo_usc") or "normal") == "especial":
+            p["aplicado_especial"] += quantidade
+        else:
+            p["aplicado_normal"] += quantidade
 
     itens = []
     total_orcado_rs = 0.0
@@ -821,6 +835,15 @@ def _obter_detalhe_os(db, usuario: UsuarioAutenticado, os_id: int) -> dict:
     apontamento_aberto = (
         db.table("os_apontamentos").select("id, inicio").eq("os_id", os_id).is_("fim", "null").execute().data
     )
+    ultimos_lancamentos = (
+        db.table("os_materiais")
+        .select("id, produto_id, quantidade_usada, tipo_usc, data_lancamento, produtos(nome, unidade)")
+        .eq("os_id", os_id)
+        .order("data_lancamento", desc=True)
+        .limit(10)
+        .execute()
+        .data
+    )
 
     # Itens orçados com nome do produto (usados na edição da O.S).
     itens_orc = (
@@ -848,6 +871,7 @@ def _obter_detalhe_os(db, usuario: UsuarioAutenticado, os_id: int) -> dict:
         "historico": historico,
         "fotos": fotos,
         "itens_orcados": itens_orcados,
+        "ultimos_lancamentos": ultimos_lancamentos,
         "cronometro_aberto": apontamento_aberto[0] if apontamento_aberto else None,
         "checklist": resumo_checklist(db, os_id),
     }
@@ -1468,13 +1492,35 @@ def lancar_material(
             )
         produto = _validar_servico_do_contrato(db, payload.produto_id, os_data["tipo"])
 
+        # Conversão para USC: peças x fator do cadastro. USC 'especial' exige
+        # valor cadastrado; 'normal' com USC zerada (produto legado) mantém a
+        # quantidade bruta digitada (comportamento original).
+        tipo_usc = (payload.tipo_usc or "normal").strip().lower()
+        if tipo_usc not in ("normal", "especial"):
+            raise HTTPException(status_code=400, detail="Tipo de USC inválido. Use 'normal' ou 'especial'.")
+        fator_usc = 0.0
+        if tipo_usc == "especial":
+            fator_usc = float(produto.get("qtd_usc_especial") or 0)
+            if fator_usc <= 0:
+                raise HTTPException(
+                    status_code=400,
+                    detail=f"O serviço '{produto['nome']}' não possui Qtd USC especial cadastrada.",
+                )
+        else:
+            fator_usc = float(produto.get("preco_unitario") or 0)
+        if fator_usc > 0:
+            quantidade = round(payload.quantidade_usada * fator_usc, 3)
+        else:
+            quantidade = payload.quantidade_usada
+
         resp = (
             db.table("os_materiais")
             .insert(
                 {
                     "os_id": os_id,
                     "produto_id": payload.produto_id,
-                    "quantidade_usada": payload.quantidade_usada,
+                    "quantidade_usada": quantidade,
+                    "tipo_usc": tipo_usc,
                     "usuario_email": usuario.email,
                     "observacao": payload.observacao,
                 }

@@ -713,6 +713,10 @@ CREATE TABLE IF NOT EXISTS os_materiais (
     observacao TEXT
 );
 
+-- Tipo de USC aplicado no lançamento ('normal' ou 'especial'). A quantidade
+-- gravada já vem convertida (peças x fator do cadastro do produto).
+ALTER TABLE IF EXISTS os_materiais ADD COLUMN IF NOT EXISTS tipo_usc VARCHAR(10) NOT NULL DEFAULT 'normal';
+
 -- TABELA: os_apontamentos (H.H.: Play/Pause por membro da equipe)
 -- Cada linha é um bloco de trabalho: `inicio` no Play, `fim`/`minutos` no Pause.
 -- Custo Real de M.O. = SUM(minutos) x funcionarios.valor_hora / 60.
