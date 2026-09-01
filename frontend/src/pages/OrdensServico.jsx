@@ -599,6 +599,13 @@ function TabInsumos({ osDetalhe, produtos, onAtualizado, mostrarToast, podeEdita
 
   return (
     <div className="space-y-4">
+      {/* O.S encerrada: apenas o gestor pode lançar/estornar serviços */}
+      {podeEditar && ['concluida', 'cancelada'].includes(osDetalhe.status) && (
+        <div className="rounded-xl border border-amber-200 bg-amber-50 px-3 py-2.5 text-[11px] font-bold text-amber-700 flex items-center gap-2">
+          <AlertTriangle size={14} className="shrink-0" />
+          O.S encerrada: lançamentos e estornos são permitidos apenas ao gestor.
+        </div>
+      )}
       {/* Busca rápida com autocompletar (bipagem ou digitação) */}
       <div className="relative">
             <label className="block text-xs font-bold text-slate-700 mb-1.5">Buscar serviço (nome ou código)</label>
@@ -1188,9 +1195,12 @@ function PainelExecucao({ osId, produtos, geolocalizacao, capturarGps, onFechar,
 
   const mo = detalhe.mao_de_obra || {};
   const mat = detalhe.materiais || {};
-  const podeEditar = !['concluida', 'cancelada'].includes(detalhe.status);
-  // Ações de gestão dentro do painel (estorno, excluir evidência) exigem "os".
-  const podeEstornar = ehGestor && podeEditar;
+  const encerrada = ['concluida', 'cancelada'].includes(detalhe.status);
+  const podeEditar = !encerrada;
+  // Em O.S encerrada, somente o gestor pode lançar serviços e estornar
+  // lançamentos (ajustes pós-conclusão); demais ações seguem bloqueadas.
+  const podeLancarServico = podeEditar || (ehGestor && encerrada);
+  const podeEstornar = ehGestor;
   const podeExcluir = ehGestor && podeEditar;
   const prazo = situacaoPrazo(detalhe);
 
@@ -1243,7 +1253,7 @@ function PainelExecucao({ osId, produtos, geolocalizacao, capturarGps, onFechar,
           produtos={produtos}
           onAtualizado={carregar}
           mostrarToast={mostrarToast}
-          podeEditar={podeEditar}
+          podeEditar={podeLancarServico}
           podeEstornar={podeEstornar}
         />
       )}

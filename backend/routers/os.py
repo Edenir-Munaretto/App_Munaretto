@@ -1454,7 +1454,14 @@ def lancar_material(
         os_data = _os_ou_404(db, os_id)
         _garantir_acesso_os(db, usuario, os_data)
         # Lançamentos fazem sentido apenas com serviço em execução (ou aberto).
-        if os_data["status"] not in ("aberta", "em_andamento"):
+        # O gestor pode lançar mesmo em O.S encerrada (ajustes pós-conclusão);
+        # o rascunho permanece bloqueado para todos.
+        if os_data["status"] == "rascunho":
+            raise HTTPException(
+                status_code=400,
+                detail="Materiais não podem ser lançados em uma O.S em rascunho.",
+            )
+        if not _e_gestor_os(usuario) and os_data["status"] not in ("aberta", "em_andamento"):
             raise HTTPException(
                 status_code=400,
                 detail="Materiais só podem ser lançados em O.S abertas ou em andamento.",

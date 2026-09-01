@@ -293,6 +293,36 @@ class TestMateriaisEPermissao:
         resp = os_gestor_client.post(f"/api/os/{os_id}/materiais", json={"produto_id": 7, "quantidade_usada": 1})
         assert resp.status_code == 400
 
+    def test_gestor_lanca_material_em_os_concluida(self, os_gestor_client, db_fake):
+        _seed_cenario(db_fake)
+        os_id = _criar_os_aberta_em_andamento(os_gestor_client)
+        assert os_gestor_client.put(f"/api/os/{os_id}/status", json={"novo_status": "concluida"}).status_code == 200
+
+        resp = os_gestor_client.post(f"/api/os/{os_id}/materiais", json={"produto_id": 7, "quantidade_usada": 2})
+        assert resp.status_code == 201, resp.text
+
+        item = next(i for i in os_gestor_client.get(f"/api/os/{os_id}").json()["materiais"]["itens"] if i["produto_id"] == 7)
+        assert item["aplicado"] == 2
+
+    def test_gestor_lanca_material_em_os_cancelada(self, os_gestor_client, db_fake):
+        _seed_cenario(db_fake)
+        os_id = _criar_os(os_gestor_client).json()["id"]
+        assert os_gestor_client.put(f"/api/os/{os_id}/status", json={"novo_status": "aberta"}).status_code == 200
+        assert os_gestor_client.put(f"/api/os/{os_id}/status", json={"novo_status": "cancelada"}).status_code == 200
+
+        resp = os_gestor_client.post(f"/api/os/{os_id}/materiais", json={"produto_id": 7, "quantidade_usada": 1})
+        assert resp.status_code == 201, resp.text
+
+    def test_campo_nao_lanca_material_em_os_concluida(self, os_gestor_client, os_campo_client, db_fake):
+        _seed_cenario(db_fake)
+        os_id = _criar_os(os_gestor_client, equipe_id=100).json()["id"]
+        assert os_gestor_client.put(f"/api/os/{os_id}/status", json={"novo_status": "aberta"}).status_code == 200
+        assert os_gestor_client.put(f"/api/os/{os_id}/status", json={"novo_status": "em_andamento"}).status_code == 200
+        assert os_gestor_client.put(f"/api/os/{os_id}/status", json={"novo_status": "concluida"}).status_code == 200
+
+        resp = os_campo_client.post(f"/api/os/{os_id}/materiais", json={"produto_id": 7, "quantidade_usada": 1})
+        assert resp.status_code == 400
+
     def test_campo_nao_acessa_os_de_outra_equipe(self, os_gestor_client, os_campo_client, db_fake):
         _seed_cenario(db_fake)
         # O gestor cria as O.S; o campo só acessa a da própria equipe (100).
