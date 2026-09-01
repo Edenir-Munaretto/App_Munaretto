@@ -144,23 +144,12 @@ function Toast({ toast }) {
 }
 
 function BarraMateriais({ os }) {
-  const orc = os.custo_materiais_orcado;
   const apl = os.custo_materiais_aplicado;
-  const perc = os.perc_materiais;
-  if (!orc && !apl) return null;
-  const estourou = perc != null && perc > 100;
+  if (!apl) return null;
   return (
-    <div className="mt-2">
-      <div className="flex justify-between text-[10px] font-semibold text-slate-500">
-        <span>Serviços</span>
-        <span>{brl(apl)} {orc ? `/ ${brl(orc)}` : '(sem orçado)'}</span>
-      </div>
-      <div className="h-1.5 bg-slate-100 rounded-full overflow-hidden mt-0.5">
-        <div
-          className={`h-full rounded-full transition-all ${estourou ? 'bg-rose-500' : 'bg-primary-500'}`}
-          style={{ width: `${Math.min(perc ?? 100, 100)}%` }}
-        />
-      </div>
+    <div className="mt-2 flex justify-between items-center text-[10px] font-semibold text-slate-500">
+      <span>Serviços aplicados</span>
+      <span>{brl(apl)}</span>
     </div>
   );
 }
@@ -743,46 +732,43 @@ function TabInsumos({ osDetalhe, produtos, onAtualizado, mostrarToast, podeEdita
           <Package size={18} />{salvando ? 'Salvando...' : 'Aplicar'}
         </button>
       </div>
-      {/* Saldo de material: mostra orçado / aplicado / saldo ao selecionar um produto */}
+      {/* Resumo do serviço selecionado: total já aplicado */}
       {selecionado && (() => {
         const item = (osDetalhe.materiais?.itens || []).find(i => i.produto_id === selecionado.id);
-        const orcado = item?.orcado ?? null;
         const aplicado = item?.aplicado ?? 0;
-        const saldo = orcado !== null ? orcado - aplicado : null;
-        const estourou = saldo !== null && saldo < 0;
         return (
-          <div className={`rounded-xl border px-3 py-2 text-xs flex flex-wrap gap-3 items-center -mt-1 ${
-            estourou ? 'bg-rose-50 border-rose-200' : 'bg-slate-50 border-slate-100'
-          }`}>
+          <div className="rounded-xl border px-3 py-2 text-xs flex flex-wrap gap-3 items-center -mt-1 bg-slate-50 border-slate-100">
             <span className="text-slate-500">Selecionado: <b className="text-slate-700">{selecionado.nome}</b> ({selecionado.unidade})</span>
-            {orcado !== null && (
+            <span className="text-slate-400">│</span>
+            <span className="text-slate-500">Aplicado até agora: <b className="text-slate-700">{aplicado}</b></span>
+            {item && (Number(item.aplicado_especial || 0) > 0) && (
               <>
                 <span className="text-slate-400">│</span>
-                <span className="text-slate-500">Orçado: <b>{orcado}</b></span>
+                <span className="text-slate-500">USC normal: <b>{item.aplicado_normal}</b></span>
                 <span className="text-slate-400">│</span>
-                <span className="text-slate-500">Aplicado: <b>{aplicado}</b></span>
-                <span className="text-slate-400">│</span>
-                <span className={`font-bold ${estourou ? 'text-rose-600' : 'text-emerald-600'}`}>
-                  {estourou ? `⚠️ Excedido em ${Math.abs(saldo).toFixed(2)}` : `Saldo: ${saldo.toFixed(2)}`}
-                </span>
+                <span className="text-violet-600 font-semibold">USC especial: <b>{item.aplicado_especial}</b></span>
               </>
             )}
           </div>
         );
       })()}
 
-      {/* Comparativo Aplicado vs Orçado */}
+      {/* Serviços aplicados nesta O.S */}
       <div className="bg-slate-50 rounded-xl border border-slate-100 divide-y divide-slate-100">
         {(osDetalhe.materiais?.itens || []).map(item => (
           <div key={item.produto_id} className="px-3 py-2.5 flex items-center justify-between gap-2">
             <div className="min-w-0">
               <p className="text-sm font-semibold text-slate-700 truncate">{item.nome}</p>
               <p className="text-xs text-slate-400">
-                {item.aplicado} / {item.orcado || 0} {item.unidade}
-                {item.perc_aplicado != null && ` (${item.perc_aplicado}%)`}
+                {(() => {
+                  const partes = [];
+                  if (Number(item.aplicado_normal || 0) > 0) partes.push(`${item.aplicado_normal} N`);
+                  if (Number(item.aplicado_especial || 0) > 0) partes.push(`${item.aplicado_especial} E`);
+                  return (partes.length ? partes.join(' + ') : `${item.aplicado || 0}`) + ` ${item.unidade}`;
+                })()}
               </p>
             </div>
-            <span className={`text-xs font-bold shrink-0 ${item.orcado && item.aplicado > item.orcado ? 'text-rose-600' : 'text-slate-500'}`}>
+            <span className="text-xs font-bold shrink-0 text-slate-500">
               {brl(item.custo_aplicado)}
             </span>
           </div>
@@ -1399,7 +1385,7 @@ function PainelExecucao({ osId, produtos, geolocalizacao, capturarGps, onFechar,
             {mo.custo_mo_real > 0 ? brl(mo.custo_mo_real) : '—'}
           </p>
         </div>
-        <div className={`rounded-xl p-2.5 border ${(mat.total_aplicado_rs ?? 0) > (mat.total_orcado_rs ?? 0) && mat.total_orcado_rs > 0 ? 'bg-rose-50 border-rose-100' : 'bg-amber-50 border-amber-100'}`}>
+        <div className="bg-amber-50 rounded-xl p-2.5 border border-amber-100">
           <p className="text-[9px] font-bold text-amber-600 uppercase">Materiais</p>
           <p className="text-sm font-extrabold text-amber-800">{brl(mat.total_aplicado_rs)}</p>
         </div>

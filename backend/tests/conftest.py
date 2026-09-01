@@ -72,7 +72,6 @@ def _montar_dados_banco():
         "equipe_membros": [],
         "produtos": [],
         "ordens_servico": [],
-        "os_itens_orcados": [],
         "os_materiais": [],
         "os_apontamentos": [],
         "os_historico": [],

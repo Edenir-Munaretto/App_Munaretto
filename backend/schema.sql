@@ -692,16 +692,6 @@ CREATE TRIGGER trg_update_os_updated_at
     FOR EACH ROW
     EXECUTE FUNCTION update_updated_at_column();
 
--- TABELA: os_itens_orcados (quantidade planejada por produto - base do
--- comparativo "Aplicado vs. Orçado" exibido no Kanban)
-CREATE TABLE IF NOT EXISTS os_itens_orcados (
-    id SERIAL PRIMARY KEY,
-    os_id INTEGER NOT NULL REFERENCES ordens_servico(id) ON DELETE CASCADE,
-    produto_id INTEGER NOT NULL REFERENCES produtos(id),
-    quantidade_orcada NUMERIC(12, 3) NOT NULL CHECK (quantidade_orcada > 0),
-    UNIQUE (os_id, produto_id)
-);
-
 -- TABELA: os_materiais (lançamento de materiais/insumos aplicados em campo)
 CREATE TABLE IF NOT EXISTS os_materiais (
     id SERIAL PRIMARY KEY,
@@ -850,7 +840,6 @@ CREATE INDEX IF NOT EXISTS idx_equipe_membros_funcionario ON equipe_membros (fun
 CREATE INDEX IF NOT EXISTS idx_os_obra ON ordens_servico (obra_id);
 CREATE INDEX IF NOT EXISTS idx_os_equipe ON ordens_servico (equipe_id);
 CREATE INDEX IF NOT EXISTS idx_os_status ON ordens_servico (status);
-CREATE INDEX IF NOT EXISTS idx_os_itens_os ON os_itens_orcados (os_id);
 CREATE INDEX IF NOT EXISTS idx_os_mat_os ON os_materiais (os_id);
 CREATE INDEX IF NOT EXISTS idx_os_mat_produto ON os_materiais (produto_id);
 CREATE INDEX IF NOT EXISTS idx_os_apont_os ON os_apontamentos (os_id);
@@ -868,7 +857,6 @@ ALTER TABLE IF EXISTS equipes         ENABLE ROW LEVEL SECURITY;
 ALTER TABLE IF EXISTS equipe_membros  ENABLE ROW LEVEL SECURITY;
 ALTER TABLE IF EXISTS produtos        ENABLE ROW LEVEL SECURITY;
 ALTER TABLE IF EXISTS ordens_servico  ENABLE ROW LEVEL SECURITY;
-ALTER TABLE IF EXISTS os_itens_orcados ENABLE ROW LEVEL SECURITY;
 ALTER TABLE IF EXISTS os_materiais    ENABLE ROW LEVEL SECURITY;
 ALTER TABLE IF EXISTS os_apontamentos ENABLE ROW LEVEL SECURITY;
 ALTER TABLE IF EXISTS os_historico    ENABLE ROW LEVEL SECURITY;
@@ -895,10 +883,6 @@ CREATE POLICY "service_role_full_produtos" ON produtos
 
 DROP POLICY IF EXISTS "service_role_full_ordens_servico" ON ordens_servico;
 CREATE POLICY "service_role_full_ordens_servico" ON ordens_servico
-    FOR ALL TO service_role USING (true) WITH CHECK (true);
-
-DROP POLICY IF EXISTS "service_role_full_os_itens_orcados" ON os_itens_orcados;
-CREATE POLICY "service_role_full_os_itens_orcados" ON os_itens_orcados
     FOR ALL TO service_role USING (true) WITH CHECK (true);
 
 DROP POLICY IF EXISTS "service_role_full_os_materiais" ON os_materiais;

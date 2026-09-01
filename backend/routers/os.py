@@ -6,7 +6,8 @@ Regras de negócio centrais:
   e pelo menos uma foto de evidência já anexada à O.S.;
 - Apontamento de horas (H.H.) com Play/Pause e cálculo do Custo Real de
   Mão de Obra (zerado até que o valor da hora seja definido por equipe);
-- Comparativo Materiais Aplicados vs. Orçados;
+- Lançamento de serviços/materiais com conversão para USC (normal/especial)
+  e resumo de totais aplicados;
 - Permissão granular: usuários com "configuracoes"/"dashboard" são gestores
   (vêem tudo); demais usuários só acessam O.S das equipes em que atuam
   (vínculo pelo funcionário selecionado em Configurações → Usuários).
@@ -104,11 +105,6 @@ PERMISSOES_GESTOR = {"configuracoes", "dashboard", "os"}
 # ---------------------------------------------------------------------------
 
 
-class ItemOrcadoIn(BaseModel):
-    produto_id: int
-    quantidade_orcada: float = Field(..., gt=0)
-
-
 def _validar_hora(valor):
     """Aceita None/'' ou hora no formato HH:MM (usada no modelo de impressão)."""
     if valor in (None, ""):
@@ -136,7 +132,6 @@ class OSCreate(BaseModel):
     prazo_entrega: str | None = None  # ISO date (YYYY-MM-DD)
     descricao_escopo: str | None = None
     custo_mo_orcado: float = Field(0, ge=0)
-    itens_orcados: list[ItemOrcadoIn] = Field(default_factory=list)
     # Campos do modelo de impressão (capa da O.S).
     tipo: str = Field("construcao", description="'construcao' ou 'linha_viva' (define o modelo de impressão)")
     agencia: str | None = None
@@ -173,8 +168,6 @@ class OSUpdate(BaseModel):
     alimentador: str | None = None
     chave: str | None = None
     obs: str | None = None
-    # None = não alterar; [] = limpar; lista = substituir o orçamento.
-    itens_orcados: list[ItemOrcadoIn] | None = None
 
     _val_hora = field_validator("hora_desligar", "hora_religar")(_validar_hora)
     _val_prazo = field_validator("prazo_entrega")(_validar_data_iso)
@@ -424,15 +417,14 @@ def _precos_dos_produtos(db, produto_ids) -> dict:
 
 
 def _resumo_materiais(db, os_id: int) -> dict:
-    """Compara orçado vs. aplicado por produto e calcula custos."""
-    orcados = db.table("os_itens_orcados").select("produto_id, quantidade_orcada").eq("os_id", os_id).execute()
+    """Total aplicado por produto, com desdobramento por tipo de USC."""
     aplicacoes = (
         db.table("os_materiais").select("produto_id, quantidade_usada, tipo_usc").eq("os_id", os_id).execute()
     )
 
     # Catálogo e preços dos produtos envolvidos (consultas únicas, sem N+1
     # e sem depender de embedded resources do PostgREST).
-    todos_ids = [i["produto_id"] for i in (orcados.data or [])] + [m["produto_id"] for m in (aplicacoes.data or [])]
+    todos_ids = [m["produto_id"] for m in (aplicacoes.data or [])]
     catalogo = {}
     ids_unicos = sorted(set(todos_ids))
     if ids_unicos:
@@ -441,23 +433,6 @@ def _resumo_materiais(db, os_id: int) -> dict:
     precos = _precos_dos_produtos(db, todos_ids)
 
     por_produto = {}
-    for item in orcados.data or []:
-        pid = item["produto_id"]
-        p = por_produto.setdefault(
-            pid,
-            {
-                "produto_id": pid,
-                "nome": (catalogo.get(pid) or {}).get("nome"),
-                "unidade": (catalogo.get(pid) or {}).get("unidade"),
-                "preco_unitario": precos.get(pid, 0),
-                "orcado": 0.0,
-                "aplicado": 0.0,
-                "aplicado_normal": 0.0,
-                "aplicado_especial": 0.0,
-            },
-        )
-        p["orcado"] += float(item["quantidade_orcada"])
-
     for lanc in aplicacoes.data or []:
         pid = lanc["produto_id"]
         p = por_produto.setdefault(
@@ -467,7 +442,6 @@ def _resumo_materiais(db, os_id: int) -> dict:
                 "nome": (catalogo.get(pid) or {}).get("nome") or "Produto",
                 "unidade": (catalogo.get(pid) or {}).get("unidade") or "-",
                 "preco_unitario": precos.get(pid, 0),
-                "orcado": 0.0,
                 "aplicado": 0.0,
                 "aplicado_normal": 0.0,
                 "aplicado_especial": 0.0,
@@ -481,25 +455,14 @@ def _resumo_materiais(db, os_id: int) -> dict:
             p["aplicado_normal"] += quantidade
 
     itens = []
-    total_orcado_rs = 0.0
     total_aplicado_rs = 0.0
     for p in por_produto.values():
-        custo_orcado = p["orcado"] * p["preco_unitario"]
         custo_aplicado = p["aplicado"] * p["preco_unitario"]
-        total_orcado_rs += custo_orcado
         total_aplicado_rs += custo_aplicado
-        itens.append(
-            {
-                **p,
-                "custo_orcado": round(custo_orcado, 2),
-                "custo_aplicado": round(custo_aplicado, 2),
-                "perc_aplicado": round(p["aplicado"] / p["orcado"] * 100, 1) if p["orcado"] else None,
-            }
-        )
+        itens.append({**p, "custo_aplicado": round(custo_aplicado, 2)})
 
     return {
         "itens": sorted(itens, key=lambda i: i["nome"] or ""),
-        "total_orcado_rs": round(total_orcado_rs, 2),
         "total_aplicado_rs": round(total_aplicado_rs, 2),
     }
 
@@ -666,18 +629,10 @@ def listar_os(
             query.order("created_at", desc=True).order("id", desc=True).range(offset, offset + limit - 1).execute().data
         )
 
-        # Contadores "Aplicado vs. Orçado" por O.S em UMA viagem só (evita
-        # N+1 no frontend): soma o custo de cada item (qtde x preço unitário)
-        # e devolve o percentual executado exibido como barra no Kanban.
+        # Contadores "Materiais aplicados" por O.S em UMA viagem só (evita
+        # N+1 no frontend): soma o custo de cada item (qtde x preço unitário).
         if dados:
             os_ids = [d["id"] for d in dados]
-            orcados = (
-                db.table("os_itens_orcados")
-                .select("os_id, quantidade_orcada, produtos(preco_unitario)")
-                .in_("os_id", os_ids)
-                .execute()
-                .data
-            )
             aplicacoes = (
                 db.table("os_materiais")
                 .select("os_id, quantidade_usada, produtos(preco_unitario)")
@@ -689,21 +644,13 @@ def listar_os(
             fotos_count = {}
             for f in fotos or []:
                 fotos_count[f["os_id"]] = fotos_count.get(f["os_id"], 0) + 1
-            custo_orcado = {}
-            for i in orcados or []:
-                preco = float((i.get("produtos") or {}).get("preco_unitario") or 0)
-                custo_orcado[i["os_id"]] = custo_orcado.get(i["os_id"], 0) + float(i["quantidade_orcada"]) * preco
             custo_aplicado = {}
             for m in aplicacoes or []:
                 preco = float((m.get("produtos") or {}).get("preco_unitario") or 0)
                 custo_aplicado[m["os_id"]] = custo_aplicado.get(m["os_id"], 0) + float(m["quantidade_usada"]) * preco
 
             for d in dados:
-                orc = round(custo_orcado.get(d["id"], 0.0), 2)
-                apl = round(custo_aplicado.get(d["id"], 0.0), 2)
-                d["custo_materiais_orcado"] = orc
-                d["custo_materiais_aplicado"] = apl
-                d["perc_materiais"] = round(apl / orc * 100, 1) if orc > 0 else None
+                d["custo_materiais_aplicado"] = round(custo_aplicado.get(d["id"], 0.0), 2)
                 d["fotos_count"] = fotos_count.get(d["id"], 0)
 
         return dados
@@ -716,7 +663,7 @@ def listar_os(
 
 @router.post("/", status_code=201)
 def criar_os(payload: OSCreate, usuario: UsuarioAutenticado = Depends(get_current_user), db=Depends(get_supabase)):
-    """Cria uma nova O.S (status inicial 'rascunho') com seus itens orçados."""
+    """Cria uma nova O.S (status inicial 'rascunho')."""
     try:
         _exigir_gestor(usuario)
         if payload.prioridade not in PRIORIDADES:
@@ -755,16 +702,6 @@ def criar_os(payload: OSCreate, usuario: UsuarioAutenticado = Depends(get_curren
         if not resp.data:
             raise HTTPException(status_code=500, detail="Falha ao criar O.S.")
         nova = resp.data[0]
-
-        if payload.itens_orcados:
-            # Itens orçados precisam pertencer ao contrato (tipo) da O.S.
-            for item in payload.itens_orcados:
-                _validar_servico_do_contrato(db, item.produto_id, payload.tipo)
-            linhas = [
-                {"os_id": nova["id"], "produto_id": i.produto_id, "quantidade_orcada": i.quantidade_orcada}
-                for i in {i.produto_id: i for i in payload.itens_orcados}.values()
-            ]
-            db.table("os_itens_orcados").insert(linhas).execute()
 
         # Checklist de execução: snapshot do catálogo para a O.S (histórico fiel).
         snapshot_checklist(db, nova["id"])
@@ -845,32 +782,12 @@ def _obter_detalhe_os(db, usuario: UsuarioAutenticado, os_id: int) -> dict:
         .data
     )
 
-    # Itens orçados com nome do produto (usados na edição da O.S).
-    itens_orc = (
-        db.table("os_itens_orcados").select("produto_id, quantidade_orcada").eq("os_id", os_id).execute().data
-    )
-    prod_ids = sorted({i["produto_id"] for i in (itens_orc or [])})
-    nomes = {}
-    if prod_ids:
-        resp = db.table("produtos").select("id, nome, unidade").in_("id", prod_ids).execute()
-        nomes = {p["id"]: p for p in resp.data or []}
-    itens_orcados = [
-        {
-            "produto_id": i["produto_id"],
-            "quantidade_orcada": i["quantidade_orcada"],
-            "nome": (nomes.get(i["produto_id"]) or {}).get("nome"),
-            "unidade": (nomes.get(i["produto_id"]) or {}).get("unidade"),
-        }
-        for i in (itens_orc or [])
-    ]
-
     return {
         **os_data,
         "materiais": materiais,
         "mao_de_obra": mao_de_obra,
         "historico": historico,
         "fotos": fotos,
-        "itens_orcados": itens_orcados,
         "ultimos_lancamentos": ultimos_lancamentos,
         "cronometro_aberto": apontamento_aberto[0] if apontamento_aberto else None,
         "checklist": resumo_checklist(db, os_id),
@@ -923,19 +840,6 @@ def editar_os(
         )
         if not resp.data:
             raise HTTPException(status_code=500, detail="Falha ao atualizar O.S.")
-
-        # Substituição do orçamento de serviços quando enviado na edição.
-        if payload.itens_orcados is not None:
-            # Itens orçados precisam pertencer ao contrato (tipo) da O.S.
-            for item in payload.itens_orcados:
-                _validar_servico_do_contrato(db, item.produto_id, payload.tipo)
-            db.table("os_itens_orcados").delete().eq("os_id", os_id).execute()
-            itens = [
-                {"os_id": os_id, "produto_id": i.produto_id, "quantidade_orcada": i.quantidade_orcada}
-                for i in {i.produto_id: i for i in payload.itens_orcados}.values()
-            ]
-            if itens:
-                db.table("os_itens_orcados").insert(itens).execute()
 
         return resp.data[0]
     except HTTPException:
@@ -1557,7 +1461,7 @@ def estornar_material(
         raise HTTPException(status_code=500, detail="Erro ao estornar lançamento.") from None
 
 
-@router.get("/{os_id}/resumo", summary="Aplicado vs. Orçado + custo de M.O")
+@router.get("/{os_id}/resumo", summary="Materiais aplicados + custo de M.O")
 def resumo_os(os_id: int, usuario: UsuarioAutenticado = Depends(get_current_user), db=Depends(get_supabase)):
     try:
         os_data = _os_ou_404(db, os_id)

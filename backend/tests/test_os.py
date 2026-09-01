@@ -68,7 +68,6 @@ def _criar_os(client, **overrides):
         "prazo_entrega": "2026-12-31",
         "descricao_escopo": "Reforma do pavimento térreo.",
         "custo_mo_orcado": 5000,
-        "itens_orcados": [{"produto_id": 7, "quantidade_orcada": 10}],
         **overrides,
     }
     return client.post("/api/os/", json=payload)
@@ -282,13 +281,10 @@ class TestMateriaisEPermissao:
 
         resumo = os_gestor_client.get(f"/api/os/{os_id}").json()["materiais"]
         item = next(i for i in resumo["itens"] if i["produto_id"] == 7)
-        assert item["orcado"] == 10
         assert item["aplicado"] == 160.0
         assert item["aplicado_normal"] == 160.0
         assert item["aplicado_especial"] == 0.0
-        assert item["perc_aplicado"] == 1600.0
         assert resumo["total_aplicado_rs"] == 6400.0  # 160 x R$ 40
-        assert resumo["total_orcado_rs"] == 400.0
 
     def test_lancamento_usc_especial_converte(self, os_gestor_client, db_fake):
         _seed_cenario(db_fake)
@@ -660,30 +656,19 @@ class TestBuscaListagem:
 
 
 class TestEdicaoEValidacao:
-    def test_editar_substitui_itens_orcados(self, os_gestor_client, db_fake):
+    def test_editar_campos_basicos(self, os_gestor_client, db_fake):
         _seed_cenario(db_fake)
-        os_id = _criar_os(os_gestor_client, itens_orcados=[{"produto_id": 7, "quantidade_orcada": 10}]).json()["id"]
+        os_id = _criar_os(os_gestor_client).json()["id"]
 
         resp = os_gestor_client.put(
             f"/api/os/{os_id}",
-            json={"descricao_escopo": "Escopo revisado", "itens_orcados": [{"produto_id": 7, "quantidade_orcada": 5}]},
+            json={"descricao_escopo": "Escopo revisado", "prioridade": "baixa"},
         )
         assert resp.status_code == 200, resp.text
 
         detalhe = os_gestor_client.get(f"/api/os/{os_id}").json()
         assert detalhe["descricao_escopo"] == "Escopo revisado"
-        itens = detalhe["itens_orcados"]
-        assert len(itens) == 1
-        assert itens[0]["quantidade_orcada"] == 5
-        assert itens[0]["nome"] == "Cimento CP-II 50kg"
-
-    def test_editar_limpa_itens_orcados(self, os_gestor_client, db_fake):
-        _seed_cenario(db_fake)
-        os_id = _criar_os(os_gestor_client, itens_orcados=[{"produto_id": 7, "quantidade_orcada": 10}]).json()["id"]
-        resp = os_gestor_client.put(f"/api/os/{os_id}", json={"itens_orcados": []})
-        assert resp.status_code == 200, resp.text
-        detalhe = os_gestor_client.get(f"/api/os/{os_id}").json()
-        assert detalhe["itens_orcados"] == []
+        assert detalhe["prioridade"] == "baixa"
 
     def test_hora_invalida_rejeitada(self, os_gestor_client, db_fake):
         _seed_cenario(db_fake)

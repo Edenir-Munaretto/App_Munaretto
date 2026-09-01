@@ -1,7 +1,7 @@
 """Relatório PDF de execução da Ordem de Serviço (módulo Controle de O.S.).
 
 Gera um documento com: identificação da O.S/obra/equipe, escopo, linha do
-tempo de status, comparativo Materiais Aplicados vs. Orçados e mão de obra
+tempo de status, materiais aplicados (USC normal/especial) e mão de obra
 apontada (horas x valor/hora). Mantém o pdf_generator.py original intacto.
 """
 
@@ -97,7 +97,7 @@ def gerar_pdf_os(
 ) -> str:
     """Monta o PDF da O.S e retorna o caminho temporário do arquivo."""
     historico = historico or []
-    materiais = materiais or {"itens": [], "total_orcado_rs": 0, "total_aplicado_rs": 0}
+    materiais = materiais or {"itens": [], "total_aplicado_rs": 0}
     mao_de_obra = mao_de_obra or {}
 
     def brl(valor) -> str:
@@ -154,7 +154,7 @@ def gerar_pdf_os(
     pdf._tabela({"Data/Hora": 30, "Transição": 45, "Justificativa": 70, "Usuário": 40}, linhas_hist)
 
     # --- Materiais -----------------------------------------------------------
-    pdf._titulo_secao("MATERIAIS APLICADOS vs. ORÇADOS")
+    pdf._titulo_secao("MATERIAIS APLICADOS")
 
     def _aplicado_com_tipo(item):
         """Ex.: '4.8 N' ou '4.8 N + 6.7 E' (N = USC normal, E = USC especial)."""
@@ -171,22 +171,17 @@ def gerar_pdf_os(
     linhas_mat = [
         [
             item.get("nome"),
-            f"{item.get('orcado', 0):g} {item.get('unidade', '')}",
             _aplicado_com_tipo(item),
-            f"{item['perc_aplicado']}%" if item.get("perc_aplicado") is not None else "-",
             brl(item.get("custo_aplicado")),
         ]
         for item in materiais.get("itens", [])
     ]
-    pdf._tabela({"Produto": 55, "Orçado": 25, "Aplicado": 25, "%": 15, "Custo aplicado": 35}, linhas_mat)
+    pdf._tabela({"Produto": 70, "Aplicado": 55, "Custo aplicado": 40}, linhas_mat)
     pdf.set_font("Arial", "B", 9)
     pdf.cell(
         0,
         7,
-        (
-            f"Total orçado: {brl(materiais.get('total_orcado_rs'))}   |   "
-            f"Total aplicado: {brl(materiais.get('total_aplicado_rs'))}"
-        ),
+        f"Total aplicado: {brl(materiais.get('total_aplicado_rs'))}",
         ln=True,
     )
 

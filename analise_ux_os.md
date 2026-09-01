@@ -6,7 +6,8 @@ O módulo é robusto e bem estruturado. Ele oferece:
 - **Kanban drag-and-drop** com 6 colunas de status
 - **Máquina de estados** rigorosa no backend (transições controladas)
 - **Apontamento H.H.** com cronômetro Play/Pause + geolocalização
-- **Lançamento de materiais** com autocomplete/bipagem e barra de progresso
+- **Lançamento de serviços/materiais** com autocomplete/bipagem e seletor
+  **USC normal / USC especial** (peças × fator do cadastro, ex.: 0.48 / 0.67)
 - **Evidências fotográficas** com upload direto da câmera
 - **Timeline de histórico** de mudanças
 - **PDF exportável** e duplicação de O.S
@@ -48,11 +49,9 @@ Isso é um **fluxo de 6 etapas para o que deveria ser 2**. O usuário de campo, 
 
 ---
 
-### 4. Painel de Insumos — Sem Feedback de Estoque / Quantidade Orçada
+### 4. ~~Painel de Insumos — Sem Feedback de Estoque / Quantidade Orçada~~ (Obsoleto)
 
-**Problema:** O usuário lança materiais sem saber se está excedendo o orçado para aquele produto específico. O alerta de "vermelho" aparece só no card (barra geral), não na hora do lançamento.
-
-**Sugestão:** No autocomplete de seleção do produto, exibir em tempo real: `Orçado: X | Aplicado: Y | Saldo: Z`. Se `aplicado > orçado`, mostrar aviso antes do botão "Aplicar".
+**Resolvido (set/2026):** o comparativo "Orçado vs Aplicado" foi **removido** do módulo — só existe o **Aplicado**. No lançamento, o usuário escolhe **USC normal / USC especial** (fator do cadastro do serviço) com prévia da conversão (`peças × fator = total USC`), e a aba mostra o total já aplicado do serviço (com desdobramento normal/especial quando houver). Não há mais aviso de "excedido".
 
 ---
 
@@ -82,11 +81,9 @@ Isso é um **fluxo de 6 etapas para o que deveria ser 2**. O usuário de campo, 
 
 ---
 
-### 8. Modal de Nova O.S — Sem Previsão de Custo Total
+### 8. ~~Modal de Nova O.S — Sem Previsão de Custo Total~~ (Obsoleto)
 
-**Problema:** O usuário adiciona itens orçados (produto + quantidade) mas **não vê o custo total calculado** do orçamento durante o preenchimento. Só descobre o total depois que a O.S é criada.
-
-**Sugestão:** Calcular e exibir o custo total dos itens em tempo real dentro do modal (`Σ custo total orçado: R$ X.XXX,XX`).
+**Resolvido (set/2026):** os **itens orçados** foram removidos do módulo (decisão de negócio — só existe o aplicado), então não há mais orçamento para precificar no modal.
 
 ---
 
@@ -155,11 +152,11 @@ Isso é um **fluxo de 6 etapas para o que deveria ser 2**. O usuário de campo, 
 | 1 | Modal Impedimento sem upload de foto | 🔴 Crítico | Médio |
 | 2 | Sem cronômetro visual em tempo real | 🔴 Crítico | Baixo |
 | 3 | Drag-and-drop sem bloqueio de transições inválidas | 🔴 Crítico | Baixo |
-| 4 | Sem feedback de saldo ao lançar material | 🟡 Importante | Baixo |
+| 4 | ~~Sem feedback de saldo ao lançar material~~ (lógica de orçado removida — só aplicado) | ✅ Removido | — |
 | 5 | Filtros sem "Limpar tudo" | 🟡 Importante | Muito Baixo |
 | 6 | Colunas Kanban sem scroll independente | 🟡 Importante | Muito Baixo |
 | 7 | Lista mobile flat sem agrupamento | 🟡 Importante | Baixo |
-| 8 | Modal Nova O.S sem custo total dinâmico | 🟡 Importante | Baixo |
+| 8 | ~~Modal Nova O.S sem custo total dinâmico~~ (itens orçados removidos) | ✅ Removido | — |
 | 9 | Estorno de material sem confirmação | 🟡 Importante | Muito Baixo |
 | 10 | Exclusão de foto sem confirmação | 🟡 Importante | Muito Baixo |
 | 11 | Card Kanban sem contagem de fotos | 🟢 Melhoria | Médio |

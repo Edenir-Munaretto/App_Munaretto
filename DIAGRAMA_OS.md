@@ -122,19 +122,19 @@ stateDiagram-v2
 
 ```mermaid
 flowchart TD
-    A["1. GESTOR cria a O.S<br/>obra + equipe + prioridade + prazo + orçamento<br/>capa (tipo construção / linha viva)"] --> B
+    A["1. GESTOR cria a O.S<br/>obra + equipe + prioridade + prazo + M.O. orçada (R$)<br/>capa (tipo construção / linha viva)"] --> B
     B["2. NA BASE (online)<br/>check-in (hora + GPS) e preenchimento do<br/>Grupo 1 'Preparação (base)'"] --> C
     C["3. LIBERAÇÃO: aberta → em_andamento<br/>botão de status (gate Grupo 1) ou play do H.H."] --> D
     D["4. NO CAMPO — Painel de Execução (abas)<br/>checklist (2–5) · cronômetro H.H. · serviços<br/>evidências (fotos) · timeline"] --> E
     E["5. IMPEDIMENTO (se necessário)<br/>justificativa ≥20 + fotos → impedida<br/>retomar → em_andamento"] --> F
     F["6. CONCLUSÃO<br/>checklist 100% → concluída (encerra H.H.<br/>esquecidos, registra data_fim, notifica criador)"] --> G
-    G["7. RELATÓRIOS<br/>PDF do checklist · PDF de execução<br/>capa oficial (imprimir) · aplicado vs orçado + custo M.O."]
+    G["7. RELATÓRIOS<br/>PDF do checklist · PDF de execução<br/>capa oficial (imprimir) · materiais aplicados + custo M.O."]
 ```
 
 ```
  1. GESTOR cria a O.S (ModalNovaOS)
     · obra + equipe + prioridade + prazo + custo M.O. orçado
-    · itens orçados (produto x qtd) e "capa" (tipo construção/linha viva)
+    · "capa" (tipo construção/linha viva)
     · O sistema copia o catálogo do checklist → SNAPSHOT fixo na O.S
       (mudanças futuras no catálogo não alteram O.S antigas)
 
@@ -149,7 +149,8 @@ flowchart TD
                     (justificativa opcional); itens podem exigir foto
     · Cronômetro ─► PLAY abre bloco de H.H. (só 1 aberto por pessoa/O.S);
                     PAUSE fecha e calcula minutos; impedida/concluída não aponta
-    · Serviços   ─► lançar aplicado x orçado; estorno só gestor
+    · Serviços   ─► lançar serviços com seletor USC normal/especial
+                    (peças x fator do cadastro, ex.: 0.48/0.67); estorno só gestor
     · Evidências ─► fotos (câmera/galeria) no S3; excluir só gestor
     · Timeline   ─► histórico de transições (quem/quando/GPS)
 
@@ -160,7 +161,7 @@ flowchart TD
     registra data_fim e notifica o criador
 
  7. RELATÓRIOS: PDF do checklist · PDF de execução · capa oficial (imprimir)
-    · resumo aplicado vs orçado + custo real de M.O.
+    · resumo de materiais aplicados (USC normal/especial) + custo real de M.O.
 ```
 
 ---
