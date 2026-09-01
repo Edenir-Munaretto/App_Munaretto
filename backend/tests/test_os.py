@@ -843,6 +843,31 @@ class TestModeloImpressao:
         resp2 = os_gestor_client.get(f"/api/os/{os_sem_equipe}/imprimir")
         assert resp2.status_code == 200, resp2.text
 
+    def test_modelo_construcao_campo_agencia_sem_cda(self, os_gestor_client, db_fake):
+        """O campo Agência do modelo de construção mostra apenas o valor
+        digitado, dentro da caixa — sem o rótulo 'CDA' sobrescrito."""
+        _seed_cenario(db_fake)
+        os_id = _criar_os(os_gestor_client, tipo="construcao", agencia="AG-01").json()["id"]
+
+        resp = os_gestor_client.get(f"/api/os/{os_id}/imprimir")
+        assert resp.status_code == 200, resp.text
+
+        import pymupdf
+
+        doc = pymupdf.open(stream=resp.content, filetype="pdf")
+        palavras = [
+            (round(w[0], 1), round(w[1], 1), w[4])
+            for w in doc[0].get_text("words")
+            if 62 <= w[1] <= 66  # linha do cabeçalho (y)
+        ]
+
+        valor = [p for p in palavras if p[2].replace("\u2010", "-").replace("\u2011", "-") == "AG-01"]
+        assert valor, f"Valor da agência não encontrado no cabeçalho: {palavras}"
+        assert abs(valor[0][0] - 542.0) <= 2.0  # dentro da caixa (x 540.1–572)
+
+        cda = [p for p in palavras if p[2] == "CDA" and 545 <= p[0] <= 552]
+        assert not cda, f"Rótulo 'CDA' ainda presente no cabeçalho: {cda}"
+
 
 def test_detalhe_nao_quebra_com_cronometro_aberto_de_timestamp_invalido(os_gestor_client, db_fake):
     """Um apontamento aberto com 'inicio' ausente/inválido no banco não pode

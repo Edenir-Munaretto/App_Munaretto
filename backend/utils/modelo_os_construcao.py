@@ -174,7 +174,6 @@ _LABELS_P1 = [
     (205.4, 63.8, "Equipe"),
     (363.9, 63.8, "ID Obra"),
     (505.8, 63.8, "Agência"),
-    (548.0, 63.8, "CDA"),
     (36.4, 89.5, "Data"),
     (182.9, 89.5, "Encarregado"),
     (35.7, 112.5, "Obra"),
@@ -217,7 +216,7 @@ def _pagina_1(pdf, ctx):
     _texto(pag, 65.1, 63.9, ctx["codigo"], 12, bold=True)
     _texto(pag, 241.2, 63.8, ctx["equipe"], 9)
     _texto(pag, 431.9, 63.8, ctx["id_obra"], 9)
-    _texto(pag, 532.0, 63.8, ctx["agencia"], 9)
+    _texto(pag, 542.0, 63.8, ctx["agencia"], 9)
     _texto(pag, 65.1, 89.5, ctx["data_placeholder"], 9)
     _texto(pag, 241.2, 89.5, ctx["encarregado"], 9)
     _texto(pag, 66.0, 112.5, ctx["obra"], 9)
