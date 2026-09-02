@@ -1110,7 +1110,7 @@ function formatarTempo(segundos) {
   return `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}`;
 }
 
-function CronometroHH({ osDetalhe, geolocalizacao, capturarGps, onAtualizado, mostrarToast, podeEditar }) {
+function CronometroHH({ osDetalhe, capturarGps, onAtualizado, mostrarToast, podeEditar }) {
   const [processando, setProcessando] = useState(false);
   const [segundosDecorridos, setSegundosDecorridos] = useState(0);
   const aberto = osDetalhe.cronometro_aberto;
@@ -1133,8 +1133,8 @@ function CronometroHH({ osDetalhe, geolocalizacao, capturarGps, onAtualizado, mo
 
   const acionar = async (acao, tentativa = 0) => {
     setProcessando(true);
-    let gps = geolocalizacao;
-    if (!gps) gps = await capturarGps();
+    // Localização real no momento da ação (não reutiliza check-in antigo).
+    const gps = await capturarGps();
 
     // Offline: registra na fila com o horário real do dispositivo.
     if (usarLocal()) {
@@ -1309,7 +1309,7 @@ function AcoesStatus({ detalhe, podeEditar, mudarStatus, aoAplicado, ehGestor, t
   );
 }
 
-function PainelExecucao({ osId, produtos, geolocalizacao, capturarGps, onFechar, recarregarLista, mostrarToast, ehMobile, mudarStatus, ehGestor, onEditar, transicoes }) {
+function PainelExecucao({ osId, produtos, capturarGps, onFechar, recarregarLista, mostrarToast, ehMobile, mudarStatus, ehGestor, onEditar, transicoes }) {
   const [detalhe, setDetalhe] = useState(null);
   const [erro, setErro] = useState('');
   const [aba, setAba] = useState('insumos');
@@ -1549,7 +1549,6 @@ function PainelExecucao({ osId, produtos, geolocalizacao, capturarGps, onFechar,
       <div className="space-y-2 mt-3">
         <CronometroHH
           osDetalhe={detalhe}
-          geolocalizacao={geolocalizacao}
           capturarGps={capturarGps}
           onAtualizado={() => { carregar(); recarregarLista(); }}
           mostrarToast={mostrarToast}
@@ -2233,9 +2232,8 @@ function OrdensServico({ usuarioAtual }) {
   const [modalEdicao, setModalEdicao] = useState(null); // detalhe da O.S em edição
   const [modalImpedimento, setModalImpedimento] = useState(null); // {os, destinoColuna}
   const [confirmacaoEncerrar, setConfirmacaoEncerrar] = useState(null); // {os, destino}
+  const [confirmacaoFinalizarModoCampo, setConfirmacaoFinalizarModoCampo] = useState(false); // confirmação do Finalizar Modo Campo
   const [processando, setProcessando] = useState(false);
-  const [geolocalizacao, setGeolocalizacao] = useState(null);
-  const [checkinInfo, setCheckinInfo] = useState(null);
   const [draggingOsStatus, setDraggingOsStatus] = useState(null); // status do card sendo arrastado
 
   const [filtroBusca, setFiltroBusca] = useState('');
@@ -2336,16 +2334,6 @@ function OrdensServico({ usuarioAtual }) {
   }, [modoCampo]);
 
   const alternarModoCampo = async () => {
-    if (modoCampo) {
-      // Sai do modo campo: limpa o pacote local (o tablet é da equipe).
-      await limparPacote();
-      setModoCampo(false);
-      setModoCampoState(false);
-      setInfoPacoteLocal(null);
-      mostrarToast('Modo Campo encerrado. Dados locais apagados do dispositivo.');
-      carregarDados();
-      return;
-    }
     if (offline) {
       mostrarToast('Conecte-se à internet para preparar o Modo Campo.', 'error');
       return;
@@ -2362,6 +2350,56 @@ function OrdensServico({ usuarioAtual }) {
       mostrarToast('Falha ao preparar o Modo Campo. Tente novamente.', 'error');
     } finally {
       setPreparandoPacote(false);
+    }
+  };
+
+  // Finalizar Modo Campo (único fluxo de saída): abre a confirmação; ao
+  // confirmar, sincroniza TODAS as pendências e encerra o Modo Campo,
+  // apagando os dados locais do dispositivo.
+  const finalizarModoCampo = async () => {
+    if (!modoCampo) return;
+    if (isOffline()) {
+      mostrarToast('Sem conexão — conecte-se à internet para finalizar o Modo Campo.', 'error');
+      return;
+    }
+    if (sincronizando || preparandoPacote) return;
+    setConfirmacaoFinalizarModoCampo(true);
+  };
+
+  const confirmarFinalizarModoCampo = async () => {
+    setConfirmacaoFinalizarModoCampo(false);
+    if (!modoCampo) return;
+    if (isOffline()) {
+      mostrarToast('Sem conexão — conecte-se à internet para finalizar o Modo Campo.', 'error');
+      return;
+    }
+    if (sincronizando || preparandoPacote) return;
+    setSincronizando(true);
+    try {
+      const resumo = await sincronizar();
+      setUltimoResumo(resumo);
+      if (resumo.falhas.length) {
+        setPendentes(await contarPendentes());
+        mostrarToast(
+          `Não foi possível finalizar: ${resumo.falhas.length} item(ns) com erro. Revise as pendências e tente novamente.`,
+          'error',
+          { label: 'Ver pendências', onClick: () => setModalPendenciasAberto(true) },
+        );
+        return;
+      }
+      if (usuarioAtual?.nome) salvarResponsavelLocal(usuarioAtual.nome);
+      await limparPacote();
+      setModoCampo(false);
+      setModoCampoState(false);
+      setInfoPacoteLocal(null);
+      setPendentes({ operacoes: 0, fotos: 0, total: 0 });
+      setUltimoResumo(null);
+      carregarDados();
+      mostrarToast('Modo Campo finalizado: pendências sincronizadas e dados locais apagados.');
+    } catch {
+      mostrarToast('Falha ao finalizar o Modo Campo. Tente novamente.', 'error');
+    } finally {
+      setSincronizando(false);
     }
   };
 
@@ -2388,28 +2426,11 @@ function OrdensServico({ usuarioAtual }) {
       .catch(() => { /* mantém o fallback local */ });
   }, []);
 
-  // Check-in persistente: restaura o registro do dia após recarregar a página.
-  useEffect(() => {
-    try {
-      const chave = `os_checkin_${new Date().toISOString().slice(0, 10)}`;
-      const salvo = localStorage.getItem(chave);
-      if (salvo) {
-        const dados = JSON.parse(salvo);
-        setCheckinInfo({ quando: new Date(dados.quando), gps: dados.gps || null });
-        if (dados.gps) setGeolocalizacao(dados.gps);
-      }
-    } catch { /* armazenamento indisponível */ }
-  }, []);
-
   // Gestor do módulo O.S (permissão "os"); o usuário de campo ("os_campo")
   // apenas visualiza e executa tarefas das O.S da própria equipe.
   const ehGestor = (usuarioAtual?.permissoes || []).includes('os');
 
-  const capturarGps = useCallback(async () => {
-    const gps = await capturarGeolocalizacao();
-    setGeolocalizacao(gps);
-    return gps;
-  }, []);
+  const capturarGps = useCallback(async () => capturarGeolocalizacao(), []);
 
   const buscarPagina = useCallback(async (offset, reset) => {
     try {
@@ -2480,8 +2501,8 @@ function OrdensServico({ usuarioAtual }) {
 
   const mudarStatus = useCallback(async (os, novoStatus, extras = {}, tentativa = 0) => {
     setProcessando(true);
-    let gps = geolocalizacao;
-    if (!gps) gps = await capturarGps();
+    // Localização real no momento da ação (não reutiliza check-in antigo).
+    const gps = await capturarGps();
 
     // Offline: registra na fila do dispositivo e reflete localmente.
     if (usarLocal()) {
@@ -2536,7 +2557,7 @@ function OrdensServico({ usuarioAtual }) {
     } finally {
       setProcessando(false);
     }
-  }, [geolocalizacao, capturarGps, mostrarToast, recarregarLista]);
+  }, [capturarGps, mostrarToast, recarregarLista]);
 
   // Drag-and-drop do Kanban com validação UX antes de chamar a API.
   const aoArrastarInicio = (resultado) => {
@@ -2583,24 +2604,6 @@ function OrdensServico({ usuarioAtual }) {
     // As fotos já foram enviadas pelo modal — só passamos os IDs para o backend validar.
     const ok = await mudarStatus(os, 'impedida', { justificativa, fotos_ids: fotosIds });
     if (ok) setModalImpedimento(null);
-  };
-
-
-  // --- Check-in de campo ------------------------------------------------------
-
-  const fazerCheckin = async () => {
-    const gps = await capturarGps();
-    const info = { quando: new Date(), gps };
-    setCheckinInfo(info);
-    if (gps) setGeolocalizacao(gps);
-    // Persiste no dispositivo para sobreviver a recarregamentos (por dia).
-    try {
-      const chave = `os_checkin_${new Date().toISOString().slice(0, 10)}`;
-      localStorage.setItem(chave, JSON.stringify({ quando: info.quando.toISOString(), gps }));
-    } catch { /* armazenamento indisponível */ }
-    mostrarToast(gps
-      ? 'Check-in registrado com localização!'
-      : 'Check-in registrado (sem GPS disponível no dispositivo).');
   };
 
   // --- Agrupamento do Kanban ---------------------------------------------------
@@ -2703,24 +2706,33 @@ function OrdensServico({ usuarioAtual }) {
           <span className="text-xs text-slate-400 font-semibold">{totalOs} O.S no total{listaOs.length < totalOs ? ` (${listaOs.length} carregadas)` : ''}</span>
         </div>
         <div className="flex items-center gap-2 flex-wrap">
-          {/* Check-in de campo: registra hora + GPS para as próximas ações */}
-          <button onClick={fazerCheckin}
-            className="flex items-center gap-2 px-4 py-2.5 rounded-xl border border-emerald-200 bg-emerald-50 text-emerald-700 font-bold text-xs hover:bg-emerald-100 cursor-pointer">
-            <MapPin size={15} />
-            {checkinInfo ? `Check-in ${checkinInfo.quando.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })}${checkinInfo.gps ? ' 📍' : ''}` : 'Fazer Check-in'}
-          </button>
+          {/* Finalizar Modo Campo: único fluxo de saída (sincroniza e encerra) */}
+          {modoCampo && (
+            <button
+              onClick={finalizarModoCampo}
+              disabled={preparandoPacote || sincronizando}
+              title="Sincronizar todas as pendências com a base e encerrar o Modo Campo (apaga os dados locais do dispositivo)"
+              className="flex items-center gap-2 px-4 py-2.5 rounded-xl border border-emerald-300 bg-emerald-600 text-white font-bold text-xs hover:bg-emerald-700 transition-all cursor-pointer disabled:opacity-50"
+            >
+              {sincronizando
+                ? <RefreshCw size={15} className="animate-spin" />
+                : <Check size={15} />}
+              {sincronizando ? 'Finalizando...' : 'Finalizar Modo Campo'}
+            </button>
+          )}
 
-          {/* Modo Campo: baixa o pacote offline e sincroniza ao voltar */}
+          {/* Modo Campo: fora do modo baixa o pacote; ativo vira indicador
+              sem ação (a saída é feita pelo "Finalizar Modo Campo") */}
           <button
-            onClick={alternarModoCampo}
-            disabled={preparandoPacote || sincronizando}
+            onClick={modoCampo ? undefined : alternarModoCampo}
+            disabled={modoCampo || preparandoPacote || sincronizando}
             title={modoCampo
-              ? 'Encerrar o Modo Campo e apagar os dados locais do dispositivo'
+              ? 'Modo Campo ativo — para encerrar, use o botão "Finalizar Modo Campo"'
               : 'Baixar as O.S para o dispositivo e trabalhar sem internet'}
-            className={`flex items-center gap-2 px-4 py-2.5 rounded-xl border font-bold text-xs transition-all cursor-pointer disabled:opacity-50 ${
+            className={`flex items-center gap-2 px-4 py-2.5 rounded-xl border font-bold text-xs transition-all disabled:opacity-50 ${
               modoCampo
-                ? 'border-primary-300 bg-primary-600 text-white hover:bg-primary-700'
-                : 'border-primary-300 bg-primary-50 text-primary-700 hover:bg-primary-100'
+                ? 'border-primary-300 bg-primary-600 text-white cursor-default'
+                : 'border-primary-300 bg-primary-50 text-primary-700 hover:bg-primary-100 cursor-pointer'
             }`}
           >
             <HardHat size={15} />
@@ -2832,7 +2844,6 @@ function OrdensServico({ usuarioAtual }) {
                   osId={osSelecionada}
                   obras={obras}
                   produtos={produtos}
-                  geolocalizacao={geolocalizacao}
                   capturarGps={capturarGps}
                   onFechar={() => setOsSelecionada(null)}
                   recarregarLista={recarregarLista}
@@ -2858,7 +2869,6 @@ function OrdensServico({ usuarioAtual }) {
                   osId={osSelecionada}
                   obras={obras}
                   produtos={produtos}
-                  geolocalizacao={geolocalizacao}
                   capturarGps={capturarGps}
                   onFechar={() => setOsSelecionada(null)}
                   recarregarLista={recarregarLista}
@@ -2949,6 +2959,17 @@ function OrdensServico({ usuarioAtual }) {
           if (ok) setConfirmacaoEncerrar(null);
         }}
         onCancelar={() => setConfirmacaoEncerrar(null)}
+      />
+
+      <ModalConfirmacao
+        aberto={confirmacaoFinalizarModoCampo}
+        titulo="Finalizar Modo Campo"
+        mensagem="Sincronizar todas as pendências com a base e encerrar o Modo Campo, apagando os dados locais deste dispositivo? (O tablet é da equipe.) Se houver itens com erro na sincronização, você poderá revisá-los antes de finalizar."
+        confirmarTexto="Sincronizar e finalizar"
+        perigo
+        loading={sincronizando}
+        onConfirmar={confirmarFinalizarModoCampo}
+        onCancelar={() => setConfirmacaoFinalizarModoCampo(false)}
       />
 
       <ModalPendenciasSync
