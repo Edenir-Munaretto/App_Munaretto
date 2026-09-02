@@ -2706,40 +2706,48 @@ function OrdensServico({ usuarioAtual }) {
           <span className="text-xs text-slate-400 font-semibold">{totalOs} O.S no total{listaOs.length < totalOs ? ` (${listaOs.length} carregadas)` : ''}</span>
         </div>
         <div className="flex items-center gap-2 flex-wrap">
-          {/* Finalizar Modo Campo: único fluxo de saída (sincroniza e encerra) */}
-          {modoCampo && (
-            <button
-              onClick={finalizarModoCampo}
-              disabled={preparandoPacote || sincronizando}
-              title="Sincronizar todas as pendências com a base e encerrar o Modo Campo (apaga os dados locais do dispositivo)"
-              className="flex items-center gap-2 px-4 py-2.5 rounded-xl border border-emerald-300 bg-emerald-600 text-white font-bold text-xs hover:bg-emerald-700 transition-all cursor-pointer disabled:opacity-50"
-            >
-              {sincronizando
-                ? <RefreshCw size={15} className="animate-spin" />
-                : <Check size={15} />}
-              {sincronizando ? 'Finalizando...' : 'Finalizar Modo Campo'}
-            </button>
+          {/* Modo Campo: exclusivo do usuário de campo (os_campo) — o gestor
+              não usa download offline/finalização de pacote local */}
+          {!ehGestor && modoCampo && (
+            <>
+              {/* Finalizar Modo Campo: único fluxo de saída (sincroniza e encerra) */}
+              <button
+                onClick={finalizarModoCampo}
+                disabled={preparandoPacote || sincronizando}
+                title="Sincronizar todas as pendências com a base e encerrar o Modo Campo (apaga os dados locais do dispositivo)"
+                className="flex items-center gap-2 px-4 py-2.5 rounded-xl border border-emerald-300 bg-emerald-600 text-white font-bold text-xs hover:bg-emerald-700 transition-all cursor-pointer disabled:opacity-50"
+              >
+                {sincronizando
+                  ? <RefreshCw size={15} className="animate-spin" />
+                  : <Check size={15} />}
+                {sincronizando ? 'Finalizando...' : 'Finalizar Modo Campo'}
+              </button>
+
+              {/* Modo Campo: ativo vira indicador sem ação (a saída é feita
+                  pelo "Finalizar Modo Campo") */}
+              <button
+                disabled
+                title='Modo Campo ativo — para encerrar, use o botão "Finalizar Modo Campo"'
+                className="flex items-center gap-2 px-4 py-2.5 rounded-xl border font-bold text-xs transition-all border-primary-300 bg-primary-600 text-white cursor-default opacity-100"
+              >
+                <HardHat size={15} />
+                {preparandoPacote ? 'Baixando O.S...' : `Modo Campo ${infoPacoteLocal ? `(${infoPacoteLocal.quantidade} O.S)` : ''}`}
+              </button>
+            </>
           )}
 
-          {/* Modo Campo: fora do modo baixa o pacote; ativo vira indicador
-              sem ação (a saída é feita pelo "Finalizar Modo Campo") */}
-          <button
-            onClick={modoCampo ? undefined : alternarModoCampo}
-            disabled={modoCampo || preparandoPacote || sincronizando}
-            title={modoCampo
-              ? 'Modo Campo ativo — para encerrar, use o botão "Finalizar Modo Campo"'
-              : 'Baixar as O.S para o dispositivo e trabalhar sem internet'}
-            className={`flex items-center gap-2 px-4 py-2.5 rounded-xl border font-bold text-xs transition-all disabled:opacity-50 ${
-              modoCampo
-                ? 'border-primary-300 bg-primary-600 text-white cursor-default'
-                : 'border-primary-300 bg-primary-50 text-primary-700 hover:bg-primary-100 cursor-pointer'
-            }`}
-          >
-            <HardHat size={15} />
-            {preparandoPacote ? 'Baixando O.S...' : modoCampo
-              ? `Modo Campo ${infoPacoteLocal ? `(${infoPacoteLocal.quantidade} O.S)` : ''}`
-              : 'Preparar Modo Campo'}
-          </button>
+          {!ehGestor && !modoCampo && (
+            /* Preparar Modo Campo: baixa o pacote offline para o dispositivo */
+            <button
+              onClick={alternarModoCampo}
+              disabled={preparandoPacote || sincronizando}
+              title="Baixar as O.S para o dispositivo e trabalhar sem internet"
+              className="flex items-center gap-2 px-4 py-2.5 rounded-xl border font-bold text-xs transition-all cursor-pointer disabled:opacity-50 border-primary-300 bg-primary-50 text-primary-700 hover:bg-primary-100"
+            >
+              <HardHat size={15} />
+              {preparandoPacote ? 'Baixando O.S...' : 'Preparar Modo Campo'}
+            </button>
+          )}
 
           {/* Pendências + sincronizar (visível quando há fila offline) */}
           {pendentes.total > 0 && (
