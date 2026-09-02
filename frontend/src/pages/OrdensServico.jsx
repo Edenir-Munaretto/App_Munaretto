@@ -4,7 +4,7 @@ import {
   Plus, Search, X, Play, Pause, Camera, Package, ClipboardList, MapPin,
   AlertTriangle, Check, Clock, CalendarClock, FileDown, LayoutGrid,
   FolderKanban, HardHat, Boxes, Trash2, ChevronLeft, Image as ImageIcon,
-  Pencil, Building, Printer, ListChecks, RefreshCw, WifiOff,
+  Pencil, Building, Printer, ListChecks, RefreshCw, WifiOff, ChevronDown,
 } from 'lucide-react';
 import { API_URL, apiFetch, erroDaResposta } from '../api';
 import ModalConfirmacao from '../components/ModalConfirmacao';
@@ -204,7 +204,9 @@ function TabChecklist({ osDetalhe, onAtualizado, mostrarToast, podeEditar }) {
   const [salvandoItem, setSalvandoItem] = useState(null); // item sendo respondido
   const [enviandoFoto, setEnviandoFoto] = useState(null); // item recebendo foto
   const [fotoAlvo, setFotoAlvo] = useState(null); // item para anexar foto
+  const [grupoAberto, setGrupoAberto] = useState(null); // grupo expandido do acordeão
   const inputFotoRef = useRef(null);
+  const inicializouGrupo = useRef(false);
 
   const carregar = useCallback(async () => {
     setCarregando(true);
@@ -229,6 +231,16 @@ function TabChecklist({ osDetalhe, onAtualizado, mostrarToast, podeEditar }) {
   }, [osDetalhe.id, mostrarToast]);
 
   useEffect(() => { carregar(); }, [carregar]);
+
+  // Na primeira carga, abre o primeiro grupo ainda incompleto (ou o primeiro,
+  // se todos completos). Depois disso o usuário controla o acordeão.
+  useEffect(() => {
+    if (!dados || inicializouGrupo.current) return;
+    inicializouGrupo.current = true;
+    const grupos = (dados.resumo?.grupos || []).filter(g => g.total > 0);
+    const alvo = grupos.find(g => g.respondidos < g.total) || grupos[0];
+    setGrupoAberto(alvo ? alvo.grupo : null);
+  }, [dados]);
 
   const responder = async (item, resposta, tentativa = 0) => {
     if (!podeEditar) return;
@@ -381,7 +393,52 @@ function TabChecklist({ osDetalhe, onAtualizado, mostrarToast, podeEditar }) {
         <p className="text-xs text-slate-400 text-center py-6">Nenhum item de checklist configurado para esta O.S.</p>
       )}
 
-      {resumo.grupos.filter(g => g.total > 0).map(grupo => {
+      {/* Cards dos grupos: clique abre/fecha o grupo (1 por vez) */}
+      <div className="grid grid-cols-2 md:grid-cols-3 xl:grid-cols-5 gap-2">
+        {resumo.grupos.filter(g => g.total > 0).map(grupo => {
+          const aberto = grupoAberto === grupo.grupo;
+          const completo = grupo.completo;
+          return (
+            <button
+              key={grupo.grupo}
+              type="button"
+              onClick={() => setGrupoAberto(aberto ? null : grupo.grupo)}
+              aria-expanded={aberto}
+              title={`Grupo ${grupo.grupo} · ${grupo.nome}`}
+              className={`text-left rounded-xl border p-2.5 flex flex-col gap-1.5 cursor-pointer transition-all ${
+                aberto
+                  ? 'bg-primary-50 border-primary-500 ring-1 ring-primary-500/30'
+                  : 'bg-white border-slate-200 hover:border-primary-300 hover:bg-primary-50/50'
+              }`}
+            >
+              <span className="flex items-center justify-between gap-1.5">
+                <span className="text-[11px] font-extrabold text-slate-700 uppercase tracking-wide truncate">
+                  Grupo {grupo.grupo}
+                </span>
+                <ChevronDown size={13} className={`shrink-0 text-slate-400 transition-transform ${aberto ? 'rotate-180 text-primary-600' : ''}`} />
+              </span>
+              <span className="text-[10px] text-slate-500 font-semibold truncate">{grupo.nome}</span>
+              <span className="flex items-center justify-between gap-1.5">
+                <span className={`text-[10px] font-bold rounded-full px-1.5 py-0.5 ${
+                  completo ? 'bg-emerald-100 text-emerald-700' : 'bg-slate-100 text-slate-500'
+                }`}>
+                  {grupo.respondidos}/{grupo.total}
+                </span>
+                {completo && <Check size={12} className="text-emerald-600 shrink-0" />}
+              </span>
+              <span className="h-1 bg-slate-100 rounded-full overflow-hidden">
+                <span className="block h-full bg-primary-500 transition-all"
+                  style={{ width: `${grupo.total ? (grupo.respondidos / grupo.total) * 100 : 0}%` }} />
+              </span>
+            </button>
+          );
+        })}
+      </div>
+
+      {/* Perguntas do grupo aberto */}
+      {grupoAberto != null && (() => {
+        const grupo = resumo.grupos.find(g => g.grupo === grupoAberto && g.total > 0);
+        if (!grupo) return null;
         const itens = itensPorGrupo[grupo.grupo] || [];
         return (
           <div key={grupo.grupo} className="rounded-xl border border-slate-100 overflow-hidden">
@@ -474,7 +531,7 @@ function TabChecklist({ osDetalhe, onAtualizado, mostrarToast, podeEditar }) {
             </div>
           </div>
         );
-      })}
+      })()}
 
       <input
         ref={inputFotoRef}
