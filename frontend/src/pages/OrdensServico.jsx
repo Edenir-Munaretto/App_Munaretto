@@ -438,145 +438,128 @@ function TabChecklist({ osDetalhe, onAtualizado, mostrarToast, podeEditar }) {
         <p className="text-xs text-slate-400 text-center py-6">Nenhum item de checklist configurado para esta O.S.</p>
       )}
 
-      {/* Cards dos grupos: clique abre/fecha o grupo (1 por vez) */}
-      <div className="grid grid-cols-2 md:grid-cols-3 xl:grid-cols-5 gap-2">
+      {/* Grupos do checklist: cards em linha — clique expande no lugar,
+          empurrando os demais cards para baixo (1 grupo aberto por vez) */}
+      <div className="rounded-2xl border border-slate-200 bg-white overflow-hidden divide-y divide-slate-100">
         {resumo.grupos.filter(g => g.total > 0).map(grupo => {
           const aberto = grupoAberto === grupo.grupo;
           const completo = grupo.completo;
+          const itens = itensPorGrupo[grupo.grupo] || [];
           return (
-            <button
-              key={grupo.grupo}
-              type="button"
-              onClick={() => setGrupoAberto(aberto ? null : grupo.grupo)}
-              aria-expanded={aberto}
-              title={`Grupo ${grupo.grupo} · ${grupo.nome}`}
-              className={`text-left rounded-xl border p-2.5 flex flex-col gap-1.5 cursor-pointer transition-all ${
-                aberto
-                  ? 'bg-primary-50 border-primary-500 ring-1 ring-primary-500/30'
-                  : 'bg-white border-slate-200 hover:border-primary-300 hover:bg-primary-50/50'
-              }`}
-            >
-              <span className="flex items-center justify-between gap-1.5">
-                <span className="text-[11px] font-extrabold text-slate-700 uppercase tracking-wide truncate">
-                  Grupo {grupo.grupo}
-                </span>
-                <ChevronDown size={13} className={`shrink-0 text-slate-400 transition-transform ${aberto ? 'rotate-180 text-primary-600' : ''}`} />
-              </span>
-              <span className="text-[10px] text-slate-500 font-semibold truncate">{grupo.nome}</span>
-              <span className="flex items-center justify-between gap-1.5">
-                <span className={`text-[10px] font-bold rounded-full px-1.5 py-0.5 ${
-                  completo ? 'bg-emerald-100 text-emerald-700' : 'bg-slate-100 text-slate-500'
+            <div key={grupo.grupo}>
+              <button
+                type="button"
+                onClick={() => setGrupoAberto(aberto ? null : grupo.grupo)}
+                aria-expanded={aberto}
+                title={`Grupo ${grupo.grupo} · ${grupo.nome}`}
+                className={`w-full flex items-center gap-3 px-4 py-3 text-left cursor-pointer transition-colors ${
+                  aberto ? 'bg-primary-50' : 'bg-white hover:bg-slate-50'
+                }`}
+              >
+                <span className={`w-9 h-9 shrink-0 rounded-full flex items-center justify-center text-xs font-black transition-colors ${
+                  completo ? 'bg-emerald-100 text-emerald-700'
+                    : aberto ? 'bg-primary-600 text-white' : 'bg-slate-100 text-slate-500'
                 }`}>
-                  {grupo.respondidos}/{grupo.total}
+                  {completo ? <Check size={16} /> : grupo.grupo}
                 </span>
-                {completo && <Check size={12} className="text-emerald-600 shrink-0" />}
-              </span>
-              <span className="h-1 bg-slate-100 rounded-full overflow-hidden">
-                <span className="block h-full bg-primary-500 transition-all"
-                  style={{ width: `${grupo.total ? (grupo.respondidos / grupo.total) * 100 : 0}%` }} />
-              </span>
-            </button>
+                <span className="min-w-0 flex-1">
+                  <span className="flex items-center justify-between gap-2">
+                    <span className="min-w-0 truncate">
+                      <span className="text-sm font-extrabold text-slate-700">Grupo {grupo.grupo}</span>
+                      <span className="text-xs font-semibold text-slate-400"> · {grupo.nome}</span>
+                    </span>
+                    <span className={`shrink-0 text-[10px] font-bold rounded-full px-2 py-0.5 ${
+                      completo ? 'bg-emerald-100 text-emerald-700' : 'bg-slate-100 text-slate-500'
+                    }`}>
+                      {grupo.respondidos}/{grupo.total}
+                    </span>
+                  </span>
+                  <span className="block h-1 mt-1.5 bg-slate-100 rounded-full overflow-hidden">
+                    <span className="block h-full bg-primary-500 transition-all"
+                      style={{ width: `${grupo.total ? (grupo.respondidos / grupo.total) * 100 : 0}%` }} />
+                  </span>
+                </span>
+                <ChevronDown size={16} className={`shrink-0 text-slate-400 transition-transform ${aberto ? 'rotate-180 text-primary-600' : ''}`} />
+              </button>
+              {aberto && (
+                <div className="bg-white border-t border-slate-100 divide-y divide-slate-50">
+                  {itens.map(item => {
+                    const resp = item.resposta;
+                    const resposta = resp?.resposta;
+                    const justificativa = resp?.justificativa || '';
+                    const temFoto = item.fotos?.length > 0;
+                    const botaoFoto = podeEditar && (item.exige_foto || temFoto);
+                    return (
+                      <div key={item.id} className="px-3 py-2.5">
+                        <div className="flex items-start gap-2">
+                          <span className="font-mono text-[10px] font-bold text-slate-400 pt-1 w-9 shrink-0">{item.classificacao}</span>
+                          <div className="min-w-0 flex-1">
+                            <p className="text-xs font-semibold text-slate-700 leading-tight">{item.pergunta}</p>
+                            {item.exige_foto && (
+                              <p className="text-[9px] font-bold text-amber-600 mt-0.5">📷 evidência fotográfica</p>
+                            )}
+                            <div className="flex items-center gap-1.5 mt-1.5 flex-wrap">
+                              {podeEditar ? (
+                                <>
+                                  {[['sim', 'Sim'], ['nao', 'Não'], ['na', 'N/A']].map(([valor, rotulo]) => (
+                                    <button key={valor}
+                                      disabled={salvandoItem === item.id}
+                                      onClick={() => responder(item, valor)}
+                                      className={`px-3 py-1 rounded-lg border text-[11px] font-bold transition-all cursor-pointer disabled:opacity-40 ${marcar(resposta === valor)}`}>
+                                      {rotulo}
+                                    </button>
+                                  ))}
+                                  {salvandoItem === item.id && <span className="text-[10px] text-slate-400">salvando...</span>}
+                                </>
+                              ) : (
+                                <span className={`text-[11px] font-bold px-2 py-0.5 rounded-full ${
+                                  resposta === 'sim' ? 'bg-emerald-100 text-emerald-700'
+                                    : resposta === 'nao' ? 'bg-rose-100 text-rose-700'
+                                    : resposta === 'na' ? 'bg-slate-100 text-slate-500' : 'bg-white text-slate-300 border border-slate-200'
+                                }`}>
+                                  {resposta ? ({ sim: 'Sim', nao: 'Não', na: 'N/A' })[resposta] : 'Sem resposta'}
+                                </span>
+                              )}
+                              {resposta && (
+                                <span className="text-[10px] text-slate-400 font-semibold">
+                                  {fmtData(resp.criado_em)} {resp.respondido_por ? `· ${resp.respondido_por}` : ''}
+                                </span>
+                              )}
+                              {botaoFoto && (
+                                <button
+                                  onClick={() => setFotoAlvo(item)}
+                                  disabled={enviandoFoto === item.id}
+                                  className="flex items-center gap-1 px-2.5 py-1 rounded-lg border border-primary-200 bg-primary-50 text-primary-700 text-[10px] font-bold hover:bg-primary-100 transition-all cursor-pointer disabled:opacity-40"
+                                >
+                                  <Camera size={11} />
+                                  {enviandoFoto === item.id ? 'Enviando...' : temFoto ? 'Trocar foto' : 'Foto'}
+                                </button>
+                              )}
+                            </div>
+                            {resposta === 'nao' && justificativa && (
+                              <p className="text-[10px] text-rose-600 font-semibold mt-1">Justificativa: {justificativa}</p>
+                            )}
+                            {temFoto && (
+                              <div className="flex gap-2 mt-1.5">
+                                {item.fotos.map(f => (
+                                  <a key={f.id} href={f.url_temporaria} target="_blank" rel="noopener noreferrer" title="Abrir foto">
+                                    <img src={f.url_temporaria} alt={f.nome_original}
+                                      className="w-16 h-16 rounded-lg object-cover border border-slate-200" loading="lazy" />
+                                  </a>
+                                ))}
+                              </div>
+                            )}
+                          </div>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+            </div>
           );
         })}
       </div>
-
-      {/* Perguntas do grupo aberto */}
-      {grupoAberto != null && (() => {
-        const grupo = resumo.grupos.find(g => g.grupo === grupoAberto && g.total > 0);
-        if (!grupo) return null;
-        const itens = itensPorGrupo[grupo.grupo] || [];
-        return (
-          <div key={grupo.grupo} className="rounded-xl border border-slate-100 overflow-hidden">
-            <div className="flex items-center justify-between px-3 py-2 bg-slate-50 border-b border-slate-100">
-              <span className="text-[11px] font-extrabold text-slate-700 uppercase tracking-wide">
-                Grupo {grupo.grupo} · {grupo.nome}
-              </span>
-              <span className={`text-[10px] font-bold rounded-full px-2 py-0.5 ${
-                grupo.completo ? 'bg-emerald-100 text-emerald-700' : 'bg-slate-100 text-slate-500'
-              }`}>
-                {grupo.respondidos}/{grupo.total}
-              </span>
-            </div>
-            <div className="h-1 bg-slate-100">
-              <div className="h-full bg-primary-500 transition-all"
-                style={{ width: `${grupo.total ? (grupo.respondidos / grupo.total) * 100 : 0}%` }} />
-            </div>
-            <div className="divide-y divide-slate-50">
-              {itens.map(item => {
-                const resp = item.resposta;
-                const resposta = resp?.resposta;
-                const justificativa = resp?.justificativa || '';
-                const temFoto = item.fotos?.length > 0;
-                const botaoFoto = podeEditar && (item.exige_foto || temFoto);
-                return (
-                  <div key={item.id} className="px-3 py-2.5">
-                    <div className="flex items-start gap-2">
-                      <span className="font-mono text-[10px] font-bold text-slate-400 pt-1 w-9 shrink-0">{item.classificacao}</span>
-                      <div className="min-w-0 flex-1">
-                        <p className="text-xs font-semibold text-slate-700 leading-tight">{item.pergunta}</p>
-                        {item.exige_foto && (
-                          <p className="text-[9px] font-bold text-amber-600 mt-0.5">📷 evidência fotográfica</p>
-                        )}
-                        <div className="flex items-center gap-1.5 mt-1.5 flex-wrap">
-                          {podeEditar ? (
-                            <>
-                              {[['sim', 'Sim'], ['nao', 'Não'], ['na', 'N/A']].map(([valor, rotulo]) => (
-                                <button key={valor}
-                                  disabled={salvandoItem === item.id}
-                                  onClick={() => responder(item, valor)}
-                                  className={`px-3 py-1 rounded-lg border text-[11px] font-bold transition-all cursor-pointer disabled:opacity-40 ${marcar(resposta === valor)}`}>
-                                  {rotulo}
-                                </button>
-                              ))}
-                              {salvandoItem === item.id && <span className="text-[10px] text-slate-400">salvando...</span>}
-                            </>
-                          ) : (
-                            <span className={`text-[11px] font-bold px-2 py-0.5 rounded-full ${
-                              resposta === 'sim' ? 'bg-emerald-100 text-emerald-700'
-                                : resposta === 'nao' ? 'bg-rose-100 text-rose-700'
-                                : resposta === 'na' ? 'bg-slate-100 text-slate-500' : 'bg-white text-slate-300 border border-slate-200'
-                            }`}>
-                              {resposta ? ({ sim: 'Sim', nao: 'Não', na: 'N/A' })[resposta] : 'Sem resposta'}
-                            </span>
-                          )}
-                          {resposta && (
-                            <span className="text-[10px] text-slate-400 font-semibold">
-                              {fmtData(resp.criado_em)} {resp.respondido_por ? `· ${resp.respondido_por}` : ''}
-                            </span>
-                          )}
-                          {botaoFoto && (
-                            <button
-                              onClick={() => setFotoAlvo(item)}
-                              disabled={enviandoFoto === item.id}
-                              className="flex items-center gap-1 px-2.5 py-1 rounded-lg border border-primary-200 bg-primary-50 text-primary-700 text-[10px] font-bold hover:bg-primary-100 transition-all cursor-pointer disabled:opacity-40"
-                            >
-                              <Camera size={11} />
-                              {enviandoFoto === item.id ? 'Enviando...' : temFoto ? 'Trocar foto' : 'Foto'}
-                            </button>
-                          )}
-                        </div>
-                        {resposta === 'nao' && justificativa && (
-                          <p className="text-[10px] text-rose-600 font-semibold mt-1">Justificativa: {justificativa}</p>
-                        )}
-                        {temFoto && (
-                          <div className="flex gap-2 mt-1.5">
-                            {item.fotos.map(f => (
-                              <a key={f.id} href={f.url_temporaria} target="_blank" rel="noopener noreferrer" title="Abrir foto">
-                                <img src={f.url_temporaria} alt={f.nome_original}
-                                  className="w-16 h-16 rounded-lg object-cover border border-slate-200" loading="lazy" />
-                              </a>
-                            ))}
-                          </div>
-                        )}
-                      </div>
-                    </div>
-                  </div>
-                );
-              })}
-            </div>
-          </div>
-        );
-      })()}
 
       <input
         ref={inputFotoRef}
