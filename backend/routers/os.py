@@ -1071,6 +1071,17 @@ async def enviar_foto_checklist(
         )
 
         nome_original = os.path.basename((arquivo.filename or "").replace("\\", "/")).strip() or f"item_{item_id}.jpg"
+        # "Trocar foto" substitui: cada item do checklist admite uma única foto
+        # de evidência. Fotos anteriores do item (envios web ou sincronização
+        # offline) são removidas — linhas antigas e objetos no bucket.
+        antigas = (
+            db.table("os_fotos")
+            .select("id, bucket_key")
+            .eq("os_id", os_id)
+            .eq("checklist_item_id", item_id)
+            .execute()
+            .data
+        )
         resp = (
             db.table("os_fotos")
             .insert(
@@ -1089,6 +1100,12 @@ async def enviar_foto_checklist(
         if not resp.data:
             _remover_objeto(s3, bucket_key)
             raise HTTPException(status_code=500, detail="Falha ao salvar a foto.")
+        for antiga in antigas or []:
+            try:
+                s3.delete_object(Bucket=bucket(), Key=antiga["bucket_key"])
+            except Exception:
+                logger.exception("Erro ao remover objeto %s do B2", antiga["bucket_key"])
+            db.table("os_fotos").delete().eq("id", antiga["id"]).execute()
         return resp.data[0]
     except HTTPException:
         raise

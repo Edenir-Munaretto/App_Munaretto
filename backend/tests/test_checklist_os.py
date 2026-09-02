@@ -272,6 +272,50 @@ def test_upload_foto_item(os_gestor_client, db_fake, monkeypatch):
     item_atualizado = next(i for i in itens if i["id"] == item["id"])
     assert len(item_atualizado["fotos"]) == 1
     assert item_atualizado["fotos"][0]["url_temporaria"].startswith("https://presigned.invalido/")
+    assert len(fake.objetos) == 1
+
+
+def test_trocar_foto_item_substitui_anterior(os_gestor_client, db_fake, monkeypatch):
+    from tests.test_os import _criar_os, _seed_cenario
+
+    _seed_cenario(db_fake)
+    _seed_modelos(db_fake)
+    os_id = _criar_os(os_gestor_client).json()["id"]
+    item = next(i for i in _itens(os_gestor_client, os_id) if i["exige_foto"])
+
+    class FakeS3:
+        def __init__(self):
+            self.objetos = {}
+
+        def put_object(self, **kwargs):
+            self.objetos[kwargs["Key"]] = kwargs["Body"]
+            return {}
+
+        def delete_object(self, **kwargs):
+            self.objetos.pop(kwargs["Key"], None)
+
+        def generate_presigned_url(self, operacao, Params=None, ExpiresIn=None):
+            return f"https://presigned.invalido/{Params['Key']}"
+
+    fake = FakeS3()
+    monkeypatch.setattr("routers.os.get_s3_client", lambda: fake)
+    monkeypatch.setattr("routers.os.bucket", lambda: "bucket-teste")
+
+    url = f"/api/os/{os_id}/checklist/{item['id']}/foto"
+    primeira = os_gestor_client.post(url, files={"arquivo": ("foto1.jpg", b"\xff\xd8\xff\xe0 fake jpeg", "image/jpeg")})
+    assert primeira.status_code == 201, primeira.text
+    id_primeira = primeira.json()["id"]
+
+    segunda = os_gestor_client.post(url, files={"arquivo": ("foto2.jpg", b"\xff\xd8\xff\xe0 fake jpeg", "image/jpeg")})
+    assert segunda.status_code == 201, segunda.text
+    id_segunda = segunda.json()["id"]
+    assert id_segunda != id_primeira
+
+    itens = _itens(os_gestor_client, os_id)
+    item_atualizado = next(i for i in itens if i["id"] == item["id"])
+    assert len(item_atualizado["fotos"]) == 1
+    assert item_atualizado["fotos"][0]["id"] == id_segunda
+    assert len(fake.objetos) == 1
 
 
 def test_relatorio_pdf(os_gestor_client, db_fake):
