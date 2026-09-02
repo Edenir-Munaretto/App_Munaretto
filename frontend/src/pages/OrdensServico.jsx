@@ -743,38 +743,40 @@ function TabInsumos({ osDetalhe, produtos, onAtualizado, mostrarToast, podeEdita
         </div>
       )}
 
-      {/* Seletor numérico grande "+" e "-" */}
-      <div className="flex items-center gap-3">
-        <button
-          type="button"
-          disabled={!podeEditar}
-          onClick={() => setQtd(q => Math.max(0.5, Number((q - (q > 1 ? 1 : 0.5)).toFixed(2))))}
-          className="w-12 h-12 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-700 text-2xl font-black flex items-center justify-center disabled:opacity-40 cursor-pointer"
-        >
-          −
-        </button>
-        <input
-          type="number"
-          min="0"
-          step="0.5"
-          value={qtd}
-          onChange={(e) => setQtd(Number(e.target.value))}
-          disabled={!podeEditar}
-          className="flex-1 h-12 text-center text-lg font-bold border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-primary-500/20"
-        />
-        <button
-          type="button"
-          disabled={!podeEditar}
-          onClick={() => setQtd(q => Number((q + (q < 1 ? 0.5 : 1)).toFixed(2)))}
-          className="w-12 h-12 rounded-xl bg-primary-600 hover:bg-primary-700 text-white text-2xl font-black flex items-center justify-center disabled:opacity-40 cursor-pointer"
-        >
-          +
-        </button>
+      {/* Seletor numérico grande "+" e "-" e aplicação em linha própria */}
+      <div className="space-y-2.5">
+        <div className="flex items-center justify-center gap-3">
+          <button
+            type="button"
+            disabled={!podeEditar}
+            onClick={() => setQtd(q => Math.max(0.5, Number((q - (q > 1 ? 1 : 0.5)).toFixed(2))))}
+            className="w-12 h-12 shrink-0 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-700 text-2xl font-black flex items-center justify-center disabled:opacity-40 cursor-pointer"
+          >
+            −
+          </button>
+          <input
+            type="number"
+            min="0"
+            step="0.5"
+            value={qtd}
+            onChange={(e) => setQtd(Number(e.target.value))}
+            disabled={!podeEditar}
+            className="w-28 h-12 text-center text-lg font-bold border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-primary-500/20"
+          />
+          <button
+            type="button"
+            disabled={!podeEditar}
+            onClick={() => setQtd(q => Number((q + (q < 1 ? 0.5 : 1)).toFixed(2)))}
+            className="w-12 h-12 shrink-0 rounded-xl bg-primary-600 hover:bg-primary-700 text-white text-2xl font-black flex items-center justify-center disabled:opacity-40 cursor-pointer"
+          >
+            +
+          </button>
+        </div>
         <button
           type="button"
           onClick={lancar}
           disabled={!podeEditar || salvando}
-          className="h-12 px-5 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white text-sm font-bold flex items-center gap-2 disabled:opacity-40 cursor-pointer"
+          className="w-full h-12 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white text-sm font-bold flex items-center justify-center gap-2 disabled:opacity-40 cursor-pointer"
         >
           <Package size={18} />{salvando ? 'Salvando...' : 'Aplicar'}
         </button>
