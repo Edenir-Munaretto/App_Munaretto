@@ -136,7 +136,7 @@ def _gerar_lembretes_documentos_veiculos(db) -> None:
         docs = (
             db.table("veiculo_documentos")
             .select("id, tipo, data_validade, veiculo_id")
-            .not_("data_validade", "is", None)
+            .not_.is_("data_validade", None)
             .execute()
         )
         if not docs.data:
@@ -236,7 +236,7 @@ def listar_notificacoes(
         if lida is not None:
             # `not is true` também captura registros com lida NULL (legado),
             # que o `eq(false)` deixaria de fora
-            query = query.eq("lida", True) if lida else query.not_("lida", "is", True)
+            query = query.eq("lida", True) if lida else query.not_.is_("lida", True)
 
         response = query.execute()
         # Normaliza lida NULL (registros legados) para False, evitando erro de

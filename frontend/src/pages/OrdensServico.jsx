@@ -211,20 +211,56 @@ function TabChecklist({ osDetalhe, onAtualizado, mostrarToast, podeEditar }) {
   const carregar = useCallback(async () => {
     setCarregando(true);
     try {
-      if (usarLocal()) {
+      const modoCampo = isModoCampo();
+
+      // 1) No Modo Campo a cópia do dispositivo é a fonte primária de exibição:
+      //    renderiza na hora, sem depender de sonda/estado de conexão.
+      let localAchado = false;
+      if (modoCampo || usarLocal()) {
         const local = await getChecklistLocal(osDetalhe.id);
-        if (local) setDados({ itens: local.itens || [], resumo: local.resumo });
-        else mostrarToast('Checklist indisponível offline (baixe o pacote de campo).', 'error');
+        if (local) {
+          localAchado = true;
+          setDados({ itens: local.itens || [], resumo: local.resumo });
+        } else if (!modoCampo) {
+          mostrarToast('Checklist indisponível offline (baixe o pacote de campo).', 'error');
+        }
+      }
+
+      // 2) Fora do Modo Campo com conexão: o servidor é a fonte e os erros
+      //    continuam visíveis (não mascarar problemas do backend).
+      if (!modoCampo) {
+        if (!usarLocal()) {
+          const res = await apiFetch(`${API_URL}/os/${osDetalhe.id}/checklist`);
+          if (res.ok) {
+            const dados = await res.json();
+            setDados(dados);
+          } else {
+            mostrarToast(erroDaResposta(await res.json().catch(() => null), 'Erro ao carregar checklist.'), 'error');
+          }
+        }
         return;
       }
-      const res = await apiFetch(`${API_URL}/os/${osDetalhe.id}/checklist`);
-      if (res.ok) {
-        const dados = await res.json();
-        setDados(dados);
-        if (isModoCampo()) await salvarChecklistLocal(osDetalhe.id, dados);
-      } else mostrarToast(erroDaResposta(await res.json().catch(() => null), 'Erro ao carregar checklist.'), 'error');
+
+      // 3) Modo Campo: atualização em segundo plano e silenciosa. Falha de rede
+      //    marca offline imediatamente (failover); erro HTTP do servidor é
+      //    ignorado — a tela permanece com a cópia local sem toasts repetidos.
+      let okRemoto = false;
+      try {
+        const res = await apiFetch(`${API_URL}/os/${osDetalhe.id}/checklist`);
+        if (res.ok) {
+          const dados = await res.json();
+          setDados(dados);
+          await salvarChecklistLocal(osDetalhe.id, dados);
+          okRemoto = true;
+        }
+      } catch {
+        registrarFalhaDeRede();
+      }
+      if (!localAchado && !okRemoto) {
+        mostrarToast('Checklist indisponível offline (baixe o pacote de campo).', 'error');
+      }
     } catch {
-      mostrarToast('Erro de conexão ao carregar checklist.', 'error');
+      if (!isModoCampo()) mostrarToast('Erro de conexão ao carregar checklist.', 'error');
     } finally {
       setCarregando(false);
     }
@@ -242,6 +278,25 @@ function TabChecklist({ osDetalhe, onAtualizado, mostrarToast, podeEditar }) {
     setGrupoAberto(alvo ? alvo.grupo : null);
   }, [dados]);
 
+  // Reflete uma resposta no pacote local (IndexedDB) e no estado da tela —
+  // usado no Modo Campo para a interface não depender do GET /checklist.
+  const refletirRespostaLocal = async (item, resposta, gps) => {
+    await atualizarRespostaLocal(osDetalhe.id, item.id, resposta, null, gps);
+    setDados(prev => {
+      if (!prev) return prev;
+      const itens = prev.itens.map(i => (i.id === item.id
+        ? { ...i, resposta: { item_id: item.id, resposta, justificativa: null, geolocalizacao: gps, criado_em: new Date().toISOString(), respondido_por: 'dispositivo' } }
+        : i));
+      const resumo = recalcularResumo(itens);
+      // Preserva os nomes reais dos grupos vindos do servidor.
+      resumo.grupos.forEach((g, i) => {
+        const nome = prev.resumo?.grupos?.[i]?.nome;
+        if (nome) g.nome = nome;
+      });
+      return { itens, resumo };
+    });
+  };
+
   const responder = async (item, resposta, tentativa = 0) => {
     if (!podeEditar) return;
     setSalvandoItem(item.id);
@@ -255,20 +310,7 @@ function TabChecklist({ osDetalhe, onAtualizado, mostrarToast, podeEditar }) {
           os_id: osDetalhe.id,
           payload: { item_id: item.id, resposta, geolocalizacao: gps },
         });
-        await atualizarRespostaLocal(osDetalhe.id, item.id, resposta, null, gps);
-        setDados(prev => {
-          if (!prev) return prev;
-          const itens = prev.itens.map(i => (i.id === item.id
-            ? { ...i, resposta: { item_id: item.id, resposta, justificativa: null, geolocalizacao: gps, criado_em: new Date().toISOString(), respondido_por: 'dispositivo' } }
-            : i));
-          const resumo = recalcularResumo(itens);
-          // Preserva os nomes reais dos grupos vindos do servidor.
-          resumo.grupos.forEach((g, i) => {
-            const nome = prev.resumo?.grupos?.[i]?.nome;
-            if (nome) g.nome = nome;
-          });
-          return { itens, resumo };
-        });
+        await refletirRespostaLocal(item, resposta, gps);
         onAtualizado();
         mostrarToast('Resposta salva no dispositivo (será sincronizada).');
       } catch {
@@ -286,6 +328,9 @@ function TabChecklist({ osDetalhe, onAtualizado, mostrarToast, podeEditar }) {
         body: JSON.stringify({ resposta, geolocalizacao: gps }),
       });
       if (res.ok) {
+        // No Modo Campo também reflete no pacote local: se o GET do checklist
+        // falhar (ex.: problema no servidor), a tela segue consistente.
+        if (isModoCampo()) await refletirRespostaLocal(item, resposta, gps);
         carregar();
         onAtualizado();
       } else {

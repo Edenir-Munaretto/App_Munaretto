@@ -30,41 +30,45 @@ class _Query:
         self.range_ = range_
         self._update_payload = None
         self._delete = False
+        self._negar_proximo = False  # postgrest: not_ é property que nega o PRÓXIMO filtro
 
     def select(self, *args, **kwargs):
         return self
 
-    def eq(self, coluna, valor):
-        self.filtros.append(("eq", coluna, valor))
+    @property
+    def not_(self):
+        """Nega o próximo filtro aplicado (API do supabase-py atual)."""
+        self._negar_proximo = True
         return self
+
+    def _registrar(self, op, coluna, valor):
+        if self._negar_proximo:
+            self._negar_proximo = False
+            op = {"eq": "neq", "neq": "eq", "ilike": "not_ilike", "isnull": "isnotnull", "in": "not_in"}.get(op, op)
+        self.filtros.append((op, coluna, valor))
+        return self
+
+    def eq(self, coluna, valor):
+        return self._registrar("eq", coluna, valor)
 
     def neq(self, coluna, valor):
-        self.filtros.append(("neq", coluna, valor))
-        return self
-
-    def not_(self, coluna, operador, valor):
-        self.filtros.append(("not", coluna, operador, valor))
-        return self
+        return self._registrar("neq", coluna, valor)
 
     def ilike(self, coluna, valor):
-        self.filtros.append(("ilike", coluna, valor))
-        return self
+        return self._registrar("ilike", coluna, valor)
 
     def like(self, coluna, valor):
-        self.filtros.append(("ilike", coluna, valor))
-        return self
+        return self._registrar("ilike", coluna, valor)
 
     def in_(self, coluna, valores):
-        self.filtros.append(("in", coluna, list(valores)))
-        return self
+        return self._registrar("in", coluna, list(valores))
 
     def is_(self, coluna, valor):
-        # No PostgREST o valor chega como string "null".
-        if isinstance(valor, str) and valor.lower() == "null":
-            self.filtros.append(("isnull", coluna, True))
-        else:
-            self.filtros.append(("eq", coluna, valor))
-        return self
+        # No PostgREST o valor chega como string "null"; valor None também
+        # significa "is null".
+        if valor is None or (isinstance(valor, str) and valor.lower() == "null"):
+            return self._registrar("isnull", coluna, True)
+        return self._registrar("eq", coluna, valor)
 
     def or_(self, expressao):
         """Suporta o formato usado pelos routers: 'col.op.valor,col.op.valor'
@@ -87,15 +91,6 @@ class _Query:
     def _aplica(self):
         linhas = self.dados[self.tabela]
         for filtro in self.filtros:
-            if filtro[0] == "not":
-                _, coluna, op_interno, val = filtro
-                if op_interno == "is":
-                    linhas = [r for r in linhas if r.get(coluna) is not val]
-                elif op_interno == "eq":
-                    linhas = [r for r in linhas if r.get(coluna) != val]
-                elif op_interno == "neq":
-                    linhas = [r for r in linhas if r.get(coluna) == val]
-                continue
             if filtro[0] == "or":
                 linhas = self._aplica_or(linhas, filtro[1])
                 continue
@@ -107,10 +102,17 @@ class _Query:
             elif op == "ilike":
                 termo = str(valor).replace("%", "").lower()
                 linhas = [r for r in linhas if termo in str(r.get(coluna, "")).lower()]
+            elif op == "not_ilike":
+                termo = str(valor).replace("%", "").lower()
+                linhas = [r for r in linhas if termo not in str(r.get(coluna, "")).lower()]
             elif op == "in":
                 linhas = [r for r in linhas if r.get(coluna) in valor]
+            elif op == "not_in":
+                linhas = [r for r in linhas if r.get(coluna) not in valor]
             elif op == "isnull":
                 linhas = [r for r in linhas if r.get(coluna) is None]
+            elif op == "isnotnull":
+                linhas = [r for r in linhas if r.get(coluna) is not None]
         if self.ordenacao:
             coluna, desc = self.ordenacao
             linhas = sorted(linhas, key=lambda r: str(r.get(coluna, "")), reverse=desc)

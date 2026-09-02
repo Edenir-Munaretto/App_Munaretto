@@ -992,9 +992,11 @@ def obter_checklist(os_id: int, usuario: UsuarioAutenticado = Depends(get_curren
         return {"itens": itens, "resumo": resumo_checklist(db, os_id)}
     except HTTPException:
         raise
-    except Exception:
+    except Exception as exc:
         logger.exception("Erro ao obter checklist da O.S %s", os_id)
-        raise HTTPException(status_code=500, detail="Erro ao obter checklist.") from None
+        # TODO(diagnóstico): expõe a exceção temporariamente para identificar a
+        # causa do 500 em produção; remover após a correção da causa raiz.
+        raise HTTPException(status_code=500, detail=f"Erro ao obter checklist: {exc}") from None
 
 
 @router.put("/{os_id}/checklist/{item_id}", summary="Registra a resposta de um item")
