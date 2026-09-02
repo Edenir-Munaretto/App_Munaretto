@@ -120,6 +120,7 @@ def _capa(pdf: _PdfChecklist, os_data: dict, obra: dict, equipe_nome: str, equip
     pdf.ln(8)
 
     cliente = (obra.get("clientes") or {}).get("nome") if isinstance(obra.get("clientes"), dict) else obra.get("clientes")
+    cliente = cliente or obra.get("cliente_celesc") or ""
     tipo = os_data.get("tipo") or "construcao"
     servico = (os_data.get("descricao_escopo") or "").strip()
     obs = (os_data.get("obs") or "").strip()

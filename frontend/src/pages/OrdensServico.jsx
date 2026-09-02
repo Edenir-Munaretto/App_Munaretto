@@ -176,7 +176,7 @@ function CardOS({ os, onClick, draggableProps = {} }) {
         <BadgePrioridade prioridade={os.prioridade} />
       </div>
       <p className="text-sm font-bold text-slate-800 mt-1 truncate">{os.obras?.nome || 'Obra'}</p>
-      <p className="text-xs text-slate-400">{os.obras?.clientes?.nome || ''}</p>
+      <p className="text-xs text-slate-400">{os.obras?.clientes?.nome || os.obras?.cliente_celesc || ''}</p>
 
       <div className="flex items-center gap-1.5 mt-2 flex-wrap">
         {prazo && (
@@ -1475,7 +1475,7 @@ function PainelExecucao({ osId, produtos, capturarGps, onFechar, recarregarLista
           </div>
           <p className="text-lg font-extrabold text-slate-800 mt-1 leading-tight">{detalhe.obras?.nome}</p>
           <p className="text-xs text-slate-400">
-            Cliente: {detalhe.obras?.clientes?.nome || '-'} · Equipe:{' '}
+            Cliente: {detalhe.obras?.clientes?.nome || detalhe.obras?.cliente_celesc || '-'} · Equipe:{' '}
             {detalhe.equipes ? (detalhe.equipes.numero ? `Nº ${detalhe.equipes.numero} - ${detalhe.equipes.nome}` : detalhe.equipes.nome) : 'sem equipe'}
           </p>
         </div>
@@ -1646,11 +1646,14 @@ function ObraAutocomplete({ obras, value, disabled = false, onChange }) {
 
   const selecionada = obras.find(o => o.id === Number(value)) || null;
 
+  // Nome do cliente exibido na obra: cadastro OU Cliente Celesc.
+  const rotuloClienteObra = (o) => o.clientes?.nome || o.cliente_celesc || '';
+
   // Ao receber uma obra selecionada externamente (modo edição/prefill), exibe o nome dela.
   // Durante a digitação do usuário, não sobrescreve o texto.
   useEffect(() => {
     if (editando.current) return;
-    if (selecionada) setTermo(`${selecionada.nome} — ${selecionada.clientes?.nome || ''}`);
+    if (selecionada) setTermo(`${selecionada.nome} — ${rotuloClienteObra(selecionada)}`);
     else if (!value) setTermo('');
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [value]);
@@ -1661,7 +1664,7 @@ function ObraAutocomplete({ obras, value, disabled = false, onChange }) {
     return obras
       .filter(o =>
         (o.nome || '').toLowerCase().includes(t) ||
-        (o.clientes?.nome || '').toLowerCase().includes(t)
+        (rotuloClienteObra(o) || '').toLowerCase().includes(t)
       )
       .slice(0, 8);
   }, [termo, obras]);
@@ -1678,7 +1681,7 @@ function ObraAutocomplete({ obras, value, disabled = false, onChange }) {
 
   const escolher = (o) => {
     editando.current = false;
-    setTermo(`${o.nome} — ${o.clientes?.nome || ''}`);
+    setTermo(`${o.nome} — ${rotuloClienteObra(o)}`);
     setAberto(false);
     setIndiceAtivo(-1);
     onChange(o);
@@ -1690,7 +1693,7 @@ function ObraAutocomplete({ obras, value, disabled = false, onChange }) {
     setAberto(true);
     // Se o texto deixou de corresponder à obra selecionada, limpa a seleção.
     const selecionadaAtual = obras.find(o => o.id === Number(value));
-    if (selecionadaAtual && texto.trim() !== `${selecionadaAtual.nome} — ${selecionadaAtual.clientes?.nome || ''}`.trim()) {
+    if (selecionadaAtual && texto.trim() !== `${selecionadaAtual.nome} — ${rotuloClienteObra(selecionadaAtual)}`.trim()) {
       onChange(null);
     }
   };
@@ -1748,7 +1751,7 @@ function ObraAutocomplete({ obras, value, disabled = false, onChange }) {
                 }`}
               >
                 <span className={`block text-sm font-bold truncate ${i === indiceAtivo ? 'text-primary-900' : 'text-slate-800'}`}>{o.nome}</span>
-                <span className="block text-xs text-slate-400 truncate">{o.clientes?.nome || 'Sem cliente'}</span>
+                <span className="block text-xs text-slate-400 truncate">{rotuloClienteObra(o) || 'Sem cliente'}</span>
               </button>
             </li>
           ))}
@@ -3331,7 +3334,8 @@ function PainelCadastros({ obras, equipes, produtos, recarregar, mostrarToast })
   }, []);
 
   // Obras
-  const [novaObra, setNovaObra] = useState({ nome: '', cliente_id: '', cidade: '', endereco: '' });
+  const [novaObra, setNovaObra] = useState({ nome: '', cliente_id: '', cliente_celesc: '', cidade: '', endereco: '' });
+  const [obraCelesc, setObraCelesc] = useState(false); // true = obra de terceiro (Cliente Celesc)
   const [filtroObraLista, setFiltroObraLista] = useState('');
   const [obraEmEdicao, setObraEmEdicao] = useState(null);
   const [excluirObraAlvo, setExcluirObraAlvo] = useState(null);
@@ -3391,15 +3395,20 @@ function PainelCadastros({ obras, equipes, produtos, recarregar, mostrarToast })
     const termo = filtroObraLista.toLowerCase();
     return obras.filter(o =>
       (o.nome || '').toLowerCase().includes(termo) ||
-      (o.clientes?.nome || '').toLowerCase().includes(termo) ||
+      (o.clientes?.nome || o.cliente_celesc || '').toLowerCase().includes(termo) ||
       (o.cidade || '').toLowerCase().includes(termo) ||
       (o.endereco || '').toLowerCase().includes(termo)
     );
   }, [obras, filtroObraLista]);
 
   // Autopreenchimento: digitar a Nota PS localiza o cliente correspondente e
-  // já vincula o cliente + cidade/endereço do cadastro dele.
+  // já vincula o cliente + cidade/endereço do cadastro dele (só vale no modo
+  // "Cliente do cadastro"; obras da Celesc não passam pelo cadastro).
   useEffect(() => {
+    if (obraCelesc) {
+      setClienteAuto(null);
+      return;
+    }
     if (obraEmEdicao) {
       setClienteAuto(null);
       return;
@@ -3426,7 +3435,7 @@ function PainelCadastros({ obras, equipes, produtos, recarregar, mostrarToast })
       }
     }, 400);
     return () => clearTimeout(timer);
-  }, [novaObra.nome, listaClientes, obraEmEdicao]);
+  }, [novaObra.nome, listaClientes, obraEmEdicao, obraCelesc]);
 
   const equipesFiltradas = useMemo(() => {
     if (!filtroEquipeLista) return equipes;
@@ -3543,9 +3552,11 @@ function PainelCadastros({ obras, equipes, produtos, recarregar, mostrarToast })
                         <button
                           onClick={() => {
                             setObraEmEdicao(o);
+                            setObraCelesc(!!o.cliente_celesc && !o.cliente_id);
                             setNovaObra({
                               nome: o.nome || '',
                               cliente_id: String(o.cliente_id || ''),
+                              cliente_celesc: o.cliente_celesc || '',
                               cidade: o.cidade || '',
                               endereco: o.endereco || ''
                             });
@@ -3567,7 +3578,7 @@ function PainelCadastros({ obras, equipes, produtos, recarregar, mostrarToast })
                     
                     <div className="flex items-center gap-1.5 text-slate-500 font-semibold mt-1">
                       <Building size={11} className="text-slate-400 flex-shrink-0" />
-                      <span className="truncate">{o.clientes?.nome || 'Sem cliente'}</span>
+                      <span className="truncate">{o.clientes?.nome || o.cliente_celesc || 'Sem cliente'}</span>
                     </div>
 
                     {(o.cidade || o.endereco) && (
@@ -3600,37 +3611,69 @@ function PainelCadastros({ obras, equipes, produtos, recarregar, mostrarToast })
             </div>
             
             <div className="space-y-3">
+              {/* Tipo de cliente: cadastro de clientes OU Cliente Celesc */}
+              <div className="flex bg-slate-100 rounded-xl p-1 gap-1">
+                {[['cadastro', 'Cliente do cadastro'], ['celesc', 'Cliente Celesc']].map(([modo, rotulo]) => {
+                  const ativo = obraCelesc === (modo === 'celesc');
+                  return (
+                    <button key={modo} type="button"
+                      onClick={() => {
+                        setObraCelesc(modo === 'celesc');
+                        setNovaObra(prev => ({
+                          ...prev,
+                          ...(modo === 'celesc'
+                            ? { cliente_id: '' }
+                            : { cliente_celesc: '' }),
+                        }));
+                      }}
+                      className={`flex-1 py-2 rounded-lg text-[11px] font-bold transition-all cursor-pointer ${
+                        ativo ? 'bg-white text-primary-700 shadow-sm' : 'text-slate-500 hover:text-slate-700'
+                      }`}>
+                      {rotulo}
+                    </button>
+                  );
+                })}
+              </div>
+
               <div>
                 <CampoTexto label="Nota PS *" value={novaObra.nome} onChange={e => setNovaObra({ ...novaObra, nome: e.target.value })} />
-                {clienteAuto && (
+                {!obraCelesc && clienteAuto && (
                   <p className="text-[10px] font-bold text-emerald-600 mt-1">
                     Cliente vinculado automaticamente: {clienteAuto.nome}
                   </p>
                 )}
-                {!clienteAuto && !obraEmEdicao && (novaObra.nome || '').trim().length >= 3 && (
+                {!obraCelesc && !clienteAuto && !obraEmEdicao && (novaObra.nome || '').trim().length >= 3 && (
                   <p className="text-[10px] font-semibold text-slate-400 mt-1">
                     Nenhum cliente com esta Nota PS — selecione manualmente abaixo.
                   </p>
                 )}
               </div>
-              <ClienteAutocomplete
-                clientes={listaClientes}
-                value={novaObra.cliente_id}
-                onChange={(cliente) => {
-                  if (!cliente) {
-                    setNovaObra({ ...novaObra, cliente_id: '' });
-                    return;
-                  }
-                  // Ao selecionar o cliente, preenche Nota PS, cidade e endereço.
-                  setNovaObra({
-                    ...novaObra,
-                    cliente_id: String(cliente.id),
-                    nome: cliente.nota_ps || novaObra.nome,
-                    cidade: cliente.cidade || '',
-                    endereco: cliente.endereco || '',
-                  });
-                }}
-              />
+
+              {!obraCelesc ? (
+                <ClienteAutocomplete
+                  clientes={listaClientes}
+                  value={novaObra.cliente_id}
+                  onChange={(cliente) => {
+                    if (!cliente) {
+                      setNovaObra({ ...novaObra, cliente_id: '' });
+                      return;
+                    }
+                    // Ao selecionar o cliente, preenche Nota PS, cidade e endereço.
+                    setNovaObra({
+                      ...novaObra,
+                      cliente_id: String(cliente.id),
+                      nome: cliente.nota_ps || novaObra.nome,
+                      cidade: cliente.cidade || '',
+                      endereco: cliente.endereco || '',
+                    });
+                  }}
+                />
+              ) : (
+                <CampoTexto label="Cliente Celesc (obra de terceiro) *"
+                  value={novaObra.cliente_celesc}
+                  onChange={e => setNovaObra({ ...novaObra, cliente_celesc: e.target.value })}
+                  placeholder="Ex.: Celesc — Regional X" />
+              )}
               <CampoTexto label="Cidade" value={novaObra.cidade} onChange={e => setNovaObra({ ...novaObra, cidade: e.target.value })} />
               <CampoTexto label="Endereço" value={novaObra.endereco} onChange={e => setNovaObra({ ...novaObra, endereco: e.target.value })} />
             </div>
@@ -3641,7 +3684,8 @@ function PainelCadastros({ obras, equipes, produtos, recarregar, mostrarToast })
                   type="button"
                   onClick={() => {
                     setObraEmEdicao(null);
-                    setNovaObra({ nome: '', cliente_id: '', cidade: '', endereco: '' });
+                    setObraCelesc(false);
+                    setNovaObra({ nome: '', cliente_id: '', cliente_celesc: '', cidade: '', endereco: '' });
                   }}
                   className="flex-1 py-2.5 bg-white border border-slate-200 text-slate-700 rounded-xl text-xs font-bold transition-all cursor-pointer hover:bg-slate-50"
                 >
@@ -3650,10 +3694,17 @@ function PainelCadastros({ obras, equipes, produtos, recarregar, mostrarToast })
               )}
               <button
                 onClick={async () => {
-                  if (!novaObra.nome || !novaObra.cliente_id) { mostrarToast('Informe a Nota PS e o cliente.', 'error'); return; }
+                  if (!novaObra.nome) { mostrarToast('Informe a Nota PS.', 'error'); return; }
+                  if (obraCelesc) {
+                    if (!(novaObra.cliente_celesc || '').trim()) { mostrarToast('Informe o Cliente Celesc (nome/contrato da obra).', 'error'); return; }
+                  } else if (!novaObra.cliente_id) {
+                    mostrarToast('Selecione o cliente do cadastro ou mude para "Cliente Celesc".', 'error');
+                    return;
+                  }
                   const payload = {
                     nome: novaObra.nome,
-                    cliente_id: Number(novaObra.cliente_id),
+                    cliente_id: obraCelesc ? null : Number(novaObra.cliente_id),
+                    cliente_celesc: obraCelesc ? (novaObra.cliente_celesc || '').trim() || null : null,
                     cidade: novaObra.cidade || null,
                     endereco: novaObra.endereco || null
                   };
@@ -3666,7 +3717,8 @@ function PainelCadastros({ obras, equipes, produtos, recarregar, mostrarToast })
                   }
 
                   if (ok) {
-                    setNovaObra({ nome: '', cliente_id: '', cidade: '', endereco: '' });
+                    setObraCelesc(false);
+                    setNovaObra({ nome: '', cliente_id: '', cliente_celesc: '', cidade: '', endereco: '' });
                     setObraEmEdicao(null);
                   }
                 }}

@@ -110,7 +110,7 @@ def gerar_pdf_os(
     pdf._titulo_secao("IDENTIFICAÇÃO")
     cliente = (
         (obra.get("clientes") or {}).get("nome") if isinstance(obra.get("clientes"), dict) else obra.get("clientes")
-    )
+    ) or obra.get("cliente_celesc") or ""
     pdf._linha_dado("Ordem de Serviço", os_data.get("codigo"))
     pdf._linha_dado("Obra", obra.get("nome"))
     pdf._linha_dado("Cliente", cliente)

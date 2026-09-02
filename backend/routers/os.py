@@ -575,11 +575,12 @@ def listar_os(
             busca_expr = f"codigo.ilike.%{termo}%,descricao_escopo.ilike.%{termo}%"
             try:
                 obra_ids = set()
-                # 1) Obras cujo nome (código/Nota PS da obra) casa com o termo.
+                # 1) Obras cujo nome (código/Nota PS da obra) ou o Cliente Celesc
+                #    casa com o termo.
                 obras_por_nome = (
                     db.table("obras")
                     .select("id")
-                    .ilike("nome", f"%{termo}%")
+                    .or_(f"nome.ilike.%{termo}%,cliente_celesc.ilike.%{termo}%")
                     .execute()
                     .data
                 )
@@ -644,7 +645,7 @@ def listar_os(
         if response is not None:
             response.headers["X-Total-Count"] = str(total)
 
-        query = _aplicar_filtros(base.select("*, obras(id, nome, cliente_id, clientes(nome)), equipes(id, nome)"))
+        query = _aplicar_filtros(base.select("*, obras(id, nome, cliente_id, cliente_celesc, clientes(nome)), equipes(id, nome)"))
         # Listagem de encerradas (multi-status): ordena pela data de encerramento
         # (mais recente primeiro, sem data_fim por último). Demais casos seguem
         # a ordem de criação usada no Kanban.
@@ -783,7 +784,7 @@ def _obter_detalhe_os(db, usuario: UsuarioAutenticado, os_id: int) -> dict:
     # Com as relações de obra/cliente/equipe (exibidas no painel e no modo campo).
     resp = (
         db.table("ordens_servico")
-        .select("*, obras(id, nome, cliente_id, clientes(nome)), equipes(id, nome, numero)")
+        .select("*, obras(id, nome, cliente_id, cliente_celesc, clientes(nome)), equipes(id, nome, numero)")
         .eq("id", os_id)
         .execute()
     )
@@ -1150,7 +1151,7 @@ def relatorio_checklist(os_id: int, usuario: UsuarioAutenticado = Depends(get_cu
 
         resp = (
             db.table("ordens_servico")
-            .select("*, obras(id, nome, cliente_id, clientes(nome)), equipes(id, nome, numero)")
+            .select("*, obras(id, nome, cliente_id, cliente_celesc, clientes(nome)), equipes(id, nome, numero)")
             .eq("id", os_id)
             .execute()
         )
@@ -1833,7 +1834,7 @@ def relatorio_pdf(os_id: int, usuario: UsuarioAutenticado = Depends(get_current_
         os_data = _os_ou_404(db, os_id)
         _garantir_acesso_os(db, usuario, os_data)
 
-        obra = db.table("obras").select("nome, clientes(nome)").eq("id", os_data["obra_id"]).execute().data
+        obra = db.table("obras").select("nome, cliente_celesc, clientes(nome)").eq("id", os_data["obra_id"]).execute().data
         equipe = (
             db.table("equipes").select("nome").eq("id", os_data.get("equipe_id")).execute().data
             if os_data.get("equipe_id")

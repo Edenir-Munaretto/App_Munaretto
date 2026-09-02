@@ -602,10 +602,16 @@ ALTER TABLE IF EXISTS funcionarios ADD COLUMN IF NOT EXISTS email VARCHAR(255);
 -- TABELA: obras (cada obra pertence a um cliente - relação 1:N)
 CREATE TABLE IF NOT EXISTS obras (
     id SERIAL PRIMARY KEY,
-    cliente_id INTEGER NOT NULL REFERENCES clientes(id),
+    -- Cliente dono da obra: opcional — obras de terceiros (ex.: Celesc) não
+    -- precisam estar no cadastro de clientes. Quando presente, o app usa as
+    -- informações do cadastro; quando ausente, usa `cliente_celesc`.
+    cliente_id INTEGER REFERENCES clientes(id),
     nome VARCHAR(255) NOT NULL,
     endereco TEXT,
     cidade VARCHAR(100),
+    -- Nome/contrato exibido quando a obra é de cliente fora do cadastro
+    -- (ex.: "Celesc — Regional X"). Mutuamente exclusivo com cliente_id.
+    cliente_celesc VARCHAR(255),
     ativo BOOLEAN DEFAULT TRUE,
     created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
 );

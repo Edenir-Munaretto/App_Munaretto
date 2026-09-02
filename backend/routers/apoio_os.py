@@ -7,7 +7,7 @@ validação com Pydantic e permissão de módulo ("os").
 import logging
 
 from fastapi import APIRouter, Depends, HTTPException, Query
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 
 from auth import require_permisao, require_qualquer_permisao
 from supabase_client import get_supabase
@@ -26,10 +26,20 @@ logger = logging.getLogger(__name__)
 
 
 class ObraCreate(BaseModel):
-    cliente_id: int = Field(..., description="ID do cliente dono da obra")
+    # Cliente do cadastro OU Cliente Celesc (obra de terceiro): um dos dois
+    # deve ser informado, mas o cliente_id é opcional no banco.
+    cliente_id: int | None = Field(None, description="ID do cliente dono da obra (cadastro de clientes)")
+    cliente_celesc: str | None = Field(None, max_length=255, description="Nome/contrato quando a obra é da Celesc (sem cadastro de cliente)")
     nome: str = Field(..., min_length=2, description="Nome/identificação da obra")
     endereco: str | None = None
     cidade: str | None = None
+
+    @field_validator("cliente_celesc")
+    @classmethod
+    def _validar_celesc(cls, v):
+        if isinstance(v, str):
+            v = v.strip() or None
+        return v
 
 
 class ClienteMinResponse(BaseModel):
@@ -38,8 +48,8 @@ class ClienteMinResponse(BaseModel):
 
 class ObraResponse(ObraCreate):
     id: int
-    ativo: bool
-    created_at: str
+    ativo: bool = True
+    created_at: str | None = None
     clientes: ClienteMinResponse | None = None
 
 
@@ -99,6 +109,26 @@ def _obter_ou_404(db, tabela: str, registro_id: int, rotulo: str) -> dict:
     return resp.data[0]
 
 
+def _validar_cliente_obra(db, obra: ObraCreate) -> dict:
+    """Normaliza o cliente da obra (cadastro OU Celesc) antes de gravar."""
+    if obra.cliente_id and obra.cliente_celesc:
+        # Nunca os dois: o cadastro tem precedência (evita divergência).
+        raise HTTPException(
+            status_code=400,
+            detail="Informe o cliente do cadastro OU o cliente Celesc, não ambos.",
+        )
+    if not obra.cliente_id and not obra.cliente_celesc:
+        raise HTTPException(
+            status_code=400,
+            detail="Informe o cliente (cadastro de clientes ou Cliente Celesc).",
+        )
+    dados = obra.model_dump()
+    if obra.cliente_id:
+        _obter_ou_404(db, "clientes", obra.cliente_id, "Cliente")
+        dados["cliente_celesc"] = None
+    return dados
+
+
 def _gravar_membros(db, equipe_id: int, membro_ids: list[int], lider_id: int | None):
     """Regrava a composição da equipe de forma atômica (delete + insert)."""
     db.table("equipe_membros").delete().eq("equipe_id", equipe_id).execute()
@@ -143,13 +173,13 @@ def listar_obras(
     incluir_inativas: bool = False,
     db=Depends(get_supabase),
 ):
-    """Lista obras; opcionalmente filtra por termo (nome/cidade)."""
+    """Lista obras; opcionalmente filtra por termo (nome/cidade/cliente Celesc)."""
     try:
         query = db.table("obras").select("*, clientes(nome)")
         if not incluir_inativas:
             query = query.eq("ativo", True)
         if busca:
-            query = query.or_(f"nome.ilike.%{busca}%,cidade.ilike.%{busca}%")
+            query = query.or_(f"nome.ilike.%{busca}%,cidade.ilike.%{busca}%,cliente_celesc.ilike.%{busca}%")
         return query.order("nome").execute().data
     except Exception:
         logger.exception("Erro ao listar obras")
@@ -159,8 +189,8 @@ def listar_obras(
 @router.post("/obras", response_model=ObraResponse, status_code=201, dependencies=GESTOR_ONLY)
 def criar_obra(obra: ObraCreate, db=Depends(get_supabase)):
     try:
-        _obter_ou_404(db, "clientes", obra.cliente_id, "Cliente")
-        resp = db.table("obras").insert(obra.model_dump()).execute()
+        dados = _validar_cliente_obra(db, obra)
+        resp = db.table("obras").insert(dados).execute()
         if not resp.data:
             raise HTTPException(status_code=500, detail="Falha ao criar obra.")
         return resp.data[0]
@@ -175,8 +205,8 @@ def criar_obra(obra: ObraCreate, db=Depends(get_supabase)):
 def atualizar_obra(obra_id: int, obra: ObraCreate, db=Depends(get_supabase)):
     try:
         _obter_ou_404(db, "obras", obra_id, "Obra")
-        _obter_ou_404(db, "clientes", obra.cliente_id, "Cliente")
-        resp = db.table("obras").update(obra.model_dump()).eq("id", obra_id).execute()
+        dados = _validar_cliente_obra(db, obra)
+        resp = db.table("obras").update(dados).eq("id", obra_id).execute()
         if not resp.data:
             raise HTTPException(status_code=500, detail="Falha ao atualizar obra.")
         return resp.data[0]

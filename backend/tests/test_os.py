@@ -1143,3 +1143,100 @@ def test_excluir_os_inexistente(os_gestor_client, db_fake, monkeypatch):
     _monkeypatch_s3(monkeypatch)
     resp = os_gestor_client.delete("/api/os/999999")
     assert resp.status_code == 404
+
+
+# ---------------------------------------------------------------------------
+# Obras com Cliente Celesc (sem cadastro de clientes)
+# ---------------------------------------------------------------------------
+
+
+def _injetar_cliente_cadastro(db_fake):
+    db_fake._dados["clientes"].append(
+        {
+            "id": 55,
+            "nome": "Construtora Alfa",
+            "cpf_cnpj": "00000000000000",
+            "nota_ps": "PS-ALFA-1",
+            "endereco": "Av. Central, 100",
+            "cidade": "Lages",
+            "ativo": True,
+        }
+    )
+
+
+def test_criar_obra_cliente_celesc_sem_cadastro(os_gestor_client, db_fake):
+    _seed_cenario(db_fake)
+    resp = os_gestor_client.post(
+        "/api/os/obras",
+        json={
+            "cliente_id": None,
+            "cliente_celesc": "Celesc - Regional X",
+            "nome": "PS-TESTE-901",
+            "cidade": "Florianópolis",
+            "endereco": "Rodovia BR-101",
+        },
+    )
+    assert resp.status_code == 201, resp.text
+    obra = resp.json()
+    assert obra["cliente_id"] is None
+    assert obra["cliente_celesc"] == "Celesc - Regional X"
+
+
+def test_criar_obra_com_cliente_do_cadastro(os_gestor_client, db_fake):
+    _seed_cenario(db_fake)
+    _injetar_cliente_cadastro(db_fake)
+    resp = os_gestor_client.post(
+        "/api/os/obras",
+        json={"cliente_id": 55, "cliente_celesc": None, "nome": "PS-ALFA-1", "cidade": None, "endereco": None},
+    )
+    assert resp.status_code == 201, resp.text
+    assert resp.json()["cliente_id"] == 55
+
+
+def test_criar_obra_sem_cliente_rejeitado(os_gestor_client, db_fake):
+    _seed_cenario(db_fake)
+    resp = os_gestor_client.post(
+        "/api/os/obras",
+        json={"cliente_id": None, "cliente_celesc": None, "nome": "PS-SEMCLIENTE", "cidade": None, "endereco": None},
+    )
+    assert resp.status_code == 400
+
+
+def test_criar_obra_ambos_clientes_rejeitado(os_gestor_client, db_fake):
+    _seed_cenario(db_fake)
+    resp = os_gestor_client.post(
+        "/api/os/obras",
+        json={"cliente_id": 1, "cliente_celesc": "Celesc", "nome": "PS-AMBOS", "cidade": None, "endereco": None},
+    )
+    assert resp.status_code == 400
+
+
+def test_atualizar_obra_vincula_cliente_cadastro_depois(os_gestor_client, db_fake):
+    _seed_cenario(db_fake)
+    criada = os_gestor_client.post(
+        "/api/os/obras",
+        json={"cliente_id": None, "cliente_celesc": "Celesc Regional", "nome": "PS-TROCA", "cidade": None, "endereco": None},
+    ).json()
+    _injetar_cliente_cadastro(db_fake)
+
+    resp = os_gestor_client.put(
+        f"/api/os/obras/{criada['id']}",
+        json={"cliente_id": 55, "cliente_celesc": None, "nome": "PS-TROCA", "cidade": None, "endereco": None},
+    )
+    assert resp.status_code == 200, resp.text
+    obra = resp.json()
+    assert obra["cliente_id"] == 55
+    assert obra["cliente_celesc"] is None
+
+
+def test_listar_obras_filtra_por_cliente_celesc(os_gestor_client, db_fake):
+    _seed_cenario(db_fake)
+    os_gestor_client.post(
+        "/api/os/obras",
+        json={"cliente_id": None, "cliente_celesc": "Celesc Regional Sul", "nome": "PS-CEL-1", "cidade": None, "endereco": None},
+    )
+    # O fake não aplica os defaults do banco (ativo=true) no insert.
+    db_fake._dados["obras"][-1]["ativo"] = True
+    resp = os_gestor_client.get("/api/os/obras?busca=Regional Sul")
+    assert resp.status_code == 200, resp.text
+    assert any(o["cliente_celesc"] == "Celesc Regional Sul" for o in resp.json())
