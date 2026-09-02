@@ -1073,3 +1073,73 @@ def test_listagem_status_multiplo_encerradas(os_gestor_client, db_fake):
     # Valor único (usado pelos chips do quadro) continua funcionando.
     unico = os_gestor_client.get("/api/os/?status=cancelada")
     assert len(unico.json()) == 1
+
+
+# ---------------------------------------------------------------------------
+# Exclusão de O.S (gestor; rascunho ou encerradas)
+# ---------------------------------------------------------------------------
+
+
+class _S3Vazio:
+    def delete_object(self, **kwargs):
+        return {}
+
+
+def _monkeypatch_s3(monkeypatch):
+    monkeypatch.setattr("routers.os.get_s3_client", lambda: _S3Vazio())
+    monkeypatch.setattr("routers.os.bucket", lambda: "bucket-teste")
+
+
+def test_excluir_os_rascunho(os_gestor_client, db_fake, monkeypatch):
+    _seed_cenario(db_fake)
+    _monkeypatch_s3(monkeypatch)
+    os_id = _criar_os(os_gestor_client).json()["id"]
+
+    resp = os_gestor_client.delete(f"/api/os/{os_id}")
+    assert resp.status_code == 200, resp.text
+
+    lista = os_gestor_client.get("/api/os/").json()
+    assert all(o["id"] != os_id for o in lista)
+
+
+def test_excluir_os_concluida_e_cancelada(os_gestor_client, db_fake, monkeypatch):
+    _seed_cenario(db_fake)
+    _monkeypatch_s3(monkeypatch)
+    for destino in ("concluida", "cancelada"):
+        os_id = _criar_os(os_gestor_client).json()["id"]
+        if destino == "concluida":
+            assert os_gestor_client.put(f"/api/os/{os_id}/status", json={"novo_status": "aberta"}).status_code == 200
+            assert os_gestor_client.put(f"/api/os/{os_id}/status", json={"novo_status": "em_andamento"}).status_code == 200
+        assert os_gestor_client.put(f"/api/os/{os_id}/status", json={"novo_status": destino}).status_code == 200
+        resp = os_gestor_client.delete(f"/api/os/{os_id}")
+        assert resp.status_code == 200, resp.text
+
+
+def test_excluir_os_em_andamento_bloqueada(os_gestor_client, db_fake, monkeypatch):
+    _seed_cenario(db_fake)
+    _monkeypatch_s3(monkeypatch)
+    os_id = _criar_os(os_gestor_client).json()["id"]
+    assert os_gestor_client.put(f"/api/os/{os_id}/status", json={"novo_status": "aberta"}).status_code == 200
+    assert os_gestor_client.put(f"/api/os/{os_id}/status", json={"novo_status": "em_andamento"}).status_code == 200
+
+    resp = os_gestor_client.delete(f"/api/os/{os_id}")
+    assert resp.status_code == 400
+    assert "rascunho" in resp.json()["detail"]
+
+    # A O.S continua existindo
+    assert os_gestor_client.get(f"/api/os/{os_id}").status_code == 200
+
+
+def test_excluir_os_campo_negado(os_gestor_client, os_campo_client, db_fake, monkeypatch):
+    _seed_cenario(db_fake)
+    _monkeypatch_s3(monkeypatch)
+    os_id = _criar_os(os_gestor_client).json()["id"]
+    resp = os_campo_client.delete(f"/api/os/{os_id}")
+    assert resp.status_code == 403
+
+
+def test_excluir_os_inexistente(os_gestor_client, db_fake, monkeypatch):
+    _seed_cenario(db_fake)
+    _monkeypatch_s3(monkeypatch)
+    resp = os_gestor_client.delete("/api/os/999999")
+    assert resp.status_code == 404

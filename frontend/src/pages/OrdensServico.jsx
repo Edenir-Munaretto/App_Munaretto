@@ -1312,7 +1312,7 @@ function AcoesStatus({ detalhe, podeEditar, mudarStatus, aoAplicado, ehGestor, t
   );
 }
 
-function PainelExecucao({ osId, produtos, capturarGps, onFechar, recarregarLista, mostrarToast, ehMobile, mudarStatus, ehGestor, onEditar, transicoes }) {
+function PainelExecucao({ osId, produtos, capturarGps, onFechar, recarregarLista, mostrarToast, ehMobile, mudarStatus, ehGestor, onEditar, onExcluir, transicoes }) {
   const [detalhe, setDetalhe] = useState(null);
   const [erro, setErro] = useState('');
   const [aba, setAba] = useState('insumos');
@@ -1395,6 +1395,8 @@ function PainelExecucao({ osId, produtos, capturarGps, onFechar, recarregarLista
   const podeLancarServico = podeEditar || (ehGestor && encerrada);
   const podeEstornar = ehGestor;
   const podeExcluir = ehGestor && podeEditar;
+  // Exclusão da O.S: gestor, apenas rascunho ou encerradas (sem execução ativa).
+  const podeExcluirOs = ehGestor && ['rascunho', 'concluida', 'cancelada'].includes(detalhe.status);
   const prazo = situacaoPrazo(detalhe);
 
   const abrirPdf = async (caminho) => {
@@ -1592,6 +1594,11 @@ function PainelExecucao({ osId, produtos, capturarGps, onFechar, recarregarLista
             >
               <ListChecks size={14} /> Checklist PDF
             </button>
+            {podeExcluirOs && (
+              <button type="button" onClick={() => onExcluir(detalhe)} className="h-11 rounded-xl border border-rose-200 bg-rose-50 text-rose-600 text-xs font-bold flex items-center justify-center gap-1.5 hover:bg-rose-100 cursor-pointer col-span-2">
+                <Trash2 size={14} /> Excluir O.S
+              </button>
+            )}
           </div>
         )}
       </div>
@@ -2235,6 +2242,7 @@ function OrdensServico({ usuarioAtual }) {
   const [modalEdicao, setModalEdicao] = useState(null); // detalhe da O.S em edição
   const [modalImpedimento, setModalImpedimento] = useState(null); // {os, destinoColuna}
   const [confirmacaoEncerrar, setConfirmacaoEncerrar] = useState(null); // {os, destino}
+  const [confirmacaoExcluir, setConfirmacaoExcluir] = useState(null); // {os} — exclusão definitiva
   const [confirmacaoFinalizarModoCampo, setConfirmacaoFinalizarModoCampo] = useState(false); // confirmação do Finalizar Modo Campo
   const [processando, setProcessando] = useState(false);
   const [draggingOsStatus, setDraggingOsStatus] = useState(null); // status do card sendo arrastado
@@ -2617,6 +2625,30 @@ function OrdensServico({ usuarioAtual }) {
       setProcessando(false);
     }
   }, [capturarGps, mostrarToast, recarregarLista]);
+
+  // Exclusão definitiva de O.S (gestor; rascunho/encerradas) — chama a rota
+  // e atualiza a visão atual.
+  const excluirOs = async () => {
+    const alvo = confirmacaoExcluir?.os;
+    if (!alvo) return;
+    setConfirmacaoExcluir(null);
+    setProcessando(true);
+    try {
+      const res = await apiFetch(`${API_URL}/os/${alvo.id}`, { method: 'DELETE' });
+      const data = await res.json().catch(() => null);
+      if (res.ok) {
+        mostrarToast(`O.S ${alvo.codigo} excluída.`);
+        if (osSelecionada === alvo.id) setOsSelecionada(null);
+        recarregarLista();
+      } else {
+        mostrarToast(erroDaResposta(data, 'Erro ao excluir a O.S.'), 'error');
+      }
+    } catch {
+      mostrarToast('Erro de conexão ao excluir a O.S.', 'error');
+    } finally {
+      setProcessando(false);
+    }
+  };
 
   // Drag-and-drop do Kanban com validação UX antes de chamar a API.
   const aoArrastarInicio = (resultado) => {
@@ -3021,6 +3053,7 @@ function OrdensServico({ usuarioAtual }) {
               mudarStatus={mudarStatus}
               ehGestor={ehGestor}
               onEditar={(detalhe) => setModalEdicao(detalhe)}
+              onExcluir={(detalhe) => setConfirmacaoExcluir({ os: detalhe })}
               transicoes={transicoes}
             />
           )}
@@ -3044,6 +3077,7 @@ function OrdensServico({ usuarioAtual }) {
                   mudarStatus={mudarStatus}
                   ehGestor={ehGestor}
                   onEditar={(detalhe) => setModalEdicao(detalhe)}
+                  onExcluir={(detalhe) => setConfirmacaoExcluir({ os: detalhe })}
                   transicoes={transicoes}
                 />
               </>
@@ -3123,25 +3157,36 @@ function OrdensServico({ usuarioAtual }) {
           ) : (
             <div className="bg-white rounded-2xl border border-slate-100 divide-y divide-slate-100 overflow-hidden">
               {listaEncerradas.map(os => (
-                <button key={os.id} onClick={() => setOsSelecionada(os.id)}
-                  className="w-full flex flex-col md:flex-row md:items-center gap-1.5 md:gap-4 px-4 py-3 text-left hover:bg-slate-50 transition-colors cursor-pointer">
-                  <span className="flex-1 min-w-0">
-                    <span className="flex items-center gap-2 flex-wrap">
-                      <span className="font-mono text-xs font-bold text-primary-700">{os.codigo}</span>
-                      <BadgeStatus status={os.status} />
-                      <BadgePrioridade prioridade={os.prioridade} />
+                <div key={os.id} className="flex items-stretch hover:bg-slate-50 transition-colors">
+                  <button onClick={() => setOsSelecionada(os.id)}
+                    className="flex-1 min-w-0 flex flex-col md:flex-row md:items-center gap-1.5 md:gap-4 px-4 py-3 text-left cursor-pointer">
+                    <span className="flex-1 min-w-0">
+                      <span className="flex items-center gap-2 flex-wrap">
+                        <span className="font-mono text-xs font-bold text-primary-700">{os.codigo}</span>
+                        <BadgeStatus status={os.status} />
+                        <BadgePrioridade prioridade={os.prioridade} />
+                      </span>
+                      <span className="block text-xs font-semibold text-slate-700 truncate mt-1">{os.obras?.nome || '—'}</span>
+                      <span className="block text-[10px] text-slate-400 truncate">
+                        Equipe: {os.equipes?.numero ? `Nº ${os.equipes.numero} - ` : ''}{os.equipes?.nome || 'sem equipe'}
+                      </span>
                     </span>
-                    <span className="block text-xs font-semibold text-slate-700 truncate mt-1">{os.obras?.nome || '—'}</span>
-                    <span className="block text-[10px] text-slate-400 truncate">
-                      Equipe: {os.equipes?.numero ? `Nº ${os.equipes.numero} - ` : ''}{os.equipes?.nome || 'sem equipe'}
+                    <span className="flex items-center gap-4 shrink-0 text-[10px] text-slate-400 font-semibold flex-wrap">
+                      <span>Encerrada em <b className="text-slate-600">{fmtData(os.data_fim)}</b></span>
+                      <span className="hidden sm:inline">{(os.total_materiais_aplicado || 0).toFixed(3)} USC aplicado</span>
+                      <span className="hidden sm:inline">{os.fotos_count || 0} foto(s)</span>
                     </span>
+                  </button>
+                  <span className="flex items-center pr-2.5">
+                    <button
+                      onClick={() => setConfirmacaoExcluir({ os })}
+                      title={`Excluir permanentemente a O.S ${os.codigo}`}
+                      className="w-9 h-9 rounded-lg flex items-center justify-center text-slate-300 hover:text-rose-600 hover:bg-rose-50 transition-colors cursor-pointer"
+                    >
+                      <Trash2 size={15} />
+                    </button>
                   </span>
-                  <span className="flex items-center gap-4 shrink-0 text-[10px] text-slate-400 font-semibold flex-wrap">
-                    <span>Encerrada em <b className="text-slate-600">{fmtData(os.data_fim)}</b></span>
-                    <span className="hidden sm:inline">{(os.total_materiais_aplicado || 0).toFixed(3)} USC aplicado</span>
-                    <span className="hidden sm:inline">{os.fotos_count || 0} foto(s)</span>
-                  </span>
-                </button>
+                </div>
               ))}
             </div>
           )}
@@ -3167,6 +3212,7 @@ function OrdensServico({ usuarioAtual }) {
               mudarStatus={mudarStatus}
               ehGestor={ehGestor}
               onEditar={(detalhe) => setModalEdicao(detalhe)}
+              onExcluir={(detalhe) => setConfirmacaoExcluir({ os: detalhe })}
               transicoes={transicoes}
             />
           )}
@@ -3214,6 +3260,19 @@ function OrdensServico({ usuarioAtual }) {
           if (ok) setConfirmacaoEncerrar(null);
         }}
         onCancelar={() => setConfirmacaoEncerrar(null)}
+      />
+
+      <ModalConfirmacao
+        aberto={!!confirmacaoExcluir}
+        titulo="Excluir O.S"
+        mensagem={confirmacaoExcluir?.os
+          ? `Excluir permanentemente a O.S ${confirmacaoExcluir.os.codigo}? Apaga fotos, lançamentos de serviços, checklist e histórico — sem possibilidade de desfazer.`
+          : ''}
+        confirmarTexto="Excluir permanentemente"
+        perigo
+        loading={processando}
+        onConfirmar={excluirOs}
+        onCancelar={() => setConfirmacaoExcluir(null)}
       />
 
       <ModalConfirmacao

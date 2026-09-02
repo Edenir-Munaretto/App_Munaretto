@@ -1785,6 +1785,43 @@ def excluir_foto(
         raise HTTPException(status_code=500, detail="Erro ao excluir foto.") from None
 
 
+@router.delete("/{os_id}", summary="Exclui uma O.S (rascunho ou encerrada)")
+def excluir_os(os_id: int, usuario: UsuarioAutenticado = Depends(get_current_user), db=Depends(get_supabase)):
+    """Exclui permanentemente uma O.S de teste/descartada.
+
+    Permitido apenas para o gestor e somente nos status sem execução de campo:
+    'rascunho' (criada por engano), 'concluida' ou 'cancelada'. A exclusão é
+    em cascata (apontamentos, materiais, fotos, checklist e histórico); os
+    objetos das fotos são removidos do bucket antes da exclusão.
+    """
+    try:
+        _exigir_gestor(usuario)
+        os_data = _os_ou_404(db, os_id)
+        _garantir_acesso_os(db, usuario, os_data)
+        if os_data["status"] not in ("rascunho", "concluida", "cancelada"):
+            raise HTTPException(
+                status_code=400,
+                detail="Apenas O.S em rascunho ou encerradas (concluída/cancelada) podem ser excluídas.",
+            )
+
+        # Remove antes os objetos do bucket (as linhas caem em cascata).
+        fotos = db.table("os_fotos").select("bucket_key").eq("os_id", os_id).execute().data or []
+        s3 = get_s3_client()
+        for foto in fotos:
+            try:
+                s3.delete_object(Bucket=bucket(), Key=foto["bucket_key"])
+            except Exception:
+                logger.exception("Erro ao remover objeto %s do B2", foto["bucket_key"])
+
+        db.table("ordens_servico").delete().eq("id", os_id).execute()
+        return {"success": True, "message": f"O.S {os_data['codigo']} excluída."}
+    except HTTPException:
+        raise
+    except Exception:
+        logger.exception("Erro ao excluir a O.S %s", os_id)
+        raise HTTPException(status_code=500, detail="Erro ao excluir a O.S.") from None
+
+
 # ---------------------------------------------------------------------------
 # Relatório PDF
 # ---------------------------------------------------------------------------
