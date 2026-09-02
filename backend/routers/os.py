@@ -620,7 +620,12 @@ def listar_os(
                 # e as impedidas (para retomar quando desbloquear).
                 q = q.in_("status", ("aberta", "em_andamento", "impedida"))
             if status:
-                q = q.eq("status", status)
+                # Aceita uma lista separada por vírgula (ex.: "concluida,cancelada"
+                # na visão Encerradas) além do valor único usado no quadro.
+                if "," in status:
+                    q = q.in_("status", tuple(s.strip() for s in status.split(",") if s.strip()))
+                else:
+                    q = q.eq("status", status)
             if prioridade:
                 q = q.eq("prioridade", prioridade)
             if obra_id:
@@ -640,9 +645,21 @@ def listar_os(
             response.headers["X-Total-Count"] = str(total)
 
         query = _aplicar_filtros(base.select("*, obras(id, nome, cliente_id, clientes(nome)), equipes(id, nome)"))
-        dados = (
-            query.order("created_at", desc=True).order("id", desc=True).range(offset, offset + limit - 1).execute().data
-        )
+        # Listagem de encerradas (multi-status): ordena pela data de encerramento
+        # (mais recente primeiro, sem data_fim por último). Demais casos seguem
+        # a ordem de criação usada no Kanban.
+        if status and "," in status:
+            dados = (
+                query.order("data_fim", desc=True, nullsfirst=False)
+                .order("id", desc=True)
+                .range(offset, offset + limit - 1)
+                .execute()
+                .data
+            )
+        else:
+            dados = (
+                query.order("created_at", desc=True).order("id", desc=True).range(offset, offset + limit - 1).execute().data
+            )
 
         # Contadores "Materiais aplicados" por O.S em UMA viagem só (evita
         # N+1 no frontend): soma da quantidade aplicada em USC (já convertida).

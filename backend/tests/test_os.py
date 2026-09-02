@@ -1052,3 +1052,24 @@ def test_listar_servicos_filtra_por_contrato_incluindo_legados(os_gestor_client,
     # Sem filtro traz tudo.
     resp2 = os_gestor_client.get("/api/os/produtos")
     assert len(resp2.json()) == 4
+
+
+def test_listagem_status_multiplo_encerradas(os_gestor_client, db_fake):
+    """Listagem aceita status múltiplo (Encerradas: concluida,cancelada)."""
+    _seed_cenario(db_fake)
+    destinos = ["concluida", "concluida", "cancelada"]
+    for destino in destinos:
+        os_id = _criar_os(os_gestor_client).json()["id"]
+        assert os_gestor_client.put(f"/api/os/{os_id}/status", json={"novo_status": "aberta"}).status_code == 200
+        assert os_gestor_client.put(f"/api/os/{os_id}/status", json={"novo_status": "em_andamento"}).status_code == 200
+        assert os_gestor_client.put(f"/api/os/{os_id}/status", json={"novo_status": destino}).status_code == 200
+
+    resp = os_gestor_client.get("/api/os/?status=concluida,cancelada&limit=100")
+    assert resp.status_code == 200, resp.text
+    encerradas = resp.json()
+    assert {o["status"] for o in encerradas} == {"concluida", "cancelada"}
+    assert len(encerradas) == 3
+
+    # Valor único (usado pelos chips do quadro) continua funcionando.
+    unico = os_gestor_client.get("/api/os/?status=cancelada")
+    assert len(unico.json()) == 1

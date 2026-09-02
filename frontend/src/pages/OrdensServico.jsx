@@ -4,7 +4,7 @@ import {
   Plus, Search, X, Play, Pause, Camera, Package, ClipboardList, MapPin,
   AlertTriangle, Check, Clock, CalendarClock, FileDown, LayoutGrid,
   FolderKanban, HardHat, Boxes, Trash2, ChevronLeft, Image as ImageIcon,
-  Pencil, Building, Printer, ListChecks, RefreshCw, WifiOff, ChevronDown,
+  Pencil, Building, Printer, ListChecks, RefreshCw, WifiOff, ChevronDown, Archive,
 } from 'lucide-react';
 import { API_URL, apiFetch, erroDaResposta } from '../api';
 import ModalConfirmacao from '../components/ModalConfirmacao';
@@ -33,6 +33,9 @@ const COLUNAS = [
   { id: 'concluida', label: 'Concluída' },
   { id: 'cancelada', label: 'Cancelada' },
 ];
+
+// Etapas do "funil ativo" do quadro (exclui o arquivo de encerradas).
+const STATUS_PIPELINE = ['rascunho', 'aberta', 'em_andamento', 'impedida'];
 
 const LABEL_STATUS = Object.fromEntries(COLUNAS.map(c => [c.id, c.label]));
 
@@ -2226,7 +2229,7 @@ function OrdensServico({ usuarioAtual }) {
   const [produtos, setProdutos] = useState([]);
   const [loading, setLoading] = useState(true);
   const [toast, setToast] = useState(null);
-  const [visao, setVisao] = useState('quadro');       // quadro | cadastros
+  const [visao, setVisao] = useState('quadro');       // quadro | arquivo | cadastros
   const [osSelecionada, setOsSelecionada] = useState(null);
   const [modalNova, setModalNova] = useState(false);
   const [modalEdicao, setModalEdicao] = useState(null); // detalhe da O.S em edição
@@ -2240,8 +2243,20 @@ function OrdensServico({ usuarioAtual }) {
   const [filtroObra, setFiltroObra] = useState('');
   const [filtroEquipe, setFiltroEquipe] = useState('');
   const [filtroPrioridade, setFiltroPrioridade] = useState('');
+  const [filtroStatus, setFiltroStatus] = useState(''); // chip do pipeline (gestor)
+  const [filtroArquivo, setFiltroArquivo] = useState(''); // '' = todas; concluida | cancelada
   const [totalOs, setTotalOs] = useState(0);
   const [transicoes, setTransicoes] = useState(TRANSICOES_STATUS); // fonte única do backend
+
+  // Arquivo de encerradas (visão do gestor) — paginação independente.
+  const [listaEncerradas, setListaEncerradas] = useState([]);
+  const [totalEncerradas, setTotalEncerradas] = useState(0);
+  const [carregandoArquivo, setCarregandoArquivo] = useState(false);
+
+  // Largura da tela (painel em tela cheia < 1024px; drawer no desktop).
+  const [ehTelaLarga, setEhTelaLarga] = useState(
+    typeof window !== 'undefined' && window.innerWidth >= 1024,
+  );
 
   // ---- Modo Campo (offline) ----
   const [modoCampo, setModoCampoState] = useState(isModoCampo());
@@ -2430,6 +2445,14 @@ function OrdensServico({ usuarioAtual }) {
   // apenas visualiza e executa tarefas das O.S da própria equipe.
   const ehGestor = (usuarioAtual?.permissoes || []).includes('os');
 
+  // Acompanha a largura da tela (>= 1024px = drawer lateral; senão tela cheia).
+  useEffect(() => {
+    const mq = window.matchMedia('(min-width: 1024px)');
+    const atualizar = () => setEhTelaLarga(mq.matches);
+    mq.addEventListener?.('change', atualizar);
+    return () => mq.removeEventListener?.('change', atualizar);
+  }, []);
+
   const capturarGps = useCallback(async () => capturarGeolocalizacao(), []);
 
   const buscarPagina = useCallback(async (offset, reset) => {
@@ -2447,6 +2470,7 @@ function OrdensServico({ usuarioAtual }) {
       if (filtroObra) params.set('obra_id', filtroObra);
       if (filtroEquipe) params.set('equipe_id', filtroEquipe);
       if (filtroPrioridade) params.set('prioridade', filtroPrioridade);
+      if (filtroStatus) params.set('status', filtroStatus);
       params.set('limit', String(LIMITE_PAGINA));
       params.set('offset', String(offset));
       const qs = params.toString();
@@ -2486,12 +2510,47 @@ function OrdensServico({ usuarioAtual }) {
     } finally {
       setLoading(false);
     }
-  }, [buscaAplicada, filtroObra, filtroEquipe, filtroPrioridade, ehGestor, mostrarToast]);
+  }, [buscaAplicada, filtroObra, filtroEquipe, filtroPrioridade, filtroStatus, ehGestor, mostrarToast]);
 
-  const carregarDados = useCallback(() => { buscarPagina(0, true); }, [buscarPagina]);
+  // Listagem de Encerradas (gestor): paginação e filtros próprios.
+  const carregarArquivo = useCallback(async (offset, reset) => {
+    if (!ehGestor || usarLocal()) return;
+    setCarregandoArquivo(true);
+    try {
+      const params = new URLSearchParams();
+      if (buscaAplicada) params.set('busca', buscaAplicada);
+      if (filtroObra) params.set('obra_id', filtroObra);
+      if (filtroEquipe) params.set('equipe_id', filtroEquipe);
+      if (filtroPrioridade) params.set('prioridade', filtroPrioridade);
+      params.set('status', filtroArquivo || 'concluida,cancelada');
+      params.set('limit', String(LIMITE_PAGINA));
+      params.set('offset', String(offset));
+      const res = await apiFetch(`${API_URL}/os/?${params.toString()}`);
+      if (res.ok) {
+        const pagina = await res.json();
+        setTotalEncerradas(Number(res.headers.get('X-Total-Count') || pagina.length));
+        setListaEncerradas(prev => (reset ? pagina : [...prev, ...pagina]));
+      } else {
+        mostrarToast('Erro ao carregar Encerradas.', 'error');
+      }
+    } catch {
+      registrarFalhaDeRede();
+      if (!usarLocal()) mostrarToast('Erro de conexão ao carregar Encerradas.', 'error');
+    } finally {
+      setCarregandoArquivo(false);
+    }
+  }, [buscaAplicada, filtroObra, filtroEquipe, filtroPrioridade, filtroArquivo, ehGestor, mostrarToast]);
+
+  const carregarDados = useCallback(() => {
+    if (ehGestor && visao === 'arquivo') carregarArquivo(0, true);
+    else buscarPagina(0, true);
+  }, [buscarPagina, carregarArquivo, ehGestor, visao]);
 
   const carregarMais = () => buscarPagina(listaOs.length, false);
+  const carregarMaisArquivo = () => carregarArquivo(listaEncerradas.length, false);
 
+  // Recarrega sempre que carregarDados muda de identidade — o que acontece ao
+  // trocar filtros (via buscarPagina/carregarArquivo) ou a visão atual.
   useEffect(() => { carregarDados(); }, [carregarDados]);
 
   // Recarrega o painel após operações no painel de execução.
@@ -2620,6 +2679,28 @@ function OrdensServico({ usuarioAtual }) {
     return mapa;
   }, [listaOs]);
 
+  // Etapas do "funil ativo" (exclui o arquivo de encerradas) e arquivo.
+  const pipelineCols = useMemo(
+    () => colunasVisiveis.filter(c => STATUS_PIPELINE.includes(c.id)),
+    [colunasVisiveis],
+  );
+  const arquivoCols = useMemo(
+    () => colunasVisiveis.filter(c => !STATUS_PIPELINE.includes(c.id)),
+    [colunasVisiveis],
+  );
+
+  // Colunas exibidas no quadro (gestor): em repouso apenas as etapas do funil
+  // que têm O.S (ou a etapa sendo filtrada); durante o arrastar, as etapas
+  // vazias e o arquivo (Concluída/Cancelada) aparecem como destinos.
+  const arrastando = draggingOsStatus !== null;
+  const colunasQuadro = useMemo(() => {
+    if (!ehGestor) return colunasVisiveis;
+    if (arrastando) return [...pipelineCols, ...arquivoCols];
+    return pipelineCols.filter(c => porColuna[c.id].length > 0 || filtroStatus === c.id);
+  }, [ehGestor, arrastando, pipelineCols, arquivoCols, porColuna, filtroStatus, colunasVisiveis]);
+
+  const quadroVazio = ehGestor && !arrastando && colunasQuadro.length === 0;
+
   if (loading) {
     return (
       <div className="flex items-center justify-center py-24">
@@ -2633,7 +2714,11 @@ function OrdensServico({ usuarioAtual }) {
 
   const seletorVisao = (
     <div className="flex bg-slate-100 rounded-xl p-1">
-      {[['quadro', 'Quadro', LayoutGrid], ...(ehGestor ? [['cadastros', 'Cadastros', FolderKanban]] : [])].map(([key, label, Icon]) => (
+      {[
+        ['quadro', 'Quadro', LayoutGrid],
+        ...(ehGestor ? [['arquivo', 'Encerradas', Archive]] : []),
+        ...(ehGestor ? [['cadastros', 'Cadastros', FolderKanban]] : []),
+      ].map(([key, label, Icon]) => (
         <button key={key} onClick={() => setVisao(key)}
           className={`flex items-center gap-1.5 px-3 py-1.5 min-h-11 rounded-lg text-xs font-bold transition-all cursor-pointer ${
             visao === key ? 'bg-white text-primary-700 shadow-sm' : 'text-slate-500 hover:text-slate-700'
@@ -2679,20 +2764,75 @@ function OrdensServico({ usuarioAtual }) {
         {Object.entries(PRIORIDADES).map(([k, v]) => <option key={k} value={k}>{v.label}</option>)}
       </select>
       {/* Botão limpar filtros — aparece só quando há filtros ativos */}
-      {(filtroBusca || filtroObra || filtroEquipe || filtroPrioridade) && (
+      {(filtroBusca || filtroObra || filtroEquipe || filtroPrioridade || filtroStatus) && (
         <button
-          onClick={() => { setFiltroBusca(''); setBuscaAplicada(''); setFiltroObra(''); setFiltroEquipe(''); setFiltroPrioridade(''); }}
+          onClick={() => {
+            setFiltroBusca(''); setBuscaAplicada(''); setFiltroObra(''); setFiltroEquipe(''); setFiltroPrioridade(''); setFiltroStatus('');
+          }}
           className="flex items-center gap-1.5 px-3 py-2 rounded-xl bg-rose-50 border border-rose-200 text-rose-600 text-xs font-bold hover:bg-rose-100 transition-colors cursor-pointer shrink-0"
         >
           <X size={13} />
           Limpar filtros
           <span className="bg-rose-500 text-white rounded-full w-4 h-4 flex items-center justify-center text-[9px] font-black">
-            {[filtroBusca, filtroObra, filtroEquipe, filtroPrioridade].filter(Boolean).length}
+            {[filtroBusca, filtroObra, filtroEquipe, filtroPrioridade, filtroStatus].filter(Boolean).length}
           </span>
         </button>
       )}
     </div>
   );
+
+  // Cores dos chips por status (espelha o BadgeStatus).
+  const COR_CHIP = {
+    rascunho: { sel: 'bg-slate-600 text-white border-slate-600', off: 'bg-slate-50 text-slate-600 border-slate-200 hover:border-slate-300' },
+    aberta: { sel: 'bg-sky-600 text-white border-sky-600', off: 'bg-sky-50 text-sky-700 border-sky-200 hover:border-sky-300' },
+    em_andamento: { sel: 'bg-primary-600 text-white border-primary-600', off: 'bg-primary-50 text-primary-700 border-primary-200 hover:border-primary-300' },
+    impedida: { sel: 'bg-orange-600 text-white border-orange-600', off: 'bg-orange-50 text-orange-700 border-orange-200 hover:border-orange-300' },
+  };
+
+  // Barra de resumo do pipeline (gestor): chips por status + card Encerradas.
+  const barraPipeline = ehGestor ? (
+    <div className="flex flex-wrap items-center gap-2 bg-white p-3 rounded-2xl border border-slate-100 shadow-sm">
+      <span className="text-[10px] font-extrabold uppercase tracking-wider text-slate-400 mr-1">Pipeline</span>
+      {pipelineCols.map(col => {
+        const ativo = filtroStatus === col.id;
+        const cor = COR_CHIP[col.id] || COR_CHIP.rascunho;
+        return (
+          <button
+            key={col.id}
+            onClick={() => setFiltroStatus(ativo ? '' : col.id)}
+            title={ativo ? 'Remover filtro por status' : `Filtrar o quadro por "${col.label}"`}
+            className={`flex items-center gap-1.5 px-3 py-1.5 rounded-full border text-[11px] font-bold transition-all cursor-pointer ${
+              ativo ? cor.sel : cor.off
+            }`}
+          >
+            {col.label} <span className={`rounded-full px-1.5 text-[10px] font-black ${ativo ? 'bg-white/25' : 'bg-white border'}`}>{porColuna[col.id].length}</span>
+          </button>
+        );
+      })}
+      <div className="flex-1" />
+      <button
+        onClick={() => setVisao('arquivo')}
+        title="Ver as O.S concluídas e canceladas"
+        className="flex items-center gap-2 px-4 py-2 rounded-full border border-emerald-200 bg-emerald-50 text-emerald-700 text-[11px] font-bold hover:bg-emerald-100 transition-all cursor-pointer"
+      >
+        <Archive size={13} />
+        Encerradas · {porColuna.concluida.length + porColuna.cancelada.length}
+        <span className="text-[9px] font-semibold opacity-70">({porColuna.concluida.length} concluídas · {porColuna.cancelada.length} canceladas)</span>
+      </button>
+      {/* Barra de proporção: só quando a lista está 100% carregada e sem filtros */}
+      {totalOs === listaOs.length && totalOs > 0 && !filtroBusca && !filtroObra && !filtroEquipe && !filtroPrioridade && !filtroStatus && (
+        <div className="w-full flex h-1.5 bg-slate-100 rounded-full overflow-hidden">
+          {pipelineCols.map(col => (
+            porColuna[col.id].length > 0 && (
+              <span key={col.id} title={`${col.label}: ${porColuna[col.id].length}`}
+                className={`h-full ${col.id === 'impedida' ? 'bg-orange-400' : col.id === 'aberta' ? 'bg-sky-400' : col.id === 'em_andamento' ? 'bg-primary-500' : 'bg-slate-400'}`}
+                style={{ width: `${(porColuna[col.id].length / totalOs) * 100}%` }} />
+            )
+          ))}
+        </div>
+      )}
+    </div>
+  ) : null;
 
 
   return (
@@ -2791,11 +2931,25 @@ function OrdensServico({ usuarioAtual }) {
       {visao === 'quadro' && (
         <>
           {filtros}
+          {barraPipeline}
+
+          {/* Estado vazio do funil ativo (gestor) */}
+          {quadroVazio && !osSelecionada && (
+            <div className="rounded-2xl border-2 border-dashed border-slate-200 bg-white/60 px-6 py-12 text-center space-y-1">
+              <p className="text-sm font-bold text-slate-500">Nenhuma O.S em andamento no momento.</p>
+              <p className="text-xs text-slate-400">
+                As O.S concluídas e canceladas ficam organizadas na aba <b>Encerradas</b>.
+              </p>
+            </div>
+          )}
 
           {/* ===== KANBAN (desktop) ===== */}
           <DragDropContext onDragStart={aoArrastarInicio} onDragEnd={aoArrastarFim}>
-            <div className="hidden lg:grid grid-cols-3 xl:grid-cols-6 gap-3 items-start relative">
-              {colunasVisiveis.map(col => {
+            <div
+              className={`${quadroVazio && !osSelecionada ? 'hidden' : ''} hidden lg:grid gap-3 items-start relative ${ehGestor ? '' : 'grid-cols-3'}`}
+              style={ehGestor ? { gridTemplateColumns: `repeat(${Math.max(colunasQuadro.length, 1)}, minmax(0, 1fr))` } : undefined}
+            >
+              {colunasQuadro.map(col => {
                 // Durante o drag, calcula se esta coluna é um destino válido
                 const eDestinoInvalido = draggingOsStatus !== null
                   && draggingOsStatus !== col.id
@@ -2837,6 +2991,11 @@ function OrdensServico({ usuarioAtual }) {
                               )}
                             </Draggable>
                           ))}
+                          {porColuna[col.id].length === 0 && (
+                            <p className="mx-1 text-center text-[10px] font-semibold text-slate-300 border border-dashed border-slate-200 rounded-xl py-5">
+                              Sem O.S — arraste para cá
+                            </p>
+                          )}
                           {provided.placeholder}
                         </div>
                       )}
@@ -2844,27 +3003,27 @@ function OrdensServico({ usuarioAtual }) {
                   </div>
                 );
               })}
-
-
-              {/* Drawer de detalhes */}
-              {osSelecionada != null && (
-                <PainelExecucao
-                  osId={osSelecionada}
-                  obras={obras}
-                  produtos={produtos}
-                  capturarGps={capturarGps}
-                  onFechar={() => setOsSelecionada(null)}
-                  recarregarLista={recarregarLista}
-                  mostrarToast={mostrarToast}
-                  ehMobile={false}
-                  mudarStatus={mudarStatus}
-                  ehGestor={ehGestor}
-                  onEditar={(detalhe) => setModalEdicao(detalhe)}
-                  transicoes={transicoes}
-                />
-              )}
             </div>
           </DragDropContext>
+
+          {/* Drawer de detalhes (desktop) — fora do grid para sobreviver ao
+              estado vazio e às trocas de colunas dinâmicas */}
+          {osSelecionada != null && (
+            <PainelExecucao
+              osId={osSelecionada}
+              obras={obras}
+              produtos={produtos}
+              capturarGps={capturarGps}
+              onFechar={() => setOsSelecionada(null)}
+              recarregarLista={recarregarLista}
+              mostrarToast={mostrarToast}
+              ehMobile={false}
+              mudarStatus={mudarStatus}
+              ehGestor={ehGestor}
+              onEditar={(detalhe) => setModalEdicao(detalhe)}
+              transicoes={transicoes}
+            />
+          )}
 
           {/* ===== MODO CAMPO (mobile): lista + execução em tela cheia ===== */}
           <div className="lg:hidden space-y-3">            {osSelecionada != null ? (
@@ -2922,6 +3081,94 @@ function OrdensServico({ usuarioAtual }) {
             >
               Carregar mais ({totalOs - listaOs.length} restantes)
             </button>
+          )}
+        </>
+      )}
+
+      {visao === 'arquivo' && ehGestor && (
+        <>
+          {filtros}
+
+          {/* Seletor: todas / concluídas / canceladas */}
+          <div className="flex flex-wrap items-center gap-2 bg-white p-3 rounded-2xl border border-slate-100 shadow-sm">
+            <span className="text-[10px] font-extrabold uppercase tracking-wider text-slate-400 mr-1">Encerradas</span>
+            {[['', 'Todas'], ['concluida', 'Concluídas'], ['cancelada', 'Canceladas']].map(([valor, rotulo]) => {
+              const ativo = filtroArquivo === valor;
+              return (
+                <button key={valor} onClick={() => setFiltroArquivo(valor)}
+                  className={`px-3 py-1.5 rounded-full border text-[11px] font-bold transition-all cursor-pointer ${
+                    ativo
+                      ? 'bg-primary-600 text-white border-primary-600'
+                      : 'bg-white text-slate-600 border-slate-200 hover:border-primary-300'
+                  }`}>
+                  {rotulo}
+                </button>
+              );
+            })}
+            <div className="flex-1" />
+            <span className="text-[10px] font-bold text-slate-400">
+              {totalEncerradas > 0 && listaEncerradas.length < totalEncerradas
+                ? `${totalEncerradas} no total (${listaEncerradas.length} carregadas)`
+                : `${totalEncerradas} O.S encerradas`}
+            </span>
+          </div>
+
+          {carregandoArquivo && listaEncerradas.length === 0 ? (
+            <div className="text-center py-14 text-xs text-slate-400">Carregando Encerradas...</div>
+          ) : listaEncerradas.length === 0 ? (
+            <div className="rounded-2xl border-2 border-dashed border-slate-200 bg-white/60 px-6 py-12 text-center">
+              <p className="text-sm font-bold text-slate-500">Nenhuma O.S encerrada encontrada.</p>
+              <p className="text-xs text-slate-400 mt-1">Ajuste os filtros acima ou acompanhe o quadro.</p>
+            </div>
+          ) : (
+            <div className="bg-white rounded-2xl border border-slate-100 divide-y divide-slate-100 overflow-hidden">
+              {listaEncerradas.map(os => (
+                <button key={os.id} onClick={() => setOsSelecionada(os.id)}
+                  className="w-full flex flex-col md:flex-row md:items-center gap-1.5 md:gap-4 px-4 py-3 text-left hover:bg-slate-50 transition-colors cursor-pointer">
+                  <span className="flex-1 min-w-0">
+                    <span className="flex items-center gap-2 flex-wrap">
+                      <span className="font-mono text-xs font-bold text-primary-700">{os.codigo}</span>
+                      <BadgeStatus status={os.status} />
+                      <BadgePrioridade prioridade={os.prioridade} />
+                    </span>
+                    <span className="block text-xs font-semibold text-slate-700 truncate mt-1">{os.obras?.nome || '—'}</span>
+                    <span className="block text-[10px] text-slate-400 truncate">
+                      Equipe: {os.equipes?.numero ? `Nº ${os.equipes.numero} - ` : ''}{os.equipes?.nome || 'sem equipe'}
+                    </span>
+                  </span>
+                  <span className="flex items-center gap-4 shrink-0 text-[10px] text-slate-400 font-semibold flex-wrap">
+                    <span>Encerrada em <b className="text-slate-600">{fmtData(os.data_fim)}</b></span>
+                    <span className="hidden sm:inline">{(os.total_materiais_aplicado || 0).toFixed(3)} USC aplicado</span>
+                    <span className="hidden sm:inline">{os.fotos_count || 0} foto(s)</span>
+                  </span>
+                </button>
+              ))}
+            </div>
+          )}
+
+          {listaEncerradas.length > 0 && listaEncerradas.length < totalEncerradas && (
+            <button onClick={carregarMaisArquivo}
+              className="w-full py-3 rounded-xl border border-slate-200 bg-white text-slate-600 text-sm font-bold hover:bg-slate-50 transition-colors cursor-pointer">
+              Carregar mais ({totalEncerradas - listaEncerradas.length} restantes)
+            </button>
+          )}
+
+          {/* Detalhes da O.S encerrada: drawer (desktop) / tela cheia (móvel) */}
+          {osSelecionada != null && (
+            <PainelExecucao
+              osId={osSelecionada}
+              obras={obras}
+              produtos={produtos}
+              capturarGps={capturarGps}
+              onFechar={() => setOsSelecionada(null)}
+              recarregarLista={recarregarLista}
+              mostrarToast={mostrarToast}
+              ehMobile={!ehTelaLarga}
+              mudarStatus={mudarStatus}
+              ehGestor={ehGestor}
+              onEditar={(detalhe) => setModalEdicao(detalhe)}
+              transicoes={transicoes}
+            />
           )}
         </>
       )}
