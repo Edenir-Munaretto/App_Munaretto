@@ -2512,10 +2512,11 @@ function OrdensServico({ usuarioAtual }) {
     if (sincronizando) return;
     setSincronizando(true);
     try {
-      const resumo = await sincronizar();
+      // Auto (silencioso): tenta apenas itens novos; manual/finalizar: tudo.
+      const resumo = await sincronizar(null, null, silencioso);
       setUltimoResumo(resumo);
       if (usuarioAtual?.nome) salvarResponsavelLocal(usuarioAtual.nome);
-      if (!silencioso || resumo.fotosEnviadas || resumo.operacoesEnviadas || resumo.falhas.length) {
+      if (!silencioso) {
         if (resumo.falhas.length) {
           const resumosErros = [...new Set(resumo.falhas.slice(0, 3).map(f => f.erro))].join('\n');
           mostrarToast(
@@ -2523,7 +2524,12 @@ function OrdensServico({ usuarioAtual }) {
             'error',
             { label: 'Ver pendências', onClick: () => setModalPendenciasAberto(true) },
           );
-        } else {
+        } else if (resumo.descartados) {
+          mostrarToast(
+            `${resumo.descartados} pendência(s) descartadas (O.S finalizada ou alteração não permitida pelo servidor).`,
+            'error',
+          );
+        } else if (resumo.fotosEnviadas || resumo.operacoesEnviadas) {
           mostrarToast(`${resumo.fotosEnviadas + resumo.operacoesEnviadas} item(ns) sincronizado(s).`);
         }
       }
@@ -2539,20 +2545,37 @@ function OrdensServico({ usuarioAtual }) {
   }, [sincronizando, mostrarToast, usuarioAtual?.nome]);
 
   // Monitora a conexão de verdade (sonda HTTP a cada 10s — o navigator.onLine
-  // engana em WiFi sem internet, comum no campo). Ao reconectar com pendências
-  // na fila, sincroniza automaticamente.
+  // engana em WiFi sem internet, comum no campo). A sincronização AUTOMÁTICA
+  // só dispara na TRANSIÇÃO offline -> online (com cooldown) — não fica
+  // tentando a cada ciclo enquanto o usuário ainda trabalha no campo. Itens
+  // com erro ficam na fila para revisão manual ou no "Finalizar Modo Campo".
   useEffect(() => {
     let sondaEmAndamento = false;
+    const estadoOffline = { atual: isOffline() };
+    const ultimaAuto = { em: 0 };
+    const COOLDOWN_AUTO_MS = 45000;
     const atualizar = async (daSonda = false) => {
       if (!sondaEmAndamento && daSonda) {
         sondaEmAndamento = true;
-        await testarConexao();
-        sondaEmAndamento = false;
+        try {
+          await testarConexao();
+        } finally {
+          sondaEmAndamento = false;
+        }
       }
       const offlineAtual = isOffline();
       setOffline(offlineAtual);
-      if (offlineAtual === false) {
-        contarPendentes().then(p => { setPendentes(p); if (p.total > 0) sincronizarAgora(true); });
+
+      const reconectou = estadoOffline.atual === true && offlineAtual === false;
+      estadoOffline.atual = offlineAtual;
+      if (!offlineAtual) {
+        contarPendentes().then(p => {
+          setPendentes(p);
+          if (reconectou && p.total > 0 && Date.now() - ultimaAuto.em >= COOLDOWN_AUTO_MS) {
+            ultimaAuto.em = Date.now();
+            sincronizarAgora(true);
+          }
+        });
       }
     };
     const noEvento = () => atualizar(false);
@@ -2631,6 +2654,12 @@ function OrdensServico({ usuarioAtual }) {
           { label: 'Ver pendências', onClick: () => setModalPendenciasAberto(true) },
         );
         return;
+      }
+      if (resumo.descartados) {
+        mostrarToast(
+          `${resumo.descartados} pendência(s) descartadas (O.S finalizada ou alteração não permitida) e o Modo Campo foi encerrado.`,
+          'error',
+        );
       }
       if (usuarioAtual?.nome) salvarResponsavelLocal(usuarioAtual.nome);
       await limparPacote();
