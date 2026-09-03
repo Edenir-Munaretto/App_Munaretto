@@ -1196,6 +1196,42 @@ def test_listar_servicos_filtra_por_contrato_incluindo_legados(os_gestor_client,
     assert len(resp2.json()) == 4
 
 
+def test_listar_produtos_retorna_catalogo_completo_acima_de_50(os_gestor_client, db_fake):
+    """O catálogo alimenta cadastro, lançamento e Modo Campo: listar_produtos
+    NÃO pode truncar em 50 (regressão: serviços além do corte sumiam da busca)."""
+    dados = db_fake._dados["produtos"]
+    for i in range(1, 121):
+        dados.append(
+            {
+                "id": i,
+                "codigo": f"COD-{i:03d}",
+                "codigo_especial": None,
+                "nome": f"Serviço de catálogo número {i:03d}",
+                "unidade": "UN",
+                "preco_unitario": 1.0,
+                "qtd_usc_especial": 0.0,
+                "tipo": "manutencao" if i % 20 == 0 else None,  # 6 de manutenção
+                "ativo": True,
+            }
+        )
+
+    todos = os_gestor_client.get("/api/os/produtos")
+    assert todos.status_code == 200
+    assert len(todos.json()) == 120
+
+    constr = os_gestor_client.get("/api/os/produtos?tipo=construcao")
+    assert constr.status_code == 200
+    assert len(constr.json()) == 114  # 120 - 6 (manutenção)
+
+    manu = os_gestor_client.get("/api/os/produtos?tipo=manutencao")
+    assert len(manu.json()) == 120  # legados (tipo None) valem para manutenção
+
+    # Busca por código além do antigo corte de 50 agora retorna o serviço.
+    busca = os_gestor_client.get("/api/os/produtos?busca=COD-119")
+    assert busca.status_code == 200
+    assert [p["codigo"] for p in busca.json()] == ["COD-119"]
+
+
 def test_listagem_status_multiplo_encerradas(os_gestor_client, db_fake):
     """Listagem aceita status múltiplo (Encerradas: concluida,cancelada)."""
     _seed_cenario(db_fake)

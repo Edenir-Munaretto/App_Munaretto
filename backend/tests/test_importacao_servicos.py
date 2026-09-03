@@ -323,6 +323,25 @@ def test_importar_nome_muito_longo_reporta_orientacao(os_gestor_client, db_fake,
     assert "ALTER TABLE produtos ALTER COLUMN nome TYPE TEXT" in mensagem
 
 
+def test_importar_codigo_numerico_normalizado_sem_decimal(os_gestor_client, db_fake):
+    """Células numéricas do Excel (SKUs longos) não gravam o sufixo '.0'."""
+    buffer = _montar_planilha(
+        [
+            ["Serviço numérico", 75012300000000, 75012300000001.0, "UN", "1", ""],
+            ["Serviço texto", "ABC-001", "", "UN", "1", ""],
+        ]
+    )
+    resp = _importar(os_gestor_client, buffer)
+    assert resp.status_code == 200, resp.text
+    dados = resp.json()
+    assert dados["criados"] == 2
+    assert dados["erros"] == []
+    gravados = {p["codigo"]: p for p in db_fake._dados["produtos"]}
+    assert "75012300000000" in gravados
+    assert gravados["75012300000000"]["codigo_especial"] == "75012300000001"
+    assert "ABC-001" in gravados
+
+
 def test_importar_restrito_ao_gestor(os_campo_client):
     buffer = _montar_planilha([["Serviço do campo", "CAMPO-01", "", "UN", "1", ""]])
     resp = _importar(os_campo_client, buffer)

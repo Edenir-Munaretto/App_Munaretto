@@ -416,14 +416,33 @@ def listar_produtos(
     tipo: str | None = Query(None, description="Filtra pelo contrato (legados sem tipo valem para todos)"),
     db=Depends(get_supabase),
 ):
+    """Lista TODOS os serviços ativos do catálogo.
+
+    O catálogo alimenta o cadastro, o lançamento de serviços na O.S e o
+    pacote offline do Modo Campo — por isso NÃO pode ser truncado (era
+    limitado a 50 linhas, fazendo serviços sumirem da busca/cadastro). A
+    busca por páginas via `range` contorna o teto de linhas por requisição
+    do PostgREST/Supabase (padrão de 1000).
+    """
     try:
-        query = db.table("produtos").select("*").eq("ativo", True)
+        base = db.table("produtos").select("*").eq("ativo", True)
         if busca:
             busca = busca.strip()
-            query = query.or_(
+            base = base.or_(
                 f"nome.ilike.%{busca}%,codigo.ilike.%{busca}%,codigo_especial.ilike.%{busca}%"
             )
-        dados = query.order("nome").limit(50).execute().data
+        base = base.order("nome")
+
+        dados: list[dict] = []
+        tamanho_pagina = 1000
+        offset = 0
+        while True:
+            pagina = base.range(offset, offset + tamanho_pagina - 1).execute().data
+            dados.extend(pagina)
+            if len(pagina) < tamanho_pagina:
+                break
+            offset += tamanho_pagina
+
         if tipo:
             # Serviços legados (tipo NULL) são válidos em todos os contratos.
             dados = [p for p in dados if p.get("tipo") is None or p["tipo"] == tipo]
@@ -675,6 +694,10 @@ def modelo_servicos():
             "   e vale para TODAS as linhas do arquivo.",
             "8. Ao finalizar, vá em 'Importar em lote' na aba Serviços e envie este arquivo.",
             "9. A importação pode ser simulada primeiro (prévia) para conferir antes de aplicar.",
+            "10. ATENÇÃO: se o código começar com zeros (ex.: 001234), formate a coluna como",
+            "    TEXTO no Excel ANTES de digitar — senão o Excel remove os zeros à esquerda.",
+            "11. Códigos totalmente numéricos (código de barras) são aceitos e normalizados",
+            "    automaticamente (sem decimal no final, ex.: 75012300000000).",
         ]
         for i, texto in enumerate(linhas, start=1):
             ws_instrucoes.cell(row=i, column=1, value=texto)
@@ -926,8 +949,18 @@ def importar_servicos(
 
 
 def _texto_ou_none(valor) -> str | None:
+    """Converte célula para texto, normalizando números.
+
+    Células numéricas do Excel (códigos de barras/SKU longos) chegam como
+    float — ex.: 75012300000000.0. Aqui viram texto sem o sufixo '.0'
+    ('75012300000000'), preservando a comparabilidade com a bipagem.
+    """
     if valor is None:
         return None
+    if isinstance(valor, bool):
+        return None
+    if isinstance(valor, float) and valor.is_integer():
+        valor = int(valor)
     texto = str(valor).strip()
     return texto or None
 
