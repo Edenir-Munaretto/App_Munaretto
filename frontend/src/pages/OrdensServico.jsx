@@ -17,7 +17,6 @@ import {
   getOSLocal, getChecklistLocal, getListaLocal, getProdutosLocal, salvarDetalheLocal, salvarChecklistLocal,
   atualizarStatusLocal, atualizarRespostaLocal, recalcularResumo,
   enfileirarOperacao, enfileirarFoto, contarPendentes,
-  registrarFotoItemLocal, hidratarFotosPendentes,
   salvarResponsavelLocal,
   registrarFalhaDeRede, testarConexao,
 } from '../offline/offline';
@@ -89,70 +88,14 @@ const fmtData = (iso) => {
 };
 
 // Captura a geolocalização do dispositivo (sem bloqueio por raio).
-// Com cache curto (60s) e timeout reduzido: no campo, clicar numa resposta
-// não pode ficar esperando o GPS — usa a última posição válida se necessário.
-const _cacheGps = { valor: null, em: 0 };
-const GPS_CACHE_MS = 60 * 1000;
-const GPS_TIMEOUT_MS = 2500;
 const capturarGeolocalizacao = () => new Promise((resolve) => {
-  const agora = Date.now();
-  if (_cacheGps.valor && agora - _cacheGps.em < GPS_CACHE_MS) {
-    return resolve(_cacheGps.valor);
-  }
-  if (!navigator.geolocation) return resolve(_cacheGps.valor);
+  if (!navigator.geolocation) return resolve(null);
   navigator.geolocation.getCurrentPosition(
-    (pos) => {
-      const valor = `${pos.coords.latitude.toFixed(6)},${pos.coords.longitude.toFixed(6)}`;
-      _cacheGps.valor = valor;
-      _cacheGps.em = Date.now();
-      resolve(valor);
-    },
-    () => resolve(_cacheGps.valor),
-    { timeout: GPS_TIMEOUT_MS, maximumAge: GPS_CACHE_MS },
+    (pos) => resolve(`${pos.coords.latitude.toFixed(6)},${pos.coords.longitude.toFixed(6)}`),
+    () => resolve(null),
+    { timeout: 8000 },
   );
 });
-
-// ---------------------------------------------------------------------------
-// Seletor de fotos (câmera / galeria)
-// ---------------------------------------------------------------------------
-// Abre o seletor de imagens criando um <input type="file"> NOVO a cada chamada
-// e o remove ao final. Criação sob demanda evita o bug comum do Android em que
-// o mesmo input "para" de abrir a câmera após alguns usos.
-//
-// - `capture: true`  -> atributo capture="environment": abre a CÂMERA direto
-//   (não depende do seletor do navegador — resolve aparelhos em que a opção
-//   "Câmera" do seletor não abre);
-// - `capture: false` -> abre a galeria/arquivos (padrão).
-// Resolve com File[] (vazio se o usuário cancelar).
-function abrirSeletorFoto({ capture = false, multiple = false } = {}) {
-  return new Promise((resolve) => {
-    const input = document.createElement('input');
-    input.type = 'file';
-    input.accept = 'image/*';
-    if (capture) input.setAttribute('capture', 'environment');
-    if (multiple) input.multiple = true;
-    input.style.display = 'none';
-    document.body.appendChild(input);
-
-    let concluido = false;
-    const finalizar = () => {
-      // Ao voltar da câmera o foco pode retornar ANTES do evento "change";
-      // aguarda um instante e relê os arquivos antes de decidir (cancelamento
-      // não dispara "change").
-      setTimeout(() => {
-        if (concluido) return;
-        concluido = true;
-        const arquivos = input.files ? Array.from(input.files) : [];
-        window.removeEventListener('focus', finalizar);
-        if (input.parentNode) input.parentNode.removeChild(input);
-        resolve(arquivos);
-      }, 1200);
-    };
-    input.addEventListener('change', finalizar, { once: true });
-    window.addEventListener('focus', finalizar);
-    input.click();
-  });
-}
 
 // ---------------------------------------------------------------------------
 // Componentes pequenos reutilizáveis
@@ -271,6 +214,7 @@ function TabChecklist({ osDetalhe, onAtualizado, mostrarToast, podeEditar }) {
   const [enviandoFoto, setEnviandoFoto] = useState(null); // item recebendo foto
   const [fotoAlvo, setFotoAlvo] = useState(null); // item para anexar foto
   const [grupoAberto, setGrupoAberto] = useState(null); // grupo expandido do acordeão
+  const inputFotoRef = useRef(null);
   const inicializouGrupo = useRef(false);
 
   const carregar = useCallback(async () => {
@@ -282,11 +226,9 @@ function TabChecklist({ osDetalhe, onAtualizado, mostrarToast, podeEditar }) {
       //    renderiza na hora, sem depender de sonda/estado de conexão.
       let localAchado = false;
       if (modoCampo || usarLocal()) {
-        let local = await getChecklistLocal(osDetalhe.id);
+        const local = await getChecklistLocal(osDetalhe.id);
         if (local) {
           localAchado = true;
-          // Reconstrói os previews de fotos ainda não sincronizadas (Modo Campo).
-          if (modoCampo) local = await hidratarFotosPendentes(local);
           setDados({ itens: local.itens || [], resumo: local.resumo });
         } else if (!modoCampo) {
           mostrarToast('Checklist indisponível offline (baixe o pacote de campo).', 'error');
@@ -313,7 +255,7 @@ function TabChecklist({ osDetalhe, onAtualizado, mostrarToast, podeEditar }) {
       //    ignorado — a tela permanece com a cópia local sem toasts repetidos.
       let okRemoto = false;
       try {
-        const res = await apiFetch(`${API_URL}/os/${osDetalhe.id}/checklist`, { signal: AbortSignal.timeout(8000) });
+        const res = await apiFetch(`${API_URL}/os/${osDetalhe.id}/checklist`);
         if (res.ok) {
           const dados = await res.json();
           setDados(dados);
@@ -364,53 +306,52 @@ function TabChecklist({ osDetalhe, onAtualizado, mostrarToast, podeEditar }) {
     });
   };
 
-  // Reflete no estado da tela a foto pendente recém-tirada (preview imediato).
-  const refletirFotoLocal = (itemId, entrada) => {
-    setDados(prev => {
-      if (!prev) return prev;
-      const itens = prev.itens.map(i => (i.id === itemId
-        ? { ...i, fotos: [...(i.fotos || []).filter(f => !f.pendente), entrada] }
-        : i));
-      return { itens, resumo: prev.resumo };
-    });
-  };
-
-  const responder = async (item, resposta) => {
+  const responder = async (item, resposta, tentativa = 0) => {
     if (!podeEditar) return;
     setSalvandoItem(item.id);
-    try {
-      const gps = await capturarGeolocalizacao();
+    const gps = await capturarGeolocalizacao();
 
-      // MODIFICADO — Modo Campo (mesmo com internet): a resposta vai SEMPRE
-      // primeiro para o dispositivo (fila + espelho local), sem esperar o
-      // servidor. O motor de sincronização existente envia ao voltar/
-      // reconectar. Isso torna o clique instantâneo e elimina os erros/
-      // lentidão de rede repetidos ao preencher o checklist.
-      if (isModoCampo()) {
+    // Offline: grava na fila e reflete localmente.
+    if (usarLocal()) {
+      try {
         await enfileirarOperacao({
           tipo: 'checklist_resposta',
           os_id: osDetalhe.id,
           payload: { item_id: item.id, resposta, geolocalizacao: gps },
         });
         await refletirRespostaLocal(item, resposta, gps);
+        onAtualizado();
         mostrarToast('Resposta salva no dispositivo (será sincronizada).');
-      } else {
-        const res = await apiFetch(`${API_URL}/os/${osDetalhe.id}/checklist/${item.id}`, {
-          method: 'PUT',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ resposta, geolocalizacao: gps }),
-        });
-        if (!res.ok) {
-          mostrarToast(erroDaResposta(await res.json().catch(() => null), 'Erro ao salvar resposta.'), 'error');
-        }
-      }
-      onAtualizado();
-    } catch {
-      if (isModoCampo()) {
+      } catch {
         mostrarToast('Falha ao salvar a resposta no dispositivo.', 'error');
-      } else {
-        mostrarToast('Erro de conexão ao salvar resposta.', 'error');
+      } finally {
+        setSalvandoItem(null);
       }
+      return;
+    }
+
+    try {
+      const res = await apiFetch(`${API_URL}/os/${osDetalhe.id}/checklist/${item.id}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ resposta, geolocalizacao: gps }),
+      });
+      if (res.ok) {
+        // No Modo Campo também reflete no pacote local: se o GET do checklist
+        // falhar (ex.: problema no servidor), a tela segue consistente.
+        if (isModoCampo()) await refletirRespostaLocal(item, resposta, gps);
+        carregar();
+        onAtualizado();
+      } else {
+        mostrarToast(erroDaResposta(await res.json().catch(() => null), 'Erro ao salvar resposta.'), 'error');
+      }
+    } catch {
+      // Sem internet real (WiFi sem dados): cai para a fila local no Modo Campo.
+      if (tentativa === 0 && isModoCampo()) {
+        registrarFalhaDeRede();
+        return responder(item, resposta, 1);
+      }
+      mostrarToast('Erro de conexão ao salvar resposta.', 'error');
     } finally {
       setSalvandoItem(null);
     }
@@ -421,54 +362,46 @@ function TabChecklist({ osDetalhe, onAtualizado, mostrarToast, podeEditar }) {
     setFotoAlvo(null);
     if (!item || !files?.length) return;
     setEnviandoFoto(item.id);
-    try {
-      const arquivo = await comprimirImagem(files[0]);
-      const gps = await capturarGeolocalizacao();
+    const arquivo = await comprimirImagem(files[0]);
+    const gps = await capturarGeolocalizacao();
 
-      // Modo Campo: guarda a foto no dispositivo, enfileira o envio e mostra o
-      // PREVIEW imediato abaixo da pergunta (mesmo online — não trava a
-      // interface aguardando upload).
-      if (isModoCampo()) {
-        const { entrada } = await registrarFotoItemLocal({
-          os_id: osDetalhe.id,
-          item_id: item.id,
-          arquivo,
-          geolocalizacao: gps,
-        });
-        refletirFotoLocal(item.id, entrada);
-        mostrarToast('Foto salva no dispositivo (será sincronizada).');
-        onAtualizado();
-        return;
-      }
-
-      const fd = new FormData();
-      fd.append('arquivo', arquivo);
+    // Offline: guarda a foto no dispositivo e enfileira o envio.
+    if (usarLocal()) {
       try {
-        const qs = gps ? `?geolocalizacao=${encodeURIComponent(gps)}` : '';
-        const res = await apiFetch(`${API_URL}/os/${osDetalhe.id}/checklist/${item.id}/foto${qs}`, {
-          method: 'POST',
-          body: fd,
-        });
-        if (res.ok) {
-          mostrarToast('Foto anexada ao item.');
-        } else {
-          mostrarToast(erroDaResposta(await res.json().catch(() => null), 'Erro ao enviar foto.'), 'error');
-        }
+        await enfileirarFoto({ os_id: osDetalhe.id, checklist_item_id: item.id, arquivo, geolocalizacao: gps });
+        mostrarToast('Foto salva no dispositivo (será sincronizada).');
+        carregar();
         onAtualizado();
       } catch {
-        // Sem internet real (WiFi sem dados): guarda no dispositivo (Modo Campo).
-        if (tentativa === 0 && isModoCampo()) {
-          registrarFalhaDeRede();
-          return enviarFoto(files, 1);
-        }
-        mostrarToast('Erro de conexão ao enviar foto.', 'error');
+        mostrarToast('Falha ao salvar a foto no dispositivo.', 'error');
+      } finally {
+        setEnviandoFoto(null);
+      }
+      return;
+    }
+
+    const fd = new FormData();
+    fd.append('arquivo', arquivo);
+    try {
+      const qs = gps ? `?geolocalizacao=${encodeURIComponent(gps)}` : '';
+      const res = await apiFetch(`${API_URL}/os/${osDetalhe.id}/checklist/${item.id}/foto${qs}`, {
+        method: 'POST',
+        body: fd,
+      });
+      if (res.ok) {
+        mostrarToast('Foto anexada ao item.');
+        carregar();
+        onAtualizado();
+      } else {
+        mostrarToast(erroDaResposta(await res.json().catch(() => null), 'Erro ao enviar foto.'), 'error');
       }
     } catch {
-      if (isModoCampo()) {
-        mostrarToast('Falha ao salvar a foto no dispositivo.', 'error');
-      } else {
-        mostrarToast('Erro de conexão ao enviar foto.', 'error');
+      // Sem internet real: guarda no dispositivo (Modo Campo).
+      if (tentativa === 0 && isModoCampo()) {
+        registrarFalhaDeRede();
+        return enviarFoto(files, 1);
       }
+      mostrarToast('Erro de conexão ao enviar foto.', 'error');
     } finally {
       setEnviandoFoto(null);
     }
@@ -616,27 +549,13 @@ function TabChecklist({ osDetalhe, onAtualizado, mostrarToast, podeEditar }) {
                               <p className="text-[10px] text-rose-600 font-semibold mt-1">Justificativa: {justificativa}</p>
                             )}
                             {temFoto && (
-                              <div className="flex flex-wrap gap-2 mt-1.5">
-                                {item.fotos.map(f => {
-                                  const img = (
-                                    <img src={f.url_temporaria} alt={f.nome_original || 'foto'}
+                              <div className="flex gap-2 mt-1.5">
+                                {item.fotos.map(f => (
+                                  <a key={f.id} href={f.url_temporaria} target="_blank" rel="noopener noreferrer" title="Abrir foto">
+                                    <img src={f.url_temporaria} alt={f.nome_original}
                                       className="w-16 h-16 rounded-lg object-cover border border-slate-200" loading="lazy" />
-                                  );
-                                  return (
-                                    <div key={f.id} className="relative w-16 h-16">
-                                      {f.url_temporaria ? (
-                                        <a href={f.url_temporaria} target="_blank" rel="noopener noreferrer" title="Abrir foto">
-                                          {img}
-                                        </a>
-                                      ) : img}
-                                      {f.pendente && (
-                                        <span className="absolute -bottom-1 right-0 text-[8px] font-bold px-1 py-0.5 rounded-full bg-amber-100 text-amber-700 border border-amber-200">
-                                          sincronizando…
-                                        </span>
-                                      )}
-                                    </div>
-                                  );
-                                })}
+                                  </a>
+                                ))}
                               </div>
                             )}
                           </div>
@@ -651,6 +570,16 @@ function TabChecklist({ osDetalhe, onAtualizado, mostrarToast, podeEditar }) {
         })}
       </div>
 
+      <input
+        ref={inputFotoRef}
+        type="file"
+        accept="image/*"
+        hidden
+        onChange={(e) => {
+          if (e.target.files?.length) enviarFoto(Array.from(e.target.files));
+          e.target.value = '';
+        }}
+      />
       {fotoAlvo && (
         <div className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center z-50 p-4">
           <div className="bg-white rounded-2xl shadow-2xl max-w-sm w-full p-6 text-center animate-in fade-in zoom-in duration-200">
@@ -660,27 +589,9 @@ function TabChecklist({ osDetalhe, onAtualizado, mostrarToast, podeEditar }) {
             <h4 className="text-sm font-extrabold text-slate-800 mb-1">Evidência fotográfica</h4>
             <p className="text-xs text-slate-500 mb-5">{fotoAlvo.classificacao} {fotoAlvo.pergunta}</p>
             <div className="space-y-2">
-              <button
-                type="button"
-                disabled={enviandoFoto === fotoAlvo.id}
-                onClick={async () => {
-                  const files = await abrirSeletorFoto({ capture: true });
-                  if (files.length) enviarFoto(files);
-                }}
-                className="w-full py-3 bg-primary-600 text-white rounded-xl text-sm font-bold hover:bg-primary-700 cursor-pointer disabled:opacity-40"
-              >
-                {enviandoFoto === fotoAlvo.id ? 'Enviando...' : 'Tirar foto'}
-              </button>
-              <button
-                type="button"
-                disabled={enviandoFoto === fotoAlvo.id}
-                onClick={async () => {
-                  const files = await abrirSeletorFoto({ multiple: true });
-                  if (files.length) enviarFoto(files);
-                }}
-                className="w-full py-2.5 border border-slate-200 text-slate-600 rounded-xl text-sm font-semibold hover:bg-slate-50 cursor-pointer disabled:opacity-40"
-              >
-                Escolher da galeria
+              <button onClick={() => inputFotoRef.current?.click()}
+                className="w-full py-3 bg-primary-600 text-white rounded-xl text-sm font-bold hover:bg-primary-700 cursor-pointer">
+                Tirar / Escolher foto
               </button>
               <button onClick={() => setFotoAlvo(null)}
                 className="w-full py-2.5 border border-slate-200 text-slate-600 rounded-xl text-sm font-semibold hover:bg-slate-50 cursor-pointer">
@@ -1130,6 +1041,7 @@ function TabEvidencias({ osDetalhe, onAtualizado, mostrarToast, podeEditar, pode
   const [fotos, setFotos] = useState([]);
   const [enviando, setEnviando] = useState(false);
   const [fotoParaExcluir, setFotoParaExcluir] = useState(null); // ID aguardando confirmação
+  const inputRef = useRef(null);
 
   const carregarFotos = useCallback(async () => {
     try {
@@ -1176,33 +1088,27 @@ function TabEvidencias({ osDetalhe, onAtualizado, mostrarToast, podeEditar, pode
 
   return (
     <div className="space-y-4">
-      {/* Captura de evidência: câmera direta OU galeria (seletores separados) */}
-      <div className="grid grid-cols-2 gap-2">
-        <button
-          type="button"
-          disabled={!podeEditar || enviando}
-          onClick={async () => {
-            const files = await abrirSeletorFoto({ capture: true });
-            if (files.length) enviarArquivos(files);
-          }}
-          className="h-24 rounded-2xl border-2 border-dashed border-primary-300 bg-primary-50/60 hover:bg-primary-50 text-primary-700 font-bold flex flex-col items-center justify-center gap-1.5 disabled:opacity-40 cursor-pointer transition-all"
-        >
-          <Camera size={28} />
-          {enviando ? 'Enviando...' : 'Tirar foto'}
-        </button>
-        <button
-          type="button"
-          disabled={!podeEditar || enviando}
-          onClick={async () => {
-            const files = await abrirSeletorFoto({ multiple: true });
-            if (files.length) enviarArquivos(files);
-          }}
-          className="h-24 rounded-2xl border-2 border-dashed border-slate-300 bg-white hover:bg-slate-50 text-slate-600 font-bold flex flex-col items-center justify-center gap-1.5 disabled:opacity-40 cursor-pointer transition-all"
-        >
-          <ImageIcon size={26} />
-          Anexar fotos
-        </button>
-      </div>
+      {/* Botão grande de câmera: captura direta no celular */}
+      <button
+        type="button"
+        disabled={!podeEditar || enviando}
+        onClick={() => inputRef.current?.click()}
+        className="w-full h-24 rounded-2xl border-2 border-dashed border-primary-300 bg-primary-50/60 hover:bg-primary-50 text-primary-700 font-bold flex flex-col items-center justify-center gap-1.5 disabled:opacity-40 cursor-pointer transition-all"
+      >
+        <Camera size={28} />
+        {enviando ? 'Enviando...' : 'Tirar / Anexar Foto'}
+      </button>
+      <input
+        ref={inputRef}
+        type="file"
+        accept="image/*"
+        multiple
+        hidden
+        onChange={(e) => {
+          if (e.target.files?.length) enviarArquivos(Array.from(e.target.files));
+          e.target.value = '';
+        }}
+      />
 
       <div className="grid grid-cols-3 sm:grid-cols-4 gap-2">
         {fotos.map(f => (
@@ -1491,57 +1397,33 @@ function PainelExecucao({ osId, produtos, capturarGps, onFechar, recarregarLista
   const [aba, setAba] = useState('insumos');
 
   const carregar = useCallback(async (tentativa = 0) => {
-    const campo = isModoCampo();
     try {
-      // MODIFICADO — Modo Campo (mesmo online): renderiza PRIMEIRO do pacote
-      // local; o servidor só é consultado em segundo plano e SILENCIOSO.
-      if (campo || usarLocal()) {
+      // Offline: busca no pacote de campo baixado na base.
+      if (usarLocal()) {
         const local = await getOSLocal(osId);
         if (local) {
           setDetalhe(local);
-          if (!campo || isOffline()) return; // sem internet: só local
-        } else if (campo && isOffline()) {
-          setErro('Esta O.S não está no pacote de campo. Baixe o pacote com internet na base.');
-          return;
-        } else if (!campo) {
-          setErro('Esta O.S não está disponível offline. Conecte-se para baixar o pacote de campo.');
           return;
         }
-      }
-
-      // Modo Campo online: refresh em segundo plano, silencioso e com timeout
-      // (falha de rede NÃO derruba a tela nem gera erros repetidos).
-      if (campo) {
-        try {
-          const res = await apiFetch(`${API_URL}/os/${osId}`, { signal: AbortSignal.timeout(8000) });
-          const data = await res.json().catch(() => null);
-          if (res.ok && data) {
-            setDetalhe(data);
-            salvarDetalheLocal(data);
-          }
-        } catch {
-          registrarFalhaDeRede();
-        }
+        setErro('Esta O.S não está disponível offline. Conecte-se para baixar o pacote de campo.');
         return;
       }
-
-      if (usarLocal()) return;
-
-      // Fora do Modo Campo: o servidor é a fonte (comportamento original).
       const res = await apiFetch(`${API_URL}/os/${osId}`);
       const data = await res.json().catch(() => null);
       if (res.ok) {
         setDetalhe(data);
+        // Em Modo Campo, mantém o pacote local atualizado para o campo.
+        if (isModoCampo()) salvarDetalheLocal(data);
       } else if (res.status === 500 && tentativa === 0 && !usarLocal()) {
         // Erros 500 no detalhe costumam ser transitórios (queda de conexão com
         // o banco no servidor): tenta uma segunda vez antes de exibir o erro.
         setTimeout(() => carregar(1), 1500);
       } else setErro(erroDaResposta(data, 'Erro ao carregar O.S.'));
     } catch {
-      // Falhas de conexão: no Modo Campo são silenciosas (fica a cópia local);
-      // fora dele tenta uma segunda vez antes de exibir o erro.
+      // Falhas de conexão costumam ser transitórias (cold start do servidor,
+      // WiFi sem internet no campo): tenta uma segunda vez — no Modo Campo a
+      // segunda tentativa já cai no pacote local graças à sonda.
       registrarFalhaDeRede();
-      if (campo) return;
       if (tentativa === 0) {
         setTimeout(() => carregar(1), 1500);
       } else {
@@ -1551,14 +1433,6 @@ function PainelExecucao({ osId, produtos, capturarGps, onFechar, recarregarLista
   }, [osId]);
 
   useEffect(() => { carregar(); }, [carregar]);
-
-  // Atualização após ações internas (checklist, evidências, insumos):
-  // no Modo Campo recarrega só do pacote local (rápido e sem rede);
-  // fora dele recarrega detalhe + lista do servidor.
-  const atualizarAposAcao = useCallback(() => {
-    carregar();
-    if (!isModoCampo()) recarregarLista();
-  }, [carregar, recarregarLista]);
 
   if (erro) {
     return (
@@ -1642,7 +1516,7 @@ function PainelExecucao({ osId, produtos, capturarGps, onFechar, recarregarLista
       {aba === 'checklist' && (
         <TabChecklist
           osDetalhe={detalhe}
-          onAtualizado={atualizarAposAcao}
+          onAtualizado={() => { carregar(); recarregarLista(); }}
           mostrarToast={mostrarToast}
           podeEditar={podeEditar}
         />
@@ -1760,7 +1634,7 @@ function PainelExecucao({ osId, produtos, capturarGps, onFechar, recarregarLista
         <CronometroHH
           osDetalhe={detalhe}
           capturarGps={capturarGps}
-          onAtualizado={atualizarAposAcao}
+          onAtualizado={() => { carregar(); recarregarLista(); }}
           mostrarToast={mostrarToast}
           podeEditar={podeEditar}
         />
@@ -1768,7 +1642,7 @@ function PainelExecucao({ osId, produtos, capturarGps, onFechar, recarregarLista
           detalhe={detalhe}
           podeEditar={podeEditar}
           mudarStatus={mudarStatus}
-          aoAplicado={atualizarAposAcao}
+          aoAplicado={() => { carregar(); recarregarLista(); }}
           ehGestor={ehGestor}
           transicoesMap={transicoes}
           onAbrirChecklist={() => setAba('checklist')}
@@ -2288,6 +2162,7 @@ function ModalImpedimento({ aberto, osAlvo, onConfirmar, onCancelar, processando
   const [justificativa, setJustificativa] = useState('');
   const [fotos, setFotos] = useState([]);
   const [enviandoFoto, setEnviandoFoto] = useState(false);
+  const inputFotoRef = useRef(null);
 
   useEffect(() => {
     if (aberto) {
@@ -2374,50 +2249,35 @@ function ModalImpedimento({ aberto, osAlvo, onConfirmar, onCancelar, processando
               <span className="w-4 h-4 rounded-full bg-orange-500 text-white text-[9px] font-black flex items-center justify-center">2</span>
               Anexar foto de evidência
             </p>
-            <div className="grid grid-cols-2 gap-2">
-              <button
-                type="button"
-                disabled={enviandoFoto}
-                onClick={async () => {
-                  const files = await abrirSeletorFoto({ capture: true });
-                  if (files.length) enviarFotos(files);
-                }}
-                className={`h-20 rounded-xl border-2 border-dashed font-bold flex flex-col items-center justify-center gap-1.5 transition-all cursor-pointer text-sm disabled:opacity-50 ${
-                  fotos.length > 0
-                    ? 'border-emerald-400 bg-emerald-50 text-emerald-700'
-                    : 'border-orange-300 bg-orange-50 text-orange-700'
-                }`}
-              >
-                <Camera size={22} />
-                {enviandoFoto
-                  ? 'Enviando...'
-                  : fotos.length > 0
-                    ? `✓ ${fotos.length} — adicionar`
-                    : 'Tirar foto'
-                }
-              </button>
-              <button
-                type="button"
-                disabled={enviandoFoto}
-                onClick={async () => {
-                  const files = await abrirSeletorFoto({ multiple: true });
-                  if (files.length) enviarFotos(files);
-                }}
-                className={`h-20 rounded-xl border-2 border-dashed font-bold flex flex-col items-center justify-center gap-1.5 transition-all cursor-pointer text-sm disabled:opacity-50 ${
-                  fotos.length > 0
-                    ? 'border-emerald-400 bg-emerald-50 text-emerald-700'
-                    : 'border-slate-300 bg-white text-slate-600'
-                }`}
-              >
-                <ImageIcon size={22} />
-                {enviandoFoto
-                  ? 'Enviando...'
-                  : fotos.length > 0
-                    ? `✓ ${fotos.length} — anexar mais`
-                    : 'Escolher da galeria'
-                }
-              </button>
-            </div>
+            <button
+              type="button"
+              disabled={enviandoFoto}
+              onClick={() => inputFotoRef.current?.click()}
+              className={`w-full h-20 rounded-xl border-2 border-dashed font-bold flex flex-col items-center justify-center gap-1.5 transition-all cursor-pointer text-sm disabled:opacity-50 ${
+                fotos.length > 0
+                  ? 'border-emerald-400 bg-emerald-50 text-emerald-700'
+                  : 'border-orange-300 bg-orange-50 text-orange-700'
+              }`}
+            >
+              <Camera size={22} />
+              {enviandoFoto
+                ? 'Enviando...'
+                : fotos.length > 0
+                  ? `✓ ${fotos.length} foto(s) anexada(s) — adicionar mais`
+                  : 'Tirar / Escolher foto de evidência'
+              }
+            </button>
+            <input
+              ref={inputFotoRef}
+              type="file"
+              accept="image/*"
+              multiple
+              hidden
+              onChange={(e) => {
+                if (e.target.files?.length) enviarFotos(Array.from(e.target.files));
+                e.target.value = '';
+              }}
+            />
           </div>
 
           {/* Checklist de validação */}
@@ -2512,11 +2372,10 @@ function OrdensServico({ usuarioAtual }) {
     if (sincronizando) return;
     setSincronizando(true);
     try {
-      // Auto (silencioso): tenta apenas itens novos; manual/finalizar: tudo.
-      const resumo = await sincronizar(null, null, silencioso);
+      const resumo = await sincronizar();
       setUltimoResumo(resumo);
       if (usuarioAtual?.nome) salvarResponsavelLocal(usuarioAtual.nome);
-      if (!silencioso) {
+      if (!silencioso || resumo.fotosEnviadas || resumo.operacoesEnviadas || resumo.falhas.length) {
         if (resumo.falhas.length) {
           const resumosErros = [...new Set(resumo.falhas.slice(0, 3).map(f => f.erro))].join('\n');
           mostrarToast(
@@ -2524,12 +2383,7 @@ function OrdensServico({ usuarioAtual }) {
             'error',
             { label: 'Ver pendências', onClick: () => setModalPendenciasAberto(true) },
           );
-        } else if (resumo.descartados) {
-          mostrarToast(
-            `${resumo.descartados} pendência(s) descartadas (O.S finalizada ou alteração não permitida pelo servidor).`,
-            'error',
-          );
-        } else if (resumo.fotosEnviadas || resumo.operacoesEnviadas) {
+        } else {
           mostrarToast(`${resumo.fotosEnviadas + resumo.operacoesEnviadas} item(ns) sincronizado(s).`);
         }
       }
@@ -2545,37 +2399,20 @@ function OrdensServico({ usuarioAtual }) {
   }, [sincronizando, mostrarToast, usuarioAtual?.nome]);
 
   // Monitora a conexão de verdade (sonda HTTP a cada 10s — o navigator.onLine
-  // engana em WiFi sem internet, comum no campo). A sincronização AUTOMÁTICA
-  // só dispara na TRANSIÇÃO offline -> online (com cooldown) — não fica
-  // tentando a cada ciclo enquanto o usuário ainda trabalha no campo. Itens
-  // com erro ficam na fila para revisão manual ou no "Finalizar Modo Campo".
+  // engana em WiFi sem internet, comum no campo). Ao reconectar com pendências
+  // na fila, sincroniza automaticamente.
   useEffect(() => {
     let sondaEmAndamento = false;
-    const estadoOffline = { atual: isOffline() };
-    const ultimaAuto = { em: 0 };
-    const COOLDOWN_AUTO_MS = 45000;
     const atualizar = async (daSonda = false) => {
       if (!sondaEmAndamento && daSonda) {
         sondaEmAndamento = true;
-        try {
-          await testarConexao();
-        } finally {
-          sondaEmAndamento = false;
-        }
+        await testarConexao();
+        sondaEmAndamento = false;
       }
       const offlineAtual = isOffline();
       setOffline(offlineAtual);
-
-      const reconectou = estadoOffline.atual === true && offlineAtual === false;
-      estadoOffline.atual = offlineAtual;
-      if (!offlineAtual) {
-        contarPendentes().then(p => {
-          setPendentes(p);
-          if (reconectou && p.total > 0 && Date.now() - ultimaAuto.em >= COOLDOWN_AUTO_MS) {
-            ultimaAuto.em = Date.now();
-            sincronizarAgora(true);
-          }
-        });
+      if (offlineAtual === false) {
+        contarPendentes().then(p => { setPendentes(p); if (p.total > 0) sincronizarAgora(true); });
       }
     };
     const noEvento = () => atualizar(false);
@@ -2655,12 +2492,6 @@ function OrdensServico({ usuarioAtual }) {
         );
         return;
       }
-      if (resumo.descartados) {
-        mostrarToast(
-          `${resumo.descartados} pendência(s) descartadas (O.S finalizada ou alteração não permitida) e o Modo Campo foi encerrado.`,
-          'error',
-        );
-      }
       if (usuarioAtual?.nome) salvarResponsavelLocal(usuarioAtual.nome);
       await limparPacote();
       setModoCampo(false);
@@ -2716,18 +2547,7 @@ function OrdensServico({ usuarioAtual }) {
 
   const buscarPagina = useCallback(async (offset, reset) => {
     try {
-      // MODIFICADO — Modo Campo (mesmo online): a tela usa SEMPRE o pacote
-      // local (lista + catálogo). Sem chamadas ao servidor por interação e
-      // sem toasts de erro de rede durante o uso no campo.
-      if (isModoCampo()) {
-        const [lista, catalogo] = await Promise.all([getListaLocal(), getProdutosLocal()]);
-        setTotalOs(lista.length);
-        setListaOs(lista);
-        if (catalogo.length) setProdutos(catalogo);
-        setLoading(false);
-        return;
-      }
-      // Offline (fora do Modo Campo): usa o pacote de campo baixado na base.
+      // Offline: usa o pacote de campo baixado na base.
       if (usarLocal()) {
         const lista = await getListaLocal();
         setTotalOs(lista.length);

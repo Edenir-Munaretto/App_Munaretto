@@ -16,16 +16,12 @@ import { contarPendentes } from './offline';
 // `seletor` (opcional) restringe o envio a itens específicos — usado no
 // reenvio individual da tela de pendências:
 //   { fotos: [id_local, ...], operacoes: [id_local, ...] }
-// `apenasNovos` (usado na sincronização AUTOMÁTICA) pula itens que já
-// falharam 3+ vezes — eles ficam na fila para revisão/reenvio manual ou no
-// "Finalizar Modo Campo" (que envia tudo).
-export async function sincronizar(onProgress, seletor = null, apenasNovos = false) {
+export async function sincronizar(onProgress, seletor = null) {
   const resumo = {
     fotosEnviadas: 0,
     operacoesEnviadas: 0,
     falhas: [],
     conflitos: [],
-    descartados: 0,
   };
   const mapaFotos = {};
 
@@ -35,7 +31,6 @@ export async function sincronizar(onProgress, seletor = null, apenasNovos = fals
     fotos = fotos.filter(f => seletor.fotos.includes(f.id_local));
   }
   for (const foto of fotos) {
-    if (apenasNovos && (foto.tentativas || 0) >= 3) continue;
     try {
       const fd = new FormData();
       fd.append('arquivo', foto.arquivo.blob, foto.arquivo.nome);
@@ -50,12 +45,6 @@ export async function sincronizar(onProgress, seletor = null, apenasNovos = fals
       if (res.ok && data?.id) {
         mapaFotos[foto.id_local] = data.id;
         resumo.fotosEnviadas += 1;
-        await dbDel('fotos', foto.id_local);
-      } else if (Number(res.status) >= 400 && Number(res.status) < 500) {
-        // Rejeição PERMANENTE do servidor (ex.: O.S já finalizada — o checklist
-        // não pode mais receber foto). O item jamais será aceito: remove da
-        // fila e conta como descartado para não travar o finalizar.
-        resumo.descartados += 1;
         await dbDel('fotos', foto.id_local);
       } else {
         const erro = erroDaResposta(data, 'Erro no envio da foto.');
@@ -76,9 +65,6 @@ export async function sincronizar(onProgress, seletor = null, apenasNovos = fals
   let ops = await dbGetAll('fila');
   if (seletor?.operacoes?.length) {
     ops = ops.filter(op => seletor.operacoes.includes(op.id_local));
-  }
-  if (apenasNovos) {
-    ops = ops.filter(op => (op.tentativas || 0) < 3);
   }
   if (ops.length) {
     try {
@@ -103,12 +89,6 @@ export async function sincronizar(onProgress, seletor = null, apenasNovos = fals
       for (const r of dados.resultados) {
         if (r.ok) {
           resumo.operacoesEnviadas += 1;
-          await dbDel('fila', r.id_local);
-        } else if (Number(r.status) >= 400 && Number(r.status) < 500) {
-          // Rejeição PERMANENTE do servidor (ex.: checklist de O.S já
-          // finalizada — "não pode ser alterado"). Não adianta manter na
-          // fila: descarta e conta para o usuário não ficar travado.
-          resumo.descartados += 1;
           await dbDel('fila', r.id_local);
         } else {
           const falha = { id_local: r.id_local, tipo: 'operacao', erro: r.erro || 'Erro ao aplicar operação.' };
