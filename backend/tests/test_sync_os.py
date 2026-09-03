@@ -376,6 +376,7 @@ def test_sync_lanca_material_com_conversao_usc(os_gestor_client, os_campo_client
         {
             "id": 8,
             "codigo": "ROCA-01",
+            "codigo_especial": "ROCA-ESP",
             "nome": "Limpeza ou Roçada de Capoeira",
             "unidade": "UN",
             "preco_unitario": 6.66,
@@ -402,9 +403,12 @@ def test_sync_lanca_material_com_conversao_usc(os_gestor_client, os_campo_client
     assert r1["dados"]["quantidade_usada"] == 13.32  # 2 x 6.66
     assert r1["dados"]["quantidade_pecas"] == 2
     assert r1["dados"]["fator_usc"] == 6.66
+    # Snapshot do código conforme o tipo: normal -> codigo, especial -> codigo_especial.
+    assert r1["dados"]["codigo_servico"] == "ROCA-01"
     assert r2["ok"] is True, r2
     assert r2["dados"]["quantidade_usada"] == 2.01  # 3 x 0.67
     assert r2["dados"]["tipo_usc"] == "especial"
+    assert r2["dados"]["codigo_servico"] == "ROCA-ESP"
 
 
 def test_sync_material_em_os_concluida_rejeitado(os_gestor_client, os_campo_client, db_fake):

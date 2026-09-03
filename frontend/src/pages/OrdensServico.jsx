@@ -616,12 +616,17 @@ function TabInsumos({ osDetalhe, produtos, onAtualizado, mostrarToast, podeEdita
     return produtos.filter(p => !p.tipo || p.tipo === tipoOs);
   }, [produtos, osDetalhe.tipo]);
 
-  // Autocompletar: filtra o catálogo local pelo que foi digitado/bipado.
+  // Autocompletar: filtra o catálogo local pelo que foi digitado/bipado
+  // (nome, código normal OU código especial).
   const sugestoes = useMemo(() => {
     const termo = buscaProduto.trim().toLowerCase();
     if (!termo) return [];
     return catalogoDoContrato
-      .filter(p => p.nome.toLowerCase().includes(termo) || (p.codigo || '').toLowerCase().includes(termo))
+      .filter(p =>
+        p.nome.toLowerCase().includes(termo) ||
+        (p.codigo || '').toLowerCase().includes(termo) ||
+        (p.codigo_especial || '').toLowerCase().includes(termo)
+      )
       .slice(0, 6);
   }, [buscaProduto, catalogoDoContrato]);
 
@@ -632,6 +637,40 @@ function TabInsumos({ osDetalhe, produtos, onAtualizado, mostrarToast, podeEdita
 
   // Ao selecionar uma sugestão, exibe o nome do serviço (o estado guarda o ID).
   const textoBusca = selecionado ? selecionado.nome : buscaProduto;
+
+  // Código vigente conforme o tipo escolhido: bipagem/digitação do código
+  // ESPECIAL seleciona o serviço já com "USC especial" (mesma descrição, dois
+  // códigos distintos).
+  const codigoAtivo = tipoUsc === 'especial'
+    ? selecionado?.codigo_especial || selecionado?.codigo
+    : selecionado?.codigo || selecionado?.codigo_especial;
+
+  const tipoDaSelecao = (p) => {
+    const termo = String(buscaProduto || '').trim().toLowerCase();
+    if (p.codigo_especial && termo === String(p.codigo_especial).trim().toLowerCase()) return 'especial';
+    return 'normal';
+  };
+
+  // Ao digitar/bipar: se o termo for EXATAMENTE o código de um serviço, já
+  // seleciona o serviço e define o tipo correspondente (normal/especial).
+  const aoBuscar = (texto) => {
+    setBuscaProduto(texto);
+    const termo = String(texto || '').trim().toLowerCase();
+    if (termo.length < 2) return;
+    const porEspecial = catalogoDoContrato.find(p =>
+      p.codigo_especial && String(p.codigo_especial).trim().toLowerCase() === termo);
+    if (porEspecial) {
+      setBuscaProduto(String(porEspecial.id));
+      setTipoUsc('especial');
+      return;
+    }
+    const porNormal = catalogoDoContrato.find(p =>
+      p.codigo && String(p.codigo).trim().toLowerCase() === termo);
+    if (porNormal) {
+      setBuscaProduto(String(porNormal.id));
+      setTipoUsc('normal');
+    }
+  };
 
   // Fatores de conversão do cadastro do produto (USC normal / USC especial).
   const uscNormal = Number(selecionado?.preco_unitario || 0);
@@ -681,6 +720,9 @@ function TabInsumos({ osDetalhe, produtos, onAtualizado, mostrarToast, podeEdita
               quantidade_pecas: qtd,
               fator_usc: temUsc && fatorUsc > 0 ? fatorUsc : 0,
               tipo_usc: tipoUsc,
+              codigo_servico: tipoUsc === 'especial'
+                ? produto.codigo_especial || produto.codigo || null
+                : produto.codigo || produto.codigo_especial || null,
               data_lancamento: new Date().toISOString(),
               produtos: { nome: produto.nome, unidade: produto.unidade || '-' },
             },
@@ -748,8 +790,8 @@ function TabInsumos({ osDetalhe, produtos, onAtualizado, mostrarToast, podeEdita
         <input
           type="text"
           value={textoBusca}
-          onChange={(e) => setBuscaProduto(e.target.value)}
-          placeholder="Bipe ou digite o nome..."
+          onChange={(e) => aoBuscar(e.target.value)}
+          placeholder="Bipe ou digite nome ou código (normal/especial)..."
           disabled={!podeEditar}
           className={`w-full px-3.5 py-3 border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-primary-500/20 focus:border-primary-500 text-sm ${selecionado ? 'pr-9' : ''}`}
         />
@@ -769,11 +811,20 @@ function TabInsumos({ osDetalhe, produtos, onAtualizado, mostrarToast, podeEdita
               <button
                 key={p.id}
                 type="button"
-                onClick={() => { setBuscaProduto(String(p.id)); setTipoUsc('normal'); }}
-                className="w-full text-left px-3 py-2.5 hover:bg-primary-50 text-sm text-slate-700 flex justify-between gap-2"
+                onClick={() => { setBuscaProduto(String(p.id)); setTipoUsc(tipoDaSelecao(p)); }}
+                className="w-full text-left px-3 py-2 hover:bg-primary-50 text-sm text-slate-700 flex flex-col gap-0.5 cursor-pointer"
               >
-                <span className="font-semibold truncate">{p.nome}</span>
-                <span className="text-xs text-slate-400 shrink-0">{p.unidade} · USC {p.preco_unitario}{Number(p.qtd_usc_especial || 0) > 0 ? ` + ${p.qtd_usc_especial}` : ''}</span>
+                <span className="flex items-center justify-between gap-2 w-full">
+                  <span className="font-semibold truncate">{p.nome}</span>
+                  <span className="text-xs text-slate-400 shrink-0">{p.unidade} · USC {p.preco_unitario}{Number(p.qtd_usc_especial || 0) > 0 ? ` + ${p.qtd_usc_especial}` : ''}</span>
+                </span>
+                {(p.codigo || p.codigo_especial) && (
+                  <span className="text-[10px] font-semibold text-slate-400 w-full">
+                    {p.codigo ? `Cod.: ${p.codigo}` : ''}
+                    {p.codigo && p.codigo_especial ? ' · ' : ''}
+                    {p.codigo_especial ? `Esp.: ${p.codigo_especial}` : ''}
+                  </span>
+                )}
               </button>
             ))}
           </div>
@@ -828,6 +879,22 @@ function TabInsumos({ osDetalhe, produtos, onAtualizado, mostrarToast, podeEdita
               {qtd} {selecionado.unidade} × {fatorUsc} USC = <b className="text-slate-600">{totalUsc} USC {tipoUsc === 'especial' ? 'especial' : 'normal'}</b>
             </p>
           )}
+        </div>
+      )}
+
+      {/* Código vigente conforme o tipo escolhido (mesmo serviço, códigos distintos) */}
+      {selecionado && codigoAtivo && (
+        <div className="rounded-xl border border-slate-200 bg-white px-3 py-2 text-[11px] font-semibold text-slate-500 flex items-center justify-between gap-2 -mt-1">
+          <span>
+            Código {tipoUsc === 'especial' ? 'especial' : 'normal'} aplicado:
+          </span>
+          <span className={`font-mono font-bold px-2 py-0.5 rounded-md border ${
+            tipoUsc === 'especial'
+              ? 'bg-violet-50 text-violet-700 border-violet-200'
+              : 'bg-primary-50 text-primary-700 border-primary-200'
+          }`}>
+            {codigoAtivo}
+          </span>
         </div>
       )}
 
@@ -921,6 +988,11 @@ function TabInsumos({ osDetalhe, produtos, onAtualizado, mostrarToast, podeEdita
                       ? `${pecas} × ${rotuloTipo} (${fator}) = ${l.quantidade_usada} USC`
                       : `${l.quantidade_usada} × ${nome}`}
                   </span>
+                  {l.codigo_servico && (
+                    <span className="ml-1.5 shrink-0 font-mono text-[9px] font-bold px-1.5 py-0.5 rounded-full border border-slate-200 bg-white text-slate-500">
+                      {l.codigo_servico}
+                    </span>
+                  )}
                   {l.tipo_usc && (
                     <span className={`ml-1.5 shrink-0 text-[9px] font-bold px-1.5 py-0.5 rounded-full border ${
                       l.tipo_usc === 'especial'
@@ -3347,7 +3419,7 @@ function PainelCadastros({ obras, equipes, produtos, recarregar, mostrarToast })
   const [excluirEquipeAlvo, setExcluirEquipeAlvo] = useState(null);
 
   // Produtos (serviços por contrato)
-  const [novoProduto, setNovoProduto] = useState({ nome: '', codigo: '', unidade: 'UN', preco_unitario: '', qtd_usc_especial: '', tipo: '' });
+  const [novoProduto, setNovoProduto] = useState({ nome: '', codigo: '', codigo_especial: '', unidade: 'UN', preco_unitario: '', qtd_usc_especial: '', tipo: '' });
   const [filtroProdutoLista, setFiltroProdutoLista] = useState('');
   const [filtroTipoProduto, setFiltroTipoProduto] = useState('todos');
   const [produtoEmEdicao, setProdutoEmEdicao] = useState(null);
@@ -3456,7 +3528,8 @@ function PainelCadastros({ obras, equipes, produtos, recarregar, mostrarToast })
       const termo = filtroProdutoLista.toLowerCase();
       lista = lista.filter(p =>
         (p.nome || '').toLowerCase().includes(termo) ||
-        (p.codigo || '').toLowerCase().includes(termo)
+        (p.codigo || '').toLowerCase().includes(termo) ||
+        (p.codigo_especial || '').toLowerCase().includes(termo)
       );
     }
     return lista;
@@ -3473,6 +3546,7 @@ function PainelCadastros({ obras, equipes, produtos, recarregar, mostrarToast })
     setNovoProduto({
       nome: p.nome || '',
       codigo: p.codigo || '',
+      codigo_especial: p.codigo_especial || '',
       unidade: p.unidade || 'UN',
       preco_unitario: p.preco_unitario != null ? String(p.preco_unitario) : '',
       qtd_usc_especial: p.qtd_usc_especial != null ? String(p.qtd_usc_especial) : '',
@@ -3482,7 +3556,7 @@ function PainelCadastros({ obras, equipes, produtos, recarregar, mostrarToast })
 
   const cancelarProdutoEdicao = () => {
     setProdutoEmEdicao(null);
-    setNovoProduto({ nome: '', codigo: '', unidade: 'UN', preco_unitario: '', qtd_usc_especial: '', tipo: '' });
+    setNovoProduto({ nome: '', codigo: '', codigo_especial: '', unidade: 'UN', preco_unitario: '', qtd_usc_especial: '', tipo: '' });
   };
 
   const ABAS = [
@@ -3951,9 +4025,14 @@ function PainelCadastros({ obras, equipes, produtos, recarregar, mostrarToast })
                       </div>
                     </div>
                     
-                    {p.codigo && (
-                      <div className="text-[10px] text-slate-400 font-semibold mt-0.5">
-                        Cod: {p.codigo}
+                    {(p.codigo || p.codigo_especial) && (
+                      <div className="flex flex-wrap gap-x-2.5 gap-y-0.5 mt-0.5 text-[10px] font-semibold">
+                        {p.codigo && (
+                          <span className="text-slate-400">Cod.: {p.codigo}</span>
+                        )}
+                        {p.codigo_especial && (
+                          <span className="text-violet-500">Esp.: {p.codigo_especial}</span>
+                        )}
                       </div>
                     )}
                     
@@ -3985,7 +4064,10 @@ function PainelCadastros({ obras, equipes, produtos, recarregar, mostrarToast })
             
             <div className="space-y-3">
               <CampoTexto label="Serviço *" value={novoProduto.nome} onChange={e => setNovoProduto({ ...novoProduto, nome: e.target.value })} />
-              <CampoTexto label="Código" value={novoProduto.codigo} onChange={e => setNovoProduto({ ...novoProduto, codigo: e.target.value })} />
+              <div className="grid grid-cols-2 gap-2">
+                <CampoTexto label="Código normal" placeholder="Bipagem do USC normal" value={novoProduto.codigo} onChange={e => setNovoProduto({ ...novoProduto, codigo: e.target.value })} />
+                <CampoTexto label="Código especial" placeholder="Bipagem do USC especial" value={novoProduto.codigo_especial} onChange={e => setNovoProduto({ ...novoProduto, codigo_especial: e.target.value })} />
+              </div>
               <div className="grid grid-cols-2 gap-2">
                 <CampoTexto label="Unidade" value={novoProduto.unidade} onChange={e => setNovoProduto({ ...novoProduto, unidade: e.target.value })} />
                 <CampoTexto label="Qtd USC" type="number" step="0.01" min="0" value={novoProduto.preco_unitario}
@@ -4015,6 +4097,7 @@ function PainelCadastros({ obras, equipes, produtos, recarregar, mostrarToast })
                 const corpo = {
                   nome: novoProduto.nome,
                   codigo: novoProduto.codigo || null,
+                  codigo_especial: novoProduto.codigo_especial || null,
                   unidade: novoProduto.unidade || 'UN',
                   preco_unitario: Number(novoProduto.preco_unitario || 0),
                   qtd_usc_especial: Number(novoProduto.qtd_usc_especial || 0),

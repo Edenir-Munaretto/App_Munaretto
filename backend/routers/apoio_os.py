@@ -74,7 +74,8 @@ class EquipeResponse(BaseModel):
 
 class ProdutoCreate(BaseModel):
     nome: str = Field(..., min_length=2, description="Nome/descrição do serviço")
-    codigo: str | None = Field(None, description="SKU/código de barras p/ bipagem")
+    codigo: str | None = Field(None, description="SKU/código de barras p/ bipagem (USC normal)")
+    codigo_especial: str | None = Field(None, description="Código do serviço quando aplicado como USC especial")
     unidade: str = Field("UN", max_length=20)
     # Qtd USC (quantidade de unidades de serviço de construção) — a coluna
     # física continua `preco_unitario` (reaproveitada); o valor é exibido como USC.
@@ -84,12 +85,29 @@ class ProdutoCreate(BaseModel):
     # Obrigatório ao criar/editar; NULL só existe em registros legados.
     tipo: str = Field(..., description="Contrato do serviço: 'construcao', 'manutencao' ou 'linha_viva'")
 
+    @field_validator("codigo", "codigo_especial")
+    @classmethod
+    def _normalizar_codigo(cls, v):
+        if isinstance(v, str):
+            v = v.strip() or None
+        return v
+
+    @field_validator("nome", "unidade")
+    @classmethod
+    def _normalizar_texto(cls, v):
+        if isinstance(v, str):
+            v = v.strip()
+        if v is None or v == "":
+            raise ValueError("Não pode ficar em branco.")
+        return v
+
 
 class ProdutoResponse(BaseModel):
     id: int
     ativo: bool = True  # default do banco
     nome: str
     codigo: str | None = None
+    codigo_especial: str | None = None
     unidade: str = "UN"
     preco_unitario: float = 0  # Qtd USC
     qtd_usc_especial: float = 0  # default do banco
@@ -351,6 +369,41 @@ def _validar_tipo_servico(tipo: str) -> None:
         )
 
 
+def _codigo_produto_em_uso(db, valor: str, ignorar_id: int | None = None) -> dict | None:
+    """Procura `valor` na coluna `codigo` OU `codigo_especial` de outro serviço.
+
+    Os dois campos compartilham o mesmo namespace de códigos: um código não
+    pode ser o normal de um serviço e o especial de outro (ambigüidade na
+    bipagem). O próprio registro sendo editado é ignorado.
+    """
+    for coluna in ("codigo", "codigo_especial"):
+        resp = db.table("produtos").select("id, nome").eq(coluna, valor).execute()
+        for linha in resp.data or []:
+            if ignorar_id is None or linha["id"] != ignorar_id:
+                return linha
+    return None
+
+
+def _validar_codigos_produto(db, produto: ProdutoCreate, produto_id: int | None = None) -> None:
+    """Normalização já feita no schema; aqui valida colisões entre os códigos."""
+    codigo = produto.codigo
+    codigo_especial = produto.codigo_especial
+    if codigo and codigo == codigo_especial:
+        raise HTTPException(
+            status_code=400,
+            detail="O código normal e o código especial devem ser diferentes.",
+        )
+    for rotulo, valor in (("normal", codigo), ("especial", codigo_especial)):
+        if not valor:
+            continue
+        em_uso = _codigo_produto_em_uso(db, valor, produto_id)
+        if em_uso:
+            raise HTTPException(
+                status_code=400,
+                detail=f"Já existe um serviço ('{em_uso['nome']}') com o código {rotulo} '{valor}'.",
+            )
+
+
 @router.get("/produtos", response_model=list[ProdutoResponse])
 def listar_produtos(
     busca: str | None = Query(None, description="Busca por nome ou código (autocompletar)"),
@@ -360,7 +413,10 @@ def listar_produtos(
     try:
         query = db.table("produtos").select("*").eq("ativo", True)
         if busca:
-            query = query.or_(f"nome.ilike.%{busca}%,codigo.ilike.%{busca}%")
+            busca = busca.strip()
+            query = query.or_(
+                f"nome.ilike.%{busca}%,codigo.ilike.%{busca}%,codigo_especial.ilike.%{busca}%"
+            )
         dados = query.order("nome").limit(50).execute().data
         if tipo:
             # Serviços legados (tipo NULL) são válidos em todos os contratos.
@@ -375,10 +431,7 @@ def listar_produtos(
 def criar_produto(produto: ProdutoCreate, db=Depends(get_supabase)):
     try:
         _validar_tipo_servico(produto.tipo)
-        if produto.codigo:
-            dup = db.table("produtos").select("id").eq("codigo", produto.codigo).execute()
-            if dup.data:
-                raise HTTPException(status_code=400, detail="Já existe um serviço com este código.")
+        _validar_codigos_produto(db, produto)
         resp = db.table("produtos").insert(produto.model_dump()).execute()
         if not resp.data:
             raise HTTPException(status_code=500, detail="Falha ao criar serviço.")
@@ -395,6 +448,7 @@ def atualizar_produto(produto_id: int, produto: ProdutoCreate, db=Depends(get_su
     try:
         _obter_ou_404(db, "produtos", produto_id, "Serviço")
         _validar_tipo_servico(produto.tipo)
+        _validar_codigos_produto(db, produto, produto_id=produto_id)
         resp = db.table("produtos").update(produto.model_dump()).eq("id", produto_id).execute()
         if not resp.data:
             raise HTTPException(status_code=500, detail="Falha ao atualizar serviço.")

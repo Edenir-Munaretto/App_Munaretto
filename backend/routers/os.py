@@ -66,7 +66,9 @@ def _validar_servico_do_contrato(db, produto_id: int, tipo_os: str) -> dict:
     Serviços legados (produtos.tipo NULL) são válidos em todos os contratos;
     serviços tipados só podem ser usados no contrato correspondente.
     """
-    resp = db.table("produtos").select("id, nome, tipo, preco_unitario, qtd_usc_especial").eq("id", produto_id).execute()
+    resp = db.table("produtos").select(
+        "id, nome, tipo, preco_unitario, qtd_usc_especial, codigo, codigo_especial"
+    ).eq("id", produto_id).execute()
     if not resp.data:
         raise HTTPException(status_code=404, detail="Serviço não encontrado.")
     produto = resp.data[0]
@@ -426,7 +428,7 @@ def _resumo_materiais(db, os_id: int) -> dict:
     """
     aplicacoes = (
         db.table("os_materiais")
-        .select("produto_id, quantidade_usada, quantidade_pecas, fator_usc, tipo_usc")
+        .select("produto_id, quantidade_usada, quantidade_pecas, fator_usc, tipo_usc, codigo_servico")
         .eq("os_id", os_id)
         .execute()
     )
@@ -460,13 +462,17 @@ def _resumo_materiais(db, os_id: int) -> dict:
         quantidade = float(lanc["quantidade_usada"])
         tipo = lanc.get("tipo_usc") or "normal"
         fator = float(lanc.get("fator_usc") or 0)
+        codigo = (lanc.get("codigo_servico") or "").strip() or None
         p["aplicado"] += quantidade
         if tipo == "especial":
             p["aplicado_especial"] += quantidade
         else:
             p["aplicado_normal"] += quantidade
 
-        linha = p["detalhe"].setdefault((tipo, fator), {"tipo": tipo, "fator": fator, "pecas": 0.0, "total": 0.0})
+        linha = p["detalhe"].setdefault(
+            (tipo, fator, codigo),
+            {"tipo": tipo, "fator": fator, "codigo_servico": codigo, "pecas": 0.0, "total": 0.0},
+        )
         linha["pecas"] += float(lanc.get("quantidade_pecas") or 0)
         linha["total"] += quantidade
 
@@ -807,8 +813,8 @@ def _obter_detalhe_os(db, usuario: UsuarioAutenticado, os_id: int) -> dict:
     ultimos_lancamentos = (
         db.table("os_materiais")
         .select(
-            "id, produto_id, quantidade_usada, quantidade_pecas, fator_usc, tipo_usc, data_lancamento, "
-            "produtos(nome, unidade)"
+            "id, produto_id, quantidade_usada, quantidade_pecas, fator_usc, tipo_usc, codigo_servico, "
+            "data_lancamento, produtos(nome, unidade)"
         )
         .eq("os_id", os_id)
         .order("data_lancamento", desc=True)
@@ -1483,6 +1489,17 @@ def lancar_material(
         else:
             quantidade = payload.quantidade_usada
 
+        # Snapshot do código do serviço aplicado: o mesmo serviço tem códigos
+        # distintos conforme o tipo escolhido (normal -> codigo, especial ->
+        # codigo_especial). Se o tipo escolhido não tem código próprio, usa o
+        # outro como fallback. Gravado no lançamento para relatórios/
+        # conferência; mudanças futuras no cadastro não alteram o já lançado.
+        if tipo_usc == "especial":
+            codigo_servico = produto.get("codigo_especial") or produto.get("codigo")
+        else:
+            codigo_servico = produto.get("codigo") or produto.get("codigo_especial")
+        codigo_servico = (codigo_servico or "").strip() or None
+
         resp = (
             db.table("os_materiais")
             .insert(
@@ -1493,6 +1510,7 @@ def lancar_material(
                     "quantidade_pecas": payload.quantidade_usada,
                     "fator_usc": round(fator_usc, 3),
                     "tipo_usc": tipo_usc,
+                    "codigo_servico": codigo_servico,
                     "usuario_email": usuario.email,
                     "observacao": payload.observacao,
                 }

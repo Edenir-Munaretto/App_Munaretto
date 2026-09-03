@@ -169,6 +169,7 @@ def gerar_pdf_os(
             fator = float(d.get("fator") or 0)
             linhas.append(
                 [
+                    (d.get("codigo_servico") or "").strip() or "—",
                     nome,
                     f"{pecas:g}" if pecas > 0 else "—",
                     f"{fator:g}" if fator > 0 else "—",
@@ -177,11 +178,14 @@ def gerar_pdf_os(
             )
         # Legado: sem detalhe (dados antigos), mantém apenas o total real.
         if not linhas and float(item.get("aplicado") or 0) > 0:
-            linhas.append([item.get("nome") or "Produto", "—", "—", f"{float(item['aplicado']):g} USC"])
+            linhas.append(["—", item.get("nome") or "Produto", "—", "—", f"{float(item['aplicado']):g} USC"])
         return linhas
 
     linhas_mat = [linha for item in materiais.get("itens", []) for linha in _linha_material(item)]
-    pdf._tabela({"Produto": 62, "Qtd serviços": 28, "USC unit.": 30, "Total USC": 35}, linhas_mat)
+    pdf._tabela(
+        {"Cod.": 16, "Produto": 48, "Qtd serviços": 25, "USC unit.": 27, "Total USC": 34},
+        linhas_mat,
+    )
     pdf.set_font("Arial", "B", 9)
     pdf.cell(
         0,

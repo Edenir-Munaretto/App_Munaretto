@@ -342,6 +342,78 @@ class TestMateriaisEPermissao:
         assert resp.json()["quantidade_pecas"] == 10
         assert resp.json()["fator_usc"] == 0.48
 
+    def test_lancamento_grava_codigo_servico_segundo_tipo(self, os_gestor_client, db_fake):
+        """O mesmo serviço tem códigos distintos por tipo; o lançamento grava o
+        snapshot do código correspondente à escolha (normal/especial)."""
+        _seed_cenario(db_fake)
+        db_fake._dados["produtos"].append(
+            {
+                "id": 8,
+                "codigo": "GRP-01",
+                "codigo_especial": "GRP-ESP",
+                "nome": "Graparina",
+                "unidade": "pç",
+                "preco_unitario": 0.48,
+                "qtd_usc_especial": 0.67,
+                "ativo": True,
+            }
+        )
+        os_id = _criar_os(os_gestor_client).json()["id"]
+        os_gestor_client.put(f"/api/os/{os_id}/status", json={"novo_status": "aberta"})
+
+        normal = os_gestor_client.post(
+            f"/api/os/{os_id}/materiais",
+            json={"produto_id": 8, "quantidade_usada": 2, "tipo_usc": "normal"},
+        )
+        assert normal.status_code == 201, normal.text
+        assert normal.json()["codigo_servico"] == "GRP-01"
+
+        especial = os_gestor_client.post(
+            f"/api/os/{os_id}/materiais",
+            json={"produto_id": 8, "quantidade_usada": 2, "tipo_usc": "especial"},
+        )
+        assert especial.status_code == 201, especial.text
+        assert especial.json()["codigo_servico"] == "GRP-ESP"
+
+        # O detalhe devolve o código em cada lançamento individual.
+        detalhe = os_gestor_client.get(f"/api/os/{os_id}").json()
+        codigos = [l["codigo_servico"] for l in detalhe["ultimos_lancamentos"]]
+        assert sorted(codigos) == ["GRP-01", "GRP-ESP"]
+
+        # O resumo agrupa por (tipo, fator, código) — cada linha do relatório
+        # carrega o código do lançamento original.
+        resumo = detalhe["materiais"]["itens"]
+        item = next(i for i in resumo if i["produto_id"] == 8)
+        detalhes = sorted(item["detalhe"], key=lambda d: d["tipo"])
+        assert [(d["codigo_servico"], d["tipo"]) for d in detalhes] == [
+            ("GRP-ESP", "especial"),
+            ("GRP-01", "normal"),
+        ]
+
+    def test_lancamento_especial_sem_codigo_proprio_usa_normal(self, os_gestor_client, db_fake):
+        """Fallback: serviço sem codigo_especial cadastrado grava o código normal."""
+        _seed_cenario(db_fake)
+        db_fake._dados["produtos"].append(
+            {
+                "id": 8,
+                "codigo": "GRP-01",
+                "nome": "Graparina",
+                "unidade": "pç",
+                "preco_unitario": 0.48,
+                "qtd_usc_especial": 0.67,
+                "ativo": True,
+            }
+        )
+        os_id = _criar_os(os_gestor_client).json()["id"]
+        os_gestor_client.put(f"/api/os/{os_id}/status", json={"novo_status": "aberta"})
+
+        resp = os_gestor_client.post(
+            f"/api/os/{os_id}/materiais",
+            json={"produto_id": 8, "quantidade_usada": 10, "tipo_usc": "especial"},
+        )
+        assert resp.status_code == 201, resp.text
+        assert resp.json()["codigo_servico"] == "GRP-01"
+
     def test_lancamento_usc_zero_mantem_quantidade_bruta(self, os_gestor_client, db_fake):
         _seed_cenario(db_fake)
         db_fake._dados["produtos"].append(
@@ -464,7 +536,7 @@ class TestMateriaisEPermissao:
         )
         assert item["aplicado"] == 13.32
         assert item["aplicado_normal"] == 13.32
-        assert item["detalhe"] == [{"tipo": "normal", "fator": 6.66, "pecas": 2.0, "total": 13.32}]
+        assert item["detalhe"] == [{"tipo": "normal", "fator": 6.66, "codigo_servico": "ROCA-01", "pecas": 2.0, "total": 13.32}]
 
         # Relatório continua saindo com os valores registrados.
         pdf = os_gestor_client.get(f"/api/os/{os_id}/pdf")
@@ -509,8 +581,8 @@ class TestMateriaisEPermissao:
         )
         assert item["aplicado"] == 23.31  # 13.32 + 9.99
         assert item["detalhe"] == [
-            {"tipo": "normal", "fator": 6.66, "pecas": 2.0, "total": 13.32},
-            {"tipo": "normal", "fator": 9.99, "pecas": 1.0, "total": 9.99},
+            {"tipo": "normal", "fator": 6.66, "codigo_servico": "ROCA-01", "pecas": 2.0, "total": 13.32},
+            {"tipo": "normal", "fator": 9.99, "codigo_servico": "ROCA-01", "pecas": 1.0, "total": 9.99},
         ]
 
     def test_lancamento_bloqueado_fora_de_execucao(self, os_gestor_client, db_fake):
@@ -1035,6 +1107,76 @@ def test_cadastro_servico_exige_contrato(os_gestor_client, db_fake):
     assert resp.json()["tipo"] == "construcao"
     assert resp.json()["preco_unitario"] == 15
     assert resp.json()["qtd_usc_especial"] == 3
+
+
+def test_cadastro_servico_com_codigos_normal_e_especial(os_gestor_client, db_fake):
+    _seed_cenario(db_fake)
+
+    resp = os_gestor_client.post(
+        "/api/os/produtos",
+        json={"nome": "Corte e religação", "codigo": "CR-01", "codigo_especial": "CR-ESP",
+              "unidade": "UN", "preco_unitario": 0.48, "qtd_usc_especial": 0.67,
+              "tipo": "manutencao"},
+    )
+    assert resp.status_code == 201, resp.text
+    corpo = resp.json()
+    assert corpo["codigo"] == "CR-01"
+    assert corpo["codigo_especial"] == "CR-ESP"
+
+    # O fake não aplica default de coluna; alinha com o banco real (ativo=true).
+    next(p for p in db_fake._dados["produtos"] if p["id"] == corpo["id"])["ativo"] = True
+
+    # Busca por nome ou por qualquer um dos códigos encontra o serviço.
+    for termo in ("Corte", "CR-01", "CR-ESP"):
+        busca = os_gestor_client.get(f"/api/os/produtos?busca={termo}")
+        assert busca.status_code == 200
+        assert {p["id"] for p in busca.json()} == {corpo["id"]}, termo
+
+    # Espaços nas bordas dos códigos são removidos (e vazio vira nulo).
+    resp2 = os_gestor_client.post(
+        "/api/os/produtos",
+        json={"nome": "Serviço com espaços", "codigo": "  ESP-DOIS  ", "codigo_especial": "  ",
+              "tipo": "construcao"},
+    )
+    assert resp2.status_code == 201, resp2.text
+    assert resp2.json()["codigo"] == "ESP-DOIS"
+    assert resp2.json()["codigo_especial"] is None
+
+
+def test_cadastro_servico_rejeita_codigo_duplicado_entre_campos(os_gestor_client, db_fake):
+    """Códigos compartilham um namespace único: um código não pode ser o
+    normal de um serviço e o especial de outro."""
+    _seed_cenario(db_fake)
+
+    a = os_gestor_client.post(
+        "/api/os/produtos",
+        json={"nome": "Serviço A", "codigo": "ABC-1", "tipo": "construcao"},
+    )
+    assert a.status_code == 201, a.text
+
+    # Serviço B tenta usar "ABC-1" como código ESPECIAL -> conflito.
+    b = os_gestor_client.post(
+        "/api/os/produtos",
+        json={"nome": "Serviço B", "codigo_especial": "ABC-1", "tipo": "construcao"},
+    )
+    assert b.status_code == 400
+    assert "ABC-1" in b.json()["detail"]
+
+    # Um serviço não pode ter o código normal igual ao especial.
+    c = os_gestor_client.post(
+        "/api/os/produtos",
+        json={"nome": "Serviço C", "codigo": "XYZ", "codigo_especial": "XYZ", "tipo": "construcao"},
+    )
+    assert c.status_code == 400
+
+    # Editar o PRÓPRIO registro mantendo os códigos é permitido.
+    ed = os_gestor_client.put(
+        f"/api/os/produtos/{a.json()['id']}",
+        json={"nome": "Serviço A editado", "codigo": "ABC-1", "codigo_especial": "ABC-ESP",
+              "tipo": "construcao"},
+    )
+    assert ed.status_code == 200, ed.text
+    assert ed.json()["codigo_especial"] == "ABC-ESP"
 
 
 def test_listar_servicos_filtra_por_contrato_incluindo_legados(os_gestor_client, db_fake):

@@ -655,6 +655,12 @@ ALTER TABLE IF EXISTS produtos ADD COLUMN IF NOT EXISTS tipo VARCHAR(20);
 -- Qtd USC especial (quantidade de unidades de serviço de construção adicionais).
 ALTER TABLE IF EXISTS produtos ADD COLUMN IF NOT EXISTS qtd_usc_especial NUMERIC(12, 2) DEFAULT 0;
 
+-- Código do serviço quando aplicado como USC ESPECIAL (bipagem/distinção de
+-- item na prestação de contas). A descrição do serviço é a mesma; o código
+-- muda conforme o tipo escolhido no lançamento (normal -> codigo, especial ->
+-- codigo_especial). Unicidade própria (espelha a regra de `codigo`).
+ALTER TABLE IF EXISTS produtos ADD COLUMN IF NOT EXISTS codigo_especial VARCHAR(50) UNIQUE;
+
 -- TABELA: ordens_servico
 -- `codigo` é gerado no backend no formato OS-<ANO>-<NNNN> (sequencial por ano).
 CREATE TABLE IF NOT EXISTS ordens_servico (
@@ -717,6 +723,11 @@ ALTER TABLE IF EXISTS os_materiais ADD COLUMN IF NOT EXISTS tipo_usc VARCHAR(10)
 -- reconstruir a conta "peças x USC = total" na listagem do lançamento.
 ALTER TABLE IF EXISTS os_materiais ADD COLUMN IF NOT EXISTS quantidade_pecas NUMERIC(12, 3) NOT NULL DEFAULT 0;
 ALTER TABLE IF EXISTS os_materiais ADD COLUMN IF NOT EXISTS fator_usc NUMERIC(12, 3) NOT NULL DEFAULT 0;
+
+-- Snapshot do código do serviço aplicado no lançamento (codigo_especial para
+-- USC especial, codigo caso contrário). Resolvido no servidor no momento do
+-- lançamento; mudanças futuras no cadastro não alteram lançamentos gravados.
+ALTER TABLE IF EXISTS os_materiais ADD COLUMN IF NOT EXISTS codigo_servico VARCHAR(50);
 
 -- TABELA: os_apontamentos (H.H.: Play/Pause por membro da equipe)
 -- Cada linha é um bloco de trabalho: `inicio` no Play, `fim`/`minutos` no Pause.
