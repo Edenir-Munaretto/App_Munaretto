@@ -100,8 +100,59 @@ export function usarLocal() {
 // Pacote de campo (download na base, com internet)
 // ---------------------------------------------------------------------------
 
+async function _baixarDetalheOs(id) {
+  const dRes = await apiFetch(`${API_URL}/os/${id}`, { signal: AbortSignal.timeout(15000) });
+  if (!dRes.ok) return false;
+  await salvarDetalheLocal(await dRes.json());
+  return true;
+}
+
+async function _baixarChecklistOs(id) {
+  try {
+    const cRes = await apiFetch(`${API_URL}/os/${id}/checklist`, { signal: AbortSignal.timeout(15000) });
+    if (cRes.ok) await dbPut('checklist', await cRes.json());
+    return cRes.ok;
+  } catch {
+    return false;
+  }
+}
+
+/** Baixa detalhe (+ checklist) de uma O.S com 1 nova tentativa. */
+async function _baixarOsCompleta(id) {
+  let ok = false;
+  for (let tentativa = 0; tentativa < 2 && !ok; tentativa += 1) {
+    try {
+      ok = await _baixarDetalheOs(id);
+    } catch {
+      ok = false;
+    }
+  }
+  try {
+    await _baixarChecklistOs(id);
+  } catch {
+    /* checklist é complementar; não bloqueia o detalhe */
+  }
+  return ok;
+}
+
+async function _atualizarMetaPacote(lista) {
+  const ids = lista.map(os => os.id);
+  const faltantes = [];
+  for (const id of ids) {
+    const tem = await dbGet('os', Number(id));
+    if (!tem) faltantes.push(id);
+  }
+  await dbPut('meta', {
+    chave: 'pacote',
+    preparado_em: new Date().toISOString(),
+    quantidade: ids.length,
+    faltantes,
+  });
+  return faltantes;
+}
+
 export async function prepararPacoteCampo() {
-  const res = await apiFetch(`${API_URL}/os/?limit=500`);
+  const res = await apiFetch(`${API_URL}/os/?limit=500`, { signal: AbortSignal.timeout(20000) });
   if (!res.ok) {
     throw new Error(erroDaResposta(await res.json().catch(() => null), 'Falha ao baixar a lista de O.S.'));
   }
@@ -112,7 +163,7 @@ export async function prepararPacoteCampo() {
 
   // Catálogo de serviços (lançamento de materiais) também vai para o tablet.
   try {
-    const resP = await apiFetch(`${API_URL}/os/produtos`);
+    const resP = await apiFetch(`${API_URL}/os/produtos`, { signal: AbortSignal.timeout(20000) });
     if (resP.ok) {
       await dbClearStore('produtos');
       const catalogo = await resP.json();
@@ -122,25 +173,50 @@ export async function prepararPacoteCampo() {
     /* falha no catálogo não impede o restante do pacote */
   }
 
+  // Lista vai primeiro (a O.S aparece mesmo que o detalhe precise de retry).
+  for (const os of lista) await dbPut('os_lista', os);
+
+  // Detalhe + checklist de cada O.S (com 1 retry individual).
   for (const os of lista) {
     try {
-      await dbPut('os_lista', os);
-      const [dRes, cRes] = await Promise.all([
-        apiFetch(`${API_URL}/os/${os.id}`),
-        apiFetch(`${API_URL}/os/${os.id}/checklist`),
-      ]);
-      if (dRes.ok) await salvarDetalheLocal(await dRes.json());
-      if (cRes.ok) await dbPut('checklist', await cRes.json());
+      await _baixarOsCompleta(os.id);
     } catch {
-      /* uma O.S que falhar não impede o restante do pacote */
+      /* segue para a próxima */
     }
   }
-  await dbPut('meta', {
-    chave: 'pacote',
-    preparado_em: new Date().toISOString(),
-    quantidade: lista.length,
-  });
-  return lista.length;
+  // Segunda passada: tenta de novo as O.S que ainda faltam (rede instável).
+  let faltantes = await _atualizarMetaPacote(lista);
+  if (faltantes.length) {
+    for (const id of faltantes) {
+      try {
+        await _baixarOsCompleta(id);
+      } catch {
+        /* segue */
+      }
+    }
+    faltantes = await _atualizarMetaPacote(lista);
+  }
+  return { quantidade: lista.length, faltantes };
+}
+
+/** Completa as O.S que faltaram no pacote (chamado quando voltar a ter
+ * conexão, mantendo o Modo Campo ativo). */
+export async function completarPacoteCampo() {
+  const meta = await infoPacote();
+  const faltantes = (meta?.faltantes || []).filter(Boolean);
+  if (!faltantes.length) return { completadas: 0, restantes: 0 };
+  const completadas = [];
+  const restantes = [];
+  for (const id of faltantes) {
+    try {
+      if (await _baixarOsCompleta(id)) completadas.push(id);
+      else restantes.push(id);
+    } catch {
+      restantes.push(id);
+    }
+  }
+  await dbPut('meta', { ...meta, faltantes: restantes });
+  return { completadas: completadas.length, restantes: restantes.length };
 }
 
 export async function infoPacote() {

@@ -13,7 +13,7 @@ import ModalPendenciasSync from '../components/ModalPendenciasSync';
 import { comprimirImagem } from '../utils/imagem';
 import {
   isModoCampo, setModoCampo, isOffline, usarLocal,
-  prepararPacoteCampo, limparPacote, infoPacote,
+  prepararPacoteCampo, completarPacoteCampo, limparPacote, infoPacote,
   getOSLocal, getChecklistLocal, getListaLocal, getProdutosLocal, salvarDetalheLocal, salvarChecklistLocal,
   atualizarStatusLocal, atualizarRespostaLocal, recalcularResumo,
   enfileirarOperacao, enfileirarFoto, contarPendentes,
@@ -1504,7 +1504,7 @@ function PainelExecucao({ osId, produtos, capturarGps, onFechar, recarregarLista
           setDetalhe(local);
           return;
         }
-        setErro('Esta O.S não está disponível offline. Conecte-se para baixar o pacote de campo.');
+        setErro('Esta O.S ainda não está completa no pacote de campo. Conecte-se ao Wi-Fi: ela é baixada automaticamente para o dispositivo.');
         return;
       }
       const res = await apiFetch(`${API_URL}/os/${osId}`);
@@ -2590,12 +2590,31 @@ function OrdensServico({ usuarioAtual }) {
     }
     setPreparandoPacote(true);
     try {
-      const qtd = await prepararPacoteCampo();
+      const { quantidade, faltantes } = await prepararPacoteCampo();
       if (usuarioAtual?.nome) await salvarResponsavelLocal(usuarioAtual.nome);
       setModoCampo(true);
       setModoCampoState(true);
-      setInfoPacoteLocal({ quantidade: qtd, preparado_em: new Date().toISOString() });
-      mostrarToast(`Modo Campo pronto: ${qtd} O.S baixadas para o dispositivo.`);
+      setInfoPacoteLocal({ quantidade, preparado_em: new Date().toISOString() });
+      if (faltantes.length > 0 && !isOffline()) {
+        // Ainda online: tenta completar de imediato as O.S que falharam.
+        const r = await completarPacoteCampo();
+        if (r.completadas) {
+          infoPacote().then(setInfoPacoteLocal).catch(() => {});
+        }
+        mostrarToast(
+          r.restantes > 0
+            ? `Modo Campo pronto: ${quantidade} O.S (${r.restantes} ainda incompletas — completam ao reconectar).`
+            : `Modo Campo pronto: ${quantidade} O.S baixadas para o dispositivo.`,
+          r.restantes > 0 ? 'error' : 'success',
+        );
+      } else {
+        mostrarToast(
+          faltantes.length > 0
+            ? `Modo Campo pronto: ${quantidade} O.S (${faltantes.length} ainda incompletas — completam ao reconectar).`
+            : `Modo Campo pronto: ${quantidade} O.S baixadas para o dispositivo.`,
+          faltantes.length > 0 ? 'error' : 'success',
+        );
+      }
     } catch {
       mostrarToast('Falha ao preparar o Modo Campo. Tente novamente.', 'error');
     } finally {
@@ -2806,6 +2825,27 @@ function OrdensServico({ usuarioAtual }) {
 
   // Recarrega o painel após operações no painel de execução.
   const recarregarLista = useCallback(() => { carregarDados(); }, [carregarDados]);
+
+  // Completa automaticamente O.S que faltaram no pacote assim que houver
+  // conexão (mantendo o Modo Campo ativo) — evita "não disponível offline"
+  // por pacote incompleto.
+  useEffect(() => {
+    if (!modoCampo || isOffline() || sincronizando || preparandoPacote) return;
+    let cancelado = false;
+    (async () => {
+      try {
+        const r = await completarPacoteCampo();
+        if (!cancelado && r.completadas > 0) {
+          infoPacote().then(setInfoPacoteLocal).catch(() => {});
+          carregarDados();
+        }
+      } catch {
+        /* silencioso: tentará novamente na próxima detecção de conexão */
+      }
+    })();
+    return () => { cancelado = true; };
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [modoCampo, offline, sincronizando, preparandoPacote]);
 
   // --- Transição de status --------------------------------------------------
 
