@@ -890,7 +890,14 @@ def importar_servicos(
                 raise
             except Exception as exc:
                 logger.exception("Erro de banco ao importar linha %d", num)
-                erros.append({"linha": num, "mensagem": f"Falha no banco: {_mensagem_erro_banco(exc)}"})
+                causa = _mensagem_erro_banco(exc)
+                if "value too long for type character varying" in causa.lower():
+                    causa = (
+                        "Texto muito longo para o banco (coluna ainda com limite de 255). "
+                        "Encurte a descrição ou amplie a coluna: "
+                        "ALTER TABLE produtos ALTER COLUMN nome TYPE TEXT;"
+                    )
+                erros.append({"linha": num, "mensagem": f"Falha no banco: {causa}"})
                 continue
 
             # Registra os códigos da linha no namespace do arquivo (apenas

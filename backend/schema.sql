@@ -640,12 +640,16 @@ CREATE TABLE IF NOT EXISTS equipe_membros (
 CREATE TABLE IF NOT EXISTS produtos (
     id SERIAL PRIMARY KEY,
     codigo VARCHAR(50) UNIQUE,             -- opcional: código de barras/SKU p/ bipagem
-    nome VARCHAR(255) NOT NULL,
+    nome TEXT NOT NULL,                    -- descrição do serviço (listas oficiais passam de 255)
     unidade VARCHAR(20) DEFAULT 'UN',      -- UN | m | m² | kg | L | saca ...
     preco_unitario NUMERIC(12, 2) DEFAULT 0.00,
     ativo BOOLEAN DEFAULT TRUE,
     created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
 );
+
+-- Bancos criados antes desta mudança mantêm VARCHAR(255): amplia para TEXT
+-- (idempotente — pode rodar sempre junto do schema).
+ALTER TABLE IF EXISTS produtos ALTER COLUMN nome TYPE TEXT;
 
 -- Catálogo de serviços por CONTRATO (tipo de O.S): cada tipo de O.S
 -- (construcao/manutencao/linha_viva) só pode lançar serviços do seu contrato.

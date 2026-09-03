@@ -266,6 +266,63 @@ def test_importar_orienta_quando_schema_nao_aplicado(os_gestor_client, db_fake, 
     assert "ALTER TABLE produtos ADD COLUMN IF NOT EXISTS codigo_especial" in detalhe
 
 
+def test_importar_nome_longo_aceito(os_gestor_client, db_fake):
+    """Descrições de listas oficiais passam de 255 caracteres: o backend aceita
+    o texto completo (coluna alvo é TEXT)."""
+    nome_longo = "Serviço de poda com descrição extensa " + "detalhe " * 30  # > 255
+    assert len(nome_longo) > 255
+    buffer = _montar_planilha([[nome_longo, "LNG-01", "", "UN", "1", ""]])
+    resp = _importar(os_gestor_client, buffer)
+    assert resp.status_code == 200, resp.text
+    dados = resp.json()
+    assert dados["criados"] == 1
+    assert dados["erros"] == []
+    gravado = next(p for p in db_fake._dados["produtos"] if p["codigo"] == "LNG-01")
+    assert gravado["nome"] == nome_longo.strip()  # importação remove espaços nas bordas
+
+
+def test_importar_nome_muito_longo_reporta_orientacao(os_gestor_client, db_fake, monkeypatch):
+    """Banco ainda com nome VARCHAR(255): a linha falha com mensagem que orienta
+    a correção (ALTER ... TYPE TEXT), sem derrubar a importação."""
+
+    class ErroNomeLongo(Exception):
+        def __init__(self):
+            super().__init__("value too long for type character varying(255)")
+            self.message = "value too long for type character varying(255)"
+
+    tabela_original = db_fake.table
+
+    class _QueryFalhaInsert:
+        def __init__(self, consulta):
+            self._consulta = consulta
+
+        def select(self, *args, **kwargs):
+            return self._consulta.select(*args, **kwargs)
+
+        def insert(self, payload):
+            raise ErroNomeLongo()
+
+        def __getattr__(self, nome):
+            return getattr(self._consulta, nome)
+
+    def table_quebrada(nome):
+        if nome == "produtos":
+            return _QueryFalhaInsert(tabela_original(nome))
+        return tabela_original(nome)
+
+    monkeypatch.setattr(db_fake, "table", table_quebrada)
+
+    buffer = _montar_planilha([["Descrição " + "muito longa" * 30, "LNG-01", "", "UN", "1", ""]])
+    resp = _importar(os_gestor_client, buffer)
+    assert resp.status_code == 200, resp.text
+    dados = resp.json()
+    assert dados["importados"] == 0
+    assert len(dados["erros"]) == 1
+    mensagem = dados["erros"][0]["mensagem"]
+    assert "value too long" not in mensagem  # mensagem traduzida
+    assert "ALTER TABLE produtos ALTER COLUMN nome TYPE TEXT" in mensagem
+
+
 def test_importar_restrito_ao_gestor(os_campo_client):
     buffer = _montar_planilha([["Serviço do campo", "CAMPO-01", "", "UN", "1", ""]])
     resp = _importar(os_campo_client, buffer)
