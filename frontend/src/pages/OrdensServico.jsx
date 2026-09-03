@@ -2592,31 +2592,34 @@ function OrdensServico({ usuarioAtual }) {
     try {
       const { quantidade, faltantes } = await prepararPacoteCampo();
       if (usuarioAtual?.nome) await salvarResponsavelLocal(usuarioAtual.nome);
+      // Ativa o Modo Campo assim que o pacote principal está no dispositivo;
+      // completar eventuais faltantes é etapa complementar (nunca derruba).
       setModoCampo(true);
       setModoCampoState(true);
       setInfoPacoteLocal({ quantidade, preparado_em: new Date().toISOString() });
-      if (faltantes.length > 0 && !isOffline()) {
-        // Ainda online: tenta completar de imediato as O.S que falharam.
-        const r = await completarPacoteCampo();
-        if (r.completadas) {
-          infoPacote().then(setInfoPacoteLocal).catch(() => {});
+
+      let restantes = faltantes.length;
+      if (restantes > 0 && !isOffline()) {
+        try {
+          const r = await completarPacoteCampo();
+          restantes = r.restantes;
+          if (r.completadas > 0) infoPacote().then(setInfoPacoteLocal).catch(() => {});
+        } catch {
+          /* mantém o aviso abaixo com as que faltaram */
         }
-        mostrarToast(
-          r.restantes > 0
-            ? `Modo Campo pronto: ${quantidade} O.S (${r.restantes} ainda incompletas — completam ao reconectar).`
-            : `Modo Campo pronto: ${quantidade} O.S baixadas para o dispositivo.`,
-          r.restantes > 0 ? 'error' : 'success',
-        );
-      } else {
-        mostrarToast(
-          faltantes.length > 0
-            ? `Modo Campo pronto: ${quantidade} O.S (${faltantes.length} ainda incompletas — completam ao reconectar).`
-            : `Modo Campo pronto: ${quantidade} O.S baixadas para o dispositivo.`,
-          faltantes.length > 0 ? 'error' : 'success',
-        );
       }
-    } catch {
-      mostrarToast('Falha ao preparar o Modo Campo. Tente novamente.', 'error');
+      mostrarToast(
+        restantes > 0
+          ? `Modo Campo pronto: ${quantidade} O.S (${restantes} incompletas — completam ao reconectar).`
+          : `Modo Campo pronto: ${quantidade} O.S baixadas para o dispositivo.`,
+        restantes > 0 ? 'error' : 'success',
+      );
+    } catch (e) {
+      const causa = (e && (e.message || e.detail)) || '';
+      mostrarToast(
+        causa ? `Falha ao preparar o Modo Campo: ${causa}` : 'Falha ao preparar o Modo Campo. Tente novamente.',
+        'error',
+      );
     } finally {
       setPreparandoPacote(false);
     }

@@ -101,7 +101,7 @@ export function usarLocal() {
 // ---------------------------------------------------------------------------
 
 async function _baixarDetalheOs(id) {
-  const dRes = await apiFetch(`${API_URL}/os/${id}`, { signal: AbortSignal.timeout(15000) });
+  const dRes = await apiFetch(`${API_URL}/os/${id}`, { signal: AbortSignal.timeout(30000) });
   if (!dRes.ok) return false;
   await salvarDetalheLocal(await dRes.json());
   return true;
@@ -109,7 +109,7 @@ async function _baixarDetalheOs(id) {
 
 async function _baixarChecklistOs(id) {
   try {
-    const cRes = await apiFetch(`${API_URL}/os/${id}/checklist`, { signal: AbortSignal.timeout(15000) });
+    const cRes = await apiFetch(`${API_URL}/os/${id}/checklist`, { signal: AbortSignal.timeout(30000) });
     if (cRes.ok) await dbPut('checklist', await cRes.json());
     return cRes.ok;
   } catch {
@@ -135,6 +135,41 @@ async function _baixarOsCompleta(id) {
   return ok;
 }
 
+/** Baixa várias O.S com concorrência limitada (não sobrecarrega o servidor). */
+async function _baixarEmParalelo(ids, limite = 5) {
+  let indice = 0;
+  const trabalhadores = Array.from({ length: limite }, async () => {
+    while (indice < ids.length) {
+      const id = ids[indice];
+      indice += 1;
+      try {
+        await _baixarOsCompleta(id);
+      } catch {
+        /* segue para a próxima */
+      }
+    }
+  });
+  await Promise.all(trabalhadores);
+}
+
+/** Busca a lista de O.S com retry (falhas de rede/5xx são transitórias). */
+async function _buscarListaOs() {
+  let ultimoErro = null;
+  for (let tentativa = 0; tentativa < 3; tentativa += 1) {
+    try {
+      const res = await apiFetch(`${API_URL}/os/?limit=500`, { signal: AbortSignal.timeout(45000) });
+      if (res.ok) return await res.json();
+      ultimoErro = erroDaResposta(await res.json().catch(() => null), 'Falha ao baixar a lista de O.S.');
+    } catch (e) {
+      ultimoErro = e?.name === 'TimeoutError' || e?.name === 'AbortError'
+        ? 'Tempo esgotado ao baixar a lista de O.S. Tente novamente.'
+        : (e?.message || 'Falha de conexão ao baixar a lista de O.S.');
+    }
+    if (tentativa < 2) await new Promise(r => setTimeout(r, 800 * (tentativa + 1)));
+  }
+  throw new Error(ultimoErro || 'Falha ao baixar a lista de O.S.');
+}
+
 async function _atualizarMetaPacote(lista) {
   const ids = lista.map(os => os.id);
   const faltantes = [];
@@ -152,18 +187,14 @@ async function _atualizarMetaPacote(lista) {
 }
 
 export async function prepararPacoteCampo() {
-  const res = await apiFetch(`${API_URL}/os/?limit=500`, { signal: AbortSignal.timeout(20000) });
-  if (!res.ok) {
-    throw new Error(erroDaResposta(await res.json().catch(() => null), 'Falha ao baixar a lista de O.S.'));
-  }
-  const lista = await res.json();
+  const lista = await _buscarListaOs();
   await dbClearStore('os_lista');
   await dbClearStore('os');
   await dbClearStore('checklist');
 
   // Catálogo de serviços (lançamento de materiais) também vai para o tablet.
   try {
-    const resP = await apiFetch(`${API_URL}/os/produtos`, { signal: AbortSignal.timeout(20000) });
+    const resP = await apiFetch(`${API_URL}/os/produtos`, { signal: AbortSignal.timeout(30000) });
     if (resP.ok) {
       await dbClearStore('produtos');
       const catalogo = await resP.json();
@@ -176,24 +207,13 @@ export async function prepararPacoteCampo() {
   // Lista vai primeiro (a O.S aparece mesmo que o detalhe precise de retry).
   for (const os of lista) await dbPut('os_lista', os);
 
-  // Detalhe + checklist de cada O.S (com 1 retry individual).
-  for (const os of lista) {
-    try {
-      await _baixarOsCompleta(os.id);
-    } catch {
-      /* segue para a próxima */
-    }
-  }
+  // Detalhe + checklist de cada O.S (concorrência limitada, 1 retry por O.S).
+  const ids = lista.map(os => os.id);
+  await _baixarEmParalelo(ids);
   // Segunda passada: tenta de novo as O.S que ainda faltam (rede instável).
   let faltantes = await _atualizarMetaPacote(lista);
   if (faltantes.length) {
-    for (const id of faltantes) {
-      try {
-        await _baixarOsCompleta(id);
-      } catch {
-        /* segue */
-      }
-    }
+    await _baixarEmParalelo(faltantes);
     faltantes = await _atualizarMetaPacote(lista);
   }
   return { quantidade: lista.length, faltantes };
