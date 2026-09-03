@@ -366,6 +366,17 @@ def excluir_equipe(equipe_id: int, db=Depends(get_supabase)):
 
 TIPOS_SERVICO = {"construcao", "manutencao", "linha_viva"}
 
+# Manutenção e Linha Viva compartilham o MESMO catálogo de serviços
+# (espelha FAMILIA_LINHA_VIVA de routers/os.py). Construção permanece isolada.
+FAMILIA_LINHA_VIVA = {"manutencao", "linha_viva"}
+
+
+def _servico_serve_para_tipo(tipo_servico: str | None, tipo: str) -> bool:
+    """True quando o serviço pertence ao catálogo do filtro `tipo`."""
+    if not tipo_servico or tipo_servico == tipo:
+        return True
+    return tipo_servico in FAMILIA_LINHA_VIVA and tipo in FAMILIA_LINHA_VIVA
+
 
 def _validar_tipo_servico(tipo: str) -> None:
     if tipo not in TIPOS_SERVICO:
@@ -444,8 +455,9 @@ def listar_produtos(
             offset += tamanho_pagina
 
         if tipo:
-            # Serviços legados (tipo NULL) são válidos em todos os contratos.
-            dados = [p for p in dados if p.get("tipo") is None or p["tipo"] == tipo]
+            # Filtra pelo contrato: manutenção e linha viva compartilham o
+            # catálogo; legados (tipo NULL) valem para todos os contratos.
+            dados = [p for p in dados if _servico_serve_para_tipo(p.get("tipo"), tipo)]
         return dados
     except Exception:
         logger.exception("Erro ao listar produtos")

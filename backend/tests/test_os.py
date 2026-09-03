@@ -1179,6 +1179,59 @@ def test_cadastro_servico_rejeita_codigo_duplicado_entre_campos(os_gestor_client
     assert ed.json()["codigo_especial"] == "ABC-ESP"
 
 
+def test_lancar_servico_manutencao_em_os_linha_viva_ok(os_gestor_client, db_fake):
+    """Manutenção e Linha Viva compartilham o catálogo: serviço de manutenção
+    pode ser lançado em O.S de linha viva (e vice-versa)."""
+    _seed_cenario(db_fake)
+    _seed_servicos_por_contrato(db_fake)
+
+    # O.S de LINHA VIVA lançando serviço de MANUTENÇÃO (produto 10).
+    os_lv = _criar_os(os_gestor_client, tipo="linha_viva").json()["id"]
+    _abrir_os(os_gestor_client, os_lv)
+    resp = os_gestor_client.post(
+        f"/api/os/{os_lv}/materiais", json={"produto_id": 10, "quantidade_usada": 1}
+    )
+    assert resp.status_code == 201, resp.text
+
+    # O.S de MANUTENÇÃO lançando serviço de LINHA VIVA (produto 11).
+    db_fake._dados["produtos"].append(
+        {"id": 11, "codigo": "SVC-LV", "nome": "Serviço Linha Viva", "unidade": "UN",
+         "preco_unitario": 40, "ativo": True, "tipo": "linha_viva"}
+    )
+    os_m = _criar_os(os_gestor_client, tipo="manutencao").json()["id"]
+    _abrir_os(os_gestor_client, os_m)
+    resp2 = os_gestor_client.post(
+        f"/api/os/{os_m}/materiais", json={"produto_id": 11, "quantidade_usada": 1}
+    )
+    assert resp2.status_code == 201, resp2.text
+
+
+def test_listar_servicos_familia_manutencao_linha_viva(os_gestor_client, db_fake):
+    """Filtro por tipo: manutenção e linha viva retornam o mesmo catálogo
+    (as duas famílias + legados); construção fica isolada."""
+    _seed_cenario(db_fake)
+    _seed_servicos_por_contrato(db_fake)
+    db_fake._dados["produtos"].append(
+        {"id": 11, "codigo": "SVC-LV", "nome": "Serviço Linha Viva", "unidade": "UN",
+         "preco_unitario": 40, "ativo": True, "tipo": "linha_viva"}
+    )
+
+    lv = os_gestor_client.get("/api/os/produtos?tipo=linha_viva")
+    assert lv.status_code == 200
+    ids_lv = {p["id"] for p in lv.json()}
+    assert {8, 10, 11} <= ids_lv  # legado + manutenção + linha viva
+    assert 9 not in ids_lv        # construção isolada
+
+    man = os_gestor_client.get("/api/os/produtos?tipo=manutencao")
+    ids_man = {p["id"] for p in man.json()}
+    assert ids_man == ids_lv
+
+    constr = os_gestor_client.get("/api/os/produtos?tipo=construcao")
+    ids_constr = {p["id"] for p in constr.json()}
+    assert 9 in ids_constr
+    assert {10, 11}.isdisjoint(ids_constr)
+
+
 def test_listar_servicos_filtra_por_contrato_incluindo_legados(os_gestor_client, db_fake):
     _seed_cenario(db_fake)
     _seed_servicos_por_contrato(db_fake)

@@ -53,6 +53,16 @@ const TRANSICOES_STATUS = {
 
 const LIMITE_PAGINA = 100;
 
+// Manutenção e Linha Viva compartilham o MESMO catálogo de serviços
+// (espelha FAMILIA_LINHA_VIVA do backend). Construção permanece isolada.
+const FAMILIA_LINHA_VIVA = new Set(['manutencao', 'linha_viva']);
+
+// True quando o serviço pertence ao catálogo do tipo informado (O.S/filtro).
+const servicoServeParaTipo = (servico, tipo) =>
+  !servico.tipo ||
+  servico.tipo === tipo ||
+  (FAMILIA_LINHA_VIVA.has(servico.tipo) && FAMILIA_LINHA_VIVA.has(tipo));
+
 const PRIORIDADES = {
   baixa: { label: 'Baixa', cor: 'bg-slate-100 text-slate-600 border-slate-200' },
   media: { label: 'Média', cor: 'bg-blue-50 text-blue-700 border-blue-200' },
@@ -611,10 +621,11 @@ function TabInsumos({ osDetalhe, produtos, onAtualizado, mostrarToast, podeEdita
   const [salvando, setSalvando] = useState(false);
   const [estornandoId, setEstornandoId] = useState(null); // ID do lançamento aguardando confirmação
 
-  // Catálogo do CONTRATO da O.S: só serviços do mesmo tipo (ou legados sem tipo).
+  // Catálogo do CONTRATO da O.S: só serviços compatíveis com o tipo (ou
+  // legados). Manutenção e Linha Viva compartilham o mesmo catálogo.
   const catalogoDoContrato = useMemo(() => {
     const tipoOs = osDetalhe.tipo;
-    return produtos.filter(p => !p.tipo || p.tipo === tipoOs);
+    return produtos.filter(p => servicoServeParaTipo(p, tipoOs));
   }, [produtos, osDetalhe.tipo]);
 
   // Autocompletar: filtra o catálogo local pelo que foi digitado/bipado
@@ -3529,9 +3540,10 @@ function PainelCadastros({ obras, equipes, produtos, recarregar, mostrarToast })
 
   const produtosFiltrados = useMemo(() => {
     let lista = produtos;
-    // Filtro por contrato: legados (sem tipo) valem para todos os contratos.
+    // Filtro por contrato: manutenção e linha viva compartilham o catálogo;
+    // legados (sem tipo) valem para todos os contratos.
     if (filtroTipoProduto !== 'todos') {
-      lista = lista.filter(p => !p.tipo || p.tipo === filtroTipoProduto);
+      lista = lista.filter(p => servicoServeParaTipo(p, filtroTipoProduto));
     }
     if (filtroProdutoLista) {
       const termo = filtroProdutoLista.toLowerCase();
