@@ -696,6 +696,47 @@ def modelo_servicos():
         raise HTTPException(status_code=500, detail="Erro ao gerar modelo de importação.") from None
 
 
+def _mensagem_erro_banco(exc: Exception) -> str:
+    """Extrai uma mensagem legível de exceções do Supabase/PostgREST.
+
+    O supabase-py levanta `APIError` (dict-like) com a chave `message` — o
+    mesmo formato de qualquer erro HTTP do PostgREST (coluna inexistente,
+    violação de unicidade etc.).
+    """
+    mensagem = getattr(exc, "message", None)
+    if not mensagem and exc.args:
+        primeiro = exc.args[0]
+        if isinstance(primeiro, dict):
+            mensagem = primeiro.get("message") or primeiro.get("details")
+    if isinstance(mensagem, str) and mensagem.strip():
+        return mensagem.strip()
+    texto = str(exc).strip()
+    return texto or "erro desconhecido no banco de dados"
+
+
+def _verificar_colunas_produtos(db) -> str | None:
+    """Confirma que as colunas do catálogo existem no banco antes de importar.
+
+    Se o schema.sql ainda não foi aplicado no banco, o PostgREST responde 42703
+    ("column ... does not exist") a cada consulta com `codigo_especial`. Em vez
+    de um 500 genérico, devolvemos a orientação exata de correção.
+    """
+    try:
+        db.table("produtos").select("id, codigo, codigo_especial").limit(1).execute()
+        return None
+    except Exception as exc:
+        logger.warning("Falha ao sondar colunas de produtos: %s", _mensagem_erro_banco(exc))
+        mensagem = _mensagem_erro_banco(exc).lower()
+        if "codigo_especial" in mensagem or "codigo_servico" in mensagem:
+            return (
+                "O banco de dados está desatualizado em relação ao schema.sql: falta a coluna "
+                "indicada pelo banco. Execute no Supabase (SQL Editor): "
+                "ALTER TABLE produtos ADD COLUMN IF NOT EXISTS codigo_especial VARCHAR(50) UNIQUE; "
+                "e ALTER TABLE os_materiais ADD COLUMN IF NOT EXISTS codigo_servico VARCHAR(50);"
+            )
+        return None
+
+
 @router.post("/produtos/importar", dependencies=GESTOR_ONLY)
 def importar_servicos(
     file: UploadFile = File(...),
@@ -711,6 +752,12 @@ def importar_servicos(
     """
     try:
         _validar_tipo_servico(tipo)
+
+        # Fail-fast: se o banco ainda não tem as colunas novas (schema.sql),
+        # orienta a correção em vez de falhar por linha / dar 500 genérico.
+        orientacao = _verificar_colunas_produtos(db)
+        if orientacao:
+            raise HTTPException(status_code=400, detail=orientacao)
 
         filename = (file.filename or "").lower()
         if not filename.endswith(".xlsx"):
@@ -786,48 +833,51 @@ def importar_servicos(
 
             # Upsert: localiza o serviço existente pelo código normal (inclusive
             # inativo — o reativamos, pois o código segue reservado no banco).
-            alvo = None
-            if codigo:
-                resp = db.table("produtos").select("id, ativo").eq("codigo", codigo).limit(1).execute()
-                if resp.data:
-                    alvo = resp.data[0]
-            ignorar_id = alvo["id"] if alvo else None
+            # As operações de banco da linha ficam protegidas: se o banco falhar
+            # (ex.: schema desatualizado), o erro real aparece no relatório da
+            # linha sem derrubar a importação inteira.
+            try:
+                alvo = None
+                if codigo:
+                    resp = db.table("produtos").select("id, ativo").eq("codigo", codigo).limit(1).execute()
+                    if resp.data:
+                        alvo = resp.data[0]
+                ignorar_id = alvo["id"] if alvo else None
 
-            # Namespace global de códigos (normal/especial compartilhado).
-            colisao = None
-            for valor in (codigo, codigo_especial):
-                if not valor:
+                # Namespace global de códigos (normal/especial compartilhado).
+                colisao = None
+                for valor in (codigo, codigo_especial):
+                    if not valor:
+                        continue
+                    em_uso = _codigo_produto_em_uso(db, valor, ignorar_id=ignorar_id)
+                    if em_uso:
+                        colisao = em_uso
+                        break
+                if colisao:
+                    erros.append(
+                        {
+                            "linha": num,
+                            "mensagem": f"Já existe o serviço '{colisao['nome']}' com o código '{valor}' "
+                            "(cadastre com outro código ou edite o serviço existente).",
+                        }
+                    )
                     continue
-                em_uso = _codigo_produto_em_uso(db, valor, ignorar_id=ignorar_id)
-                if em_uso:
-                    colisao = em_uso
-                    break
-            if colisao:
-                erros.append(
-                    {
-                        "linha": num,
-                        "mensagem": f"Já existe o serviço '{colisao['nome']}' com o código '{valor}' "
-                        "(cadastre com outro código ou edite o serviço existente).",
-                    }
-                )
-                continue
 
-            campos = {
-                "nome": nome,
-                "codigo": codigo,
-                "codigo_especial": codigo_especial,
-                "unidade": unidade,
-                "preco_unitario": valores["preco_unitario"],
-                "qtd_usc_especial": valores["qtd_usc_especial"],
-            }
+                campos = {
+                    "nome": nome,
+                    "codigo": codigo,
+                    "codigo_especial": codigo_especial,
+                    "unidade": unidade,
+                    "preco_unitario": valores["preco_unitario"],
+                    "qtd_usc_especial": valores["qtd_usc_especial"],
+                }
 
-            if simular:
-                if alvo:
-                    atualizados += 1
+                if simular:
+                    if alvo:
+                        atualizados += 1
+                    else:
+                        criados += 1
                 else:
-                    criados += 1
-            else:
-                try:
                     if alvo:
                         if alvo.get("ativo") is False:
                             campos["ativo"] = True
@@ -836,12 +886,12 @@ def importar_servicos(
                     else:
                         db.table("produtos").insert({**campos, "tipo": tipo, "ativo": True}).execute()
                         criados += 1
-                except HTTPException:
-                    raise
-                except Exception:
-                    logger.exception("Erro ao importar linha %d", num)
-                    erros.append({"linha": num, "mensagem": "Falha ao salvar no banco."})
-                    continue
+            except HTTPException:
+                raise
+            except Exception as exc:
+                logger.exception("Erro de banco ao importar linha %d", num)
+                erros.append({"linha": num, "mensagem": f"Falha no banco: {_mensagem_erro_banco(exc)}"})
+                continue
 
             # Registra os códigos da linha no namespace do arquivo (apenas
             # linhas aceitas — inclusive na simulação).
@@ -860,9 +910,12 @@ def importar_servicos(
         }
     except HTTPException:
         raise
-    except Exception:
+    except Exception as exc:
         logger.exception("Erro ao importar serviços em lote")
-        raise HTTPException(status_code=500, detail="Erro ao importar serviços.") from None
+        raise HTTPException(
+            status_code=500,
+            detail=f"Erro ao importar serviços. Detalhe: {_mensagem_erro_banco(exc)}",
+        ) from None
 
 
 def _texto_ou_none(valor) -> str | None:

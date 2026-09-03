@@ -230,6 +230,42 @@ def test_importar_rejeita_arquivo_invalido(os_gestor_client):
     assert "Nenhuma coluna reconhecida" in resp.json()["detail"]
 
 
+def test_importar_orienta_quando_schema_nao_aplicado(os_gestor_client, db_fake, monkeypatch):
+    """Banco sem a coluna codigo_especial (PostgREST 42703): resposta 400 com a
+    orientação do ALTER TABLE — e não um 500 genérico."""
+
+    class ErroColunaFaltando(Exception):
+        def __init__(self):
+            super().__init__("column produtos.codigo_especial does not exist")
+            self.message = "column produtos.codigo_especial does not exist"
+
+    tabela_original = db_fake.table
+
+    class _SelectQuebrado:
+        def __init__(self, consulta):
+            self._consulta = consulta
+
+        def select(self, *args, **kwargs):
+            if any("codigo_especial" in str(arg) for arg in args):
+                raise ErroColunaFaltando()
+            return self._consulta.select(*args, **kwargs)
+
+        def __getattr__(self, nome):
+            return getattr(self._consulta, nome)
+
+    def table_quebrada(nome):
+        return _SelectQuebrado(tabela_original(nome))
+
+    monkeypatch.setattr(db_fake, "table", table_quebrada)
+
+    buffer = _montar_planilha([["Serviço teste", "T-01", "", "UN", "1", ""]])
+    resp = _importar(os_gestor_client, buffer)
+    assert resp.status_code == 400
+    detalhe = resp.json()["detail"]
+    assert "codigo_especial" in detalhe
+    assert "ALTER TABLE produtos ADD COLUMN IF NOT EXISTS codigo_especial" in detalhe
+
+
 def test_importar_restrito_ao_gestor(os_campo_client):
     buffer = _montar_planilha([["Serviço do campo", "CAMPO-01", "", "UN", "1", ""]])
     resp = _importar(os_campo_client, buffer)
