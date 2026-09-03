@@ -110,7 +110,7 @@ async function _baixarDetalheOs(id) {
 async function _baixarChecklistOs(id) {
   try {
     const cRes = await apiFetch(`${API_URL}/os/${id}/checklist`, { signal: AbortSignal.timeout(30000) });
-    if (cRes.ok) await dbPut('checklist', await cRes.json());
+    if (cRes.ok) await salvarChecklistLocal(id, await cRes.json()); // store usa keyPath os_id
     return cRes.ok;
   } catch {
     return false;
@@ -205,7 +205,10 @@ export async function prepararPacoteCampo() {
   }
 
   // Lista vai primeiro (a O.S aparece mesmo que o detalhe precise de retry).
-  for (const os of lista) await dbPut('os_lista', os);
+  // IMPORTANTE: a store `os_lista` usa keyPath `os_id` — o item cru da
+  // listagem só tem `id`; sem o mapeamento o put falharia (e a lista local
+  // ficaria vazia offline).
+  for (const os of lista) await dbPut('os_lista', { ...os, os_id: Number(os.id) });
 
   // Detalhe + checklist de cada O.S (concorrência limitada, 1 retry por O.S).
   const ids = lista.map(os => os.id);
