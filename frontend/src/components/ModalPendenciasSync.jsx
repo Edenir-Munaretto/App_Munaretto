@@ -4,7 +4,7 @@ import {
   Check, Clock, WifiOff, UserCheck,
 } from 'lucide-react';
 import {
-  listarPendentes, descartarPendente, responsavelLocal,
+  listarPendentes, descartarPendente, responsavelLocal, estaEmWifi,
 } from '../offline/offline';
 import { sincronizar } from '../offline/sync';
 
@@ -77,6 +77,7 @@ function ModalPendenciasSync({
   const [reenviando, setReenviando] = useState([]);
   const [responsavel, setResponsavel] = useState(null);
   const [resumoLocal, setResumoLocal] = useState(null);
+  const [avisoRede, setAvisoRede] = useState(null);
 
   const carregar = async () => {
     const p = await listarPendentes();
@@ -98,6 +99,12 @@ function ModalPendenciasSync({
   const resumo = resumoLocal || ultimoResumo || null;
 
   const reenviarItem = async (tipo, idLocal) => {
+    // Sincronização só no Wi-Fi (uploads em dados móveis travam).
+    if (!estaEmWifi()) {
+      setAvisoRede('Conecte-se ao Wi-Fi para sincronizar (evita travamentos em dados móveis).');
+      return;
+    }
+    setAvisoRede(null);
     setReenviando(prev => [...prev, idLocal]);
     const seletor = tipo === 'foto' ? { fotos: [idLocal] } : { operacoes: [idLocal] };
     const resultado = await sincronizar(null, seletor);
@@ -137,6 +144,12 @@ function ModalPendenciasSync({
         </div>
 
         <div className="p-5 space-y-4 overflow-y-auto">
+          {avisoRede && (
+            <div className="rounded-xl border border-amber-200 bg-amber-50 px-3 py-2.5 text-[11px] font-bold text-amber-700 flex items-center gap-2">
+              <AlertTriangle size={14} className="shrink-0" />
+              {avisoRede}
+            </div>
+          )}
           {!temPendentes && (
             <div className="text-center py-10 text-slate-400">
               <Check className="mx-auto mb-3 text-emerald-400" size={36} />

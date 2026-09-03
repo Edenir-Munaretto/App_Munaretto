@@ -19,7 +19,7 @@ import {
   enfileirarOperacao, enfileirarFoto, contarPendentes,
   registrarFotoItemLocal, hidratarFotosPendentes,
   salvarResponsavelLocal,
-  registrarFalhaDeRede, testarConexao,
+  registrarFalhaDeRede, testarConexao, estaEmWifi,
 } from '../offline/offline';
 import { sincronizar } from '../offline/sync';
 
@@ -2466,6 +2466,7 @@ function OrdensServico({ usuarioAtual }) {
   const [offline, setOffline] = useState(isOffline());
   const [pendentes, setPendentes] = useState({ operacoes: 0, fotos: 0, total: 0 });
   const [sincronizando, setSincronizando] = useState(false);
+  const [progressoSync, setProgressoSync] = useState(null); // {enviadas, total} p/ feedback
   const [preparandoPacote, setPreparandoPacote] = useState(false);
   const [infoPacoteLocal, setInfoPacoteLocal] = useState(null);
   const [modalPendenciasAberto, setModalPendenciasAberto] = useState(false);
@@ -2482,10 +2483,24 @@ function OrdensServico({ usuarioAtual }) {
       if (!silencioso) mostrarToast('Sem conexão — sincronize quando voltar à internet.', 'error');
       return;
     }
+    // Sincronização só no Wi-Fi: uploads de fotos em dados móveis ficam
+    // lentos e podem travar (spinner eterno). Em 4G/3G fica tudo no
+    // dispositivo aguardando uma rede Wi-Fi.
+    if (!estaEmWifi()) {
+      if (!silencioso) mostrarToast('Conecte-se ao Wi-Fi para sincronizar (evita travamentos em dados móveis).', 'error');
+      return;
+    }
     if (sincronizando) return;
     setSincronizando(true);
+    setProgressoSync(null);
     try {
-      const resumo = await sincronizar();
+      const totalInicial = (await contarPendentes()).total;
+      const resumo = await sincronizar((p) => {
+        setProgressoSync({
+          enviadas: p.fotosEnviadas + p.operacoesEnviadas + (p.descartados || 0),
+          total: totalInicial,
+        });
+      });
       setUltimoResumo(resumo);
       if (usuarioAtual?.nome) salvarResponsavelLocal(usuarioAtual.nome);
       if (!silencioso || resumo.fotosEnviadas || resumo.operacoesEnviadas || resumo.falhas.length) {
@@ -2505,6 +2520,7 @@ function OrdensServico({ usuarioAtual }) {
       if (!silencioso) mostrarToast('Falha ao sincronizar. Tente novamente.', 'error');
     } finally {
       setSincronizando(false);
+      setProgressoSync(null);
       const p = await contarPendentes();
       setPendentes(p);
     }
@@ -2512,20 +2528,36 @@ function OrdensServico({ usuarioAtual }) {
   }, [sincronizando, mostrarToast, usuarioAtual?.nome]);
 
   // Monitora a conexão de verdade (sonda HTTP a cada 10s — o navigator.onLine
-  // engana em WiFi sem internet, comum no campo). Ao reconectar com pendências
-  // na fila, sincroniza automaticamente.
+  // engana em WiFi sem internet, comum no campo). A sincronização AUTOMÁTICA
+  // só dispara na TRANSIÇÃO offline -> online, em Wi-Fi e com cooldown — não
+  // fica tentando a cada 10s (nem em dados móveis) durante o trabalho.
   useEffect(() => {
     let sondaEmAndamento = false;
+    const estadoOffline = { atual: isOffline() };
+    const ultimaAuto = { em: 0 };
+    const COOLDOWN_AUTO_MS = 45000;
     const atualizar = async (daSonda = false) => {
       if (!sondaEmAndamento && daSonda) {
         sondaEmAndamento = true;
-        await testarConexao();
-        sondaEmAndamento = false;
+        try {
+          await testarConexao();
+        } finally {
+          sondaEmAndamento = false;
+        }
       }
       const offlineAtual = isOffline();
       setOffline(offlineAtual);
+
+      const reconectou = estadoOffline.atual === true && offlineAtual === false;
+      estadoOffline.atual = offlineAtual;
       if (offlineAtual === false) {
-        contarPendentes().then(p => { setPendentes(p); if (p.total > 0) sincronizarAgora(true); });
+        contarPendentes().then(p => {
+          setPendentes(p);
+          if (reconectou && p.total > 0 && estaEmWifi() && Date.now() - ultimaAuto.em >= COOLDOWN_AUTO_MS) {
+            ultimaAuto.em = Date.now();
+            sincronizarAgora(true);
+          }
+        });
       }
     };
     const noEvento = () => atualizar(false);
@@ -2580,6 +2612,10 @@ function OrdensServico({ usuarioAtual }) {
       mostrarToast('Sem conexão — conecte-se à internet para finalizar o Modo Campo.', 'error');
       return;
     }
+    if (!estaEmWifi()) {
+      mostrarToast('Conecte-se ao Wi-Fi para finalizar o Modo Campo (evita travamentos em dados móveis).', 'error');
+      return;
+    }
     if (sincronizando || preparandoPacote) return;
     setConfirmacaoFinalizarModoCampo(true);
   };
@@ -2591,10 +2627,21 @@ function OrdensServico({ usuarioAtual }) {
       mostrarToast('Sem conexão — conecte-se à internet para finalizar o Modo Campo.', 'error');
       return;
     }
+    if (!estaEmWifi()) {
+      mostrarToast('Conecte-se ao Wi-Fi para finalizar o Modo Campo (evita travamentos em dados móveis).', 'error');
+      return;
+    }
     if (sincronizando || preparandoPacote) return;
     setSincronizando(true);
+    setProgressoSync(null);
     try {
-      const resumo = await sincronizar();
+      const totalInicial = (await contarPendentes()).total;
+      const resumo = await sincronizar((p) => {
+        setProgressoSync({
+          enviadas: p.fotosEnviadas + p.operacoesEnviadas,
+          total: totalInicial,
+        });
+      });
       setUltimoResumo(resumo);
       if (resumo.falhas.length) {
         setPendentes(await contarPendentes());
@@ -2618,6 +2665,7 @@ function OrdensServico({ usuarioAtual }) {
       mostrarToast('Falha ao finalizar o Modo Campo. Tente novamente.', 'error');
     } finally {
       setSincronizando(false);
+      setProgressoSync(null);
     }
   };
 
@@ -3087,7 +3135,9 @@ function OrdensServico({ usuarioAtual }) {
                 {sincronizando
                   ? <RefreshCw size={15} className="animate-spin" />
                   : <Check size={15} />}
-                {sincronizando ? 'Finalizando...' : 'Finalizar Modo Campo'}
+                {sincronizando
+                  ? (progressoSync ? `Finalizando (${progressoSync.enviadas}${progressoSync.total ? `/${progressoSync.total}` : ''})...` : 'Finalizando...')
+                  : 'Finalizar Modo Campo'}
               </button>
 
               {/* Modo Campo: ativo vira indicador sem ação (a saída é feita
@@ -3124,7 +3174,9 @@ function OrdensServico({ usuarioAtual }) {
               className="flex items-center gap-2 px-4 py-2.5 rounded-xl border border-amber-300 bg-amber-50 text-amber-700 font-bold text-xs hover:bg-amber-100 transition-all cursor-pointer"
             >
               <RefreshCw size={15} className={sincronizando ? 'animate-spin' : ''} />
-              {sincronizando ? 'Sincronizando...' : `Pendências (${pendentes.total})`}
+              {sincronizando
+                ? (progressoSync ? `Sincronizando (${progressoSync.enviadas}${progressoSync.total ? `/${progressoSync.total}` : ''})...` : 'Sincronizando...')
+                : `Pendências (${pendentes.total})`}
             </button>
           )}
           {botaoNova}

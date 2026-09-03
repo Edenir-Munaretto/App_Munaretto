@@ -69,6 +69,22 @@ export function isOffline() {
 }
 
 /**
+ * Está conectado por Wi-Fi/ethernet (e não dados móveis)?
+ *
+ * Sincronizações (uploads de fotos) ficam lentas/travam em 3G/4G — por isso a
+ * sincronização automática e o "Finalizar Modo Campo" só rodam no Wi-Fi.
+ * O `type` da Network Information API distingue; quando a API não existe
+ * (ex.: iOS Safari), assume que pode sincronizar.
+ */
+export function estaEmWifi() {
+  if (typeof navigator === 'undefined') return true;
+  const conexao = navigator.connection || navigator.mozConnection || navigator.webkitConnection;
+  if (!conexao || !conexao.type) return true;
+  const tipo = conexao.type.toLowerCase();
+  return tipo !== 'cellular' && tipo !== 'bluetooth' && tipo !== 'none';
+}
+
+/**
  * Deve-se operar com os dados locais.
  * - Modo Campo: sempre que houver indicação de falta de internet — sonda HTTP
  *   falhou (WiFi sem internet) OU navegador detectou queda de rede;

@@ -40,7 +40,7 @@ export async function sincronizar(onProgress, seletor = null) {
       const url = foto.checklist_item_id
         ? `${API_URL}/os/${foto.os_id}/checklist/${foto.checklist_item_id}/foto${qs}`
         : `${API_URL}/os/${foto.os_id}/fotos${qs}`;
-      const res = await apiFetch(url, { method: 'POST', body: fd });
+      const res = await apiFetch(url, { method: 'POST', body: fd, signal: AbortSignal.timeout(60000) });
       const data = await res.json().catch(() => null);
       if (res.ok && data?.id) {
         mapaFotos[foto.id_local] = data.id;
@@ -70,6 +70,7 @@ export async function sincronizar(onProgress, seletor = null) {
     try {
       const res = await apiFetch(`${API_URL}/os/sincronizar`, {
         method: 'POST',
+        signal: AbortSignal.timeout(30000),
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           operacoes: ops.map(op => ({
