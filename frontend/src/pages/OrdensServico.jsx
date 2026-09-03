@@ -3562,6 +3562,20 @@ function PainelCadastros({ obras, equipes, produtos, recarregar, mostrarToast })
     linha_viva: 'Linha Viva',
   };
 
+  // Selo do card conforme o CHIP ativo (filtro da lista). Manutenção e Linha
+  // Viva compartilham o catálogo: cada bloco mostra o seu próprio nome; no
+  // chip "Todos", serviços da família exibem o rótulo combinado.
+  const rotuloSeloServico = (p) => {
+    if (!p.tipo) return 'Todos os contratos'; // legado: vale para todos
+    if (FAMILIA_LINHA_VIVA.has(p.tipo)) {
+      if (filtroTipoProduto === 'todos') return 'Manutenção / Linha Viva';
+      if (FAMILIA_LINHA_VIVA.has(filtroTipoProduto)) {
+        return ROTULOS_TIPO_SERVICO[filtroTipoProduto] || ROTULOS_TIPO_SERVICO[p.tipo];
+      }
+    }
+    return ROTULOS_TIPO_SERVICO[p.tipo] || p.tipo;
+  };
+
   const iniciarProdutoEdicao = (p) => {
     setProdutoEmEdicao(p);
     setNovoProduto({
@@ -4186,7 +4200,7 @@ function PainelCadastros({ obras, equipes, produtos, recarregar, mostrarToast })
                         ? 'bg-primary-50 text-primary-700 border border-primary-100'
                         : 'bg-slate-100 text-slate-500 border border-slate-200'
                     }`}>
-                      {ROTULOS_TIPO_SERVICO[p.tipo] || 'Todos os contratos'}
+                      {rotuloSeloServico(p)}
                     </span>
                   </div>
                 ))
