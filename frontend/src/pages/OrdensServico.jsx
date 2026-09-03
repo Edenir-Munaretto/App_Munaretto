@@ -5,6 +5,7 @@ import {
   AlertTriangle, Check, Clock, CalendarClock, FileDown, LayoutGrid,
   FolderKanban, HardHat, Boxes, Trash2, ChevronLeft, Image as ImageIcon,
   Pencil, Building, Printer, ListChecks, RefreshCw, WifiOff, ChevronDown, Archive,
+  Upload, FileSpreadsheet,
 } from 'lucide-react';
 import { API_URL, apiFetch, erroDaResposta } from '../api';
 import ModalConfirmacao from '../components/ModalConfirmacao';
@@ -3425,6 +3426,14 @@ function PainelCadastros({ obras, equipes, produtos, recarregar, mostrarToast })
   const [produtoEmEdicao, setProdutoEmEdicao] = useState(null);
   const [excluirProdutoAlvo, setExcluirProdutoAlvo] = useState(null);
 
+  // Importação em lote de serviços (.xlsx) — contrato fixo escolhido na tela.
+  const [modalImportar, setModalImportar] = useState(false);
+  const [impContrato, setImpContrato] = useState('construcao');
+  const [impArquivo, setImpArquivo] = useState(null); // arquivo validado (aguardando confirmação)
+  const [impResumo, setImpResumo] = useState(null);   // {resumo, contrato} da simulação
+  const [impProcessando, setImpProcessando] = useState(false);
+  const inputImportRef = useRef(null);
+
   const post = async (url, corpo, msgOk) => {
     try {
       const res = await apiFetch(url, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(corpo) });
@@ -3557,6 +3566,95 @@ function PainelCadastros({ obras, equipes, produtos, recarregar, mostrarToast })
   const cancelarProdutoEdicao = () => {
     setProdutoEmEdicao(null);
     setNovoProduto({ nome: '', codigo: '', codigo_especial: '', unidade: 'UN', preco_unitario: '', qtd_usc_especial: '', tipo: '' });
+  };
+
+  // --- Importação em lote de serviços (.xlsx) ---
+
+  const baixarModeloServicos = async () => {
+    try {
+      const res = await apiFetch(`${API_URL}/os/produtos/modelo`);
+      if (!res.ok) {
+        mostrarToast('Erro ao baixar o modelo.', 'error');
+        return;
+      }
+      const blob = await res.blob();
+      const url = window.URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = 'modelo_servicos.xlsx';
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      window.URL.revokeObjectURL(url);
+    } catch {
+      mostrarToast('Erro de conexão ao baixar o modelo.', 'error');
+    }
+  };
+
+  const enviarImportacao = async (simular, arquivo, contrato) => {
+    const formData = new FormData();
+    formData.append('file', arquivo);
+    formData.append('simular', simular ? 'true' : 'false');
+    formData.append('tipo', contrato);
+    return apiFetch(`${API_URL}/os/produtos/importar`, { method: 'POST', body: formData });
+  };
+
+  const escolherArquivoServicos = async (e) => {
+    const file = e.target.files && e.target.files[0];
+    e.target.value = '';
+    if (!file) return;
+    if (!file.name.toLowerCase().endsWith('.xlsx')) {
+      mostrarToast('Apenas arquivos .xlsx são permitidos.', 'error');
+      return;
+    }
+    setImpProcessando(true);
+    try {
+      const res = await enviarImportacao(true, file, impContrato);
+      const data = await res.json().catch(() => null);
+      if (!res.ok) {
+        mostrarToast(erroDaResposta(data, 'Erro ao validar planilha.'), 'error');
+        return;
+      }
+      if (data.importados === 0 && (data.erros || []).length === 0) {
+        mostrarToast('Nenhuma linha com dados foi encontrada na planilha.', 'error');
+        return;
+      }
+      setImpArquivo(file);
+      setImpResumo({ resumo: data, contrato: impContrato });
+    } catch {
+      mostrarToast('Erro de conexão ao validar planilha.', 'error');
+    } finally {
+      setImpProcessando(false);
+    }
+  };
+
+  const confirmarImportacaoServicos = async () => {
+    if (!impArquivo || !impResumo) return;
+    setImpProcessando(true);
+    try {
+      const res = await enviarImportacao(false, impArquivo, impResumo.contrato);
+      const data = await res.json().catch(() => null);
+      if (res.ok) {
+        const numErros = (data.erros || []).length;
+        if (data.importados > 0 && numErros === 0) {
+          mostrarToast(`${data.importados} serviço(s) importado(s) com sucesso!`);
+        } else if (data.importados > 0 && numErros > 0) {
+          mostrarToast(`${data.importados} importado(s), ${numErros} com erro. Confira o relatório.`, 'error');
+        } else {
+          mostrarToast('Nenhum serviço importado. Verifique os erros.', 'error');
+        }
+        setModalImportar(false);
+        setImpArquivo(null);
+        setImpResumo(null);
+        recarregar();
+      } else {
+        mostrarToast(erroDaResposta(data, 'Erro ao importar planilha.'), 'error');
+      }
+    } catch {
+      mostrarToast('Erro de conexão ao importar planilha.', 'error');
+    } finally {
+      setImpProcessando(false);
+    }
   };
 
   const ABAS = [
@@ -3966,6 +4064,27 @@ function PainelCadastros({ obras, equipes, produtos, recarregar, mostrarToast })
             <div className="flex flex-col sm:flex-row gap-3 sm:items-center justify-between">
               <h3 className="font-extrabold text-slate-800 text-sm">Serviços ({produtosFiltrados.length})</h3>
               <div className="flex flex-wrap items-center gap-2">
+                {/* Ações de importação em lote */}
+                <div className="flex items-center gap-1.5">
+                  <button
+                    type="button"
+                    onClick={baixarModeloServicos}
+                    title="Baixar modelo .xlsx para preenchimento"
+                    className="flex items-center gap-1.5 px-3 py-2 rounded-xl border border-slate-200 bg-white text-slate-600 text-[10px] font-bold hover:bg-slate-50 transition-all cursor-pointer"
+                  >
+                    <FileSpreadsheet size={13} />
+                    Modelo
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => { setModalImportar(true); setImpResumo(null); setImpArquivo(null); }}
+                    title="Cadastrar serviços em lote (.xlsx)"
+                    className="flex items-center gap-1.5 px-3 py-2 rounded-xl bg-primary-600 text-white text-[10px] font-bold hover:bg-primary-700 transition-all cursor-pointer"
+                  >
+                    <Upload size={13} />
+                    Importar em lote
+                  </button>
+                </div>
                 {/* Filtro por contrato */}
                 <div className="flex bg-slate-100 rounded-xl p-1">
                   {[['todos', 'Todos'], ['construcao', 'Construção'], ['manutencao', 'Manutenção'], ['linha_viva', 'Linha Viva']].map(([valor, rotulo]) => (
@@ -4173,6 +4292,120 @@ function PainelCadastros({ obras, equipes, produtos, recarregar, mostrarToast })
         }}
         onCancelar={() => setExcluirProdutoAlvo(null)}
       />
+
+      {/* Modal: Importação em lote de serviços */}
+      {modalImportar && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4"
+          onClick={() => { if (!impProcessando) setModalImportar(false); }}
+        >
+          <div className="bg-white rounded-2xl w-full max-w-lg p-6 shadow-xl" onClick={e => e.stopPropagation()}>
+            <div className="flex items-start justify-between mb-4">
+              <div>
+                <h3 className="text-sm font-extrabold text-slate-800">Importar serviços em lote</h3>
+                <p className="text-[11px] text-slate-400 mt-0.5">
+                  Planilha .xlsx — um serviço por linha. Códigos iguais aos cadastrados são atualizados.
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={() => { if (!impProcessando) setModalImportar(false); }}
+                className="text-slate-400 hover:text-slate-600 cursor-pointer"
+              >
+                <X size={18} />
+              </button>
+            </div>
+
+            <div className="space-y-3">
+              <div>
+                <label className="block text-xs font-bold text-slate-700 mb-1">Contrato dos serviços *</label>
+                <select
+                  value={impContrato}
+                  disabled={impProcessando || !!impResumo}
+                  onChange={e => setImpContrato(e.target.value)}
+                  className="w-full px-3 py-2 border border-slate-200 rounded-xl focus:outline-none focus:border-primary-500 text-sm font-semibold bg-white disabled:bg-slate-100"
+                >
+                  {[['construcao', 'Construção'], ['manutencao', 'Manutenção'], ['linha_viva', 'Linha Viva']].map(([valor, rotulo]) => (
+                    <option key={valor} value={valor}>{rotulo}</option>
+                  ))}
+                </select>
+                <p className="text-[10px] font-semibold text-slate-400 mt-1">
+                  Vale para todas as linhas do arquivo. Baixe o modelo pelo botão &quot;Modelo&quot; para conferir as colunas.
+                </p>
+              </div>
+
+              <div>
+                <label className="block text-xs font-bold text-slate-700 mb-1">Arquivo .xlsx</label>
+                <input
+                  ref={inputImportRef}
+                  type="file"
+                  accept=".xlsx"
+                  disabled={impProcessando}
+                  onChange={escolherArquivoServicos}
+                  className="block w-full text-xs text-slate-500 file:mr-3 file:py-2 file:px-3 file:rounded-xl file:border-0 file:bg-primary-50 file:text-primary-700 file:text-[11px] file:font-bold file:cursor-pointer cursor-pointer disabled:opacity-40"
+                />
+              </div>
+
+              {impProcessando && (
+                <p className="text-xs font-semibold text-slate-400">Processando planilha...</p>
+              )}
+
+              {impResumo && !impProcessando && (
+                <div className="rounded-xl border border-slate-100 bg-slate-50 p-3 space-y-2">
+                  <p className="text-[10px] font-bold uppercase tracking-wider text-slate-400">
+                    Prévia (nada foi gravado ainda)
+                  </p>
+                  <div className="flex flex-wrap gap-2 text-[11px] font-bold">
+                    <span className="px-2 py-1 rounded-lg bg-emerald-50 text-emerald-700 border border-emerald-100">
+                      {impResumo.resumo.criados} novo(s)
+                    </span>
+                    <span className="px-2 py-1 rounded-lg bg-blue-50 text-blue-700 border border-blue-100">
+                      {impResumo.resumo.atualizados} atualizado(s)
+                    </span>
+                    <span className={`px-2 py-1 rounded-lg border ${impResumo.resumo.erros?.length ? 'bg-rose-50 text-rose-700 border-rose-100' : 'bg-slate-100 text-slate-500 border-slate-200'}`}>
+                      {impResumo.resumo.erros?.length || 0} erro(s)
+                    </span>
+                    {impResumo.resumo.ignoradas > 0 && (
+                      <span className="px-2 py-1 rounded-lg bg-slate-100 text-slate-500 border border-slate-200">
+                        {impResumo.resumo.ignoradas} linha(s) em branco
+                      </span>
+                    )}
+                  </div>
+                  {(impResumo.resumo.erros || []).length > 0 && (
+                    <div className="max-h-32 overflow-y-auto rounded-lg bg-white border border-slate-100 divide-y divide-slate-50">
+                      {impResumo.resumo.erros.map((erro, idx) => (
+                        <p key={idx} className="px-2.5 py-1.5 text-[11px] text-rose-600">
+                          Linha {erro.linha}: {erro.mensagem}
+                        </p>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              )}
+            </div>
+
+            <div className="flex gap-2 pt-4">
+              <button
+                type="button"
+                onClick={() => { if (!impProcessando) setModalImportar(false); }}
+                className="flex-1 py-2.5 bg-white border border-slate-200 text-slate-600 rounded-xl text-xs font-bold hover:bg-slate-50 transition-all cursor-pointer disabled:opacity-40"
+                disabled={impProcessando}
+              >
+                Cancelar
+              </button>
+              {impResumo && !impProcessando && (
+                <button
+                  type="button"
+                  onClick={confirmarImportacaoServicos}
+                  className="flex-[2] py-2.5 bg-emerald-600 text-white rounded-xl text-xs font-bold hover:bg-emerald-700 transition-all cursor-pointer"
+                >
+                  Confirmar importação
+                </button>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

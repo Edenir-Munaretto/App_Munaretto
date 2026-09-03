@@ -4,9 +4,15 @@ Segue o mesmo padrão dos demais routers do projeto: Supabase via PostgREST,
 validação com Pydantic e permissão de módulo ("os").
 """
 
+import io
 import logging
+import re
+import unicodedata
 
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, UploadFile
+from fastapi.responses import Response
+from openpyxl import Workbook, load_workbook
+from openpyxl.styles import Alignment, Border, Font, PatternFill, Side
 from pydantic import BaseModel, Field, field_validator
 
 from auth import require_permisao, require_qualquer_permisao
@@ -475,3 +481,399 @@ def excluir_produto(produto_id: int, db=Depends(get_supabase)):
     except Exception:
         logger.exception("Erro ao excluir produto %s", produto_id)
         raise HTTPException(status_code=500, detail="Erro ao excluir serviço.") from None
+
+
+# ---------------------------------------------------------------------------
+# Importação em lote de serviços (.xlsx) — mesmo padrão do módulo Comprovantes:
+# modelo para download + importação com simulação e relatório por linha.
+# ---------------------------------------------------------------------------
+
+MAX_IMPORT_SIZE = 10 * 1024 * 1024  # 10 MB
+
+# Ordem e cabeçalho (amigável) das colunas do modelo de importação.
+CAMPOS_MODELO_SERVICO = [
+    ("nome", "Serviço (descrição)"),
+    ("codigo", "Código Normal"),
+    ("codigo_especial", "Código Especial"),
+    ("unidade", "Unidade"),
+    ("preco_unitario", "Qtd USC"),
+    ("qtd_usc_especial", "Qtd USC Especial"),
+]
+
+# Apelidos de cabeçalho (normalizados) -> nome do campo. Aceita variações
+# reais de planilhas (inclusive a listagem oficial de serviços).
+ALIASES_COLUNA_SERVICO = {
+    "servico": "nome",
+    "servico (descricao)": "nome",
+    "servico (descrição)": "nome",
+    "descricao": "nome",
+    "descricao do servico": "nome",
+    "descricao do serviço": "nome",
+    "nome": "nome",
+    "nome do servico": "nome",
+    "nome do serviço": "nome",
+    "codigo normal": "codigo",
+    "codigo": "codigo",
+    "codigo sku": "codigo",
+    "codigo de barras": "codigo",
+    "sku": "codigo",
+    "codigo especial": "codigo_especial",
+    "codigo usc especial": "codigo_especial",
+    "unidade": "unidade",
+    "qtd usc": "preco_unitario",
+    "usc": "preco_unitario",
+    "usc normal": "preco_unitario",
+    "quantidade usc": "preco_unitario",
+    "preco unitario": "preco_unitario",
+    "preço unitário": "preco_unitario",
+    "valor": "preco_unitario",
+    "qtd usc especial": "qtd_usc_especial",
+    "usc especial": "qtd_usc_especial",
+    "quantidade usc especial": "qtd_usc_especial",
+}
+
+
+def _normalizar(texto):
+    """Minúsculas, sem acentos e com espaços simples (para casar cabeçalhos)."""
+    if texto is None:
+        return ""
+    texto = str(texto).strip().lower()
+    texto = unicodedata.normalize("NFD", texto)
+    texto = "".join(c for c in texto if unicodedata.category(c) != "Mn")
+    return re.sub(r"\s+", " ", texto)
+
+
+def _parse_numero_servico(valor):
+    """Converte número (célula numérica, '0,48', '0.48', '1.500,00') para float.
+
+    Retorna None quando não é um número válido. Vazio -> None (o chamador
+    decide o default).
+    """
+    if valor is None:
+        return None
+    if isinstance(valor, bool):
+        return None
+    if isinstance(valor, (int, float)):
+        return round(float(valor), 2)
+    texto = str(valor).strip().replace("R$", "").replace(" ", "")
+    if not texto:
+        return None
+    if "," in texto:
+        texto = texto.replace(".", "").replace(",", ".")
+    try:
+        return round(float(texto), 2)
+    except ValueError:
+        return None
+
+
+def _planilha_para_servicos(conteudo: bytes) -> tuple[list[dict], int]:
+    """Lê o .xlsx e devolve (registros por linha, linhas totalmente vazias ignoradas)."""
+    try:
+        wb = load_workbook(io.BytesIO(conteudo), data_only=True)
+    except Exception:
+        logger.exception("Falha ao ler planilha de serviços")
+        raise HTTPException(
+            status_code=400,
+            detail="Não foi possível ler o arquivo. Verifique se é um .xlsx válido.",
+        ) from None
+
+    ws = wb.active
+    linhas = list(ws.iter_rows(values_only=True))
+    if not linhas or not any(linhas[0]):
+        raise HTTPException(status_code=400, detail="A planilha está vazia ou sem cabeçalho.")
+
+    # Mapeia cabeçalho -> índice da coluna.
+    colunas = {}
+    for idx, valor in enumerate(linhas[0]):
+        campo = ALIASES_COLUNA_SERVICO.get(_normalizar(valor))
+        if campo and campo not in colunas:
+            colunas[campo] = idx
+
+    if "nome" not in colunas:
+        raise HTTPException(
+            status_code=400,
+            detail="Nenhuma coluna reconhecida. Use o modelo baixado em 'Baixar modelo'.",
+        )
+
+    registros = []
+    vazias = 0
+    for num, linha in enumerate(linhas[1:], start=2):
+        if all(celula is None or str(celula).strip() == "" for celula in linha):
+            vazias += 1
+            continue
+        registro = {"linha": num}
+        for campo, idx in colunas.items():
+            if idx < len(linha):
+                registro[campo] = linha[idx]
+        registros.append(registro)
+    return registros, vazias
+
+
+@router.get("/produtos/modelo", dependencies=GESTOR_ONLY)
+def modelo_servicos():
+    """Gera e baixa um modelo .xlsx pronto para o cadastro de serviços em lote."""
+    try:
+        wb = Workbook()
+        ws = wb.active
+        ws.title = "Modelo"
+
+        cabecalhos = [rotulo for _, rotulo in CAMPOS_MODELO_SERVICO]
+
+        fonte_cabecalho = Font(bold=True, color="FFFFFF")
+        fill_cabecalho = PatternFill(start_color="1E293B", end_color="1E293B", fill_type="solid")
+        borda = Border(*[Side(style="thin", color="CBD5E1")] * 4)
+
+        for col, rotulo in enumerate(cabecalhos, start=1):
+            celula = ws.cell(row=1, column=col, value=rotulo)
+            celula.font = fonte_cabecalho
+            celula.fill = fill_cabecalho
+            celula.alignment = Alignment(horizontal="center", vertical="center")
+            celula.border = borda
+
+        exemplos = [
+            {
+                "nome": "Corte de árvore com risco iminente",
+                "codigo": "CRA-01",
+                "codigo_especial": "CRA-ESP",
+                "unidade": "UN",
+                "preco_unitario": 0.48,
+                "qtd_usc_especial": 0.67,
+            },
+            {
+                "nome": "Roçada de capoeira",
+                "codigo": "ROC-01",
+                "codigo_especial": "",
+                "unidade": "m²",
+                "preco_unitario": 6.66,
+                "qtd_usc_especial": "",
+            },
+        ]
+
+        for i, exemplo in enumerate(exemplos, start=2):
+            for col, (campo, _) in enumerate(CAMPOS_MODELO_SERVICO, start=1):
+                celula = ws.cell(row=i, column=col, value=exemplo.get(campo, ""))
+                celula.border = borda
+                celula.alignment = Alignment(horizontal="center")
+
+        ws.freeze_panes = "A2"
+        for col, (_, rotulo) in enumerate(CAMPOS_MODELO_SERVICO, start=1):
+            ws.column_dimensions[ws.cell(row=1, column=col).column_letter].width = max(18, len(rotulo) + 4)
+
+        ws_instrucoes = wb.create_sheet("Instruções")
+        linhas = [
+            "INSTRUÇÕES — CADASTRO DE SERVIÇOS EM LOTE",
+            "",
+            "1. Preencha o arquivo .xlsx com um serviço por linha.",
+            "2. A primeira linha (cabeçalho) deve permanecer como está. Não altere ou remova.",
+            "3. Coluna 'Serviço (descrição)' é obrigatória em todas as linhas.",
+            "4. Se o 'Código Normal' já estiver cadastrado, o serviço existente é ATUALIZADO;",
+            "   caso contrário, um novo serviço é criado.",
+            "5. 'Código Especial' é o código usado quando o serviço é aplicado como USC especial",
+            "   (mesma descrição, dois códigos distintos).",
+            "6. Números: use vírgula como separador decimal (ex.: 0,48 ou 6,66).",
+            "7. O CONTRATO (Construção/Manutenção/Linha Viva) é escolhido na tela antes do envio",
+            "   e vale para TODAS as linhas do arquivo.",
+            "8. Ao finalizar, vá em 'Importar em lote' na aba Serviços e envie este arquivo.",
+            "9. A importação pode ser simulada primeiro (prévia) para conferir antes de aplicar.",
+        ]
+        for i, texto in enumerate(linhas, start=1):
+            ws_instrucoes.cell(row=i, column=1, value=texto)
+        ws_instrucoes.column_dimensions["A"].width = 110
+
+        buffer = io.BytesIO()
+        wb.save(buffer)
+        buffer.seek(0)
+
+        return Response(
+            content=buffer.getvalue(),
+            media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            headers={"Content-Disposition": 'attachment; filename="modelo_servicos.xlsx"'},
+        )
+    except HTTPException:
+        raise
+    except Exception:
+        logger.exception("Erro ao gerar modelo de importação de serviços")
+        raise HTTPException(status_code=500, detail="Erro ao gerar modelo de importação.") from None
+
+
+@router.post("/produtos/importar", dependencies=GESTOR_ONLY)
+def importar_servicos(
+    file: UploadFile = File(...),
+    tipo: str = Form(..., description="Contrato dos serviços importados: construcao, manutencao ou linha_viva"),
+    simular: bool = Form(False),
+    db=Depends(get_supabase),
+):
+    """Cadastra/atualiza serviços em lote a partir de um .xlsx.
+
+    Upsert pelo Código Normal: se o serviço já existe, atualiza os campos da
+    linha; senão cria. Com `simular=True` apenas valida e informa o que seria
+    feito, sem gravar nada no banco.
+    """
+    try:
+        _validar_tipo_servico(tipo)
+
+        filename = (file.filename or "").lower()
+        if not filename.endswith(".xlsx"):
+            raise HTTPException(status_code=400, detail="Formato inválido. Envie um arquivo .xlsx.")
+
+        conteudo = file.file.read(MAX_IMPORT_SIZE + 1)
+        if len(conteudo) > MAX_IMPORT_SIZE:
+            raise HTTPException(status_code=400, detail="Arquivo muito grande. O tamanho máximo é 10 MB.")
+        if len(conteudo) == 0:
+            raise HTTPException(status_code=400, detail="Arquivo vazio.")
+
+        registros, vazias = _planilha_para_servicos(conteudo)
+        if not registros:
+            raise HTTPException(status_code=400, detail="Nenhuma linha com dados foi encontrada na planilha.")
+
+        criados = 0
+        atualizados = 0
+        ignoradas = vazias
+        erros = []
+        # Namespace de códigos do PRÓPRIO arquivo (linha -> código), para
+        # detectar duplicidades/colisões internas sem depender do banco.
+        visto: dict[str, int] = {}
+
+        for registro in registros:
+            num = registro["linha"]
+            nome = _normalizar_texto_livre(registro.get("nome"))
+            if not nome:
+                erros.append({"linha": num, "mensagem": "Informe o nome do serviço (coluna 'Serviço')."})
+                continue
+
+            codigo = _texto_ou_none(registro.get("codigo"))
+            codigo_especial = _texto_ou_none(registro.get("codigo_especial"))
+            unidade = _normalizar_texto_livre(registro.get("unidade")) or "UN"
+
+            # Campos numéricos: vazio -> 0; texto inválido ou negativo -> erro.
+            valores = {}
+            numeros_ok = True
+            for campo, rotulo in (
+                ("preco_unitario", "Qtd USC"),
+                ("qtd_usc_especial", "Qtd USC Especial"),
+            ):
+                bruto = registro.get(campo)
+                if bruto is None or str(bruto).strip() == "":
+                    valores[campo] = 0.0
+                    continue
+                valor = _parse_numero_servico(bruto)
+                if valor is None or valor < 0:
+                    erros.append({"linha": num, "mensagem": f"'{rotulo}' inválida na linha."})
+                    numeros_ok = False
+                    break
+                valores[campo] = valor
+            if not numeros_ok:
+                continue
+
+            if codigo and codigo == codigo_especial:
+                erros.append({"linha": num, "mensagem": "O código normal e o código especial devem ser diferentes."})
+                continue
+
+            # Duplicidade/colisão dentro do próprio arquivo.
+            conflito_linha = None
+            for valor in (codigo, codigo_especial):
+                if valor and valor in visto and visto[valor] != num:
+                    conflito_linha = visto[valor]
+                    break
+            if conflito_linha:
+                erros.append(
+                    {
+                        "linha": num,
+                        "mensagem": f"Código '{valor}' já utilizado na linha {conflito_linha} do arquivo.",
+                    }
+                )
+                continue
+
+            # Upsert: localiza o serviço existente pelo código normal (inclusive
+            # inativo — o reativamos, pois o código segue reservado no banco).
+            alvo = None
+            if codigo:
+                resp = db.table("produtos").select("id, ativo").eq("codigo", codigo).limit(1).execute()
+                if resp.data:
+                    alvo = resp.data[0]
+            ignorar_id = alvo["id"] if alvo else None
+
+            # Namespace global de códigos (normal/especial compartilhado).
+            colisao = None
+            for valor in (codigo, codigo_especial):
+                if not valor:
+                    continue
+                em_uso = _codigo_produto_em_uso(db, valor, ignorar_id=ignorar_id)
+                if em_uso:
+                    colisao = em_uso
+                    break
+            if colisao:
+                erros.append(
+                    {
+                        "linha": num,
+                        "mensagem": f"Já existe o serviço '{colisao['nome']}' com o código '{valor}' "
+                        "(cadastre com outro código ou edite o serviço existente).",
+                    }
+                )
+                continue
+
+            campos = {
+                "nome": nome,
+                "codigo": codigo,
+                "codigo_especial": codigo_especial,
+                "unidade": unidade,
+                "preco_unitario": valores["preco_unitario"],
+                "qtd_usc_especial": valores["qtd_usc_especial"],
+            }
+
+            if simular:
+                if alvo:
+                    atualizados += 1
+                else:
+                    criados += 1
+            else:
+                try:
+                    if alvo:
+                        if alvo.get("ativo") is False:
+                            campos["ativo"] = True
+                        db.table("produtos").update(campos).eq("id", alvo["id"]).execute()
+                        atualizados += 1
+                    else:
+                        db.table("produtos").insert({**campos, "tipo": tipo, "ativo": True}).execute()
+                        criados += 1
+                except HTTPException:
+                    raise
+                except Exception:
+                    logger.exception("Erro ao importar linha %d", num)
+                    erros.append({"linha": num, "mensagem": "Falha ao salvar no banco."})
+                    continue
+
+            # Registra os códigos da linha no namespace do arquivo (apenas
+            # linhas aceitas — inclusive na simulação).
+            for valor in (codigo, codigo_especial):
+                if valor:
+                    visto[valor] = num
+
+        return {
+            "importados": criados + atualizados,
+            "criados": criados,
+            "atualizados": atualizados,
+            "erros": erros,
+            "total": len(registros),
+            "ignoradas": ignoradas,
+            "simular": simular,
+        }
+    except HTTPException:
+        raise
+    except Exception:
+        logger.exception("Erro ao importar serviços em lote")
+        raise HTTPException(status_code=500, detail="Erro ao importar serviços.") from None
+
+
+def _texto_ou_none(valor) -> str | None:
+    if valor is None:
+        return None
+    texto = str(valor).strip()
+    return texto or None
+
+
+def _normalizar_texto_livre(valor) -> str:
+    """Strip simples de células de texto (sem normalizar caixa/conteúdo)."""
+    if valor is None:
+        return ""
+    return str(valor).strip()
