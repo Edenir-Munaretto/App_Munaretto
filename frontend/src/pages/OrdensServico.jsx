@@ -88,12 +88,26 @@ const fmtData = (iso) => {
 };
 
 // Captura a geolocalização do dispositivo (sem bloqueio por raio).
+// Com cache curto (60s) e timeout reduzido: no campo, clicar numa resposta
+// não pode ficar esperando o GPS — usa a última posição válida se necessário.
+const _cacheGps = { valor: null, em: 0 };
+const GPS_CACHE_MS = 60 * 1000;
+const GPS_TIMEOUT_MS = 2500;
 const capturarGeolocalizacao = () => new Promise((resolve) => {
-  if (!navigator.geolocation) return resolve(null);
+  const agora = Date.now();
+  if (_cacheGps.valor && agora - _cacheGps.em < GPS_CACHE_MS) {
+    return resolve(_cacheGps.valor);
+  }
+  if (!navigator.geolocation) return resolve(_cacheGps.valor);
   navigator.geolocation.getCurrentPosition(
-    (pos) => resolve(`${pos.coords.latitude.toFixed(6)},${pos.coords.longitude.toFixed(6)}`),
-    () => resolve(null),
-    { timeout: 8000 },
+    (pos) => {
+      const valor = `${pos.coords.latitude.toFixed(6)},${pos.coords.longitude.toFixed(6)}`;
+      _cacheGps.valor = valor;
+      _cacheGps.em = Date.now();
+      resolve(valor);
+    },
+    () => resolve(_cacheGps.valor),
+    { timeout: GPS_TIMEOUT_MS, maximumAge: GPS_CACHE_MS },
   );
 });
 
@@ -255,7 +269,7 @@ function TabChecklist({ osDetalhe, onAtualizado, mostrarToast, podeEditar }) {
       //    ignorado — a tela permanece com a cópia local sem toasts repetidos.
       let okRemoto = false;
       try {
-        const res = await apiFetch(`${API_URL}/os/${osDetalhe.id}/checklist`);
+        const res = await apiFetch(`${API_URL}/os/${osDetalhe.id}/checklist`, { signal: AbortSignal.timeout(8000) });
         if (res.ok) {
           const dados = await res.json();
           setDados(dados);
@@ -306,52 +320,42 @@ function TabChecklist({ osDetalhe, onAtualizado, mostrarToast, podeEditar }) {
     });
   };
 
-  const responder = async (item, resposta, tentativa = 0) => {
+  const responder = async (item, resposta) => {
     if (!podeEditar) return;
     setSalvandoItem(item.id);
-    const gps = await capturarGeolocalizacao();
+    try {
+      const gps = await capturarGeolocalizacao();
 
-    // Offline: grava na fila e reflete localmente.
-    if (usarLocal()) {
-      try {
+      // MODIFICADO — Modo Campo (mesmo com internet): a resposta vai SEMPRE
+      // primeiro para o dispositivo (fila + espelho local), sem esperar o
+      // servidor. O motor de sincronização existente envia ao voltar/
+      // reconectar. Isso torna o clique instantâneo e elimina os erros/
+      // lentidão de rede repetidos ao preencher o checklist.
+      if (isModoCampo()) {
         await enfileirarOperacao({
           tipo: 'checklist_resposta',
           os_id: osDetalhe.id,
           payload: { item_id: item.id, resposta, geolocalizacao: gps },
         });
         await refletirRespostaLocal(item, resposta, gps);
-        onAtualizado();
         mostrarToast('Resposta salva no dispositivo (será sincronizada).');
-      } catch {
-        mostrarToast('Falha ao salvar a resposta no dispositivo.', 'error');
-      } finally {
-        setSalvandoItem(null);
-      }
-      return;
-    }
-
-    try {
-      const res = await apiFetch(`${API_URL}/os/${osDetalhe.id}/checklist/${item.id}`, {
-        method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ resposta, geolocalizacao: gps }),
-      });
-      if (res.ok) {
-        // No Modo Campo também reflete no pacote local: se o GET do checklist
-        // falhar (ex.: problema no servidor), a tela segue consistente.
-        if (isModoCampo()) await refletirRespostaLocal(item, resposta, gps);
-        carregar();
-        onAtualizado();
       } else {
-        mostrarToast(erroDaResposta(await res.json().catch(() => null), 'Erro ao salvar resposta.'), 'error');
+        const res = await apiFetch(`${API_URL}/os/${osDetalhe.id}/checklist/${item.id}`, {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ resposta, geolocalizacao: gps }),
+        });
+        if (!res.ok) {
+          mostrarToast(erroDaResposta(await res.json().catch(() => null), 'Erro ao salvar resposta.'), 'error');
+        }
       }
+      onAtualizado();
     } catch {
-      // Sem internet real (WiFi sem dados): cai para a fila local no Modo Campo.
-      if (tentativa === 0 && isModoCampo()) {
-        registrarFalhaDeRede();
-        return responder(item, resposta, 1);
+      if (isModoCampo()) {
+        mostrarToast('Falha ao salvar a resposta no dispositivo.', 'error');
+      } else {
+        mostrarToast('Erro de conexão ao salvar resposta.', 'error');
       }
-      mostrarToast('Erro de conexão ao salvar resposta.', 'error');
     } finally {
       setSalvandoItem(null);
     }
@@ -362,46 +366,47 @@ function TabChecklist({ osDetalhe, onAtualizado, mostrarToast, podeEditar }) {
     setFotoAlvo(null);
     if (!item || !files?.length) return;
     setEnviandoFoto(item.id);
-    const arquivo = await comprimirImagem(files[0]);
-    const gps = await capturarGeolocalizacao();
+    try {
+      const arquivo = await comprimirImagem(files[0]);
+      const gps = await capturarGeolocalizacao();
 
-    // Offline: guarda a foto no dispositivo e enfileira o envio.
-    if (usarLocal()) {
-      try {
+      // Modo Campo: guarda a foto no dispositivo e enfileira o envio
+      // (mesmo online — não trava a interface aguardando upload).
+      if (isModoCampo()) {
         await enfileirarFoto({ os_id: osDetalhe.id, checklist_item_id: item.id, arquivo, geolocalizacao: gps });
         mostrarToast('Foto salva no dispositivo (será sincronizada).');
-        carregar();
+        onAtualizado();
+        return;
+      }
+
+      const fd = new FormData();
+      fd.append('arquivo', arquivo);
+      try {
+        const qs = gps ? `?geolocalizacao=${encodeURIComponent(gps)}` : '';
+        const res = await apiFetch(`${API_URL}/os/${osDetalhe.id}/checklist/${item.id}/foto${qs}`, {
+          method: 'POST',
+          body: fd,
+        });
+        if (res.ok) {
+          mostrarToast('Foto anexada ao item.');
+        } else {
+          mostrarToast(erroDaResposta(await res.json().catch(() => null), 'Erro ao enviar foto.'), 'error');
+        }
         onAtualizado();
       } catch {
-        mostrarToast('Falha ao salvar a foto no dispositivo.', 'error');
-      } finally {
-        setEnviandoFoto(null);
-      }
-      return;
-    }
-
-    const fd = new FormData();
-    fd.append('arquivo', arquivo);
-    try {
-      const qs = gps ? `?geolocalizacao=${encodeURIComponent(gps)}` : '';
-      const res = await apiFetch(`${API_URL}/os/${osDetalhe.id}/checklist/${item.id}/foto${qs}`, {
-        method: 'POST',
-        body: fd,
-      });
-      if (res.ok) {
-        mostrarToast('Foto anexada ao item.');
-        carregar();
-        onAtualizado();
-      } else {
-        mostrarToast(erroDaResposta(await res.json().catch(() => null), 'Erro ao enviar foto.'), 'error');
+        // Sem internet real (WiFi sem dados): guarda no dispositivo (Modo Campo).
+        if (tentativa === 0 && isModoCampo()) {
+          registrarFalhaDeRede();
+          return enviarFoto(files, 1);
+        }
+        mostrarToast('Erro de conexão ao enviar foto.', 'error');
       }
     } catch {
-      // Sem internet real: guarda no dispositivo (Modo Campo).
-      if (tentativa === 0 && isModoCampo()) {
-        registrarFalhaDeRede();
-        return enviarFoto(files, 1);
+      if (isModoCampo()) {
+        mostrarToast('Falha ao salvar a foto no dispositivo.', 'error');
+      } else {
+        mostrarToast('Erro de conexão ao enviar foto.', 'error');
       }
-      mostrarToast('Erro de conexão ao enviar foto.', 'error');
     } finally {
       setEnviandoFoto(null);
     }
@@ -1397,33 +1402,57 @@ function PainelExecucao({ osId, produtos, capturarGps, onFechar, recarregarLista
   const [aba, setAba] = useState('insumos');
 
   const carregar = useCallback(async (tentativa = 0) => {
+    const campo = isModoCampo();
     try {
-      // Offline: busca no pacote de campo baixado na base.
-      if (usarLocal()) {
+      // MODIFICADO — Modo Campo (mesmo online): renderiza PRIMEIRO do pacote
+      // local; o servidor só é consultado em segundo plano e SILENCIOSO.
+      if (campo || usarLocal()) {
         const local = await getOSLocal(osId);
         if (local) {
           setDetalhe(local);
+          if (!campo || isOffline()) return; // sem internet: só local
+        } else if (campo && isOffline()) {
+          setErro('Esta O.S não está no pacote de campo. Baixe o pacote com internet na base.');
+          return;
+        } else if (!campo) {
+          setErro('Esta O.S não está disponível offline. Conecte-se para baixar o pacote de campo.');
           return;
         }
-        setErro('Esta O.S não está disponível offline. Conecte-se para baixar o pacote de campo.');
+      }
+
+      // Modo Campo online: refresh em segundo plano, silencioso e com timeout
+      // (falha de rede NÃO derruba a tela nem gera erros repetidos).
+      if (campo) {
+        try {
+          const res = await apiFetch(`${API_URL}/os/${osId}`, { signal: AbortSignal.timeout(8000) });
+          const data = await res.json().catch(() => null);
+          if (res.ok && data) {
+            setDetalhe(data);
+            salvarDetalheLocal(data);
+          }
+        } catch {
+          registrarFalhaDeRede();
+        }
         return;
       }
+
+      if (usarLocal()) return;
+
+      // Fora do Modo Campo: o servidor é a fonte (comportamento original).
       const res = await apiFetch(`${API_URL}/os/${osId}`);
       const data = await res.json().catch(() => null);
       if (res.ok) {
         setDetalhe(data);
-        // Em Modo Campo, mantém o pacote local atualizado para o campo.
-        if (isModoCampo()) salvarDetalheLocal(data);
       } else if (res.status === 500 && tentativa === 0 && !usarLocal()) {
         // Erros 500 no detalhe costumam ser transitórios (queda de conexão com
         // o banco no servidor): tenta uma segunda vez antes de exibir o erro.
         setTimeout(() => carregar(1), 1500);
       } else setErro(erroDaResposta(data, 'Erro ao carregar O.S.'));
     } catch {
-      // Falhas de conexão costumam ser transitórias (cold start do servidor,
-      // WiFi sem internet no campo): tenta uma segunda vez — no Modo Campo a
-      // segunda tentativa já cai no pacote local graças à sonda.
+      // Falhas de conexão: no Modo Campo são silenciosas (fica a cópia local);
+      // fora dele tenta uma segunda vez antes de exibir o erro.
       registrarFalhaDeRede();
+      if (campo) return;
       if (tentativa === 0) {
         setTimeout(() => carregar(1), 1500);
       } else {
@@ -1433,6 +1462,14 @@ function PainelExecucao({ osId, produtos, capturarGps, onFechar, recarregarLista
   }, [osId]);
 
   useEffect(() => { carregar(); }, [carregar]);
+
+  // Atualização após ações internas (checklist, evidências, insumos):
+  // no Modo Campo recarrega só do pacote local (rápido e sem rede);
+  // fora dele recarrega detalhe + lista do servidor.
+  const atualizarAposAcao = useCallback(() => {
+    carregar();
+    if (!isModoCampo()) recarregarLista();
+  }, [carregar, recarregarLista]);
 
   if (erro) {
     return (
@@ -1516,7 +1553,7 @@ function PainelExecucao({ osId, produtos, capturarGps, onFechar, recarregarLista
       {aba === 'checklist' && (
         <TabChecklist
           osDetalhe={detalhe}
-          onAtualizado={() => { carregar(); recarregarLista(); }}
+          onAtualizado={atualizarAposAcao}
           mostrarToast={mostrarToast}
           podeEditar={podeEditar}
         />
@@ -1634,7 +1671,7 @@ function PainelExecucao({ osId, produtos, capturarGps, onFechar, recarregarLista
         <CronometroHH
           osDetalhe={detalhe}
           capturarGps={capturarGps}
-          onAtualizado={() => { carregar(); recarregarLista(); }}
+          onAtualizado={atualizarAposAcao}
           mostrarToast={mostrarToast}
           podeEditar={podeEditar}
         />
@@ -1642,7 +1679,7 @@ function PainelExecucao({ osId, produtos, capturarGps, onFechar, recarregarLista
           detalhe={detalhe}
           podeEditar={podeEditar}
           mudarStatus={mudarStatus}
-          aoAplicado={() => { carregar(); recarregarLista(); }}
+          aoAplicado={atualizarAposAcao}
           ehGestor={ehGestor}
           transicoesMap={transicoes}
           onAbrirChecklist={() => setAba('checklist')}
@@ -2547,7 +2584,18 @@ function OrdensServico({ usuarioAtual }) {
 
   const buscarPagina = useCallback(async (offset, reset) => {
     try {
-      // Offline: usa o pacote de campo baixado na base.
+      // MODIFICADO — Modo Campo (mesmo online): a tela usa SEMPRE o pacote
+      // local (lista + catálogo). Sem chamadas ao servidor por interação e
+      // sem toasts de erro de rede durante o uso no campo.
+      if (isModoCampo()) {
+        const [lista, catalogo] = await Promise.all([getListaLocal(), getProdutosLocal()]);
+        setTotalOs(lista.length);
+        setListaOs(lista);
+        if (catalogo.length) setProdutos(catalogo);
+        setLoading(false);
+        return;
+      }
+      // Offline (fora do Modo Campo): usa o pacote de campo baixado na base.
       if (usarLocal()) {
         const lista = await getListaLocal();
         setTotalOs(lista.length);
