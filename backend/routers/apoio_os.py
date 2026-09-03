@@ -710,6 +710,9 @@ def modelo_servicos():
             "    TEXTO no Excel ANTES de digitar — senão o Excel remove os zeros à esquerda.",
             "11. Códigos totalmente numéricos (código de barras) são aceitos e normalizados",
             "    automaticamente (sem decimal no final, ex.: 75012300000000).",
+            "12. DICA: importar com contrato LINHA VIVA converte para 'Linha Viva' os serviços",
+            "    que já existiam como 'Manutenção' (mesmo código). O contrário NÃO acontece:",
+            "    importar com Manutenção preserva serviços já marcados como Linha Viva.",
         ]
         for i, texto in enumerate(linhas, start=1):
             ws_instrucoes.cell(row=i, column=1, value=texto)
@@ -874,10 +877,21 @@ def importar_servicos(
             try:
                 alvo = None
                 if codigo:
-                    resp = db.table("produtos").select("id, ativo").eq("codigo", codigo).limit(1).execute()
+                    resp = db.table("produtos").select("id, ativo, tipo").eq("codigo", codigo).limit(1).execute()
                     if resp.data:
                         alvo = resp.data[0]
                 ignorar_id = alvo["id"] if alvo else None
+
+                # Promoção única de tipo na família manutenção/linha viva:
+                # importar com contrato LINHA VIVA converte serviços
+                # equivalentes cadastrados como manutenção (badge passa a
+                # exibir Linha Viva). O caminho inverso (importar com
+                # Manutenção sobre serviço linha_viva) PRESERVA o tipo.
+                promover_para_linha_viva = bool(
+                    alvo
+                    and tipo == "linha_viva"
+                    and (alvo.get("tipo") or "").strip() == "manutencao"
+                )
 
                 # Namespace global de códigos (normal/especial compartilhado).
                 colisao = None
@@ -906,6 +920,8 @@ def importar_servicos(
                     "preco_unitario": valores["preco_unitario"],
                     "qtd_usc_especial": valores["qtd_usc_especial"],
                 }
+                if promover_para_linha_viva:
+                    campos["tipo"] = "linha_viva"
 
                 if simular:
                     if alvo:

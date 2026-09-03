@@ -342,6 +342,82 @@ def test_importar_codigo_numerico_normalizado_sem_decimal(os_gestor_client, db_f
     assert "ABC-001" in gravados
 
 
+def test_importar_linha_viva_promove_manutencao_existente(os_gestor_client, db_fake):
+    """Reimportar com contrato Linha Viva converte serviços da família que
+    estavam cadastrados como manutenção (badge passa a exibir Linha Viva)."""
+    db_fake._dados["produtos"].append(
+        {
+            "id": 1,
+            "codigo": "MNT-01",
+            "codigo_especial": None,
+            "nome": "Serviço de manutenção",
+            "unidade": "UN",
+            "preco_unitario": 1.0,
+            "qtd_usc_especial": 0.0,
+            "tipo": "manutencao",
+            "ativo": True,
+        }
+    )
+    buffer = _montar_planilha([["Serviço de manutenção", "MNT-01", "", "UN", "1", ""]])
+    resp = _importar(os_gestor_client, buffer, tipo="linha_viva")
+    assert resp.status_code == 200, resp.text
+    dados = resp.json()
+    assert dados["atualizados"] == 1
+    assert dados["criados"] == 0
+    assert dados["erros"] == []
+    reg = db_fake._dados["produtos"][0]
+    assert reg["tipo"] == "linha_viva"
+
+
+def test_importar_manutencao_preserva_linha_viva_existente(os_gestor_client, db_fake):
+    """Importar com Manutenção NÃO rebaixa serviço já marcado como linha viva."""
+    db_fake._dados["produtos"].append(
+        {
+            "id": 1,
+            "codigo": "LV-01",
+            "codigo_especial": None,
+            "nome": "Serviço de linha viva",
+            "unidade": "UN",
+            "preco_unitario": 1.0,
+            "qtd_usc_especial": 0.0,
+            "tipo": "linha_viva",
+            "ativo": True,
+        }
+    )
+    buffer = _montar_planilha([["Serviço de linha viva (novo nome)", "LV-01", "", "UN", "2", ""]])
+    resp = _importar(os_gestor_client, buffer, tipo="manutencao")
+    assert resp.status_code == 200, resp.text
+    dados = resp.json()
+    assert dados["atualizados"] == 1
+    reg = db_fake._dados["produtos"][0]
+    assert reg["tipo"] == "linha_viva"  # preservado
+    assert reg["nome"] == "Serviço de linha viva (novo nome)"  # demais campos atualizados
+    assert reg["preco_unitario"] == 2.0
+
+
+def test_importar_linha_viva_preserva_construcao_existente(os_gestor_client, db_fake):
+    """Código de serviço de construção não é convertido por importação de linha viva."""
+    db_fake._dados["produtos"].append(
+        {
+            "id": 1,
+            "codigo": "CT-01",
+            "codigo_especial": None,
+            "nome": "Serviço de construção",
+            "unidade": "UN",
+            "preco_unitario": 1.0,
+            "qtd_usc_especial": 0.0,
+            "tipo": "construcao",
+            "ativo": True,
+        }
+    )
+    buffer = _montar_planilha([["Serviço de construção", "CT-01", "", "UN", "1", ""]])
+    resp = _importar(os_gestor_client, buffer, tipo="linha_viva")
+    assert resp.status_code == 200, resp.text
+    assert resp.json()["atualizados"] == 1
+    reg = db_fake._dados["produtos"][0]
+    assert reg["tipo"] == "construcao"
+
+
 def test_importar_restrito_ao_gestor(os_campo_client):
     buffer = _montar_planilha([["Serviço do campo", "CAMPO-01", "", "UN", "1", ""]])
     resp = _importar(os_campo_client, buffer)
