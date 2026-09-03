@@ -17,6 +17,7 @@ import {
   getOSLocal, getChecklistLocal, getListaLocal, getProdutosLocal, salvarDetalheLocal, salvarChecklistLocal,
   atualizarStatusLocal, atualizarRespostaLocal, recalcularResumo,
   enfileirarOperacao, enfileirarFoto, contarPendentes,
+  registrarFotoItemLocal, hidratarFotosPendentes,
   salvarResponsavelLocal,
   registrarFalhaDeRede, testarConexao,
 } from '../offline/offline';
@@ -88,14 +89,66 @@ const fmtData = (iso) => {
 };
 
 // Captura a geolocalização do dispositivo (sem bloqueio por raio).
+// Com cache curto (60s) e timeout reduzido: no campo, agir (responder, foto)
+// não pode ficar esperando o GPS — usa a última posição válida se necessário.
+const _cacheGps = { valor: null, em: 0 };
+const GPS_CACHE_MS = 60 * 1000;
+const GPS_TIMEOUT_MS = 2500;
 const capturarGeolocalizacao = () => new Promise((resolve) => {
-  if (!navigator.geolocation) return resolve(null);
+  const agora = Date.now();
+  if (_cacheGps.valor && agora - _cacheGps.em < GPS_CACHE_MS) {
+    return resolve(_cacheGps.valor);
+  }
+  if (!navigator.geolocation) return resolve(_cacheGps.valor);
   navigator.geolocation.getCurrentPosition(
-    (pos) => resolve(`${pos.coords.latitude.toFixed(6)},${pos.coords.longitude.toFixed(6)}`),
-    () => resolve(null),
-    { timeout: 8000 },
+    (pos) => {
+      const valor = `${pos.coords.latitude.toFixed(6)},${pos.coords.longitude.toFixed(6)}`;
+      _cacheGps.valor = valor;
+      _cacheGps.em = Date.now();
+      resolve(valor);
+    },
+    () => resolve(_cacheGps.valor),
+    { timeout: GPS_TIMEOUT_MS, maximumAge: GPS_CACHE_MS },
   );
 });
+
+// ---------------------------------------------------------------------------
+// Seletor de fotos (câmera / galeria)
+// ---------------------------------------------------------------------------
+// Abre o seletor de imagens criando um <input type="file"> NOVO a cada chamada
+// e o remove ao final (evita o bug do Android em que o mesmo input "para" de
+// abrir a câmera após usos).
+//   - capture: true  -> capture="environment": abre a CÂMERA direto;
+//   - capture: false -> abre a galeria/arquivos.
+// Resolve com File[] (vazio se o usuário cancelar).
+function abrirSeletorFoto({ capture = false, multiple = false } = {}) {
+  return new Promise((resolve) => {
+    const input = document.createElement('input');
+    input.type = 'file';
+    input.accept = 'image/*';
+    if (capture) input.setAttribute('capture', 'environment');
+    if (multiple) input.multiple = true;
+    input.style.display = 'none';
+    document.body.appendChild(input);
+
+    let concluido = false;
+    const finalizar = () => {
+      // Ao voltar da câmera o foco pode retornar ANTES do "change": aguarda um
+      // instante e relê os arquivos (cancelamento não dispara "change").
+      setTimeout(() => {
+        if (concluido) return;
+        concluido = true;
+        const arquivos = input.files ? Array.from(input.files) : [];
+        window.removeEventListener('focus', finalizar);
+        if (input.parentNode) input.parentNode.removeChild(input);
+        resolve(arquivos);
+      }, 1200);
+    };
+    input.addEventListener('change', finalizar, { once: true });
+    window.addEventListener('focus', finalizar);
+    input.click();
+  });
+}
 
 // ---------------------------------------------------------------------------
 // Componentes pequenos reutilizáveis
@@ -214,7 +267,6 @@ function TabChecklist({ osDetalhe, onAtualizado, mostrarToast, podeEditar }) {
   const [enviandoFoto, setEnviandoFoto] = useState(null); // item recebendo foto
   const [fotoAlvo, setFotoAlvo] = useState(null); // item para anexar foto
   const [grupoAberto, setGrupoAberto] = useState(null); // grupo expandido do acordeão
-  const inputFotoRef = useRef(null);
   const inicializouGrupo = useRef(false);
 
   const carregar = useCallback(async () => {
@@ -226,9 +278,11 @@ function TabChecklist({ osDetalhe, onAtualizado, mostrarToast, podeEditar }) {
       //    renderiza na hora, sem depender de sonda/estado de conexão.
       let localAchado = false;
       if (modoCampo || usarLocal()) {
-        const local = await getChecklistLocal(osDetalhe.id);
+        let local = await getChecklistLocal(osDetalhe.id);
         if (local) {
           localAchado = true;
+          // Reconstrói os previews de fotos ainda não sincronizadas (offline).
+          local = await hidratarFotosPendentes(local);
           setDados({ itens: local.itens || [], resumo: local.resumo });
         } else if (!modoCampo) {
           mostrarToast('Checklist indisponível offline (baixe o pacote de campo).', 'error');
@@ -306,6 +360,17 @@ function TabChecklist({ osDetalhe, onAtualizado, mostrarToast, podeEditar }) {
     });
   };
 
+  // Reflete no estado da tela a foto pendente recém-tirada (preview offline).
+  const refletirFotoLocal = (itemId, entrada) => {
+    setDados(prev => {
+      if (!prev) return prev;
+      const itens = prev.itens.map(i => (i.id === itemId
+        ? { ...i, fotos: [...(i.fotos || []).filter(f => !f.pendente), entrada] }
+        : i));
+      return { itens, resumo: prev.resumo };
+    });
+  };
+
   const responder = async (item, resposta, tentativa = 0) => {
     if (!podeEditar) return;
     setSalvandoItem(item.id);
@@ -365,10 +430,17 @@ function TabChecklist({ osDetalhe, onAtualizado, mostrarToast, podeEditar }) {
     const arquivo = await comprimirImagem(files[0]);
     const gps = await capturarGeolocalizacao();
 
-    // Offline: guarda a foto no dispositivo e enfileira o envio.
+    // Offline: guarda a foto no dispositivo, enfileira o envio e mostra o
+    // PREVIEW imediato abaixo da pergunta (o servidor confirmará na sync).
     if (usarLocal()) {
       try {
-        await enfileirarFoto({ os_id: osDetalhe.id, checklist_item_id: item.id, arquivo, geolocalizacao: gps });
+        const { entrada } = await registrarFotoItemLocal({
+          os_id: osDetalhe.id,
+          item_id: item.id,
+          arquivo,
+          geolocalizacao: gps,
+        });
+        refletirFotoLocal(item.id, entrada);
         mostrarToast('Foto salva no dispositivo (será sincronizada).');
         carregar();
         onAtualizado();
@@ -549,13 +621,27 @@ function TabChecklist({ osDetalhe, onAtualizado, mostrarToast, podeEditar }) {
                               <p className="text-[10px] text-rose-600 font-semibold mt-1">Justificativa: {justificativa}</p>
                             )}
                             {temFoto && (
-                              <div className="flex gap-2 mt-1.5">
-                                {item.fotos.map(f => (
-                                  <a key={f.id} href={f.url_temporaria} target="_blank" rel="noopener noreferrer" title="Abrir foto">
-                                    <img src={f.url_temporaria} alt={f.nome_original}
+                              <div className="flex flex-wrap gap-2 mt-1.5">
+                                {item.fotos.map(f => {
+                                  const img = (
+                                    <img src={f.url_temporaria} alt={f.nome_original || 'foto'}
                                       className="w-16 h-16 rounded-lg object-cover border border-slate-200" loading="lazy" />
-                                  </a>
-                                ))}
+                                  );
+                                  return (
+                                    <div key={f.id} className="relative w-16 h-16">
+                                      {f.url_temporaria ? (
+                                        <a href={f.url_temporaria} target="_blank" rel="noopener noreferrer" title="Abrir foto">
+                                          {img}
+                                        </a>
+                                      ) : img}
+                                      {f.pendente && (
+                                        <span className="absolute -bottom-1 right-0 text-[8px] font-bold px-1 py-0.5 rounded-full bg-amber-100 text-amber-700 border border-amber-200">
+                                          sincronizando…
+                                        </span>
+                                      )}
+                                    </div>
+                                  );
+                                })}
                               </div>
                             )}
                           </div>
@@ -570,16 +656,6 @@ function TabChecklist({ osDetalhe, onAtualizado, mostrarToast, podeEditar }) {
         })}
       </div>
 
-      <input
-        ref={inputFotoRef}
-        type="file"
-        accept="image/*"
-        hidden
-        onChange={(e) => {
-          if (e.target.files?.length) enviarFoto(Array.from(e.target.files));
-          e.target.value = '';
-        }}
-      />
       {fotoAlvo && (
         <div className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center z-50 p-4">
           <div className="bg-white rounded-2xl shadow-2xl max-w-sm w-full p-6 text-center animate-in fade-in zoom-in duration-200">
@@ -589,9 +665,27 @@ function TabChecklist({ osDetalhe, onAtualizado, mostrarToast, podeEditar }) {
             <h4 className="text-sm font-extrabold text-slate-800 mb-1">Evidência fotográfica</h4>
             <p className="text-xs text-slate-500 mb-5">{fotoAlvo.classificacao} {fotoAlvo.pergunta}</p>
             <div className="space-y-2">
-              <button onClick={() => inputFotoRef.current?.click()}
-                className="w-full py-3 bg-primary-600 text-white rounded-xl text-sm font-bold hover:bg-primary-700 cursor-pointer">
-                Tirar / Escolher foto
+              <button
+                type="button"
+                disabled={enviandoFoto === fotoAlvo.id}
+                onClick={async () => {
+                  const files = await abrirSeletorFoto({ capture: true });
+                  if (files.length) enviarFoto(files);
+                }}
+                className="w-full py-3 bg-primary-600 text-white rounded-xl text-sm font-bold hover:bg-primary-700 cursor-pointer disabled:opacity-40"
+              >
+                {enviandoFoto === fotoAlvo.id ? 'Enviando...' : 'Tirar foto'}
+              </button>
+              <button
+                type="button"
+                disabled={enviandoFoto === fotoAlvo.id}
+                onClick={async () => {
+                  const files = await abrirSeletorFoto({ multiple: true });
+                  if (files.length) enviarFoto(files);
+                }}
+                className="w-full py-2.5 border border-slate-200 text-slate-600 rounded-xl text-sm font-semibold hover:bg-slate-50 cursor-pointer disabled:opacity-40"
+              >
+                Escolher da galeria
               </button>
               <button onClick={() => setFotoAlvo(null)}
                 className="w-full py-2.5 border border-slate-200 text-slate-600 rounded-xl text-sm font-semibold hover:bg-slate-50 cursor-pointer">
@@ -1041,7 +1135,6 @@ function TabEvidencias({ osDetalhe, onAtualizado, mostrarToast, podeEditar, pode
   const [fotos, setFotos] = useState([]);
   const [enviando, setEnviando] = useState(false);
   const [fotoParaExcluir, setFotoParaExcluir] = useState(null); // ID aguardando confirmação
-  const inputRef = useRef(null);
 
   const carregarFotos = useCallback(async () => {
     try {
@@ -1088,27 +1181,33 @@ function TabEvidencias({ osDetalhe, onAtualizado, mostrarToast, podeEditar, pode
 
   return (
     <div className="space-y-4">
-      {/* Botão grande de câmera: captura direta no celular */}
-      <button
-        type="button"
-        disabled={!podeEditar || enviando}
-        onClick={() => inputRef.current?.click()}
-        className="w-full h-24 rounded-2xl border-2 border-dashed border-primary-300 bg-primary-50/60 hover:bg-primary-50 text-primary-700 font-bold flex flex-col items-center justify-center gap-1.5 disabled:opacity-40 cursor-pointer transition-all"
-      >
-        <Camera size={28} />
-        {enviando ? 'Enviando...' : 'Tirar / Anexar Foto'}
-      </button>
-      <input
-        ref={inputRef}
-        type="file"
-        accept="image/*"
-        multiple
-        hidden
-        onChange={(e) => {
-          if (e.target.files?.length) enviarArquivos(Array.from(e.target.files));
-          e.target.value = '';
-        }}
-      />
+      {/* Captura de evidência: câmera direta OU galeria (seletores separados) */}
+      <div className="grid grid-cols-2 gap-2">
+        <button
+          type="button"
+          disabled={!podeEditar || enviando}
+          onClick={async () => {
+            const files = await abrirSeletorFoto({ capture: true });
+            if (files.length) enviarArquivos(files);
+          }}
+          className="h-24 rounded-2xl border-2 border-dashed border-primary-300 bg-primary-50/60 hover:bg-primary-50 text-primary-700 font-bold flex flex-col items-center justify-center gap-1.5 disabled:opacity-40 cursor-pointer transition-all"
+        >
+          <Camera size={28} />
+          {enviando ? 'Enviando...' : 'Tirar foto'}
+        </button>
+        <button
+          type="button"
+          disabled={!podeEditar || enviando}
+          onClick={async () => {
+            const files = await abrirSeletorFoto({ multiple: true });
+            if (files.length) enviarArquivos(files);
+          }}
+          className="h-24 rounded-2xl border-2 border-dashed border-slate-300 bg-white hover:bg-slate-50 text-slate-600 font-bold flex flex-col items-center justify-center gap-1.5 disabled:opacity-40 cursor-pointer transition-all"
+        >
+          <ImageIcon size={26} />
+          Anexar fotos
+        </button>
+      </div>
 
       <div className="grid grid-cols-3 sm:grid-cols-4 gap-2">
         {fotos.map(f => (
@@ -2162,7 +2261,6 @@ function ModalImpedimento({ aberto, osAlvo, onConfirmar, onCancelar, processando
   const [justificativa, setJustificativa] = useState('');
   const [fotos, setFotos] = useState([]);
   const [enviandoFoto, setEnviandoFoto] = useState(false);
-  const inputFotoRef = useRef(null);
 
   useEffect(() => {
     if (aberto) {
@@ -2249,35 +2347,50 @@ function ModalImpedimento({ aberto, osAlvo, onConfirmar, onCancelar, processando
               <span className="w-4 h-4 rounded-full bg-orange-500 text-white text-[9px] font-black flex items-center justify-center">2</span>
               Anexar foto de evidência
             </p>
-            <button
-              type="button"
-              disabled={enviandoFoto}
-              onClick={() => inputFotoRef.current?.click()}
-              className={`w-full h-20 rounded-xl border-2 border-dashed font-bold flex flex-col items-center justify-center gap-1.5 transition-all cursor-pointer text-sm disabled:opacity-50 ${
-                fotos.length > 0
-                  ? 'border-emerald-400 bg-emerald-50 text-emerald-700'
-                  : 'border-orange-300 bg-orange-50 text-orange-700'
-              }`}
-            >
-              <Camera size={22} />
-              {enviandoFoto
-                ? 'Enviando...'
-                : fotos.length > 0
-                  ? `✓ ${fotos.length} foto(s) anexada(s) — adicionar mais`
-                  : 'Tirar / Escolher foto de evidência'
-              }
-            </button>
-            <input
-              ref={inputFotoRef}
-              type="file"
-              accept="image/*"
-              multiple
-              hidden
-              onChange={(e) => {
-                if (e.target.files?.length) enviarFotos(Array.from(e.target.files));
-                e.target.value = '';
-              }}
-            />
+            <div className="grid grid-cols-2 gap-2">
+              <button
+                type="button"
+                disabled={enviandoFoto}
+                onClick={async () => {
+                  const files = await abrirSeletorFoto({ capture: true });
+                  if (files.length) enviarFotos(files);
+                }}
+                className={`h-20 rounded-xl border-2 border-dashed font-bold flex flex-col items-center justify-center gap-1.5 transition-all cursor-pointer text-sm disabled:opacity-50 ${
+                  fotos.length > 0
+                    ? 'border-emerald-400 bg-emerald-50 text-emerald-700'
+                    : 'border-orange-300 bg-orange-50 text-orange-700'
+                }`}
+              >
+                <Camera size={22} />
+                {enviandoFoto
+                  ? 'Enviando...'
+                  : fotos.length > 0
+                    ? `✓ ${fotos.length} — adicionar`
+                    : 'Tirar foto'
+                }
+              </button>
+              <button
+                type="button"
+                disabled={enviandoFoto}
+                onClick={async () => {
+                  const files = await abrirSeletorFoto({ multiple: true });
+                  if (files.length) enviarFotos(files);
+                }}
+                className={`h-20 rounded-xl border-2 border-dashed font-bold flex flex-col items-center justify-center gap-1.5 transition-all cursor-pointer text-sm disabled:opacity-50 ${
+                  fotos.length > 0
+                    ? 'border-emerald-400 bg-emerald-50 text-emerald-700'
+                    : 'border-slate-300 bg-white text-slate-600'
+                }`}
+              >
+                <ImageIcon size={22} />
+                {enviandoFoto
+                  ? 'Enviando...'
+                  : fotos.length > 0
+                    ? `✓ ${fotos.length} — anexar mais`
+                    : 'Escolher da galeria'
+                }
+              </button>
+            </div>
           </div>
 
           {/* Checklist de validação */}
