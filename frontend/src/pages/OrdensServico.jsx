@@ -3639,13 +3639,13 @@ function PainelCadastros({ obras, equipes, produtos, recarregar, mostrarToast })
         if (data.importados > 0 && numErros === 0) {
           mostrarToast(`${data.importados} serviço(s) importado(s) com sucesso!`);
         } else if (data.importados > 0 && numErros > 0) {
-          mostrarToast(`${data.importados} importado(s), ${numErros} com erro. Confira o relatório.`, 'error');
+          mostrarToast(`${data.importados} importado(s), ${numErros} com erro. Confira o relatório abaixo.`, 'error');
         } else {
-          mostrarToast('Nenhum serviço importado. Verifique os erros.', 'error');
+          mostrarToast('Nenhum serviço importado. Verifique os erros abaixo.', 'error');
         }
-        setModalImportar(false);
-        setImpArquivo(null);
-        setImpResumo(null);
+        // Mantém o modal aberto com o RELATÓRIO FINAL (linhas com erro), para
+        // conferência — só fecha quando o usuário clicar em Fechar.
+        setImpResumo(prev => (prev ? { ...prev, resumo: data, confirmado: true } : prev));
         recarregar();
       } else {
         mostrarToast(erroDaResposta(data, 'Erro ao importar planilha.'), 'error');
@@ -3655,6 +3655,13 @@ function PainelCadastros({ obras, equipes, produtos, recarregar, mostrarToast })
     } finally {
       setImpProcessando(false);
     }
+  };
+
+  const reiniciarImportacao = () => {
+    setImpArquivo(null);
+    setImpResumo(null);
+    setImpContrato('construcao');
+    if (inputImportRef.current) inputImportRef.current.value = '';
   };
 
   const ABAS = [
@@ -4302,9 +4309,13 @@ function PainelCadastros({ obras, equipes, produtos, recarregar, mostrarToast })
           <div className="bg-white rounded-2xl w-full max-w-lg p-6 shadow-xl" onClick={e => e.stopPropagation()}>
             <div className="flex items-start justify-between mb-4">
               <div>
-                <h3 className="text-sm font-extrabold text-slate-800">Importar serviços em lote</h3>
+                <h3 className="text-sm font-extrabold text-slate-800">
+                  {impResumo?.confirmado ? 'Importação concluída' : 'Importar serviços em lote'}
+                </h3>
                 <p className="text-[11px] text-slate-400 mt-0.5">
-                  Planilha .xlsx — um serviço por linha. Códigos iguais aos cadastrados são atualizados.
+                  {impResumo?.confirmado
+                    ? 'Confira o relatório abaixo. As linhas em vermelho não foram aplicadas.'
+                    : 'Planilha .xlsx — um serviço por linha. Códigos iguais aos cadastrados são atualizados.'}
                 </p>
               </div>
               <button
@@ -4351,9 +4362,9 @@ function PainelCadastros({ obras, equipes, produtos, recarregar, mostrarToast })
               )}
 
               {impResumo && !impProcessando && (
-                <div className="rounded-xl border border-slate-100 bg-slate-50 p-3 space-y-2">
-                  <p className="text-[10px] font-bold uppercase tracking-wider text-slate-400">
-                    Prévia (nada foi gravado ainda)
+                <div className={`rounded-xl border p-3 space-y-2 ${impResumo.confirmado ? 'border-slate-200 bg-white' : 'border-slate-100 bg-slate-50'}`}>
+                  <p className={`text-[10px] font-bold uppercase tracking-wider ${impResumo.confirmado ? 'text-slate-500' : 'text-slate-400'}`}>
+                    {impResumo.confirmado ? 'Relatório final da importação' : 'Prévia (nada foi gravado ainda)'}
                   </p>
                   <div className="flex flex-wrap gap-2 text-[11px] font-bold">
                     <span className="px-2 py-1 rounded-lg bg-emerald-50 text-emerald-700 border border-emerald-100">
@@ -4391,15 +4402,24 @@ function PainelCadastros({ obras, equipes, produtos, recarregar, mostrarToast })
                 className="flex-1 py-2.5 bg-white border border-slate-200 text-slate-600 rounded-xl text-xs font-bold hover:bg-slate-50 transition-all cursor-pointer disabled:opacity-40"
                 disabled={impProcessando}
               >
-                Cancelar
+                {impResumo?.confirmado ? 'Fechar' : 'Cancelar'}
               </button>
-              {impResumo && !impProcessando && (
+              {impResumo && !impProcessando && !impResumo.confirmado && (
                 <button
                   type="button"
                   onClick={confirmarImportacaoServicos}
                   className="flex-[2] py-2.5 bg-emerald-600 text-white rounded-xl text-xs font-bold hover:bg-emerald-700 transition-all cursor-pointer"
                 >
                   Confirmar importação
+                </button>
+              )}
+              {impResumo?.confirmado && !impProcessando && (
+                <button
+                  type="button"
+                  onClick={reiniciarImportacao}
+                  className="flex-[2] py-2.5 bg-primary-600 text-white rounded-xl text-xs font-bold hover:bg-primary-700 transition-all cursor-pointer"
+                >
+                  Importar outro arquivo
                 </button>
               )}
             </div>
