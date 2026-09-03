@@ -287,6 +287,81 @@ export async function enfileirarFoto({ os_id, checklist_item_id, arquivo, geoloc
   return foto;
 }
 
+// ---------------------------------------------------------------------------
+// Preview local de fotos de checklist (Modo Campo)
+// ---------------------------------------------------------------------------
+// URLs temporárias das fotos pendentes (id_local -> object URL), reaproveitadas
+// enquanto a sessão durar — evita criar uma URL nova a cada recarga do painel.
+const _urlsFotosPendentes = new Map(); // chave `checklist_item_id:id_local`
+
+function _urlFotoPendente(foto) {
+  const chave = `${foto.checklist_item_id}:${foto.id_local}`;
+  let url = _urlsFotosPendentes.get(chave);
+  if (!url && foto.arquivo?.blob) {
+    url = URL.createObjectURL(foto.arquivo.blob);
+    _urlsFotosPendentes.set(chave, url);
+  }
+  return url || '';
+}
+
+/** Guarda a foto no dispositivo e a anexa ao item do checklist local
+ * (preview imediato com entrada `pendente`). Retorna {foto, entrada}. */
+export async function registrarFotoItemLocal({ os_id, item_id, arquivo, geolocalizacao }) {
+  const foto = await enfileirarFoto({ os_id, checklist_item_id: item_id, arquivo, geolocalizacao });
+  const entrada = {
+    id: foto.id_local,
+    id_local: foto.id_local,
+    url_temporaria: _urlFotoPendente(foto),
+    nome_original: arquivo.name || 'foto.jpg',
+    mime_type: arquivo.type || 'image/jpeg',
+    pendente: true,
+  };
+  await anexarFotoLocalAoItem(os_id, item_id, entrada);
+  return { foto, entrada };
+}
+
+/** Anexa uma entrada pendente ao item (mantendo as fotos reais do servidor). */
+export async function anexarFotoLocalAoItem(osId, itemId, entrada) {
+  osId = Number(osId);
+  const dados = await dbGet('checklist', osId);
+  if (!dados?.itens) return;
+  const item = dados.itens.find(i => i.id === itemId);
+  if (!item) return;
+  const fotosReais = (item.fotos || []).filter(f => !f.pendente);
+  item.fotos = [...fotosReais, entrada];
+  await dbPut('checklist', dados);
+}
+
+/** Reconstrói os previews de fotos pendentes ao ler o checklist local
+ * (cobre reabrir o painel ou reiniciar o tablet antes da sincronização). */
+export async function hidratarFotosPendentes(dados) {
+  const pendentes = (await dbGetAll('fotos')).filter(
+    f => f.checklist_item_id != null && f.status === 'pendente' && f.arquivo?.blob,
+  );
+  if (!pendentes.length) return dados;
+  const porItem = new Map();
+  for (const p of pendentes) {
+    const grupo = porItem.get(p.checklist_item_id) || [];
+    grupo.push(p);
+    porItem.set(p.checklist_item_id, grupo);
+  }
+  const itens = (dados.itens || []).map(item => {
+    const regs = porItem.get(item.id);
+    if (!regs) return item;
+    const reais = (item.fotos || []).filter(f => !f.pendente);
+    const locais = regs.map(p => ({
+      id: p.id_local,
+      id_local: p.id_local,
+      url_temporaria: _urlFotoPendente(p),
+      nome_original: p.arquivo.nome,
+      mime_type: p.arquivo.tipo,
+      pendente: true,
+    }));
+    return { ...item, fotos: [...reais, ...locais] };
+  });
+  return { ...dados, itens };
+}
+
 export async function contarPendentes() {
   const [ops, fotos] = await Promise.all([dbGetAll('fila'), dbGetAll('fotos')]);
   return { operacoes: ops.length, fotos: fotos.length, total: ops.length + fotos.length };

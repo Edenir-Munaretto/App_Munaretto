@@ -17,6 +17,7 @@ import {
   getOSLocal, getChecklistLocal, getListaLocal, getProdutosLocal, salvarDetalheLocal, salvarChecklistLocal,
   atualizarStatusLocal, atualizarRespostaLocal, recalcularResumo,
   enfileirarOperacao, enfileirarFoto, contarPendentes,
+  registrarFotoItemLocal, hidratarFotosPendentes,
   salvarResponsavelLocal,
   registrarFalhaDeRede, testarConexao,
 } from '../offline/offline';
@@ -281,9 +282,11 @@ function TabChecklist({ osDetalhe, onAtualizado, mostrarToast, podeEditar }) {
       //    renderiza na hora, sem depender de sonda/estado de conexão.
       let localAchado = false;
       if (modoCampo || usarLocal()) {
-        const local = await getChecklistLocal(osDetalhe.id);
+        let local = await getChecklistLocal(osDetalhe.id);
         if (local) {
           localAchado = true;
+          // Reconstrói os previews de fotos ainda não sincronizadas (Modo Campo).
+          if (modoCampo) local = await hidratarFotosPendentes(local);
           setDados({ itens: local.itens || [], resumo: local.resumo });
         } else if (!modoCampo) {
           mostrarToast('Checklist indisponível offline (baixe o pacote de campo).', 'error');
@@ -361,6 +364,17 @@ function TabChecklist({ osDetalhe, onAtualizado, mostrarToast, podeEditar }) {
     });
   };
 
+  // Reflete no estado da tela a foto pendente recém-tirada (preview imediato).
+  const refletirFotoLocal = (itemId, entrada) => {
+    setDados(prev => {
+      if (!prev) return prev;
+      const itens = prev.itens.map(i => (i.id === itemId
+        ? { ...i, fotos: [...(i.fotos || []).filter(f => !f.pendente), entrada] }
+        : i));
+      return { itens, resumo: prev.resumo };
+    });
+  };
+
   const responder = async (item, resposta) => {
     if (!podeEditar) return;
     setSalvandoItem(item.id);
@@ -411,10 +425,17 @@ function TabChecklist({ osDetalhe, onAtualizado, mostrarToast, podeEditar }) {
       const arquivo = await comprimirImagem(files[0]);
       const gps = await capturarGeolocalizacao();
 
-      // Modo Campo: guarda a foto no dispositivo e enfileira o envio
-      // (mesmo online — não trava a interface aguardando upload).
+      // Modo Campo: guarda a foto no dispositivo, enfileira o envio e mostra o
+      // PREVIEW imediato abaixo da pergunta (mesmo online — não trava a
+      // interface aguardando upload).
       if (isModoCampo()) {
-        await enfileirarFoto({ os_id: osDetalhe.id, checklist_item_id: item.id, arquivo, geolocalizacao: gps });
+        const { entrada } = await registrarFotoItemLocal({
+          os_id: osDetalhe.id,
+          item_id: item.id,
+          arquivo,
+          geolocalizacao: gps,
+        });
+        refletirFotoLocal(item.id, entrada);
         mostrarToast('Foto salva no dispositivo (será sincronizada).');
         onAtualizado();
         return;
@@ -595,13 +616,27 @@ function TabChecklist({ osDetalhe, onAtualizado, mostrarToast, podeEditar }) {
                               <p className="text-[10px] text-rose-600 font-semibold mt-1">Justificativa: {justificativa}</p>
                             )}
                             {temFoto && (
-                              <div className="flex gap-2 mt-1.5">
-                                {item.fotos.map(f => (
-                                  <a key={f.id} href={f.url_temporaria} target="_blank" rel="noopener noreferrer" title="Abrir foto">
-                                    <img src={f.url_temporaria} alt={f.nome_original}
+                              <div className="flex flex-wrap gap-2 mt-1.5">
+                                {item.fotos.map(f => {
+                                  const img = (
+                                    <img src={f.url_temporaria} alt={f.nome_original || 'foto'}
                                       className="w-16 h-16 rounded-lg object-cover border border-slate-200" loading="lazy" />
-                                  </a>
-                                ))}
+                                  );
+                                  return (
+                                    <div key={f.id} className="relative w-16 h-16">
+                                      {f.url_temporaria ? (
+                                        <a href={f.url_temporaria} target="_blank" rel="noopener noreferrer" title="Abrir foto">
+                                          {img}
+                                        </a>
+                                      ) : img}
+                                      {f.pendente && (
+                                        <span className="absolute -bottom-1 right-0 text-[8px] font-bold px-1 py-0.5 rounded-full bg-amber-100 text-amber-700 border border-amber-200">
+                                          sincronizando…
+                                        </span>
+                                      )}
+                                    </div>
+                                  );
+                                })}
                               </div>
                             )}
                           </div>
