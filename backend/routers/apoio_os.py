@@ -366,17 +366,6 @@ def excluir_equipe(equipe_id: int, db=Depends(get_supabase)):
 
 TIPOS_SERVICO = {"construcao", "manutencao", "linha_viva"}
 
-# Manutenção e Linha Viva compartilham o MESMO catálogo de serviços
-# (espelha FAMILIA_LINHA_VIVA de routers/os.py). Construção permanece isolada.
-FAMILIA_LINHA_VIVA = {"manutencao", "linha_viva"}
-
-
-def _servico_serve_para_tipo(tipo_servico: str | None, tipo: str) -> bool:
-    """True quando o serviço pertence ao catálogo do filtro `tipo`."""
-    if not tipo_servico or tipo_servico == tipo:
-        return True
-    return tipo_servico in FAMILIA_LINHA_VIVA and tipo in FAMILIA_LINHA_VIVA
-
 
 def _validar_tipo_servico(tipo: str) -> None:
     if tipo not in TIPOS_SERVICO:
@@ -386,23 +375,29 @@ def _validar_tipo_servico(tipo: str) -> None:
         )
 
 
-def _codigo_produto_em_uso(db, valor: str, ignorar_id: int | None = None) -> dict | None:
-    """Procura `valor` na coluna `codigo` OU `codigo_especial` de outro serviço.
+def _codigo_produto_em_uso(db, valor: str, tipo: str, ignorar_id: int | None = None) -> dict | None:
+    """Procura `valor` em `codigo`/`codigo_especial` de OUTRO serviço do MESMO
+    contrato — ou de um legado (tipo NULL), que vale para todos os contratos.
 
-    Os dois campos compartilham o mesmo namespace de códigos: um código não
-    pode ser o normal de um serviço e o especial de outro (ambigüidade na
-    bipagem). O próprio registro sendo editado é ignorado.
+    CONTRATOS INDEPENDENTES: cada contrato tem o seu catálogo, portanto o
+    mesmo código pode existir em contratos diferentes (registros separados).
+    A ambigüidade (código normal de um serviço = especial de outro) só vale
+    dentro do mesmo contrato. O próprio registro editado é ignorado.
     """
     for coluna in ("codigo", "codigo_especial"):
-        resp = db.table("produtos").select("id, nome").eq(coluna, valor).execute()
+        resp = db.table("produtos").select("id, nome, tipo").eq(coluna, valor).execute()
         for linha in resp.data or []:
-            if ignorar_id is None or linha["id"] != ignorar_id:
+            if ignorar_id is not None and linha["id"] == ignorar_id:
+                continue
+            tipo_linha = linha.get("tipo")
+            if tipo_linha == tipo or tipo_linha is None:
                 return linha
     return None
 
 
 def _validar_codigos_produto(db, produto: ProdutoCreate, produto_id: int | None = None) -> None:
-    """Normalização já feita no schema; aqui valida colisões entre os códigos."""
+    """Normalização já feita no schema; aqui valida colisões entre os códigos
+    (sempre no escopo do contrato do serviço)."""
     codigo = produto.codigo
     codigo_especial = produto.codigo_especial
     if codigo and codigo == codigo_especial:
@@ -413,11 +408,14 @@ def _validar_codigos_produto(db, produto: ProdutoCreate, produto_id: int | None 
     for rotulo, valor in (("normal", codigo), ("especial", codigo_especial)):
         if not valor:
             continue
-        em_uso = _codigo_produto_em_uso(db, valor, produto_id)
+        em_uso = _codigo_produto_em_uso(db, valor, produto.tipo, produto_id)
         if em_uso:
             raise HTTPException(
                 status_code=400,
-                detail=f"Já existe um serviço ('{em_uso['nome']}') com o código {rotulo} '{valor}'.",
+                detail=(
+                    f"Já existe um serviço ('{em_uso['nome']}') com o código {rotulo} '{valor}' "
+                    "neste contrato (ou como legado). Edite o serviço existente para alterá-lo."
+                ),
             )
 
 
@@ -455,9 +453,9 @@ def listar_produtos(
             offset += tamanho_pagina
 
         if tipo:
-            # Filtra pelo contrato: manutenção e linha viva compartilham o
-            # catálogo; legados (tipo NULL) valem para todos os contratos.
-            dados = [p for p in dados if _servico_serve_para_tipo(p.get("tipo"), tipo)]
+            # Filtro ESTRITO por contrato: cada contrato tem o seu catálogo.
+            # Legados (tipo NULL) valem para todos os contratos.
+            dados = [p for p in dados if p.get("tipo") is None or p["tipo"] == tipo]
         return dados
     except Exception:
         logger.exception("Erro ao listar produtos")
@@ -697,22 +695,22 @@ def modelo_servicos():
             "1. Preencha o arquivo .xlsx com um serviço por linha.",
             "2. A primeira linha (cabeçalho) deve permanecer como está. Não altere ou remova.",
             "3. Coluna 'Serviço (descrição)' é obrigatória em todas as linhas.",
-            "4. Se o 'Código Normal' já estiver cadastrado, o serviço existente é ATUALIZADO;",
+            "4. A importação vale SOMENTE para o CONTRATO escolhido na tela: cada",
+            "   contrato (Construção/Manutenção/Linha Viva) tem o seu catálogo.",
+            "5. Se o 'Código Normal' já existir NESTE contrato, o serviço é ATUALIZADO;",
+            "   se existir só como legado (sem contrato), ele é adotado por este contrato;",
             "   caso contrário, um novo serviço é criado.",
-            "5. 'Código Especial' é o código usado quando o serviço é aplicado como USC especial",
+            "6. O MESMO código pode existir em contratos diferentes (são catálogos",
+            "   independentes) — importar em um contrato NÃO altera os demais.",
+            "7. 'Código Especial' é o código usado quando o serviço é aplicado como USC especial",
             "   (mesma descrição, dois códigos distintos).",
-            "6. Números: use vírgula como separador decimal (ex.: 0,48 ou 6,66).",
-            "7. O CONTRATO (Construção/Manutenção/Linha Viva) é escolhido na tela antes do envio",
-            "   e vale para TODAS as linhas do arquivo.",
-            "8. Ao finalizar, vá em 'Importar em lote' na aba Serviços e envie este arquivo.",
-            "9. A importação pode ser simulada primeiro (prévia) para conferir antes de aplicar.",
-            "10. ATENÇÃO: se o código começar com zeros (ex.: 001234), formate a coluna como",
+            "8. Números: use vírgula como separador decimal (ex.: 0,48 ou 6,66).",
+            "9. Ao finalizar, vá em 'Importar em lote' na aba Serviços e envie este arquivo.",
+            "10. A importação pode ser simulada primeiro (prévia) para conferir antes de aplicar.",
+            "11. ATENÇÃO: se o código começar com zeros (ex.: 001234), formate a coluna como",
             "    TEXTO no Excel ANTES de digitar — senão o Excel remove os zeros à esquerda.",
-            "11. Códigos totalmente numéricos (código de barras) são aceitos e normalizados",
+            "12. Códigos totalmente numéricos (código de barras) são aceitos e normalizados",
             "    automaticamente (sem decimal no final, ex.: 75012300000000).",
-            "12. DICA: importar com contrato LINHA VIVA converte para 'Linha Viva' os serviços",
-            "    que já existiam como 'Manutenção' (mesmo código). O contrário NÃO acontece:",
-            "    importar com Manutenção preserva serviços já marcados como Linha Viva.",
         ]
         for i, texto in enumerate(linhas, start=1):
             ws_instrucoes.cell(row=i, column=1, value=texto)
@@ -875,30 +873,34 @@ def importar_servicos(
             # (ex.: schema desatualizado), o erro real aparece no relatório da
             # linha sem derrubar a importação inteira.
             try:
+                # Upsert POR CONTRATO — cada contrato tem o seu catálogo:
+                # 1) serviço do MESMO contrato com o código  -> atualiza;
+                # 2) legado (tipo NULL) com o código         -> é ADOTADO pelo
+                #    contrato importado (vira cadastro do contrato);
+                # 3) nenhum dos dois                         -> cria novo.
+                # Nunca altera serviço de OUTRO contrato com o mesmo código.
                 alvo = None
+                adotando_legado = False
                 if codigo:
-                    resp = db.table("produtos").select("id, ativo, tipo").eq("codigo", codigo).limit(1).execute()
-                    if resp.data:
-                        alvo = resp.data[0]
+                    resp = db.table("produtos").select("id, ativo, tipo").eq("codigo", codigo).execute()
+                    for linha in resp.data or []:
+                        if linha.get("tipo") == tipo:
+                            alvo = linha
+                            break
+                    if alvo is None:
+                        for linha in resp.data or []:
+                            if linha.get("tipo") is None:
+                                alvo = linha
+                                adotando_legado = True
+                                break
                 ignorar_id = alvo["id"] if alvo else None
 
-                # Promoção única de tipo na família manutenção/linha viva:
-                # importar com contrato LINHA VIVA converte serviços
-                # equivalentes cadastrados como manutenção (badge passa a
-                # exibir Linha Viva). O caminho inverso (importar com
-                # Manutenção sobre serviço linha_viva) PRESERVA o tipo.
-                promover_para_linha_viva = bool(
-                    alvo
-                    and tipo == "linha_viva"
-                    and (alvo.get("tipo") or "").strip() == "manutencao"
-                )
-
-                # Namespace global de códigos (normal/especial compartilhado).
+                # Colisão no MESMO contrato (ou contra legado não adotado).
                 colisao = None
                 for valor in (codigo, codigo_especial):
                     if not valor:
                         continue
-                    em_uso = _codigo_produto_em_uso(db, valor, ignorar_id=ignorar_id)
+                    em_uso = _codigo_produto_em_uso(db, valor, tipo, ignorar_id=ignorar_id)
                     if em_uso:
                         colisao = em_uso
                         break
@@ -920,8 +922,8 @@ def importar_servicos(
                     "preco_unitario": valores["preco_unitario"],
                     "qtd_usc_especial": valores["qtd_usc_especial"],
                 }
-                if promover_para_linha_viva:
-                    campos["tipo"] = "linha_viva"
+                if adotando_legado:
+                    campos["tipo"] = tipo
 
                 if simular:
                     if alvo:

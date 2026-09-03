@@ -53,15 +53,10 @@ const TRANSICOES_STATUS = {
 
 const LIMITE_PAGINA = 100;
 
-// Manutenção e Linha Viva compartilham o MESMO catálogo de serviços
-// (espelha FAMILIA_LINHA_VIVA do backend). Construção permanece isolada.
-const FAMILIA_LINHA_VIVA = new Set(['manutencao', 'linha_viva']);
-
-// True quando o serviço pertence ao catálogo do tipo informado (O.S/filtro).
+// Contratos INDEPENDENTES: cada contrato tem o SEU catálogo. Um serviço só
+// pertence ao catálogo do próprio tipo; legados (sem tipo) valem para todos.
 const servicoServeParaTipo = (servico, tipo) =>
-  !servico.tipo ||
-  servico.tipo === tipo ||
-  (FAMILIA_LINHA_VIVA.has(servico.tipo) && FAMILIA_LINHA_VIVA.has(tipo));
+  !servico.tipo || servico.tipo === tipo;
 
 const PRIORIDADES = {
   baixa: { label: 'Baixa', cor: 'bg-slate-100 text-slate-600 border-slate-200' },
@@ -3430,10 +3425,10 @@ function PainelCadastros({ obras, equipes, produtos, recarregar, mostrarToast })
   const [equipeEmEdicao, setEquipeEmEdicao] = useState(null);
   const [excluirEquipeAlvo, setExcluirEquipeAlvo] = useState(null);
 
-  // Produtos (serviços por contrato)
+  // Produtos (serviços por contrato) — catálogos INDIVIDUAIS (sem "Todos")
   const [novoProduto, setNovoProduto] = useState({ nome: '', codigo: '', codigo_especial: '', unidade: 'UN', preco_unitario: '', qtd_usc_especial: '', tipo: '' });
   const [filtroProdutoLista, setFiltroProdutoLista] = useState('');
-  const [filtroTipoProduto, setFiltroTipoProduto] = useState('todos');
+  const [filtroTipoProduto, setFiltroTipoProduto] = useState('construcao');
   const [produtoEmEdicao, setProdutoEmEdicao] = useState(null);
   const [excluirProdutoAlvo, setExcluirProdutoAlvo] = useState(null);
 
@@ -3540,11 +3535,9 @@ function PainelCadastros({ obras, equipes, produtos, recarregar, mostrarToast })
 
   const produtosFiltrados = useMemo(() => {
     let lista = produtos;
-    // Filtro por contrato: manutenção e linha viva compartilham o catálogo;
+    // Filtro ESTRITO por contrato ativo: cada contrato tem o seu catálogo;
     // legados (sem tipo) valem para todos os contratos.
-    if (filtroTipoProduto !== 'todos') {
-      lista = lista.filter(p => servicoServeParaTipo(p, filtroTipoProduto));
-    }
+    lista = lista.filter(p => servicoServeParaTipo(p, filtroTipoProduto));
     if (filtroProdutoLista) {
       const termo = filtroProdutoLista.toLowerCase();
       lista = lista.filter(p =>
@@ -3560,20 +3553,6 @@ function PainelCadastros({ obras, equipes, produtos, recarregar, mostrarToast })
     construcao: 'Construção',
     manutencao: 'Manutenção',
     linha_viva: 'Linha Viva',
-  };
-
-  // Selo do card conforme o CHIP ativo (filtro da lista). Manutenção e Linha
-  // Viva compartilham o catálogo: cada bloco mostra o seu próprio nome; no
-  // chip "Todos", serviços da família exibem o rótulo combinado.
-  const rotuloSeloServico = (p) => {
-    if (!p.tipo) return 'Todos os contratos'; // legado: vale para todos
-    if (FAMILIA_LINHA_VIVA.has(p.tipo)) {
-      if (filtroTipoProduto === 'todos') return 'Manutenção / Linha Viva';
-      if (FAMILIA_LINHA_VIVA.has(filtroTipoProduto)) {
-        return ROTULOS_TIPO_SERVICO[filtroTipoProduto] || ROTULOS_TIPO_SERVICO[p.tipo];
-      }
-    }
-    return ROTULOS_TIPO_SERVICO[p.tipo] || p.tipo;
   };
 
   const iniciarProdutoEdicao = (p) => {
@@ -4118,9 +4097,9 @@ function PainelCadastros({ obras, equipes, produtos, recarregar, mostrarToast })
                     Importar em lote
                   </button>
                 </div>
-                {/* Filtro por contrato */}
+                {/* Filtro por contrato (catálogos individuais) */}
                 <div className="flex bg-slate-100 rounded-xl p-1">
-                  {[['todos', 'Todos'], ['construcao', 'Construção'], ['manutencao', 'Manutenção'], ['linha_viva', 'Linha Viva']].map(([valor, rotulo]) => (
+                  {[['construcao', 'Construção'], ['manutencao', 'Manutenção'], ['linha_viva', 'Linha Viva']].map(([valor, rotulo]) => (
                     <button
                       key={valor}
                       onClick={() => setFiltroTipoProduto(valor)}
@@ -4200,7 +4179,7 @@ function PainelCadastros({ obras, equipes, produtos, recarregar, mostrarToast })
                         ? 'bg-primary-50 text-primary-700 border border-primary-100'
                         : 'bg-slate-100 text-slate-500 border border-slate-200'
                     }`}>
-                      {rotuloSeloServico(p)}
+                      {ROTULOS_TIPO_SERVICO[p.tipo] || 'Todos os contratos'}
                     </span>
                   </div>
                 ))

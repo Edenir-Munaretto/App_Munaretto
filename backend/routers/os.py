@@ -59,28 +59,13 @@ ROTULOS_TIPO = {
     "linha_viva": "Linha Viva",
 }
 
-# Manutenção e Linha Viva compartilham o MESMO catálogo de serviços: um
-# serviço cadastrado como manutencao pode ser lançado em O.S de linha_viva e
-# vice-versa. Construção permanece isolada.
-FAMILIA_LINHA_VIVA = {"manutencao", "linha_viva"}
-
-
-def _servico_serve_para_tipo(tipo_servico: str | None, tipo_os: str) -> bool:
-    """True quando o serviço pode ser usado numa O.S do tipo dado.
-
-    Legados (tipo NULL) valem para todos; tipados valem para o próprio tipo e,
-    quando manutencao/linha_viva, também para o tipo equivalente da família.
-    """
-    if not tipo_servico or tipo_servico == tipo_os:
-        return True
-    return tipo_servico in FAMILIA_LINHA_VIVA and tipo_os in FAMILIA_LINHA_VIVA
-
-
+# Manutenção e Linha Viva usam listas parecidas, mas são CONTRATOS
+# INDEPENDENTES: cada contrato tem o SEU catálogo de serviços.
 def _validar_servico_do_contrato(db, produto_id: int, tipo_os: str) -> dict:
-    """Garante que o serviço pode ser usado no contrato (tipo) da O.S.
+    """Garante que o serviço pertence ao catálogo do contrato (tipo) da O.S.
 
-    Serviços legados (produtos.tipo NULL) são válidos em todos os contratos;
-    Manutenção e Linha Viva compartilham o mesmo catálogo.
+    Contratos são isolados: o serviço só pode ser lançado na O.S do MESMO
+    contrato. Serviços legados (produtos.tipo NULL) valem para todos.
     """
     resp = db.table("produtos").select(
         "id, nome, tipo, preco_unitario, qtd_usc_especial, codigo, codigo_especial"
@@ -89,7 +74,7 @@ def _validar_servico_do_contrato(db, produto_id: int, tipo_os: str) -> dict:
         raise HTTPException(status_code=404, detail="Serviço não encontrado.")
     produto = resp.data[0]
     tipo_servico = produto.get("tipo")
-    if not _servico_serve_para_tipo(tipo_servico, tipo_os):
+    if tipo_servico and tipo_servico != tipo_os:
         raise HTTPException(
             status_code=422,
             detail=(

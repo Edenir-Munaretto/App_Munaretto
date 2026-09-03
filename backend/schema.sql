@@ -637,11 +637,15 @@ CREATE TABLE IF NOT EXISTS equipe_membros (
 );
 
 -- TABELA: produtos (catálogo de materiais/insumos)
+-- CONTRATOS INDEPENDENTES: cada contrato (tipo de O.S) tem o SEU catálogo.
+-- O mesmo código pode existir em contratos diferentes (registros separados);
+-- a unicidade vale DENTRO do contrato (índices parciais abaixo). NULL em
+-- `tipo` = serviço legado (disponível em todos os contratos, único por código).
 CREATE TABLE IF NOT EXISTS produtos (
     id SERIAL PRIMARY KEY,
-    codigo VARCHAR(50) UNIQUE,             -- opcional: código de barras/SKU p/ bipagem
-    nome TEXT NOT NULL,                    -- descrição do serviço (listas oficiais passam de 255)
-    unidade VARCHAR(20) DEFAULT 'UN',      -- UN | m | m² | kg | L | saca ...
+    codigo VARCHAR(50),                      -- opcional: código de barras/SKU p/ bipagem
+    nome TEXT NOT NULL,                      -- descrição do serviço (listas oficiais passam de 255)
+    unidade VARCHAR(20) DEFAULT 'UN',        -- UN | m | m² | kg | L | saca ...
     preco_unitario NUMERIC(12, 2) DEFAULT 0.00,
     ativo BOOLEAN DEFAULT TRUE,
     created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
@@ -662,8 +666,25 @@ ALTER TABLE IF EXISTS produtos ADD COLUMN IF NOT EXISTS qtd_usc_especial NUMERIC
 -- Código do serviço quando aplicado como USC ESPECIAL (bipagem/distinção de
 -- item na prestação de contas). A descrição do serviço é a mesma; o código
 -- muda conforme o tipo escolhido no lançamento (normal -> codigo, especial ->
--- codigo_especial). Unicidade própria (espelha a regra de `codigo`).
-ALTER TABLE IF EXISTS produtos ADD COLUMN IF NOT EXISTS codigo_especial VARCHAR(50) UNIQUE;
+-- codigo_especial).
+ALTER TABLE IF EXISTS produtos ADD COLUMN IF NOT EXISTS codigo_especial VARCHAR(50);
+
+-- Unicidade POR CONTRATO (removida a unicidade global de codigo/codigo_especial
+-- — os contratos são independentes e podem repetir o mesmo código):
+--   * dentro do mesmo contrato (tipo NOT NULL) o código não se repete;
+--   * legados (tipo NULL) permanecem únicos entre si por código.
+-- Idempotente: pode rodar sempre junto do schema.
+ALTER TABLE IF EXISTS produtos DROP CONSTRAINT IF EXISTS produtos_codigo_key;
+ALTER TABLE IF EXISTS produtos DROP CONSTRAINT IF EXISTS produtos_codigo_especial_key;
+
+CREATE UNIQUE INDEX IF NOT EXISTS uq_produtos_codigo_tipo
+    ON produtos (codigo, tipo) WHERE tipo IS NOT NULL;
+CREATE UNIQUE INDEX IF NOT EXISTS uq_produtos_codigo_legado
+    ON produtos (codigo) WHERE tipo IS NULL;
+CREATE UNIQUE INDEX IF NOT EXISTS uq_produtos_codigo_especial_tipo
+    ON produtos (codigo_especial, tipo) WHERE tipo IS NOT NULL;
+CREATE UNIQUE INDEX IF NOT EXISTS uq_produtos_codigo_especial_legado
+    ON produtos (codigo_especial) WHERE tipo IS NULL;
 
 -- TABELA: ordens_servico
 -- `codigo` é gerado no backend no formato OS-<ANO>-<NNNN> (sequencial por ano).

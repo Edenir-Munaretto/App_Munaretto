@@ -1179,36 +1179,36 @@ def test_cadastro_servico_rejeita_codigo_duplicado_entre_campos(os_gestor_client
     assert ed.json()["codigo_especial"] == "ABC-ESP"
 
 
-def test_lancar_servico_manutencao_em_os_linha_viva_ok(os_gestor_client, db_fake):
-    """Manutenção e Linha Viva compartilham o catálogo: serviço de manutenção
-    pode ser lançado em O.S de linha viva (e vice-versa)."""
+def test_lancar_servico_de_outro_contrato_rejeitado_m_lv(os_gestor_client, db_fake):
+    """Contratos INDEPENDENTES: manutenção e linha viva NÃO compartilham
+    catálogo — lançamento cruzado é rejeitado nos dois sentidos (422)."""
     _seed_cenario(db_fake)
     _seed_servicos_por_contrato(db_fake)
+    db_fake._dados["produtos"].append(
+        {"id": 11, "codigo": "SVC-LV", "nome": "Serviço Linha Viva", "unidade": "UN",
+         "preco_unitario": 40, "ativo": True, "tipo": "linha_viva"}
+    )
 
-    # O.S de LINHA VIVA lançando serviço de MANUTENÇÃO (produto 10).
+    # O.S de LINHA VIVA tentando lançar serviço de MANUTENÇÃO (produto 10).
     os_lv = _criar_os(os_gestor_client, tipo="linha_viva").json()["id"]
     _abrir_os(os_gestor_client, os_lv)
     resp = os_gestor_client.post(
         f"/api/os/{os_lv}/materiais", json={"produto_id": 10, "quantidade_usada": 1}
     )
-    assert resp.status_code == 201, resp.text
+    assert resp.status_code == 422, resp.text
 
-    # O.S de MANUTENÇÃO lançando serviço de LINHA VIVA (produto 11).
-    db_fake._dados["produtos"].append(
-        {"id": 11, "codigo": "SVC-LV", "nome": "Serviço Linha Viva", "unidade": "UN",
-         "preco_unitario": 40, "ativo": True, "tipo": "linha_viva"}
-    )
+    # O.S de MANUTENÇÃO tentando lançar serviço de LINHA VIVA (produto 11).
     os_m = _criar_os(os_gestor_client, tipo="manutencao").json()["id"]
     _abrir_os(os_gestor_client, os_m)
     resp2 = os_gestor_client.post(
         f"/api/os/{os_m}/materiais", json={"produto_id": 11, "quantidade_usada": 1}
     )
-    assert resp2.status_code == 201, resp2.text
+    assert resp2.status_code == 422, resp2.text
 
 
-def test_listar_servicos_familia_manutencao_linha_viva(os_gestor_client, db_fake):
-    """Filtro por tipo: manutenção e linha viva retornam o mesmo catálogo
-    (as duas famílias + legados); construção fica isolada."""
+def test_listar_servicos_contratos_independentes(os_gestor_client, db_fake):
+    """Filtro por tipo ESTRITO: cada contrato retorna apenas o SEU catálogo
+    (+ legados); manutenção e linha viva não se misturam."""
     _seed_cenario(db_fake)
     _seed_servicos_por_contrato(db_fake)
     db_fake._dados["produtos"].append(
@@ -1219,17 +1219,68 @@ def test_listar_servicos_familia_manutencao_linha_viva(os_gestor_client, db_fake
     lv = os_gestor_client.get("/api/os/produtos?tipo=linha_viva")
     assert lv.status_code == 200
     ids_lv = {p["id"] for p in lv.json()}
-    assert {8, 10, 11} <= ids_lv  # legado + manutenção + linha viva
-    assert 9 not in ids_lv        # construção isolada
+    assert 8 in ids_lv and 11 in ids_lv  # legado + linha viva
+    assert 9 not in ids_lv               # construção isolada
+    assert 10 not in ids_lv              # manutenção NÃO entra no catálogo de linha viva
 
     man = os_gestor_client.get("/api/os/produtos?tipo=manutencao")
     ids_man = {p["id"] for p in man.json()}
-    assert ids_man == ids_lv
+    assert 8 in ids_man and 10 in ids_man
+    assert 9 not in ids_man
+    assert 11 not in ids_man
 
     constr = os_gestor_client.get("/api/os/produtos?tipo=construcao")
     ids_constr = {p["id"] for p in constr.json()}
-    assert 9 in ids_constr
+    assert 8 in ids_constr and 9 in ids_constr
     assert {10, 11}.isdisjoint(ids_constr)
+
+
+def test_cadastro_mesmo_codigo_em_contratos_diferentes_coexiste(os_gestor_client, db_fake):
+    """Contratos independentes: o MESMO código pode ser cadastrado em contratos
+    diferentes; duplicar no MESMO contrato é rejeitado."""
+    _seed_cenario(db_fake)
+
+    m = os_gestor_client.post(
+        "/api/os/produtos",
+        json={"nome": "Serviço compartilhado", "codigo": "653608", "tipo": "manutencao"},
+    )
+    assert m.status_code == 201, m.text
+
+    lv = os_gestor_client.post(
+        "/api/os/produtos",
+        json={"nome": "Serviço compartilhado", "codigo": "653608", "tipo": "linha_viva"},
+    )
+    assert lv.status_code == 201, lv.text  # catálogo de outro contrato: permitido
+
+    ct = os_gestor_client.post(
+        "/api/os/produtos",
+        json={"nome": "Serviço compartilhado", "codigo": "653608", "tipo": "construcao"},
+    )
+    assert ct.status_code == 201, ct.text
+
+    # Mesmo código no MESMO contrato: bloqueado.
+    dup = os_gestor_client.post(
+        "/api/os/produtos",
+        json={"nome": "Outro", "codigo": "653608", "tipo": "manutencao"},
+    )
+    assert dup.status_code == 400
+
+    # Código normal de um contrato NÃO colide com código de outro contrato,
+    # mas colide com legado (tipo NULL), que vale para todos.
+    legado = os_gestor_client.post(
+        "/api/os/produtos",
+        json={"nome": "Legado", "codigo": "LEG-9", "tipo": "manutencao"},
+    )
+    assert legado.status_code == 201, legado.text
+    db_fake._dados["produtos"].append(
+        {"id": 999, "codigo": "LEG-9", "nome": "Legado sem contrato", "unidade": "UN",
+         "preco_unitario": 1, "ativo": True, "tipo": None}
+    )
+    bloqueado = os_gestor_client.post(
+        "/api/os/produtos",
+        json={"nome": "Colide com legado", "codigo": "LEG-9", "tipo": "linha_viva"},
+    )
+    assert bloqueado.status_code == 400
 
 
 def test_listar_servicos_filtra_por_contrato_incluindo_legados(os_gestor_client, db_fake):

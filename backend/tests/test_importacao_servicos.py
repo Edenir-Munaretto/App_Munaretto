@@ -342,35 +342,29 @@ def test_importar_codigo_numerico_normalizado_sem_decimal(os_gestor_client, db_f
     assert "ABC-001" in gravados
 
 
-def test_importar_linha_viva_promove_manutencao_existente(os_gestor_client, db_fake):
-    """Reimportar com contrato Linha Viva converte serviços da família que
-    estavam cadastrados como manutenção (badge passa a exibir Linha Viva)."""
-    db_fake._dados["produtos"].append(
-        {
-            "id": 1,
-            "codigo": "MNT-01",
-            "codigo_especial": None,
-            "nome": "Serviço de manutenção",
-            "unidade": "UN",
-            "preco_unitario": 1.0,
-            "qtd_usc_especial": 0.0,
-            "tipo": "manutencao",
-            "ativo": True,
-        }
-    )
-    buffer = _montar_planilha([["Serviço de manutenção", "MNT-01", "", "UN", "1", ""]])
-    resp = _importar(os_gestor_client, buffer, tipo="linha_viva")
-    assert resp.status_code == 200, resp.text
-    dados = resp.json()
-    assert dados["atualizados"] == 1
-    assert dados["criados"] == 0
-    assert dados["erros"] == []
-    reg = db_fake._dados["produtos"][0]
-    assert reg["tipo"] == "linha_viva"
+def test_importar_contratos_criam_catalogos_independentes(os_gestor_client, db_fake):
+    """Contratos independentes: importar o MESMO arquivo como Manutenção e
+    depois como Linha Viva cria DOIS catálogos (mesmo código em ambos), sem
+    um alterar o outro."""
+    buffer = _montar_planilha([["Serviço compartilhado", "653608", "", "UN", "1", ""]])
+
+    man = _importar(os_gestor_client, buffer, tipo="manutencao")
+    assert man.status_code == 200, man.text
+    assert man.json()["criados"] == 1
+    assert man.json()["atualizados"] == 0
+
+    lv = _importar(os_gestor_client, buffer, tipo="linha_viva")
+    assert lv.status_code == 200, lv.text
+    assert lv.json()["criados"] == 1  # cria o cadastro DE linha viva (não promove/rebaixa)
+    assert lv.json()["atualizados"] == 0
+
+    tipos = {p["tipo"] for p in db_fake._dados["produtos"] if p["codigo"] == "653608"}
+    assert tipos == {"manutencao", "linha_viva"}
 
 
-def test_importar_manutencao_preserva_linha_viva_existente(os_gestor_client, db_fake):
-    """Importar com Manutenção NÃO rebaixa serviço já marcado como linha viva."""
+def test_importar_manutencao_nao_toca_linha_viva_existente(os_gestor_client, db_fake):
+    """Importar com Manutenção cria o catálogo de manutenção e NÃO altera o
+    registro já existente de linha viva com o mesmo código."""
     db_fake._dados["produtos"].append(
         {
             "id": 1,
@@ -384,19 +378,25 @@ def test_importar_manutencao_preserva_linha_viva_existente(os_gestor_client, db_
             "ativo": True,
         }
     )
-    buffer = _montar_planilha([["Serviço de linha viva (novo nome)", "LV-01", "", "UN", "2", ""]])
+    buffer = _montar_planilha([["Serviço de manutenção (cópia)", "LV-01", "", "UN", "2", ""]])
     resp = _importar(os_gestor_client, buffer, tipo="manutencao")
     assert resp.status_code == 200, resp.text
     dados = resp.json()
-    assert dados["atualizados"] == 1
-    reg = db_fake._dados["produtos"][0]
-    assert reg["tipo"] == "linha_viva"  # preservado
-    assert reg["nome"] == "Serviço de linha viva (novo nome)"  # demais campos atualizados
-    assert reg["preco_unitario"] == 2.0
+    assert dados["criados"] == 1  # novo cadastro de manutenção
+    assert dados["atualizados"] == 0
+
+    lv = next(p for p in db_fake._dados["produtos"] if p["tipo"] == "linha_viva")
+    assert lv["nome"] == "Serviço de linha viva"  # intacto
+    assert lv["preco_unitario"] == 1.0
+
+    man = next(p for p in db_fake._dados["produtos"] if p["tipo"] == "manutencao")
+    assert man["codigo"] == "LV-01"
+    assert man["nome"] == "Serviço de manutenção (cópia)"
 
 
-def test_importar_linha_viva_preserva_construcao_existente(os_gestor_client, db_fake):
-    """Código de serviço de construção não é convertido por importação de linha viva."""
+def test_importar_linha_viva_nao_toca_construcao_existente(os_gestor_client, db_fake):
+    """Importação de linha viva cria o cadastro DE linha viva para o código e
+    NÃO converte nem altera o serviço de construção com o mesmo código."""
     db_fake._dados["produtos"].append(
         {
             "id": 1,
@@ -410,12 +410,45 @@ def test_importar_linha_viva_preserva_construcao_existente(os_gestor_client, db_
             "ativo": True,
         }
     )
-    buffer = _montar_planilha([["Serviço de construção", "CT-01", "", "UN", "1", ""]])
+    buffer = _montar_planilha([["Serviço de linha viva (cópia)", "CT-01", "", "UN", "3", ""]])
     resp = _importar(os_gestor_client, buffer, tipo="linha_viva")
     assert resp.status_code == 200, resp.text
-    assert resp.json()["atualizados"] == 1
+    assert resp.json()["criados"] == 1
+    assert resp.json()["atualizados"] == 0
+
+    constr = next(p for p in db_fake._dados["produtos"] if p["tipo"] == "construcao")
+    assert constr["tipo"] == "construcao"
+    assert constr["nome"] == "Serviço de construção"
+
+    lv = next(p for p in db_fake._dados["produtos"] if p["tipo"] == "linha_viva")
+    assert lv["codigo"] == "CT-01"
+    assert lv["preco_unitario"] == 3.0
+
+
+def test_importar_adota_legado_do_contrato(os_gestor_client, db_fake):
+    """Legado (tipo NULL) com o código é ADOTADO pelo contrato importado."""
+    db_fake._dados["produtos"].append(
+        {
+            "id": 1,
+            "codigo": "LEG-01",
+            "codigo_especial": None,
+            "nome": "Serviço legado antigo",
+            "unidade": "UN",
+            "preco_unitario": 1.0,
+            "qtd_usc_especial": 0.0,
+            "tipo": None,
+            "ativo": True,
+        }
+    )
+    buffer = _montar_planilha([["Serviço legado antigo (manutenção)", "LEG-01", "", "UN", "1", ""]])
+    resp = _importar(os_gestor_client, buffer, tipo="manutencao")
+    assert resp.status_code == 200, resp.text
+    dados = resp.json()
+    assert dados["atualizados"] == 1
+    assert dados["criados"] == 0
     reg = db_fake._dados["produtos"][0]
-    assert reg["tipo"] == "construcao"
+    assert reg["tipo"] == "manutencao"
+    assert reg["nome"] == "Serviço legado antigo (manutenção)"
 
 
 def test_importar_restrito_ao_gestor(os_campo_client):
