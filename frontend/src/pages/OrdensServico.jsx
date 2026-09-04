@@ -3281,10 +3281,10 @@ function OrdensServico({ usuarioAtual }) {
         ...(ehGestor ? [['cadastros', 'Cadastros', FolderKanban]] : []),
       ].map(([key, label, Icon]) => (
         <button key={key} onClick={() => setVisao(key)}
-          className={`flex items-center gap-1.5 px-3 py-1.5 min-h-11 rounded-lg text-xs font-bold transition-all cursor-pointer ${
+          className={`flex items-center gap-1.5 px-3 py-1.5 min-h-11 rounded-lg text-sm font-bold transition-all cursor-pointer ${
             visao === key ? 'bg-white text-primary-700 shadow-sm' : 'text-slate-500 hover:text-slate-700'
           }`}>
-          <Icon size={14} />{label}
+          <Icon size={16} />{label}
         </button>
       ))}
     </div>
@@ -3404,7 +3404,7 @@ function OrdensServico({ usuarioAtual }) {
       <div className="flex flex-col sm:flex-row gap-3 items-start sm:items-center justify-between">
         <div className="flex items-center gap-3 flex-wrap">
           {seletorVisao}
-          <span className="text-xs text-slate-400 font-semibold">{totalOs} O.S no total{listaOs.length < totalOs ? ` (${listaOs.length} carregadas)` : ''}</span>
+          <span className="text-sm text-slate-400 font-semibold">{totalOs} O.S no total{listaOs.length < totalOs ? ` (${listaOs.length} carregadas)` : ''}</span>
         </div>
         <div className="flex items-center gap-2 flex-wrap">
           {/* Modo Campo: exclusivo do usuário de campo (os_campo) — o gestor
