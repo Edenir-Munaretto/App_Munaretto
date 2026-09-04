@@ -1868,6 +1868,7 @@ def test_relatorio_os_layout_sem_historico_e_mao_de_obra(os_gestor_client, db_fa
     assert "LINHA DO TEMPO" not in texto
     assert "HIST" not in texto  # HISTÓRICO DE STATUS
     assert "M.O." not in texto  # seção de MÃO DE OBRA removida
+    assert "Evidências fotográficas" not in texto  # contagem de fotos removida
     # Unidade aparece apenas no título da seção e no rótulo da coluna de fator.
     assert texto.count("USC/ULV") == 2
 

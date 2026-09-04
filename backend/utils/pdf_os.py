@@ -168,12 +168,10 @@ def gerar_pdf_os(
     obra: dict,
     equipe: str | None = None,
     materiais: dict | None = None,
-    quantidade_fotos: int = 0,
 ) -> str:
     """Monta o PDF da O.S e retorna o caminho temporário do arquivo.
 
-    Layout atual: identificação, escopo, SERVIÇOS APLICADOS (USC/ULV) e a
-    contagem de evidências fotográficas.
+    Layout atual: identificação, escopo e SERVIÇOS APLICADOS (USC/ULV).
     """
     materiais = materiais or {"itens": [], "total_aplicado": 0}
 
@@ -245,8 +243,6 @@ def gerar_pdf_os(
         f"Total aplicado: {materiais.get('total_aplicado', 0):g}",
         ln=True,
     )
-    pdf.set_font("Arial", "", 8.5)
-    pdf.cell(0, 6, f"Evidências fotográficas anexadas à O.S: {quantidade_fotos}", ln=True)
 
     caminho_temp = _novo_caminho_temp("os_relatorio_")
     pdf.output(caminho_temp)

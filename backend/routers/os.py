@@ -2191,9 +2191,8 @@ def relatorio_pdf(os_id: int, usuario: UsuarioAutenticado = Depends(get_current_
             if os_data.get("equipe_id")
             else []
         )
-        # Relatório atual: serviços aplicados + evidências (sem histórico/H.H.).
+        # Relatório atual: serviços aplicados (sem histórico/H.H./evidências).
         materiais = _resumo_materiais(db, os_id)
-        qtd_fotos = db.table("os_fotos").select("id").eq("os_id", os_id).execute()
 
         # utils/pdf_os.py monta o documento (mantém pdf_generator.py intacto).
         from utils.pdf_os import gerar_pdf_os
@@ -2203,7 +2202,6 @@ def relatorio_pdf(os_id: int, usuario: UsuarioAutenticado = Depends(get_current_
             obra=(obra[0] if obra else {}),
             equipe=(equipe[0].get("nome") if equipe else None),
             materiais=materiais,
-            quantidade_fotos=len(qtd_fotos.data or []),
         )
         return FileResponse(
             caminho,
