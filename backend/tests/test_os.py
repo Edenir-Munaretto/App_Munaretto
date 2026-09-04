@@ -1864,7 +1864,45 @@ def test_relatorio_os_layout_sem_historico_e_mao_de_obra(os_gestor_client, db_fa
     doc = pymupdf.open(stream=resp.content, filetype="pdf")
     texto = "\n".join(page.get_text() for page in doc)
     assert "APLICADOS (USC/ULV)" in texto
-    assert "Total aplicado: 0 USC/ULV" in texto
+    assert "Total aplicado: 0" in texto
     assert "LINHA DO TEMPO" not in texto
     assert "HIST" not in texto  # HISTÓRICO DE STATUS
     assert "M.O." not in texto  # seção de MÃO DE OBRA removida
+    # Unidade aparece apenas no título da seção e no rótulo da coluna de fator.
+    assert texto.count("USC/ULV") == 2
+
+def test_relatorio_os_descricao_longa_com_quebra(os_gestor_client, db_fake):
+    """Descrição longa de serviço não é truncada: quebra automática na coluna
+    Produto mantém o texto completo dentro da célula."""
+    import pymupdf
+
+    _seed_cenario(db_fake)
+    nome_longo = (
+        "Serviço de terraplenagem com caçamba sobre caminhão para transporte de "
+        "material excedente até o bota-fora autorizado pelo fiscal da obra central"
+    )
+    db_fake._dados["produtos"].append(
+        {"id": 8, "codigo": "TERRA-01", "nome": nome_longo, "unidade": "UN",
+         "preco_unitario": 6.66, "ativo": True, "tipo": "construcao"}
+    )
+    os_id = _criar_os(os_gestor_client).json()["id"]
+    assert os_gestor_client.put(f"/api/os/{os_id}/status", json={"novo_status": "aberta"}).status_code == 200
+    resp = os_gestor_client.post(
+        f"/api/os/{os_id}/materiais",
+        json={"produto_id": 8, "quantidade_usada": 2, "tipo_usc": "normal"},
+    )
+    assert resp.status_code == 201, resp.text
+
+    pdf = os_gestor_client.get(f"/api/os/{os_id}/pdf")
+    assert pdf.status_code == 200, pdf.text
+    doc = pymupdf.open(stream=pdf.content, filetype="pdf")
+    texto = " ".join(page.get_text() for page in doc)
+    import re as _re
+
+    texto = _re.sub(r"\s+", " ", texto)
+    # Trechos do MEIO e do FIM da descrição aparecem (nada truncado em 60 chars;
+    # quebras de linha da coluna são normalizadas antes da checagem).
+    assert "caçamba sobre caminhão" in texto
+    assert "bota-fora autorizado" in texto
+    assert "fiscal da obra central" in texto
+    assert "Total aplicado: 13.32" in texto  # 2 x 6.66, sem sufixo na linha
