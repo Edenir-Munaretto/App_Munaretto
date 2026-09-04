@@ -1852,8 +1852,8 @@ def test_snapshot_respeita_o_tipo_da_os(os_gestor_client, db_fake):
     assert all(i["pergunta"] == "Geral?" for i in itens)
 
 def test_relatorio_os_layout_sem_historico_e_mao_de_obra(os_gestor_client, db_fake):
-    """Relatório de execução: sem LINHA DO TEMPO e sem MÃO DE OBRA; serviços
-    aplicados rotulados como USC/ULV."""
+    """Relatório de execução: sem LINHA DO TEMPO e sem MÃO DE OBRA; unidade do
+    contrato (construção = USC) no título e na coluna de fator."""
     import pymupdf
 
     _seed_cenario(db_fake)
@@ -1863,14 +1863,30 @@ def test_relatorio_os_layout_sem_historico_e_mao_de_obra(os_gestor_client, db_fa
 
     doc = pymupdf.open(stream=resp.content, filetype="pdf")
     texto = "\n".join(page.get_text() for page in doc)
-    assert "APLICADOS (USC/ULV)" in texto
+    assert "APLICADOS (USC)" in texto
+    assert "USC unit." in texto
     assert "Total aplicado: 0" in texto
+    assert "ULV" not in texto
     assert "LINHA DO TEMPO" not in texto
     assert "HIST" not in texto  # HISTÓRICO DE STATUS
     assert "M.O." not in texto  # seção de MÃO DE OBRA removida
     assert "Evidências fotográficas" not in texto  # contagem de fotos removida
-    # Unidade aparece apenas no título da seção e no rótulo da coluna de fator.
-    assert texto.count("USC/ULV") == 2
+
+
+def test_relatorio_os_unidade_ulv_para_linha_viva(os_gestor_client, db_fake):
+    """Relatório de O.S do tipo linha viva usa a unidade ULV (não USC)."""
+    import pymupdf
+
+    _seed_cenario(db_fake)
+    os_id = _criar_os(os_gestor_client, tipo="linha_viva").json()["id"]
+    resp = os_gestor_client.get(f"/api/os/{os_id}/pdf")
+    assert resp.status_code == 200, resp.text
+
+    doc = pymupdf.open(stream=resp.content, filetype="pdf")
+    texto = "\n".join(page.get_text() for page in doc)
+    assert "APLICADOS (ULV)" in texto
+    assert "ULV unit." in texto
+    assert "USC" not in texto
 
 def test_relatorio_os_descricao_longa_com_quebra(os_gestor_client, db_fake):
     """Descrição longa de serviço não é truncada: quebra automática na coluna

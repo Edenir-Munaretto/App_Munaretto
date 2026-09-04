@@ -11,6 +11,7 @@ import tempfile
 from fpdf import FPDF
 
 from utils.date_helpers import agora_fuso_brasil, em_fuso_brasil
+from utils.tipos_os import unidade_contrato
 
 
 def _novo_caminho_temp(prefixo: str, sufixo: str = ".pdf") -> str:
@@ -202,9 +203,11 @@ def gerar_pdf_os(
     )
 
     # --- Serviços aplicados ---------------------------------------------------
-    pdf._titulo_secao("SERVIÇOS APLICADOS (USC/ULV)")
+    # Unidade de valor por contrato: Construção = USC; Manutenção/Linha Viva = ULV.
+    unidade = unidade_contrato(os_data.get("tipo"))
+    pdf._titulo_secao(f"SERVIÇOS APLICADOS ({unidade})")
 
-    rotulos_tipo = {"normal": "USC normal", "especial": "USC especial"}
+    rotulos_tipo = {"normal": f"{unidade} normal", "especial": f"{unidade} especial"}
 
     def _linha_material(item):
         """Uma linha por (produto, tipo, fator) registrado no lançamento."""
@@ -233,7 +236,7 @@ def gerar_pdf_os(
     # Larguras relativas (escaladas para caber nos 190 mm): Produto largo com
     # quebra automática; colunas curtas de quantidade/unidade estreitas.
     pdf._tabela(
-        {"Cod.": 15, "Produto": 66, "Qtd serv.": 15, "USC/ULV unit.": 24, "Total": 25},
+        {"Cod.": 15, "Produto": 66, "Qtd serv.": 15, f"{unidade} unit.": 24, "Total": 25},
         linhas_mat,
     )
     pdf.set_font("Arial", "B", 9)

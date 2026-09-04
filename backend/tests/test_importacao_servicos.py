@@ -8,7 +8,7 @@ simulação sem gravação e validações de arquivo.
 import io
 
 import pytest
-from openpyxl import Workbook
+from openpyxl import Workbook, load_workbook
 
 CABECALHOS = [
     "Serviço (descrição)",
@@ -455,3 +455,49 @@ def test_importar_restrito_ao_gestor(os_campo_client):
     buffer = _montar_planilha([["Serviço do campo", "CAMPO-01", "", "UN", "1", ""]])
     resp = _importar(os_campo_client, buffer)
     assert resp.status_code == 403
+
+def test_modelo_servicos_rotulos_seguem_o_contrato(os_gestor_client):
+    """O modelo .xlsx traz os rótulos do contrato (ULV p/ linha viva; USC padrão)."""
+    resp = os_gestor_client.get("/api/os/produtos/modelo?tipo=linha_viva")
+    assert resp.status_code == 200, resp.text
+    wb = load_workbook(io.BytesIO(resp.content), data_only=True)
+    cabecalhos = [c.value for c in wb["Modelo"][1]]
+    assert "Qtd ULV" in cabecalhos
+    assert "Qtd ULV Especial" in cabecalhos
+    assert "Qtd USC" not in cabecalhos
+    instrucoes = "\n".join(
+        str(c.value or "")
+        for ws in wb.worksheets
+        for row in ws.iter_rows()
+        for c in row
+        if c.value and "aplicado como" in str(c.value)
+    )
+    assert "aplicado como ULV especial" in instrucoes
+
+    resp2 = os_gestor_client.get("/api/os/produtos/modelo")  # default construcao
+    assert resp2.status_code == 200
+    wb2 = load_workbook(io.BytesIO(resp2.content), data_only=True)
+    cabecalhos2 = [c.value for c in wb2["Modelo"][1]]
+    assert "Qtd USC" in cabecalhos2
+    assert "Qtd USC Especial" in cabecalhos2
+
+
+def test_importar_planilha_com_rotulos_ulv(os_gestor_client, db_fake):
+    """Planilha com cabeçalho 'Qtd ULV' importa normalmente em contrato ULV."""
+    cabecalhos_ulv = [
+        "Serviço (descrição)", "Código Normal", "Código Especial", "Unidade",
+        "Qtd ULV", "Qtd ULV Especial",
+    ]
+    buffer = _montar_planilha(
+        [["Poste de concreto", "PT-01", "", "UN", 2.5, None]],
+        cabecalhos=cabecalhos_ulv,
+    )
+    resp = _importar(os_gestor_client, buffer, tipo="linha_viva")
+    assert resp.status_code == 200, resp.text
+    assert resp.json()["criados"] == 1
+    assert resp.json()["erros"] == []
+
+    # Erro numérico reporta o rótulo do contrato (ULV).
+    buffer2 = _montar_planilha([["Inválido", "IV-01", "", "UN", "abc", ""]], cabecalhos=cabecalhos_ulv)
+    resp2 = _importar(os_gestor_client, buffer2, tipo="linha_viva")
+    assert any("Qtd ULV" in e["mensagem"] for e in resp2.json()["erros"])

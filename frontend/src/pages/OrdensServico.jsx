@@ -11,6 +11,7 @@ import { API_URL, apiFetch, erroDaResposta } from '../api';
 import ModalConfirmacao from '../components/ModalConfirmacao';
 import ModalPendenciasSync from '../components/ModalPendenciasSync';
 import { comprimirImagem } from '../utils/imagem';
+import { rotuloFator, unidadeContrato } from '../utils/contratos';
 import {
   isModoCampo, setModoCampo, isOffline, usarLocal,
   prepararPacoteCampo, completarPacoteCampo, limparPacote, infoPacote,
@@ -241,7 +242,7 @@ function BarraMateriais({ os }) {
   return (
     <div className="mt-2 flex justify-between items-center text-[10px] font-semibold text-slate-500">
       <span>Serviços aplicados</span>
-      <span>{apl} USC</span>
+      <span>{apl} {unidadeContrato(os.tipo)}</span>
     </div>
   );
 }
@@ -743,6 +744,9 @@ function TabInsumos({ osDetalhe, produtos, onAtualizado, mostrarToast, podeEdita
   const [tipoUsc, setTipoUsc] = useState('normal');
   const [salvando, setSalvando] = useState(false);
   const [estornandoId, setEstornandoId] = useState(null); // ID do lançamento aguardando confirmação
+  // Unidade de valor do contrato da O.S (USC construção / ULV manutenção e linha viva).
+  const unidade = unidadeContrato(osDetalhe.tipo);
+  const rotuloUsc = (sub) => rotuloFator(osDetalhe.tipo, sub);
 
   // Catálogo do CONTRATO da O.S: só serviços compatíveis com o tipo (ou
   // legados). Manutenção e Linha Viva compartilham o mesmo catálogo.
@@ -874,10 +878,15 @@ function TabInsumos({ osDetalhe, produtos, onAtualizado, mostrarToast, podeEdita
         await enfileirarOperacao({
           tipo: 'material',
           os_id: osDetalhe.id,
-          payload: { produto_id: produto.id, quantidade_usada: qtd, tipo_usc: tipoUsc },
+          payload: {
+            produto_id: produto.id,
+            quantidade_usada: qtd,
+            tipo_usc: tipoUsc,
+            tipo_os: osDetalhe.tipo, // p/ exibir a unidade do contrato nas pendências
+          },
         });
         await refletirMaterialLocal(produto, totalUsc);
-        mostrarToast(`Serviço "${produto.nome}" lançado (${totalUsc} USC) — será sincronizado ao reconectar.`);
+        mostrarToast(`Serviço "${produto.nome}" lançado (${totalUsc} ${unidade}) — será sincronizado ao reconectar.`);
         limparFormulario();
         onAtualizado();
         return;
@@ -890,7 +899,7 @@ function TabInsumos({ osDetalhe, produtos, onAtualizado, mostrarToast, podeEdita
       const data = await res.json().catch(() => null);
       if (res.ok) {
         if (isModoCampo()) await refletirMaterialLocal(produto, totalUsc);
-        mostrarToast(`Serviço "${produto.nome}" lançado (${totalUsc} ${temUsc ? (tipoUsc === 'especial' ? 'USC especial' : 'USC normal') : produto.unidade}).`);
+        mostrarToast(`Serviço "${produto.nome}" lançado (${totalUsc} ${temUsc ? rotuloUsc(tipoUsc) : produto.unidade}).`);
         limparFormulario();
         onAtualizado();
       } else {
@@ -960,7 +969,7 @@ function TabInsumos({ osDetalhe, produtos, onAtualizado, mostrarToast, podeEdita
               >
                 <span className="flex items-center justify-between gap-2 w-full">
                   <span className="font-semibold truncate">{p.nome}</span>
-                  <span className="text-xs text-slate-400 shrink-0">{p.unidade} · USC {p.preco_unitario}{Number(p.qtd_usc_especial || 0) > 0 ? ` + ${p.qtd_usc_especial}` : ''}</span>
+                  <span className="text-xs text-slate-400 shrink-0">{p.unidade} · {unidadeContrato(p.tipo || osDetalhe.tipo)} {p.preco_unitario}{Number(p.qtd_usc_especial || 0) > 0 ? ` + ${p.qtd_usc_especial}` : ''}</span>
                 </span>
                 {(p.codigo || p.codigo_especial) && (
                   <span className="text-[10px] font-semibold text-slate-400 w-full">
@@ -986,10 +995,10 @@ function TabInsumos({ osDetalhe, produtos, onAtualizado, mostrarToast, podeEdita
         )}
       </div>
 
-      {/* Tipo de USC: o fator vem do cadastro do serviço (ex.: 0.48 normal / 0.67 especial) */}
+      {/* Tipo de fator: o fator vem do cadastro do serviço (ex.: 0.48 normal / 0.67 especial) */}
       {selecionado && temUsc && (
         <div>
-          <label className="block text-xs font-bold text-slate-700 mb-1.5">Tipo de USC</label>
+          <label className="block text-xs font-bold text-slate-700 mb-1.5">Tipo de {unidade}</label>
           <div className="flex gap-2">
             <button
               type="button"
@@ -1001,7 +1010,7 @@ function TabInsumos({ osDetalhe, produtos, onAtualizado, mostrarToast, podeEdita
                   : 'bg-white text-slate-600 border-slate-200 hover:border-primary-300'
               }`}
             >
-              USC normal {uscNormal > 0 && <span className={tipoUsc === 'normal' ? 'text-primary-100' : 'text-slate-400'}>· {uscNormal}</span>}
+              {rotuloUsc('normal')} {uscNormal > 0 && <span className={tipoUsc === 'normal' ? 'text-primary-100' : 'text-slate-400'}>· {uscNormal}</span>}
             </button>
             {uscEspecial > 0 && (
               <button
@@ -1014,13 +1023,13 @@ function TabInsumos({ osDetalhe, produtos, onAtualizado, mostrarToast, podeEdita
                     : 'bg-white text-slate-600 border-slate-200 hover:border-violet-300'
                 }`}
               >
-                USC especial · {uscEspecial}
+                {rotuloUsc('especial')} · {uscEspecial}
               </button>
             )}
           </div>
           {temUsc && fatorUsc > 0 && (
             <p className="text-[10px] font-semibold text-slate-400 mt-1.5">
-              {qtd} {selecionado.unidade} × {fatorUsc} USC = <b className="text-slate-600">{totalUsc} USC {tipoUsc === 'especial' ? 'especial' : 'normal'}</b>
+              {qtd} {selecionado.unidade} × {fatorUsc} {unidade} = <b className="text-slate-600">{totalUsc} {unidade} {tipoUsc === 'especial' ? 'especial' : 'normal'}</b>
             </p>
           )}
         </div>
@@ -1080,7 +1089,7 @@ function TabInsumos({ osDetalhe, produtos, onAtualizado, mostrarToast, podeEdita
           <Package size={18} />{salvando ? 'Salvando...' : 'Aplicar'}
         </button>
       </div>
-      {/* Resumo do serviço selecionado: total já aplicado (USC) */}
+      {/* Resumo do serviço selecionado: total já aplicado */}
       {selecionado && (() => {
         const item = (osDetalhe.materiais?.itens || []).find(i => i.produto_id === selecionado.id);
         const aplicado = item?.aplicado ?? 0;
@@ -1088,7 +1097,7 @@ function TabInsumos({ osDetalhe, produtos, onAtualizado, mostrarToast, podeEdita
           <div className="rounded-xl border px-3 py-2 text-xs flex flex-wrap gap-3 items-center -mt-1 bg-slate-50 border-slate-100">
             <span className="text-slate-500">Selecionado: <b className="text-slate-700">{selecionado.nome}</b> ({selecionado.unidade})</span>
             <span className="text-slate-400">│</span>
-            <span className="text-slate-500">Aplicado até agora: <b className="text-slate-700">{aplicado} USC</b></span>
+            <span className="text-slate-500">Aplicado até agora: <b className="text-slate-700">{aplicado} {unidade}</b></span>
           </div>
         );
       })()}
@@ -1100,11 +1109,11 @@ function TabInsumos({ osDetalhe, produtos, onAtualizado, mostrarToast, podeEdita
             <div className="min-w-0">
               <p className="text-sm font-semibold text-slate-700 truncate">{item.nome}</p>
               <p className="text-xs text-slate-400">
-                {item.aplicado} USC {item.unidade}
+                {item.aplicado} {unidade} {item.unidade}
               </p>
             </div>
             <span className="text-xs font-bold shrink-0 text-slate-500">
-              {item.aplicado} USC
+              {item.aplicado} {unidade}
             </span>
           </div>
         ))}
@@ -1121,7 +1130,7 @@ function TabInsumos({ osDetalhe, produtos, onAtualizado, mostrarToast, podeEdita
             const pecas = Number(l.quantidade_pecas || 0);
             const fator = Number(l.fator_usc || 0);
             const nome = l.produtos?.nome || l.produto_nome || '';
-            const rotuloTipo = l.tipo_usc === 'especial' ? 'USC especial' : 'USC normal';
+            const rotuloTipo = rotuloUsc(l.tipo_usc === 'especial' ? 'especial' : 'normal');
             const usaConta = pecas > 0 && fator > 0;
             return (
               <div key={l.id} className="flex items-center justify-between bg-white border border-slate-100 rounded-lg px-3 py-2 gap-2">
@@ -1129,7 +1138,7 @@ function TabInsumos({ osDetalhe, produtos, onAtualizado, mostrarToast, podeEdita
                   <span className="truncate">
                     {fmtData(l.data_lancamento)} · {nome} —{' '}
                     {usaConta
-                      ? `${pecas} × ${rotuloTipo} (${fator}) = ${l.quantidade_usada} USC`
+                      ? `${pecas} × ${rotuloTipo} (${fator}) = ${l.quantidade_usada} ${unidade}`
                       : `${l.quantidade_usada} × ${nome}`}
                   </span>
                   {l.codigo_servico && (
@@ -1810,7 +1819,7 @@ function PainelExecucao({ osId, produtos, capturarGps, onFechar, recarregarLista
         </div>
         <div className="bg-amber-50 rounded-xl p-2.5 border border-amber-100">
           <p className="text-[9px] font-bold text-amber-600 uppercase">Materiais</p>
-          <p className="text-sm font-extrabold text-amber-800">{mat.total_aplicado ?? 0} USC</p>
+          <p className="text-sm font-extrabold text-amber-800">{mat.total_aplicado ?? 0} {unidadeContrato(detalhe.tipo)}</p>
         </div>
       </div>
 
@@ -3676,7 +3685,7 @@ function OrdensServico({ usuarioAtual }) {
                     </span>
                     <span className="flex items-center gap-4 shrink-0 text-[10px] text-slate-400 font-semibold flex-wrap">
                       <span>Encerrada em <b className="text-slate-600">{fmtData(os.data_fim)}</b></span>
-                      <span className="hidden sm:inline">{(os.total_materiais_aplicado || 0).toFixed(3)} USC aplicado</span>
+                      <span className="hidden sm:inline">{(os.total_materiais_aplicado || 0).toFixed(3)} {unidadeContrato(os.tipo)} aplicado</span>
                       <span className="hidden sm:inline">{os.fotos_count || 0} foto(s)</span>
                     </span>
                   </button>
@@ -4002,7 +4011,8 @@ function PainelCadastros({ obras, equipes, produtos, recarregar, mostrarToast })
 
   const baixarModeloServicos = async () => {
     try {
-      const res = await apiFetch(`${API_URL}/os/produtos/modelo`);
+      // O modelo traz os rótulos do contrato selecionado (USC/ULV).
+      const res = await apiFetch(`${API_URL}/os/produtos/modelo?tipo=${encodeURIComponent(impContrato)}`);
       if (!res.ok) {
         mostrarToast('Erro ao baixar o modelo.', 'error');
         return;
@@ -4593,7 +4603,7 @@ function PainelCadastros({ obras, equipes, produtos, recarregar, mostrarToast })
                     )}
                     
                     <div className="text-emerald-600 font-bold mt-1 text-[11px]">
-                      Qtd USC: {p.preco_unitario} <span className="text-slate-400 font-normal">/ {p.unidade}</span>
+                      Qtd {unidadeContrato(p.tipo || filtroTipoProduto)}: {p.preco_unitario} <span className="text-slate-400 font-normal">/ {p.unidade}</span>
                       {Number(p.qtd_usc_especial || 0) > 0 && (
                         <span className="text-violet-600 font-semibold ml-2">Especial: {p.qtd_usc_especial}</span>
                       )}
@@ -4621,16 +4631,32 @@ function PainelCadastros({ obras, equipes, produtos, recarregar, mostrarToast })
             <div className="space-y-3">
               <CampoTexto label="Serviço *" value={novoProduto.nome} onChange={e => setNovoProduto({ ...novoProduto, nome: e.target.value })} />
               <div className="grid grid-cols-2 gap-2">
-                <CampoTexto label="Código normal" placeholder="Bipagem do USC normal" value={novoProduto.codigo} onChange={e => setNovoProduto({ ...novoProduto, codigo: e.target.value })} />
-                <CampoTexto label="Código especial" placeholder="Bipagem do USC especial" value={novoProduto.codigo_especial} onChange={e => setNovoProduto({ ...novoProduto, codigo_especial: e.target.value })} />
+                <CampoTexto
+                  label="Código normal"
+                  placeholder={`Bipagem do ${unidadeContrato(novoProduto.tipo || filtroTipoProduto)} normal`}
+                  value={novoProduto.codigo}
+                  onChange={e => setNovoProduto({ ...novoProduto, codigo: e.target.value })}
+                />
+                <CampoTexto
+                  label="Código especial"
+                  placeholder={`Bipagem do ${unidadeContrato(novoProduto.tipo || filtroTipoProduto)} especial`}
+                  value={novoProduto.codigo_especial}
+                  onChange={e => setNovoProduto({ ...novoProduto, codigo_especial: e.target.value })}
+                />
               </div>
               <div className="grid grid-cols-2 gap-2">
                 <CampoTexto label="Unidade" value={novoProduto.unidade} onChange={e => setNovoProduto({ ...novoProduto, unidade: e.target.value })} />
-                <CampoTexto label="Qtd USC" type="number" step="0.01" min="0" value={novoProduto.preco_unitario}
-                  onChange={e => setNovoProduto({ ...novoProduto, preco_unitario: e.target.value })} />
+                <CampoTexto
+                  label={`Qtd ${unidadeContrato(novoProduto.tipo || filtroTipoProduto)}`}
+                  type="number" step="0.01" min="0" value={novoProduto.preco_unitario}
+                  onChange={e => setNovoProduto({ ...novoProduto, preco_unitario: e.target.value })}
+                />
               </div>
-              <CampoTexto label="Qtd USC especial" type="number" step="0.01" min="0" value={novoProduto.qtd_usc_especial}
-                onChange={e => setNovoProduto({ ...novoProduto, qtd_usc_especial: e.target.value })} />
+              <CampoTexto
+                label={`Qtd ${unidadeContrato(novoProduto.tipo || filtroTipoProduto)} especial`}
+                type="number" step="0.01" min="0" value={novoProduto.qtd_usc_especial}
+                onChange={e => setNovoProduto({ ...novoProduto, qtd_usc_especial: e.target.value })}
+              />
               <div>
                 <label className="block text-xs font-bold text-slate-700 mb-1.5">Contrato *</label>
                 <select

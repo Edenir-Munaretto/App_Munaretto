@@ -8,6 +8,7 @@ import {
 } from '../offline/offline';
 import { sincronizar } from '../offline/sync';
 import ModalConfirmacao from './ModalConfirmacao';
+import { rotuloFator } from '../utils/contratos';
 
 const LABEL_TIPO = {
   checklist_resposta: 'Resposta do checklist',
@@ -319,7 +320,7 @@ function ModalPendenciasSync({
                       {op.tipo === 'material' && (
                         <p className="text-[10px] text-slate-500 font-semibold mt-0.5">
                           Serviço #{op.payload?.produto_id} · {op.payload?.quantidade_usada} peça(s) ·{' '}
-                          USC {op.payload?.tipo_usc === 'especial' ? 'especial' : 'normal'}
+                          {rotuloFator(op.payload?.tipo_os, op.payload?.tipo_usc === 'especial' ? 'especial' : 'normal')}
                         </p>
                       )}
                       <div className="flex items-center gap-2 mt-1 flex-wrap">

@@ -36,7 +36,7 @@ from utils.checklist_os import (
     resumo_checklist,
     snapshot_checklist,
 )
-from utils.tipos_os import ROTULOS_TIPO, TIPOS_OS
+from utils.tipos_os import ROTULOS_TIPO, TIPOS_OS, unidade_contrato
 
 # O módulo é acessível ao gestor ("os") e ao usuário de campo ("os_campo").
 # O usuário de campo enxerga apenas as O.S das equipes em que atua e executa
@@ -1749,14 +1749,15 @@ def lancar_material(
         # quantidade bruta digitada (comportamento original).
         tipo_usc = (payload.tipo_usc or "normal").strip().lower()
         if tipo_usc not in ("normal", "especial"):
-            raise HTTPException(status_code=400, detail="Tipo de USC inválido. Use 'normal' ou 'especial'.")
+            raise HTTPException(status_code=400, detail="Tipo de fator inválido. Use 'normal' ou 'especial'.")
         fator_usc = 0.0
+        unidade = unidade_contrato(os_data.get("tipo"))
         if tipo_usc == "especial":
             fator_usc = float(produto.get("qtd_usc_especial") or 0)
             if fator_usc <= 0:
                 raise HTTPException(
                     status_code=400,
-                    detail=f"O serviço '{produto['nome']}' não possui Qtd USC especial cadastrada.",
+                    detail=f"O serviço '{produto['nome']}' não possui Qtd {unidade} especial cadastrada.",
                 )
         else:
             fator_usc = float(produto.get("preco_unitario") or 0)

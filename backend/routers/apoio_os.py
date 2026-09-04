@@ -17,7 +17,7 @@ from pydantic import BaseModel, Field, field_validator
 
 from auth import require_permisao, require_qualquer_permisao
 from supabase_client import get_supabase
-from utils.tipos_os import TIPOS_OS
+from utils.tipos_os import TIPOS_OS, unidade_contrato
 
 # Alias legado usado nas validações de contrato deste módulo.
 TIPOS_SERVICO = TIPOS_OS
@@ -661,6 +661,20 @@ CAMPOS_MODELO_SERVICO = [
     ("qtd_usc_especial", "Qtd USC Especial"),
 ]
 
+
+def _campos_modelo_para_tipo(tipo: str) -> list[tuple[str, str]]:
+    """CAMPOS_MODELO_SERVICO com rótulos das colunas de fator do contrato.
+
+    Construção exibe 'Qtd USC'; manutenção/linha viva exibem 'Qtd ULV'.
+    """
+    u = unidade_contrato(tipo)
+    return [
+        (campo, rotulo)
+        if campo not in ("preco_unitario", "qtd_usc_especial")
+        else (campo, f"Qtd {u}" if campo == "preco_unitario" else f"Qtd {u} Especial")
+        for campo, rotulo in CAMPOS_MODELO_SERVICO
+    ]
+
 # Apelidos de cabeçalho (normalizados) -> nome do campo. Aceita variações
 # reais de planilhas (inclusive a listagem oficial de serviços).
 ALIASES_COLUNA_SERVICO = {
@@ -691,6 +705,15 @@ ALIASES_COLUNA_SERVICO = {
     "qtd usc especial": "qtd_usc_especial",
     "usc especial": "qtd_usc_especial",
     "quantidade usc especial": "qtd_usc_especial",
+    # Contratos ULV (manutenção/linha viva) usam o mesmo cabeçalho com ULV.
+    "qtd ulv": "preco_unitario",
+    "ulv": "preco_unitario",
+    "ulv normal": "preco_unitario",
+    "quantidade ulv": "preco_unitario",
+    "qtd ulv especial": "qtd_usc_especial",
+    "ulv especial": "qtd_usc_especial",
+    "quantidade ulv especial": "qtd_usc_especial",
+    "codigo ulv especial": "codigo_especial",
 }
 
 
@@ -771,14 +794,24 @@ def _planilha_para_servicos(conteudo: bytes) -> tuple[list[dict], int]:
 
 
 @router.get("/produtos/modelo", dependencies=GESTOR_ONLY)
-def modelo_servicos():
-    """Gera e baixa um modelo .xlsx pronto para o cadastro de serviços em lote."""
+def modelo_servicos(
+    tipo: str = Query("construcao", description="Contrato do modelo: construcao, manutencao ou linha_viva")
+):
+    """Gera e baixa um modelo .xlsx pronto para o cadastro de serviços em lote.
+
+    Os rótulos das colunas de fator seguem o contrato (USC p/ construção,
+    ULV p/ manutenção e linha viva).
+    """
     try:
+        _validar_tipo_servico(tipo)
+        campos_modelo = _campos_modelo_para_tipo(tipo)
+        u = unidade_contrato(tipo)
+
         wb = Workbook()
         ws = wb.active
         ws.title = "Modelo"
 
-        cabecalhos = [rotulo for _, rotulo in CAMPOS_MODELO_SERVICO]
+        cabecalhos = [rotulo for _, rotulo in campos_modelo]
 
         fonte_cabecalho = Font(bold=True, color="FFFFFF")
         fill_cabecalho = PatternFill(start_color="1E293B", end_color="1E293B", fill_type="solid")
@@ -811,13 +844,13 @@ def modelo_servicos():
         ]
 
         for i, exemplo in enumerate(exemplos, start=2):
-            for col, (campo, _) in enumerate(CAMPOS_MODELO_SERVICO, start=1):
+            for col, (campo, _) in enumerate(campos_modelo, start=1):
                 celula = ws.cell(row=i, column=col, value=exemplo.get(campo, ""))
                 celula.border = borda
                 celula.alignment = Alignment(horizontal="center")
 
         ws.freeze_panes = "A2"
-        for col, (_, rotulo) in enumerate(CAMPOS_MODELO_SERVICO, start=1):
+        for col, (_, rotulo) in enumerate(campos_modelo, start=1):
             ws.column_dimensions[ws.cell(row=1, column=col).column_letter].width = max(18, len(rotulo) + 4)
 
         ws_instrucoes = wb.create_sheet("Instruções")
@@ -834,7 +867,7 @@ def modelo_servicos():
             "   caso contrário, um novo serviço é criado.",
             "6. O MESMO código pode existir em contratos diferentes (são catálogos",
             "   independentes) — importar em um contrato NÃO altera os demais.",
-            "7. 'Código Especial' é o código usado quando o serviço é aplicado como USC especial",
+            f"7. 'Código Especial' é o código usado quando o serviço é aplicado como {u} especial"
             "   (mesma descrição, dois códigos distintos).",
             "8. Números: use vírgula como separador decimal (ex.: 0,48 ou 6,66).",
             "9. Ao finalizar, vá em 'Importar em lote' na aba Serviços e envie este arquivo.",
@@ -920,6 +953,7 @@ def importar_servicos(
     """
     try:
         _validar_tipo_servico(tipo)
+        u = unidade_contrato(tipo)
 
         # Fail-fast: se o banco ainda não tem as colunas novas (schema.sql),
         # orienta a correção em vez de falhar por linha / dar 500 genérico.
@@ -969,11 +1003,12 @@ def importar_servicos(
             unidade = _normalizar_texto_livre(registro.get("unidade")) or "UN"
 
             # Campos numéricos: vazio -> 0; texto inválido ou negativo -> erro.
+            # Rótulos seguem o contrato importado (USC p/ construção, ULV p/ os demais).
             valores = {}
             numeros_ok = True
             for campo, rotulo in (
-                ("preco_unitario", "Qtd USC"),
-                ("qtd_usc_especial", "Qtd USC Especial"),
+                ("preco_unitario", f"Qtd {u}"),
+                ("qtd_usc_especial", f"Qtd {u} Especial"),
             ):
                 bruto = registro.get(campo)
                 if bruto is None or str(bruto).strip() == "":
