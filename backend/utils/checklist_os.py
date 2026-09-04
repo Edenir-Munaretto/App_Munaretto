@@ -11,6 +11,10 @@ Regras de liberação:
   - O.S sem itens (catálogo vazio/legada) não é bloqueada por este módulo.
 """
 
+import logging
+
+from utils.tipos_os import TIPOS_OS
+
 NOMES_GRUPOS = {
     1: "Preparação (base)",
     2: "Chegada ao Local",
@@ -23,13 +27,33 @@ RESPOSTAS_VALIDAS = ("sim", "nao", "na")
 
 GRUPO_LIBERACAO_INICIO = 1
 
+logger = logging.getLogger(__name__)
+
+
+def _eh_violacao_unique(exc: Exception) -> bool:
+    texto = str(getattr(exc, "message", "") or exc).lower()
+    return any(marca in texto for marca in ("23505", "duplicate key", "já existe", "already exists"))
+
 
 def snapshot_checklist(db, os_id: int) -> None:
-    """Copia o catálogo ativo para a O.S (idempotente)."""
+    """Copia o catálogo ativo aplicável à O.S (idempotente).
+
+    Modelos `tipo='geral'` valem para qualquer O.S; modelos com tipo específico
+    (construcao/manutencao/linha_viva) só entram na O.S do MESMO tipo.
+    Em corrida (duas chamadas simultâneas), insere apenas os itens faltantes:
+    o UNIQUE(os_id, classificacao) protege e a violação de unicidade é tratada
+    como sucesso (o concorrente já gravou).
+    """
+    os_row = db.table("ordens_servico").select("tipo").eq("id", os_id).execute().data
+    tipo_os = (os_row[0].get("tipo") if os_row else None) or "construcao"
+    if tipo_os not in TIPOS_OS:
+        tipo_os = "construcao"
+
     modelos = (
         db.table("os_checklist_modelos")
         .select("*")
         .eq("ativo", True)
+        .in_("tipo", ("geral", tipo_os))
         .order("grupo")
         .order("ordem")
         .execute()
@@ -37,6 +61,10 @@ def snapshot_checklist(db, os_id: int) -> None:
     )
     if not modelos:
         return
+
+    existentes = db.table("os_checklist_itens").select("classificacao").eq("os_id", os_id).execute().data or []
+    presentes = {i["classificacao"] for i in existentes}
+
     linhas = [
         {
             "os_id": os_id,
@@ -48,8 +76,18 @@ def snapshot_checklist(db, os_id: int) -> None:
             "exige_foto": bool(m.get("exige_foto", False)),
         }
         for m in modelos
+        if m["classificacao"] not in presentes
     ]
-    db.table("os_checklist_itens").insert(linhas).execute()
+    if not linhas:
+        return
+    try:
+        db.table("os_checklist_itens").insert(linhas).execute()
+    except Exception as exc:
+        if _eh_violacao_unique(exc):
+            # Corrida: o concorrente gravou os itens entre a leitura e o insert.
+            logger.warning("Snapshot da O.S %s colidiu com outra requisição; itens já aplicados.", os_id)
+            return
+        raise
 
 
 def garantir_snapshot(db, os_id: int) -> None:

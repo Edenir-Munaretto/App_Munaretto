@@ -330,7 +330,7 @@ export async function atualizarRespostaLocal(osId, itemId, resposta, justificati
     criado_em: new Date().toISOString(),
     respondido_por: 'dispositivo',
   };
-  dados.resumo = recalcularResumo(dados.itens);
+  dados.resumo = recalcularResumo(dados.itens, dados.resumo);
   await dbPut('checklist', dados);
   // Reflete o resumo também no detalhe da O.S (banners/gates locais).
   const detalhe = await dbGet('os', Number(osId));
@@ -340,19 +340,26 @@ export async function atualizarRespostaLocal(osId, itemId, resposta, justificati
   }
 }
 
-export function recalcularResumo(itens) {
-  const grupos = [];
-  for (let g = 1; g <= 5; g += 1) {
+export function recalcularResumo(itens, resumoAnterior = null) {
+  // Nomes preservados POR NÚMERO de grupo (não por posição): se a ordem dos
+  // grupos mudar no servidor, os rótulos continuam corretos offline.
+  const nomePorGrupo = {};
+  for (const g of resumoAnterior?.grupos || []) nomePorGrupo[g.grupo] = g.nome;
+  const numeros = Array.from(
+    new Set([...itens.map(i => i.grupo), ...Object.keys(nomePorGrupo).map(Number)]),
+  ).sort((a, b) => a - b);
+
+  const grupos = numeros.map(g => {
     const doGrupo = itens.filter(i => i.grupo === g);
     const resp = doGrupo.filter(i => i.resposta);
-    grupos.push({
+    return {
       grupo: g,
-      nome: `Grupo ${g}`,
+      nome: nomePorGrupo[g] || `Grupo ${g}`,
       total: doGrupo.length,
       respondidos: resp.length,
       completo: doGrupo.length > 0 && resp.length === doGrupo.length,
-    });
-  }
+    };
+  });
   const total = itens.length;
   const respondidos = itens.filter(i => i.resposta).length;
   const inicio = grupos.find(g => g.grupo === 1);

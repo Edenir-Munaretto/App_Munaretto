@@ -17,6 +17,10 @@ from pydantic import BaseModel, Field, field_validator
 
 from auth import require_permisao, require_qualquer_permisao
 from supabase_client import get_supabase
+from utils.tipos_os import TIPOS_OS
+
+# Alias legado usado nas validações de contrato deste módulo.
+TIPOS_SERVICO = TIPOS_OS
 
 # Catálogo de produtos é leitura necessária ao usuário de campo (lançamento de
 # serviços na O.S); as demais operações de cadastro seguem restritas ao gestor.
@@ -332,15 +336,31 @@ def excluir_obra(obra_id: int, db=Depends(get_supabase)):
 def listar_equipes(db=Depends(get_supabase)):
     try:
         equipes = db.table("equipes").select("*").order("nome").execute().data
-        resultado = []
-        for eq in equipes:
-            resultado.append(
+        if not equipes:
+            return []
+
+        # Membros de TODAS as equipes em UMA consulta (era 1 query por equipe).
+        vinculos = (
+            db.table("equipe_membros")
+            .select("id, equipe_id, funcionario_id, lider, funcionarios(nome, cpf)")
+            .in_("equipe_id", [e["id"] for e in equipes])
+            .order("id")
+            .execute()
+            .data
+        )
+        por_equipe: dict[int, list[dict]] = {e["id"]: [] for e in equipes}
+        for v in vinculos or []:
+            func = v.get("funcionarios") or {}
+            por_equipe.setdefault(v["equipe_id"], []).append(
                 {
-                    **eq,
-                    "membros": _membros_da_equipe(db, eq["id"]),
+                    "id": v["id"],
+                    "funcionario_id": v["funcionario_id"],
+                    "nome": func.get("nome"),
+                    "lider": v.get("lider", False),
                 }
             )
-        return resultado
+
+        return [{**e, "membros": por_equipe.get(e["id"], [])} for e in equipes]
     except Exception:
         logger.exception("Erro ao listar equipes")
         raise HTTPException(status_code=500, detail="Erro ao listar equipes.") from None
@@ -432,9 +452,6 @@ def excluir_equipe(equipe_id: int, db=Depends(get_supabase)):
 # ---------------------------------------------------------------------------
 # Produtos (serviços por contrato)
 # ---------------------------------------------------------------------------
-
-TIPOS_SERVICO = {"construcao", "manutencao", "linha_viva"}
-
 
 def _validar_tipo_servico(tipo: str) -> None:
     if tipo not in TIPOS_SERVICO:

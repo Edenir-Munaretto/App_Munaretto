@@ -7,9 +7,18 @@ apontada (horas x valor/hora). Mantém o pdf_generator.py original intacto.
 
 import os
 import tempfile
-from datetime import datetime
 
 from fpdf import FPDF
+
+from utils.date_helpers import agora_fuso_brasil, em_fuso_brasil
+
+
+def _novo_caminho_temp(prefixo: str, sufixo: str = ".pdf") -> str:
+    """Caminho temporário ÚNICO (evita colisão entre requisições concorrentes
+    que antes gravavam `os_<codigo>.pdf` fixo no mesmo arquivo)."""
+    fd, caminho = tempfile.mkstemp(prefix=prefixo, suffix=sufixo)
+    os.close(fd)
+    return caminho
 
 
 class _RelatorioOS(FPDF):
@@ -27,7 +36,8 @@ class _RelatorioOS(FPDF):
         self.set_y(-15)
         self.set_font("Arial", "I", 8)
         self.set_text_color(128, 128, 128)
-        self.cell(0, 10, f"Gerado em {datetime.now().strftime('%d/%m/%Y %H:%M')} - Página {self.page_no()}", align="C")
+        texto_rodape = f"Gerado em {agora_fuso_brasil().strftime('%d/%m/%Y %H:%M')} - Página {self.page_no()}"
+        self.cell(0, 10, texto_rodape, align="C")
 
     def _titulo_secao(self, titulo: str):
         self.ln(4)
@@ -80,10 +90,10 @@ class _RelatorioOS(FPDF):
 
 
 def _fmt_data(iso: str) -> str:
-    try:
-        return datetime.fromisoformat(str(iso).replace("Z", "+00:00")).strftime("%d/%m/%Y %H:%M")
-    except Exception:
-        return str(iso or "-")
+    dt = em_fuso_brasil(iso)
+    if dt is not None:
+        return dt.strftime("%d/%m/%Y %H:%M")
+    return str(iso or "-")
 
 
 def gerar_pdf_os(
@@ -215,7 +225,6 @@ def gerar_pdf_os(
     pdf.set_font("Arial", "", 8.5)
     pdf.cell(0, 6, f"Evidências fotográficas anexadas à O.S: {quantidade_fotos}", ln=True)
 
-    nome_arquivo = f"os_{os_data.get('codigo', 'relatorio')}.pdf".replace("-", "_").replace("/", "_")
-    caminho_temp = os.path.join(tempfile.gettempdir(), nome_arquivo)
+    caminho_temp = _novo_caminho_temp("os_relatorio_")
     pdf.output(caminho_temp)
     return caminho_temp

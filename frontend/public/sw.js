@@ -1,10 +1,18 @@
-const CACHE = 'munaretto-v1';
+// Service worker do App Munaretto (PWA offline-first leve).
+//
+// VERSÃO DO CACHE: incremente `CACHE` (ex.: munaretto-v2, v3...) a cada deploy
+// do frontend — o activate remove as versões antigas automaticamente.
+
+const CACHE = 'munaretto-v2';
 const APP_SHELL = ['/', '/index.html', '/manifest.webmanifest', '/logo-munaretto.png', '/boneco-munaretto.png', '/favicon.ico', '/pwa-192.png', '/pwa-512.png'];
 
 self.addEventListener('install', (event) => {
   event.waitUntil(
     caches.open(CACHE)
-      .then((cache) => cache.addAll(APP_SHELL))
+      // Pré-cache tolerante: se um asset falhar (ex.: png temporariamente
+      // ausente), os demais continuam sendo cacheados — o addAll antigo
+      // derrubava o install inteiro por causa de um único arquivo.
+      .then((cache) => Promise.allSettled(APP_SHELL.map((url) => cache.add(url).catch(() => {}))))
       .then(() => self.skipWaiting())
   );
 });

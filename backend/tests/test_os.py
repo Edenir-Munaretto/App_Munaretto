@@ -774,7 +774,9 @@ class TestMateriaisEPermissao:
         assert resp.status_code == 200, resp.text
         corpo = resp.json()
         assert corpo["transicoes"]["rascunho"] == ["aberta", "cancelada"]
-        assert corpo["transicoes"]["concluida"] == []
+        # Reabertura pelo gestor: encerradas podem voltar para 'aberta'.
+        assert corpo["transicoes"]["concluida"] == ["aberta"]
+        assert corpo["transicoes"]["cancelada"] == ["aberta"]
         assert "em_andamento" in corpo["status_validos"]
         assert "linha_viva" in corpo["tipos"]
 
@@ -1743,3 +1745,108 @@ def test_equipe_mudanca_de_membros_aplica_diferenca_sem_recriar(os_gestor_client
     )
     assert r2.status_code == 200, r2.text
     assert {m["funcionario_id"] for m in db_fake._dados["equipe_membros"] if m["equipe_id"] == eq_id} == {11}
+
+class TestReaberturaOs:
+    """Reabertura de O.S concluida/cancelada pelo gestor (decisão nº 2)."""
+
+    def test_gestor_reabre_os_concluida_com_justificativa(self, os_gestor_client, db_fake):
+        _seed_cenario(db_fake)
+        os_id = _criar_os_aberta_em_andamento(os_gestor_client)
+        assert os_gestor_client.put(f"/api/os/{os_id}/status", json={"novo_status": "concluida"}).status_code == 200
+
+        resp = os_gestor_client.put(
+            f"/api/os/{os_id}/status",
+            json={"novo_status": "aberta", "justificativa": "Cliente pediu retorno da equipe para acabamento."},
+        )
+        assert resp.status_code == 200, resp.text
+        detalhe = os_gestor_client.get(f"/api/os/{os_id}").json()
+        assert detalhe["status"] == "aberta"
+        assert detalhe["data_fim"] is None  # voltou ao funil sem data de encerramento
+
+        evento = next(
+            h for h in db_fake._dados["os_historico"]
+            if h["os_id"] == os_id and h["status_anterior"] == "concluida" and h["status_novo"] == "aberta"
+        )
+        assert "acabamento" in (evento["justificativa"] or "")
+
+    def test_reabrir_cancelada_tambem_volta_ao_funil(self, os_gestor_client, db_fake):
+        _seed_cenario(db_fake)
+        os_id = _criar_os(os_gestor_client).json()["id"]
+        assert os_gestor_client.put(f"/api/os/{os_id}/status", json={"novo_status": "cancelada"}).status_code == 200
+        resp = os_gestor_client.put(
+            f"/api/os/{os_id}/status",
+            json={"novo_status": "aberta", "justificativa": "Cancelamento indevido; O.S volta para análise."},
+        )
+        assert resp.status_code == 200, resp.text
+        assert os_gestor_client.get(f"/api/os/{os_id}").json()["status"] == "aberta"
+
+    def test_reabertura_exige_gestor(self, os_gestor_client, os_campo_client, db_fake):
+        _seed_cenario(db_fake)
+        os_id = _criar_os(os_gestor_client, equipe_id=100).json()["id"]
+        assert os_gestor_client.put(f"/api/os/{os_id}/status", json={"novo_status": "cancelada"}).status_code == 200
+        resp = os_campo_client.put(
+            f"/api/os/{os_id}/status",
+            json={"novo_status": "aberta", "justificativa": "Campo tentando reabrir a O.S."},
+        )
+        assert resp.status_code == 403
+
+    def test_reabertura_exige_justificativa(self, os_gestor_client, db_fake):
+        _seed_cenario(db_fake)
+        os_id = _criar_os_aberta_em_andamento(os_gestor_client)
+        assert os_gestor_client.put(f"/api/os/{os_id}/status", json={"novo_status": "concluida"}).status_code == 200
+
+        resp = os_gestor_client.put(f"/api/os/{os_id}/status", json={"novo_status": "aberta", "justificativa": "curta"})
+        assert resp.status_code == 422
+        assert "justificativa" in resp.json()["detail"]
+        assert os_gestor_client.get(f"/api/os/{os_id}").json()["status"] == "concluida"
+
+
+def test_editar_os_parcial_nao_zera_campos_omissos(os_gestor_client, db_fake):
+    """PUT parcial (só escopo) não pode zerar tipo/prioridade etc (exclude_unset)."""
+    _seed_cenario(db_fake)
+    os_id = _criar_os(os_gestor_client).json()["id"]  # tipo construcao, prioridade alta
+
+    resp = os_gestor_client.put(f"/api/os/{os_id}", json={"descricao_escopo": "Novo escopo parcial."})
+    assert resp.status_code == 200, resp.text
+    detalhe = os_gestor_client.get(f"/api/os/{os_id}").json()
+    assert detalhe["descricao_escopo"] == "Novo escopo parcial."
+    assert detalhe["tipo"] == "construcao"
+    assert detalhe["prioridade"] == "alta"
+    assert detalhe["custo_mo_orcado"] == 5000
+
+
+def test_enviar_foto_normaliza_nome_do_arquivo(os_gestor_client, db_fake, monkeypatch):
+    """Nome de arquivo do cliente vira apenas basename (sem caminho) e truncado."""
+    from tests.test_checklist_os import _FakeS3
+
+    _seed_cenario(db_fake)
+    os_id = _criar_os(os_gestor_client, equipe_id=100).json()["id"]
+
+    fake = _FakeS3()
+    monkeypatch.setattr("routers.os.get_s3_client", lambda: fake)
+    monkeypatch.setattr("routers.os.bucket", lambda: "bucket-teste")
+
+    resp = os_gestor_client.post(
+        f"/api/os/{os_id}/fotos",
+        files={"arquivo": ("..\\\\..\\\\..\\\\x.jpg", b"\xff\xd8\xff\xe0 fake jpeg", "image/jpeg")},
+    )
+    assert resp.status_code == 201, resp.text
+    gravada = db_fake._dados["os_fotos"][-1]
+    assert gravada["nome_original"] == "x.jpg"  # basename, sem navegar diretórios
+
+
+def test_snapshot_respeita_o_tipo_da_os(os_gestor_client, db_fake):
+    """Modelos específicos de um contrato não entram na O.S de outro tipo."""
+    _seed_cenario(db_fake)
+    db_fake._dados["os_checklist_modelos"].extend(
+        [
+            {"id": 500, "tipo": "geral", "grupo": 1, "ordem": 1, "classificacao": "1.1",
+             "pergunta": "Geral?", "exige_foto": False, "ativo": True},
+            {"id": 501, "tipo": "linha_viva", "grupo": 2, "ordem": 1, "classificacao": "2.1",
+             "pergunta": "Específico de linha viva?", "exige_foto": False, "ativo": True},
+        ]
+    )
+    os_id = _criar_os(os_gestor_client, tipo="construcao").json()["id"]
+    itens = [i for i in db_fake._dados["os_checklist_itens"] if i["os_id"] == os_id]
+    assert {i["classificacao"] for i in itens} == {"1.1"}
+    assert all(i["pergunta"] == "Geral?" for i in itens)

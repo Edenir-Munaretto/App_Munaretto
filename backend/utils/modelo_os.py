@@ -134,8 +134,10 @@ def gerar_modelo_os(
         logger.warning("Template do tipo '%s' não encontrado; usando CONSTRUÇÃO.", tipo)
 
     temp_dir = tempfile.gettempdir()
-    nome_base = f"OS_{tipo.upper()}_{(os_data.get('codigo') or 'os').replace('-', '_')}"
-    caminho_docx = os.path.join(temp_dir, f"{nome_base}.docx")
+    # Nome único: requisições concorrentes da MESMA O.S não podem disputar o
+    # mesmo arquivo .docx/.pdf no diretório temporário.
+    fd, caminho_docx = tempfile.mkstemp(prefix="os_modelo_", suffix=".docx")
+    os.close(fd)
 
     doc = DocxTemplate(template_path)
     doc.render(contexto)

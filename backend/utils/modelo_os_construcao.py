@@ -22,6 +22,14 @@ import pymupdf
 
 logger = logging.getLogger(__name__)
 
+
+def _novo_caminho_temp(prefixo: str, sufixo: str = ".pdf") -> str:
+    """Caminho temporário ÚNICO (evita colisão entre requisições concorrentes
+    que antes gravavam `OS_CONSTRUCAO_<codigo>.pdf` fixo no mesmo arquivo)."""
+    fd, caminho = tempfile.mkstemp(prefix=prefixo, suffix=sufixo)
+    os.close(fd)
+    return caminho
+
 # ---------------------------------------------------------------------------
 # Constantes de layout (medidas em pontos, A4 = 595.2756 x 841.8898)
 # ---------------------------------------------------------------------------
@@ -387,7 +395,7 @@ def gerar_pdf_construcao(
     _pagina_1(pdf, ctx)
     _pagina_2(pdf, ctx)
 
-    caminho = os.path.join(tempfile.gettempdir(), f"OS_CONSTRUCAO_{codigo or 'os'}.pdf")
+    caminho = _novo_caminho_temp("os_modelo_construcao_")
     pdf.save(caminho)
     pdf.close()
     logger.info("Modelo Construção gerado em %s", caminho)

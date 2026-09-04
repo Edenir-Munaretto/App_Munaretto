@@ -4,7 +4,7 @@ Centraliza a lógica de parse e cálculo de status de vencimento que estava
 duplicada em sst.py, dashboard.py e ferias.py.
 """
 
-from datetime import date, datetime
+from datetime import UTC, date, datetime
 
 DIAS_AVISO = 30
 
@@ -54,3 +54,40 @@ def status_vencimento(data_validade, dias_aviso: int = DIAS_AVISO) -> str:
     if dias <= dias_aviso:
         return STATUS_PROXIMO
     return STATUS_VIGENTE
+
+
+def _fuso_brasil():
+    """America/Sao_Paulo via zoneinfo (stdlib). Sem dados de fuso instalados
+    (tzdata ausente em alguns containers), cai para UTC — nunca quebra."""
+    try:
+        from zoneinfo import ZoneInfo
+
+        return ZoneInfo("America/Sao_Paulo")
+    except Exception:
+        return None
+
+
+def em_fuso_brasil(valor) -> datetime | None:
+    """Converte string ISO/datetime (naive assumido UTC) para o fuso brasileiro.
+
+    Timestamps do banco são TIMESTAMPTZ (UTC); exibição em PDFs deve mostrar a
+    hora local do Brasil, não o horário cru de Greenwich.
+    """
+    if valor is None:
+        return None
+    dt = valor
+    if isinstance(valor, str):
+        try:
+            dt = datetime.fromisoformat(str(valor).replace("Z", "+00:00"))
+        except ValueError:
+            return None
+    if getattr(dt, "tzinfo", None) is None:
+        dt = dt.replace(tzinfo=UTC)
+    tz = _fuso_brasil()
+    return dt.astimezone(tz) if tz else dt.astimezone(UTC)
+
+
+def agora_fuso_brasil() -> datetime:
+    """'Agora' no fuso brasileiro (para rodapés 'Gerado em ...')."""
+    tz = _fuso_brasil()
+    return datetime.now(UTC).astimezone(tz) if tz else datetime.now(UTC)

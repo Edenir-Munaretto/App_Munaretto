@@ -13,6 +13,7 @@ Regras de negócio centrais:
   (vínculo pelo funcionário selecionado em Configurações → Usuários).
 """
 
+import contextlib
 import logging
 import os
 import re
@@ -22,6 +23,7 @@ from datetime import UTC, datetime, timedelta
 from fastapi import APIRouter, Depends, File, HTTPException, Query, Response, UploadFile
 from fastapi.responses import FileResponse
 from pydantic import BaseModel, Field, ValidationError, field_validator
+from starlette.background import BackgroundTask
 
 from auth import UsuarioAutenticado, get_current_user, require_qualquer_permisao
 from storage import bucket, get_s3_client
@@ -34,6 +36,7 @@ from utils.checklist_os import (
     resumo_checklist,
     snapshot_checklist,
 )
+from utils.tipos_os import ROTULOS_TIPO, TIPOS_OS
 
 # O módulo é acessível ao gestor ("os") e ao usuário de campo ("os_campo").
 # O usuário de campo enxerga apenas as O.S das equipes em que atua e executa
@@ -49,15 +52,8 @@ logger = logging.getLogger(__name__)
 
 STATUS_VALIDOS = {"rascunho", "aberta", "em_andamento", "impedida", "concluida", "cancelada"}
 PRIORIDADES = {"baixa", "media", "alta", "critica"}
-# Tipo da O.S: define o modelo de impressão (CONSTRUÇÃO e MANUTENÇÃO usam o
-# mesmo layout; LINHA VIVA tem modelo próprio).
-TIPOS_OS = {"construcao", "linha_viva", "manutencao"}
-
-ROTULOS_TIPO = {
-    "construcao": "Construção",
-    "manutencao": "Manutenção",
-    "linha_viva": "Linha Viva",
-}
+# Tipo da O.S (fonte única em utils/tipos_os): define o modelo de impressão
+# (CONSTRUÇÃO e MANUTENÇÃO usam o mesmo layout; LINHA VIVA tem modelo próprio).
 
 # Manutenção e Linha Viva usam listas parecidas, mas são CONTRATOS
 # INDEPENDENTES: cada contrato tem o SEU catálogo de serviços.
@@ -87,16 +83,19 @@ def _validar_servico_do_contrato(db, produto_id: int, tipo_os: str) -> dict:
 
 # Máquina de estados: origem -> destinos permitidos. Qualquer transição fora
 # deste mapa é rejeitada com 422 (evita saltos como Rascunho -> Concluída).
+# O.S concluída/cancelada podem ser REABERTAS pelo gestor (-> aberta) com
+# justificativa registrada no histórico (decisão de negócio nº 2).
 TRANSICOES_STATUS = {
     "rascunho": {"aberta", "cancelada"},
     "aberta": {"em_andamento", "impedida", "cancelada"},
     "em_andamento": {"impedida", "concluida", "cancelada"},
     "impedida": {"em_andamento"},
-    "concluida": set(),
-    "cancelada": set(),
+    "concluida": {"aberta"},
+    "cancelada": {"aberta"},
 }
 
 MIN_JUSTIFICATIVA_IMPEDIDA = 20
+MIN_REABERTURA_CARACTERES = 10
 MIMES_FOTO_PERMITIDOS = {"image/jpeg": ".jpg", "image/png": ".png", "image/webp": ".webp"}
 TAMANHO_MAXIMO_FOTO_BYTES = 15 * 1024 * 1024
 VALIDADE_PRESIGNED_SEGUNDOS = 15 * 60
@@ -247,6 +246,20 @@ class SincronizarIn(BaseModel):
 
 def _agora() -> datetime:
     return datetime.now(UTC)
+
+
+def _remover_arquivo(caminho: str) -> None:
+    """Remove um arquivo temporário após o envio (background do FileResponse)."""
+    with contextlib.suppress(OSError):
+        os.remove(caminho)
+
+
+def _remover_objeto(s3, chave: str) -> None:
+    """Remove um objeto do bucket de forma tolerante (log em vez de derrubar)."""
+    try:
+        s3.delete_object(Bucket=bucket(), Key=chave)
+    except Exception:
+        logger.exception("Erro ao remover objeto %s do B2", chave)
 
 
 def _termo_busca_seguro(termo: str | None) -> str:
@@ -963,29 +976,12 @@ def editar_os(
         if payload.equipe_id and not db.table("equipes").select("id").eq("id", payload.equipe_id).execute().data:
             raise HTTPException(status_code=404, detail="Equipe não encontrada.")
 
+        # exclude_unset: PUT parcial não zera campos omissos (payloads que
+        # não trazem o campo deixam o valor atual intacto, ex.: só escopo).
+        atualizacoes = payload.model_dump(exclude_unset=True)
         resp = (
             db.table("ordens_servico")
-            .update(
-                {
-                    "equipe_id": payload.equipe_id,
-                    "prioridade": payload.prioridade,
-                    "prazo_entrega": payload.prazo_entrega,
-                    "descricao_escopo": payload.descricao_escopo,
-                    "custo_mo_orcado": payload.custo_mo_orcado,
-                    "tipo": payload.tipo,
-                    "agencia": payload.agencia,
-                    "municipio": payload.municipio,
-                    "local_servico": payload.local_servico,
-                    "bt_energizado": payload.bt_energizado,
-                    "at_energizado_bloqueio": payload.at_energizado_bloqueio,
-                    "bloqueio": payload.bloqueio,
-                    "hora_desligar": payload.hora_desligar,
-                    "hora_religar": payload.hora_religar,
-                    "alimentador": payload.alimentador,
-                    "chave": payload.chave,
-                    "obs": payload.obs,
-                }
-            )
+            .update(atualizacoes)
             .eq("id", os_id)
             .execute()
         )
@@ -1026,6 +1022,21 @@ def alterar_status(
         # Cancelamento é decisão de gestão: restrito a quem tem a permissão 'os'.
         if novo == "cancelada":
             _exigir_gestor(usuario)
+
+        # Reabertura (concluida/cancelada -> aberta) é decisão de gestão com
+        # justificativa registrada no histórico (auditoria) — decisão nº 2.
+        reabertura = novo == "aberta" and atual in ("concluida", "cancelada")
+        if reabertura:
+            _exigir_gestor(usuario)
+            texto_reabertura = (payload.justificativa or "").strip()
+            if len(texto_reabertura) < MIN_REABERTURA_CARACTERES:
+                raise HTTPException(
+                    status_code=422,
+                    detail=(
+                        "Para reabrir uma O.S encerrada é obrigatória uma justificativa "
+                        f"descritiva com no mínimo {MIN_REABERTURA_CARACTERES} caracteres."
+                    ),
+                )
 
         # Regra 2 (crítica): 'Impedida' exige justificativa >= 20 caracteres + fotos.
         justificativa = None
@@ -1068,6 +1079,9 @@ def alterar_status(
         updates = {"status": novo}
         if novo in ("concluida", "cancelada"):
             updates["data_fim"] = _agora().isoformat()
+        if reabertura:
+            # Volta ao funil: sem data de encerramento (limpa a do ciclo antigo).
+            updates["data_fim"] = None
 
         # Update atômico: a condição de estado impede que duas solicitações
         # (dois dispositivos) validem o mesmo status atual e o último vença.
@@ -1376,7 +1390,12 @@ def relatorio_checklist(os_id: int, usuario: UsuarioAutenticado = Depends(get_cu
             membros=membros,
             baixar_foto=_baixar_foto,
         )
-        return FileResponse(caminho, media_type="application/pdf", filename=f"{os_data['codigo']}_checklist.pdf")
+        return FileResponse(
+            caminho,
+            media_type="application/pdf",
+            filename=f"{os_data['codigo']}_checklist.pdf",
+            background=BackgroundTask(_remover_arquivo, caminho),
+        )
     except HTTPException:
         raise
     except Exception:
@@ -1686,6 +1705,7 @@ def imprimir_os(os_id: int, usuario: UsuarioAutenticado = Depends(get_current_us
             caminho,
             media_type="application/pdf",
             filename=f"{os_data['codigo']}_modelo.pdf",
+            background=BackgroundTask(_remover_arquivo, caminho),
         )
     except HTTPException:
         raise
@@ -2042,12 +2062,14 @@ async def enviar_foto(
         bucket_key = f"os_fotos/{os_id}/{uuid.uuid4().hex}{extensao}"
         s3.put_object(Bucket=bucket(), Key=bucket_key, Body=conteudo, ContentType=mime)
 
+        # Basename + truncatura: o nome do cliente não pode virar caminho.
+        nome_original = os.path.basename((arquivo.filename or "").replace("\\", "/")).strip() or "foto"
         resp = (
             db.table("os_fotos")
             .insert(
                 {
                     "os_id": os_id,
-                    "nome_original": arquivo.filename or "foto",
+                    "nome_original": nome_original[:500],
                     "tamanho_bytes": len(conteudo),
                     "mime_type": mime,
                     "bucket_key": bucket_key,
@@ -2190,6 +2212,7 @@ def relatorio_pdf(os_id: int, usuario: UsuarioAutenticado = Depends(get_current_
             caminho,
             media_type="application/pdf",
             filename=f"{os_data['codigo']}_relatorio.pdf",
+            background=BackgroundTask(_remover_arquivo, caminho),
         )
     except HTTPException:
         raise

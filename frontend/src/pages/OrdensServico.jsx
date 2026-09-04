@@ -42,6 +42,15 @@ const STATUS_PIPELINE = ['rascunho', 'aberta', 'em_andamento', 'impedida'];
 
 const LABEL_STATUS = Object.fromEntries(COLUNAS.map(c => [c.id, c.label]));
 
+// Contratos/tipos de O.S — fonte única dos literais espalhados pela página.
+const TIPOS_SERVICO_OPCOES = [
+  { valor: 'construcao', rotulo: 'Construção' },
+  { valor: 'manutencao', rotulo: 'Manutenção' },
+  { valor: 'linha_viva', rotulo: 'Linha Viva' },
+];
+const ROTULOS_TIPO_SERVICO = Object.fromEntries(TIPOS_SERVICO_OPCOES.map(o => [o.valor, o.rotulo]));
+const TIPO_PADRAO_OS = 'construcao';
+
 // Aplica os mesmos filtros/busca do servidor sobre uma lista local (offline):
 // termo busca em código/escopo/obra/equipe + obra/equipe/prioridade/status.
 function filtrarListaLocal(lista, { busca, obra_id, equipe_id, prioridade, status }) {
@@ -371,12 +380,8 @@ function TabChecklist({ osDetalhe, onAtualizado, mostrarToast, podeEditar }) {
       const itens = prev.itens.map(i => (i.id === item.id
         ? { ...i, resposta: { item_id: item.id, resposta, justificativa: null, geolocalizacao: gps, criado_em: new Date().toISOString(), respondido_por: 'dispositivo' } }
         : i));
-      const resumo = recalcularResumo(itens);
-      // Preserva os nomes reais dos grupos vindos do servidor.
-      resumo.grupos.forEach((g, i) => {
-        const nome = prev.resumo?.grupos?.[i]?.nome;
-        if (nome) g.nome = nome;
-      });
+      // Nomes dos grupos preservados POR NÚMERO (não por posição/índice).
+      const resumo = recalcularResumo(itens, prev.resumo);
       return { itens, resumo };
     });
   };
@@ -1578,7 +1583,7 @@ function AcoesStatus({ detalhe, podeEditar, mudarStatus, aoAplicado, ehGestor, t
   );
 }
 
-function PainelExecucao({ osId, produtos, capturarGps, onFechar, recarregarLista, mostrarToast, ehMobile, mudarStatus, ehGestor, onEditar, onExcluir, transicoes, onPedirImpedimento }) {
+function PainelExecucao({ osId, produtos, capturarGps, onFechar, recarregarLista, mostrarToast, ehMobile, mudarStatus, ehGestor, onEditar, onExcluir, transicoes, onPedirImpedimento, onReabrir }) {
   const [detalhe, setDetalhe] = useState(null);
   const [erro, setErro] = useState('');
   const [aba, setAba] = useState('insumos');
@@ -1690,6 +1695,9 @@ function PainelExecucao({ osId, produtos, capturarGps, onFechar, recarregarLista
       const blob = await res.blob();
       const url = window.URL.createObjectURL(blob);
       janela?.location.replace(url);
+      // Libera a blob URL depois de a aba nova carregar (revogar antes pode
+      // cancelar a leitura do PDF).
+      setTimeout(() => window.URL.revokeObjectURL(url), 120000);
     } catch {
       janela?.close();
       mostrarToast('Erro de conexão ao gerar o PDF.', 'error');
@@ -1872,6 +1880,15 @@ function PainelExecucao({ osId, produtos, capturarGps, onFechar, recarregarLista
             >
               <ListChecks size={14} /> Checklist PDF
             </button>
+            {['concluida', 'cancelada'].includes(detalhe.status) && (
+              <button
+                type="button"
+                onClick={() => onReabrir(detalhe)}
+                className="h-11 rounded-xl border border-amber-200 bg-amber-50 text-amber-700 text-xs font-bold flex items-center justify-center gap-1.5 hover:bg-amber-100 cursor-pointer col-span-2"
+              >
+                <RefreshCw size={14} /> Reabrir O.S (exige justificativa)
+              </button>
+            )}
             {podeExcluirOs && (
               <button type="button" onClick={() => onExcluir(detalhe)} className="h-11 rounded-xl border border-rose-200 bg-rose-50 text-rose-600 text-xs font-bold flex items-center justify-center gap-1.5 hover:bg-rose-100 cursor-pointer col-span-2">
                 <Trash2 size={14} /> Excluir O.S
@@ -1907,7 +1924,7 @@ function PainelExecucao({ osId, produtos, capturarGps, onFechar, recarregarLista
 const FORM_OS_INICIAL = {
   obra_id: '', equipe_id: '', prioridade: 'media', prazo_entrega: '',
   descricao_escopo: '', custo_mo_orcado: '',
-  tipo: 'construcao', agencia: '', municipio: '', local_servico: '',
+  tipo: TIPO_PADRAO_OS, agencia: '', municipio: '', local_servico: '',
   bt_energizado: false, at_energizado_bloqueio: false, bloqueio: false,
   hora_desligar: '', hora_religar: '', alimentador: '', chave: '', obs: '',
 };
@@ -2056,7 +2073,7 @@ function ModalNovaOS({ aberto, obras, equipes, onFechar, onCriada, mostrarToast,
         prazo_entrega: edicao.prazo_entrega || '',
         descricao_escopo: edicao.descricao_escopo || '',
         custo_mo_orcado: edicao.custo_mo_orcado != null ? String(edicao.custo_mo_orcado) : '',
-        tipo: edicao.tipo || 'construcao',
+        tipo: edicao.tipo || TIPO_PADRAO_OS,
         agencia: edicao.agencia || '',
         municipio: edicao.municipio || '',
         local_servico: edicao.local_servico || '',
@@ -2152,6 +2169,9 @@ function ModalNovaOS({ aberto, obras, equipes, onFechar, onCriada, mostrarToast,
       const blob = await res.blob();
       const url = window.URL.createObjectURL(blob);
       janela?.location.replace(url);
+      // A aba nova navegou para a blob URL; revoga após um tempo de segurança
+      // (revogar antes pode cancelar a leitura do PDF no navegador).
+      setTimeout(() => window.URL.revokeObjectURL(url), 120000);
     } catch {
       janela?.close();
       mostrarToast('Erro de conexão ao gerar o modelo.', 'error');
@@ -2224,9 +2244,9 @@ function ModalNovaOS({ aberto, obras, equipes, onFechar, onCriada, mostrarToast,
             <label className="block text-xs font-bold text-slate-700 mb-1.5">Tipo de O.S</label>
             <select value={form.tipo} onChange={(e) => setForm({ ...form, tipo: e.target.value })}
               className="w-full px-3.5 py-2.5 border border-slate-200 rounded-xl text-sm font-semibold focus:outline-none focus:border-primary-500">
-              <option value="construcao">Construção</option>
-              <option value="manutencao">Manutenção</option>
-              <option value="linha_viva">Linha Viva</option>
+              {TIPOS_SERVICO_OPCOES.map(({ valor, rotulo }) => (
+                <option key={valor} value={valor}>{rotulo}</option>
+              ))}
             </select>
           </div>
           <div className="grid grid-cols-2 gap-4">
@@ -2536,6 +2556,7 @@ function OrdensServico({ usuarioAtual }) {
   const [modalNova, setModalNova] = useState(false);
   const [modalEdicao, setModalEdicao] = useState(null); // detalhe da O.S em edição
   const [modalImpedimento, setModalImpedimento] = useState(null); // {os, destinoColuna}
+  const [modalReabrir, setModalReabrir] = useState(null); // {os} — reabertura de encerrada (gestor)
   const [confirmacaoEncerrar, setConfirmacaoEncerrar] = useState(null); // {os, destino}
   const [confirmacaoExcluir, setConfirmacaoExcluir] = useState(null); // {os} — exclusão definitiva
   const [confirmacaoFinalizarModoCampo, setConfirmacaoFinalizarModoCampo] = useState(false); // confirmação do Finalizar Modo Campo
@@ -3019,8 +3040,7 @@ function OrdensServico({ usuarioAtual }) {
             },
           });
           await atualizarStatusLocal(os.id, novoStatus);
-          setListaOs(prev => prev.map(o => (o.id === os.id ? { ...o, status: novoStatus } : o)));
-          setOsSelecionada(prev => prev);
+          setListaOs(prev => prev.map(o => (Number(o.id) === Number(os.id) ? { ...o, status: novoStatus } : o)));
           mostrarToast(`${os.codigo} movida para "${LABEL_STATUS[novoStatus]}" (será sincronizada).`);
           const p = await contarPendentes();
           setPendentes(p);
@@ -3177,6 +3197,24 @@ function OrdensServico({ usuarioAtual }) {
     // As fotos já foram enviadas pelo modal — só passamos os IDs para o backend validar.
     const ok = await mudarStatus(os, 'impedida', { justificativa, fotos_ids: fotosIds });
     if (ok) setModalImpedimento(null);
+  };
+
+  // Reabertura de O.S encerrada (gestor): justificativa registrada no histórico.
+  const confirmarReabertura = async (justificativa) => {
+    const os = modalReabrir;
+    if (!os) return;
+    setProcessando(true);
+    try {
+      const ok = await mudarStatus(os, 'aberta', { justificativa });
+      if (ok) {
+        setModalReabrir(null);
+        mostrarToast(`O.S ${os.codigo} reaberta.`);
+      } else {
+        mostrarToast('Não foi possível reabrir a O.S. Confira a mensagem acima.', 'error');
+      }
+    } finally {
+      setProcessando(false);
+    }
   };
 
   // --- Agrupamento do Kanban ---------------------------------------------------
@@ -3543,6 +3581,7 @@ function OrdensServico({ usuarioAtual }) {
               onEditar={(detalhe) => setModalEdicao(detalhe)}
               onExcluir={(detalhe) => setConfirmacaoExcluir({ os: detalhe })}
               onPedirImpedimento={(detalhe) => setModalImpedimento({ os: detalhe })}
+              onReabrir={(detalhe) => setModalReabrir(detalhe)}
               transicoes={transicoes}
             />
           )}
@@ -3678,6 +3717,7 @@ function OrdensServico({ usuarioAtual }) {
               onEditar={(detalhe) => setModalEdicao(detalhe)}
               onExcluir={(detalhe) => setConfirmacaoExcluir({ os: detalhe })}
               onPedirImpedimento={(detalhe) => setModalImpedimento({ os: detalhe })}
+              onReabrir={(detalhe) => setModalReabrir(detalhe)}
               transicoes={transicoes}
             />
           )}
@@ -3708,6 +3748,14 @@ function OrdensServico({ usuarioAtual }) {
         processando={processando}
         onConfirmar={confirmarImpedimento}
         onCancelar={() => setModalImpedimento(null)}
+      />
+
+      <ModalReabrirOS
+        aberto={!!modalReabrir}
+        os={modalReabrir}
+        processando={processando}
+        onConfirmar={confirmarReabertura}
+        onCancelar={() => setModalReabrir(null)}
       />
 
 
@@ -3811,13 +3859,13 @@ function PainelCadastros({ obras, equipes, produtos, recarregar, mostrarToast })
   // Produtos (serviços por contrato) — catálogos INDIVIDUAIS (sem "Todos")
   const [novoProduto, setNovoProduto] = useState({ nome: '', codigo: '', codigo_especial: '', unidade: 'UN', preco_unitario: '', qtd_usc_especial: '', tipo: '' });
   const [filtroProdutoLista, setFiltroProdutoLista] = useState('');
-  const [filtroTipoProduto, setFiltroTipoProduto] = useState('construcao');
+  const [filtroTipoProduto, setFiltroTipoProduto] = useState(TIPO_PADRAO_OS);
   const [produtoEmEdicao, setProdutoEmEdicao] = useState(null);
   const [excluirProdutoAlvo, setExcluirProdutoAlvo] = useState(null);
 
   // Importação em lote de serviços (.xlsx) — contrato fixo escolhido na tela.
   const [modalImportar, setModalImportar] = useState(false);
-  const [impContrato, setImpContrato] = useState('construcao');
+  const [impContrato, setImpContrato] = useState(TIPO_PADRAO_OS);
   const [impArquivo, setImpArquivo] = useState(null); // arquivo validado (aguardando confirmação)
   const [impResumo, setImpResumo] = useState(null);   // {resumo, contrato} da simulação
   const [impProcessando, setImpProcessando] = useState(false);
@@ -3932,12 +3980,6 @@ function PainelCadastros({ obras, equipes, produtos, recarregar, mostrarToast })
     return lista;
   }, [produtos, filtroProdutoLista, filtroTipoProduto]);
 
-  const ROTULOS_TIPO_SERVICO = {
-    construcao: 'Construção',
-    manutencao: 'Manutenção',
-    linha_viva: 'Linha Viva',
-  };
-
   const iniciarProdutoEdicao = (p) => {
     setProdutoEmEdicao(p);
     setNovoProduto({
@@ -4048,7 +4090,7 @@ function PainelCadastros({ obras, equipes, produtos, recarregar, mostrarToast })
   const reiniciarImportacao = () => {
     setImpArquivo(null);
     setImpResumo(null);
-    setImpContrato('construcao');
+    setImpContrato(TIPO_PADRAO_OS);
     if (inputImportRef.current) inputImportRef.current.value = '';
   };
 
@@ -4482,7 +4524,7 @@ function PainelCadastros({ obras, equipes, produtos, recarregar, mostrarToast })
                 </div>
                 {/* Filtro por contrato (catálogos individuais) */}
                 <div className="flex bg-slate-100 rounded-xl p-1">
-                  {[['construcao', 'Construção'], ['manutencao', 'Manutenção'], ['linha_viva', 'Linha Viva']].map(([valor, rotulo]) => (
+                  {TIPOS_SERVICO_OPCOES.map(({ valor, rotulo }) => (
                     <button
                       key={valor}
                       onClick={() => setFiltroTipoProduto(valor)}
@@ -4597,7 +4639,7 @@ function PainelCadastros({ obras, equipes, produtos, recarregar, mostrarToast })
                   className="w-full px-3 py-2 border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-primary-500/20 focus:border-primary-500 text-sm font-semibold bg-white"
                 >
                   <option value="">Selecione o contrato...</option>
-                  {[['construcao', 'Construção'], ['manutencao', 'Manutenção'], ['linha_viva', 'Linha Viva']].map(([valor, rotulo]) => (
+                  {TIPOS_SERVICO_OPCOES.map(({ valor, rotulo }) => (
                     <option key={valor} value={valor}>{rotulo}</option>
                   ))}
                 </select>
@@ -4724,7 +4766,7 @@ function PainelCadastros({ obras, equipes, produtos, recarregar, mostrarToast })
                   onChange={e => setImpContrato(e.target.value)}
                   className="w-full px-3 py-2 border border-slate-200 rounded-xl focus:outline-none focus:border-primary-500 text-sm font-semibold bg-white disabled:bg-slate-100"
                 >
-                  {[['construcao', 'Construção'], ['manutencao', 'Manutenção'], ['linha_viva', 'Linha Viva']].map(([valor, rotulo]) => (
+                  {TIPOS_SERVICO_OPCOES.map(({ valor, rotulo }) => (
                     <option key={valor} value={valor}>{rotulo}</option>
                   ))}
                 </select>
@@ -4989,6 +5031,81 @@ function MembrosEquipePicker({ membros, lider, onChange }) {
           </div>
         ))}
         {!funcs.length && <p className="text-xs text-slate-400 px-2.5 py-2">Nenhum funcionário cadastrado.</p>}
+      </div>
+    </div>
+  );
+}
+
+// Reabertura de O.S concluída/cancelada (gestor): pede justificativa, que fica
+// registrada no histórico como auditoria (decisão de negócio nº 2).
+function ModalReabrirOS({ aberto, os, processando, onConfirmar, onCancelar }) {
+  const [justificativa, setJustificativa] = useState('');
+
+  useEffect(() => {
+    if (aberto) setJustificativa('');
+  }, [aberto]);
+
+  if (!aberto) return null;
+  const valido = justificativa.trim().length >= 10;
+
+  return (
+    <div className="fixed inset-0 bg-slate-900/40 backdrop-blur-sm flex items-center justify-center z-[60] p-4">
+      <div className="bg-white rounded-2xl shadow-2xl max-w-md w-full border border-slate-100 overflow-hidden animate-in fade-in zoom-in duration-200">
+        <div className="bg-slate-900 text-white p-5 flex items-center justify-between">
+          <h3 className="font-bold text-base flex items-center gap-2">
+            <RefreshCw size={18} className="text-amber-400" />
+            Reabrir O.S {os?.codigo || ''}
+          </h3>
+          <button
+            onClick={onCancelar}
+            disabled={processando}
+            className="text-slate-400 hover:text-white text-xl font-bold p-1 cursor-pointer disabled:opacity-40"
+          >
+            <X size={20} />
+          </button>
+        </div>
+        <div className="p-6">
+          <p className="text-sm text-slate-600 mb-3">
+            A O.S volta para o quadro como <b>aberta</b>. Informe o motivo da reabertura
+            (fica registrado no histórico).
+          </p>
+          <textarea
+            value={justificativa}
+            onChange={(e) => setJustificativa(e.target.value)}
+            rows={3}
+            maxLength={500}
+            placeholder="Motivo da reabertura (mínimo 10 caracteres)..."
+            className="w-full px-3.5 py-2.5 border border-slate-200 rounded-xl text-sm font-semibold focus:outline-none focus:border-amber-500 resize-none"
+          />
+          <p className="text-[10px] font-semibold text-slate-400 mt-1">
+            {justificativa.trim().length}/10 caracteres mínimos
+          </p>
+          <div className="flex justify-end gap-3 pt-5 border-t border-slate-100 mt-5">
+            <button
+              type="button"
+              onClick={onCancelar}
+              disabled={processando}
+              className="px-4 py-2 border border-slate-200 text-slate-600 rounded-xl text-sm font-semibold hover:bg-slate-50 transition-all cursor-pointer disabled:opacity-40"
+            >
+              Cancelar
+            </button>
+            <button
+              type="button"
+              onClick={() => onConfirmar(justificativa.trim())}
+              disabled={!valido || processando}
+              className="px-5 py-2 bg-amber-600 hover:bg-amber-700 text-white rounded-xl text-sm font-semibold transition-all shadow-md cursor-pointer disabled:opacity-40 flex items-center gap-2"
+            >
+              {processando ? (
+                <>
+                  <span className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />
+                  Aguarde...
+                </>
+              ) : (
+                'Reabrir O.S'
+              )}
+            </button>
+          </div>
+        </div>
       </div>
     </div>
   );

@@ -10,7 +10,9 @@
 //   - meta        : metadados (pacote de campo etc.)   (keyPath: chave)
 
 const DB_NAME = 'munaretto-campo';
-const DB_VERSION = 2;
+// Incrementar em CADA mudança de schema (stores/índices). Migrações são por
+// bloco no onupgradeneeded (crie o bloco correspondente ao subir a versão).
+const DB_VERSION = 3;
 
 const STORES = {
   os: 'os_id',
@@ -34,13 +36,31 @@ function abrirDb() {
     const req = indexedDB.open(DB_NAME, DB_VERSION);
     req.onupgradeneeded = (e) => {
       const db = e.target.result;
+      const versaoAnterior = e.oldVersion;
+      // v2 -> v3: sem mudança estrutural (próximas migrações entram aqui,
+      // ex.: if (versaoAnterior < 4) { ... }).
+      void versaoAnterior;
       for (const [store, keyPath] of Object.entries(STORES)) {
         if (!db.objectStoreNames.contains(store)) {
           db.createObjectStore(store, { keyPath });
         }
       }
     };
-    req.onsuccess = () => resolve(req.result);
+    // Outra aba segurando a versão antiga impede o upgrade: avisa e permite
+    // nova tentativa na próxima chamada (a promise rejeitada é descartada).
+    req.onblocked = () => {
+      _dbPromise = null;
+      reject(new Error('Outra aba está com o armazenamento offline aberto. Feche-a e recarregue.'));
+    };
+    req.onsuccess = () => {
+      const db = req.result;
+      // Outra aba abriu uma versão NOVA: fecha esta conexão e recarrega.
+      db.onversionchange = () => {
+        db.close();
+        window.location.reload();
+      };
+      resolve(db);
+    };
     req.onerror = () => reject(req.error);
   });
   return _dbPromise;
