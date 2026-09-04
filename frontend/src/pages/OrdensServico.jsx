@@ -2883,7 +2883,11 @@ function OrdensServico({ usuarioAtual }) {
           prioridade: filtroPrioridade, status: filtroStatus,
         });
         const pagina = filtrados.slice(offset, offset + LIMITE_PAGINA);
+        // Catálogo local de serviços: sem ele o campo não encontra serviços
+        // por código/nome ao lançar (o servidor está indisponível).
+        const catalogo = await getProdutosLocal();
         if (desatualizada()) return;
+        if (catalogo.length) setProdutos(catalogo);
         setTotalOs(filtrados.length);
         setListaOs(prev => (reset ? pagina : [...prev, ...pagina]));
         setLoading(false);
