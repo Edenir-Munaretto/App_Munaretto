@@ -1009,14 +1009,16 @@ def test_detalhe_tenta_novamente_em_falha_transitoria_de_conexao(os_gestor_clien
     assert resp.status_code == 200, resp.text
     assert chamadas["n"] == 2
 
-    # Erro não-transitório (ex.: bug) não é repetido: falha direto.
+    # Erro não-transitório (ex.: bug) não é repetido: falha direto com
+    # mensagem GENÉRICA (não vaza a exceção interna).
     def _falha_permanente(db, usuario, os_id):
         raise RuntimeError("divisão por zero no cálculo")
 
     monkeypatch.setattr(routers_os, "_obter_detalhe_os", _falha_permanente)
     resp2 = os_gestor_client.get(f"/api/os/{os_id}")
     assert resp2.status_code == 500
-    assert "divisão por zero" in resp2.json()["detail"]
+    assert resp2.json()["detail"] == "Erro ao obter detalhes da O.S."
+    assert "divisão" not in resp2.json()["detail"]
 
 
 # ---------------------------------------------------------------------------
@@ -1597,3 +1599,147 @@ class TestApontamentoHorasSanidade:
         assert resp.status_code == 400
         assert "sincronização offline" in resp.json()["detail"]
         assert db_fake._dados["os_apontamentos"] == []
+
+# ---------------------------------------------------------------------------
+# Lote 3 - robustez (busca sanitizada, rollback/retry da criação, membros)
+# ---------------------------------------------------------------------------
+
+
+def test_busca_com_caracteres_da_gramatica_postgrest_nao_derruba(os_gestor_client, db_fake):
+    """Busca com '(', ')' e ',' não pode virar 500 (gramática do or_ do PostgREST)."""
+    _seed_cenario(db_fake)
+    os_id = _criar_os(os_gestor_client).json()["id"]
+
+    for termo in ("OS-2026-(0", "a,b", "código)", "1.5", "x%y"):
+        resp = os_gestor_client.get(f"/api/os/?busca={termo}")
+        assert resp.status_code == 200, f"busca '{termo}' -> {resp.status_code}"
+
+    resp = os_gestor_client.get("/api/os/?busca=OS-2026-(0")
+    assert resp.status_code == 200
+    assert any(o["id"] == os_id for o in resp.json())
+
+
+def test_criar_os_faz_rollback_se_snapshot_falhar(os_gestor_client, db_fake, monkeypatch):
+    """Falha no snapshot do checklist não pode deixar O.S órfã/parcial."""
+    import routers.os as routers_os
+
+    _seed_cenario(db_fake)
+
+    def _snapshot_que_estoura(db, os_id):
+        raise RuntimeError("falha de banco no snapshot")
+
+    monkeypatch.setattr(routers_os, "snapshot_checklist", _snapshot_que_estoura)
+
+    resp = _criar_os(os_gestor_client)
+    assert resp.status_code == 500
+    assert db_fake._dados["ordens_servico"] == []  # rollback removeu a O.S
+    assert db_fake._dados["os_historico"] == []
+
+
+def test_criar_os_retenta_quando_codigo_colide_no_insert(os_gestor_client, db_fake, monkeypatch):
+    """Corrida TOCTOU do código: colisão no INSERT (não só na leitura) regenera
+    o código em vez de devolver 500."""
+    import routers.os as routers_os
+
+    _seed_cenario(db_fake)
+    # Outra O.S (criação concorrente) já tomou o próximo código sequencial.
+    db_fake._dados["ordens_servico"].append(
+        {"id": 99, "codigo": "OS-2026-0001", "obra_id": 5, "status": "rascunho", "prioridade": "alta"}
+    )
+    codigos = iter(["OS-2026-0001", "OS-2026-0002", "OS-2026-0003"])
+    monkeypatch.setattr(routers_os, "_gerar_codigo_os", lambda db: next(codigos))
+
+    real_table = db_fake.table
+
+    def _table_com_unique(nome):
+        q = real_table(nome)
+        if nome != "ordens_servico":
+            return q
+        insert_original = q.insert
+
+        def insert(payload):
+            itens = payload if isinstance(payload, list) else [payload]
+            for it in itens:
+                if any(r.get("codigo") == it.get("codigo") for r in db_fake._dados["ordens_servico"]):
+                    raise Exception('duplicate key value violates unique constraint (SQLSTATE 23505)')
+            return insert_original(payload)
+
+        q.insert = insert
+        return q
+
+    db_fake.table = _table_com_unique
+
+    resp = _criar_os(os_gestor_client)
+    assert resp.status_code == 201, resp.text
+    assert resp.json()["codigo"] == "OS-2026-0002"
+    codigos_gravados = [o["codigo"] for o in db_fake._dados["ordens_servico"]]
+    assert codigos_gravados.count("OS-2026-0001") == 1  # sem duplicar a concorrente
+
+
+def test_upload_foto_acima_do_limite_rejeitado_sem_gravar(os_gestor_client, db_fake):
+    """Foto acima de 15 MB é recusada pela leitura limitada (antes do B2)."""
+    from tests.test_checklist_os import _seed_modelos
+
+    _seed_cenario(db_fake)
+    _seed_modelos(db_fake)
+    os_id = _criar_os(os_gestor_client).json()["id"]
+    item = None
+    for it in db_fake._dados["os_checklist_itens"]:
+        if it["os_id"] == os_id:
+            item = it
+            break
+
+    grande = b"x" * (15 * 1024 * 1024 + 1)
+    resp = os_gestor_client.post(
+        f"/api/os/{os_id}/checklist/{item['id']}/foto",
+        files={"arquivo": ("grande.jpg", grande, "image/jpeg")},
+    )
+    assert resp.status_code == 400
+    assert "15 MB" in resp.json()["detail"]
+    assert db_fake._dados["os_fotos"] == []
+
+def test_equipe_recusa_membro_inexistente(os_gestor_client, db_fake):
+    """_gravar_membros valida a existência dos funcionários ANTES de gravar."""
+    _seed_cenario(db_fake)
+    antes = len(db_fake._dados["equipe_membros"])
+    resp = os_gestor_client.post(
+        "/api/os/equipes", json={"nome": "Equipe Inexistente", "membro_ids": [9999], "lider_id": 9999}
+    )
+    assert resp.status_code == 400
+    assert "não encontrado" in resp.json()["detail"]
+    # Nenhum vínculo foi gravado (nem a equipe).
+    assert len(db_fake._dados["equipe_membros"]) == antes
+    assert all(e["nome"] != "Equipe Inexistente" for e in db_fake._dados["equipes"])
+
+
+def test_equipe_mudanca_de_membros_aplica_diferenca_sem_recriar(os_gestor_client, db_fake):
+    """Troca de membros preserva os vínculos mantidos (diff, sem delete+insert
+    total que poderia deixar a equipe vazia em falha parcial)."""
+    _seed_cenario(db_fake)
+    db_fake._dados["funcionarios"].append({"id": 11, "nome": "Membro 2", "cpf": "22222222222", "ativo": True})
+
+    criada = os_gestor_client.post(
+        "/api/os/equipes", json={"nome": "Equipe Lote3", "membro_ids": [10], "lider_id": 10}
+    )
+    assert criada.status_code == 201, criada.text
+    eq_id = criada.json()["id"]
+    linha10 = next(m for m in db_fake._dados["equipe_membros"] if m["funcionario_id"] == 10 and m["equipe_id"] == eq_id)
+
+    # Entra o membro 11 e a liderança muda (10 continua na equipe).
+    r = os_gestor_client.put(
+        f"/api/os/equipes/{eq_id}", json={"nome": "Equipe Lote3", "membro_ids": [10, 11], "lider_id": 11}
+    )
+    assert r.status_code == 200, r.text
+    linhas = [m for m in db_fake._dados["equipe_membros"] if m["equipe_id"] == eq_id]
+    assert {m["funcionario_id"] for m in linhas} == {10, 11}
+    atual_10 = next(m for m in linhas if m["funcionario_id"] == 10)
+    assert atual_10["id"] == linha10["id"]  # vínculo mantido, não recriado
+    assert atual_10["lider"] is False
+    assert next(m for m in linhas if m["funcionario_id"] == 11)["lider"] is True
+
+    # Sai o 10: a equipe fica só com o 11 (mantido).
+    r2 = os_gestor_client.put(
+        f"/api/os/equipes/{eq_id}", json={"nome": "Equipe Lote3", "membro_ids": [11], "lider_id": 11}
+    )
+    assert r2.status_code == 200, r2.text
+    assert {m["funcionario_id"] for m in db_fake._dados["equipe_membros"] if m["equipe_id"] == eq_id} == {11}

@@ -3100,7 +3100,27 @@ function OrdensServico({ usuarioAtual }) {
     if (os) setDraggingOsStatus(os.status);
   };
 
-  const aoArrastarFim = (resultado) => {    setDraggingOsStatus(null);
+  // Resumo do checklist usado pelo drag (mesmos gates dos botões, A10): local
+  // no Modo Campo offline; do servidor online (e espelhado no pacote).
+  const resumoChecklistParaDrag = async (os) => {
+    if (usarLocal()) {
+      const local = await getChecklistLocal(os.id);
+      return local?.resumo || null;
+    }
+    try {
+      const res = await apiFetch(`${API_URL}/os/${os.id}/checklist`);
+      if (res.ok) {
+        const dados = await res.json();
+        if (isModoCampo() && dados?.resumo) salvarChecklistLocal(os.id, dados);
+        return dados?.resumo || null;
+      }
+    } catch {
+      /* sem resumo legível: o servidor revalida e responde com o erro real */
+    }
+    return null;
+  };
+
+  const aoArrastarFim = async (resultado) => {    setDraggingOsStatus(null);
     const { destination, source, draggableId } = resultado;
     if (!destination) return;
     if (destination.droppableId === source.droppableId) return;
@@ -3119,6 +3139,24 @@ function OrdensServico({ usuarioAtual }) {
     if (destino === 'cancelada' && !ehGestor) {
       mostrarToast('O cancelamento da O.S é restrito ao gestor.', 'error');
       return;
+    }
+
+    // Os MESMOS gates do checklist que os botões do painel aplicam (A10):
+    // drag não pode burlar "início liberado" nem concluir com checklist atrasado.
+    if (destino === 'em_andamento') {
+      const resumo = await resumoChecklistParaDrag(os);
+      if (resumo && !resumo.inicio_liberado) {
+        mostrarToast('Preencha o checklist de início (Grupo 1 - Preparação) para liberar a execução.', 'error');
+        return;
+      }
+    }
+    if (destino === 'concluida') {
+      const resumo = await resumoChecklistParaDrag(os);
+      if (resumo && !resumo.completo) {
+        const faltam = (resumo.total || 0) - (resumo.respondidos || 0);
+        mostrarToast(`O checklist da O.S está incompleto (${faltam} item(ns) pendente(s)).`, 'error');
+        return;
+      }
     }
 
     // Regra crítica: impedir exige justificativa + fotos (modal dedicado).

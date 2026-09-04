@@ -26,6 +26,14 @@ GESTOR_ONLY = [Depends(require_permisao("os"))]
 
 logger = logging.getLogger(__name__)
 
+
+def _termo_busca_seguro(termo: str | None) -> str:
+    """Remove caracteres da gramática do PostgREST (or_/ilike) que, digitados
+    pelo usuário, derrubariam a busca com 500: `( ) , . % : ; "` e colchetes."""
+    if not termo:
+        return ""
+    return re.sub(r"[(),.%:;\"\\\[\]]", "", termo).strip()
+
 # ---------------------------------------------------------------------------
 # Schemas Pydantic
 # ---------------------------------------------------------------------------
@@ -153,18 +161,73 @@ def _validar_cliente_obra(db, obra: ObraCreate) -> dict:
     return dados
 
 
-def _gravar_membros(db, equipe_id: int, membro_ids: list[int], lider_id: int | None):
-    """Regrava a composição da equipe de forma atômica (delete + insert)."""
-    db.table("equipe_membros").delete().eq("equipe_id", equipe_id).execute()
-    if not membro_ids:
+def _validar_membros_existem(db, membro_ids: list[int]) -> None:
+    """Confirma que todos os funcionários existem ANTES de tocar a equipe.
+
+    Sem esta checagem prévia, uma equipe poderia ser criada/atualizada e só
+    depois a composição falhar por FK — deixando equipe órfã ou estado parcial.
+    """
+    ids = list(dict.fromkeys(membro_ids or []))
+    if not ids:
         return
-    linhas = [
-        {"equipe_id": equipe_id, "funcionario_id": fid, "lider": fid == lider_id}
-        for fid in dict.fromkeys(membro_ids)  # dedup preservando ordem
-    ]
-    resp = db.table("equipe_membros").insert(linhas).execute()
-    if not resp.data:
-        raise HTTPException(status_code=500, detail="Falha ao salvar membros da equipe.")
+    encontrados = db.table("funcionarios").select("id").in_("id", ids).execute().data or []
+    existentes = {f["id"] for f in encontrados}
+    ausentes = [fid for fid in ids if fid not in existentes]
+    if ausentes:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Funcionário(s) não encontrado(s): {', '.join(map(str, ausentes))}.",
+        )
+
+
+def _gravar_membros(db, equipe_id: int, membro_ids: list[int], lider_id: int | None):
+    """Regrava a composição da equipe de forma consistente (sem estado parcial).
+
+    - Valida a EXISTÊNCIA dos funcionários antes de tocar a equipe (evita
+      metade do time gravado e o resto recusado por FK);
+    - Aplica a mudança como DIFERENÇA: membros NOVOS entram primeiro e só
+      depois os REMOVIDOS saem — se a gravação dos novos falhar, a equipe
+      permanece com a composição anterior (nada é perdido);
+    - Mantidos/adicionados recebem a flag de líder conforme `lider_id`.
+    """
+    membro_ids = list(dict.fromkeys(membro_ids))  # dedup preservando ordem
+    if lider_id is not None and lider_id not in membro_ids:
+        raise HTTPException(status_code=400, detail="O líder deve ser um membro da equipe.")
+
+    if membro_ids:
+        encontrados = db.table("funcionarios").select("id").in_("id", membro_ids).execute().data or []
+        existentes = {f["id"] for f in encontrados}
+        ausentes = [fid for fid in membro_ids if fid not in existentes]
+        if ausentes:
+            raise HTTPException(
+                status_code=400,
+                detail=f"Funcionário(s) não encontrado(s): {', '.join(map(str, ausentes))}.",
+            )
+
+    atuais = db.table("equipe_membros").select("id, funcionario_id").eq("equipe_id", equipe_id).execute().data or []
+    atuais_por_func = {m["funcionario_id"]: m["id"] for m in atuais}
+
+    para_adicionar = [fid for fid in membro_ids if fid not in atuais_por_func]
+    para_remover = [fid for fid in atuais_por_func if fid not in membro_ids]
+
+    # 1) Novos membros (com o time antigo intacto se isto falhar).
+    if para_adicionar:
+        linhas = [
+            {"equipe_id": equipe_id, "funcionario_id": fid, "lider": fid == lider_id}
+            for fid in para_adicionar
+        ]
+        resp = db.table("equipe_membros").insert(linhas).execute()
+        if not resp.data:
+            raise HTTPException(status_code=500, detail="Falha ao salvar membros da equipe.")
+
+    # 2) Ajusta a flag de líder nos membros mantidos (ex.: remanejamento).
+    for fid in membro_ids:
+        if fid in atuais_por_func:
+            db.table("equipe_membros").update({"lider": fid == lider_id}).eq("id", atuais_por_func[fid]).execute()
+
+    # 3) Só então remove quem saiu.
+    for fid in para_remover:
+        db.table("equipe_membros").delete().eq("id", atuais_por_func[fid]).execute()
 
 
 def _membros_da_equipe(db, equipe_id: int) -> list[dict]:
@@ -203,6 +266,7 @@ def listar_obras(
         if not incluir_inativas:
             query = query.eq("ativo", True)
         if busca:
+            busca = _termo_busca_seguro(busca)
             query = query.or_(f"nome.ilike.%{busca}%,cidade.ilike.%{busca}%,cliente_celesc.ilike.%{busca}%")
         return query.order("nome").execute().data
     except Exception:
@@ -291,6 +355,8 @@ def criar_equipe(equipe: EquipeCreate, db=Depends(get_supabase)):
         # Regra: o líder deve fazer parte da equipe.
         if equipe.lider_id is not None and equipe.lider_id not in equipe.membro_ids:
             raise HTTPException(status_code=400, detail="O líder deve ser um membro da equipe.")
+        # Valida a existência dos membros ANTES do insert (sem equipe órfã).
+        _validar_membros_existem(db, equipe.membro_ids)
         resp = (
             db.table("equipes")
             .insert(
@@ -298,6 +364,7 @@ def criar_equipe(equipe: EquipeCreate, db=Depends(get_supabase)):
                     "nome": equipe.nome,
                     "numero": equipe.numero,
                     "descricao": equipe.descricao,
+                    "ativa": True,
                 }
             )
             .execute()
@@ -320,6 +387,8 @@ def atualizar_equipe(equipe_id: int, equipe: EquipeCreate, db=Depends(get_supaba
         _obter_ou_404(db, "equipes", equipe_id, "Equipe")
         if equipe.lider_id is not None and equipe.lider_id not in equipe.membro_ids:
             raise HTTPException(status_code=400, detail="O líder deve ser um membro da equipe.")
+        # Valida a existência dos membros antes de alterar a equipe.
+        _validar_membros_existem(db, equipe.membro_ids)
         resp = (
             db.table("equipes")
             .update(
@@ -395,6 +464,51 @@ def _codigo_produto_em_uso(db, valor: str, tipo: str, ignorar_id: int | None = N
     return None
 
 
+def _carregar_catalogo_servicos(db) -> tuple[dict[str, list], dict[str, list]]:
+    """Carrega o catálogo de serviços em memória para a importação em lote.
+
+    Devolve dois mapas (chave = código, valor = registros):
+      - `por_codigo_normal`: apenas registros cujo CÓDIGO NORMAL é a chave
+        (usado para decidir entre atualizar/adotar/criar);
+      - `por_codigo_qualquer`: registros cujo código normal OU especial é a
+        chave (usado para detectar colisões dentro do mesmo contrato).
+
+    Com isso a importação resolve TODAS as linhas sem 4-6 consultas síncronas
+    por linha (antes, timeout em arquivos grandes).
+    """
+    por_normal: dict[str, list] = {}
+    por_qualquer: dict[str, list] = {}
+    base = db.table("produtos").select("id, codigo, codigo_especial, tipo, ativo, nome").order("id")
+    offset = 0
+    tamanho = 1000
+    while True:
+        pagina = base.range(offset, offset + tamanho - 1).execute().data
+        if not pagina:
+            break
+        for p in pagina:
+            if p.get("codigo"):
+                por_normal.setdefault(str(p["codigo"]), []).append(p)
+            for chave in (p.get("codigo"), p.get("codigo_especial")):
+                if chave:
+                    por_qualquer.setdefault(str(chave), []).append(p)
+        if len(pagina) < tamanho:
+            break
+        offset += tamanho
+    return por_normal, por_qualquer
+
+
+def _servico_em_uso_no_catalogo(lista: list[dict], tipo: str, ignorar_id: int | None) -> dict | None:
+    """Equivale a `_codigo_produto_em_uso`, resolvendo contra o catálogo em
+    memória (mesmo contrato ou legado; o próprio registro é ignorado)."""
+    for linha in lista:
+        if ignorar_id is not None and linha["id"] == ignorar_id:
+            continue
+        tipo_linha = linha.get("tipo")
+        if tipo_linha == tipo or tipo_linha is None:
+            return linha
+    return None
+
+
 def _validar_codigos_produto(db, produto: ProdutoCreate, produto_id: int | None = None) -> None:
     """Normalização já feita no schema; aqui valida colisões entre os códigos
     (sempre no escopo do contrato do serviço)."""
@@ -436,10 +550,11 @@ def listar_produtos(
     try:
         base = db.table("produtos").select("*").eq("ativo", True)
         if busca:
-            busca = busca.strip()
-            base = base.or_(
-                f"nome.ilike.%{busca}%,codigo.ilike.%{busca}%,codigo_especial.ilike.%{busca}%"
-            )
+            termo = _termo_busca_seguro(busca)
+            if termo:
+                base = base.or_(
+                    f"nome.ilike.%{termo}%,codigo.ilike.%{termo}%,codigo_especial.ilike.%{termo}%"
+                )
         base = base.order("nome")
 
         dados: list[dict] = []
@@ -817,6 +932,14 @@ def importar_servicos(
         # detectar duplicidades/colisões internas sem depender do banco.
         visto: dict[str, int] = {}
 
+        # Catálogo em memória: resolve alvo/colisão de TODAS as linhas sem
+        # 4-6 consultas síncronas por linha (timeout em arquivos grandes).
+        catalogo_normal, catalogo_qualquer = _carregar_catalogo_servicos(db)
+
+        # Ações acumuladas para aplicar EM LOTE ao final (inserts agrupados).
+        pendentes_insert: list[tuple[dict, int]] = []  # (campos, linha)
+        pendentes_update: list[tuple[dict, int, int]] = []  # (campos, id, linha)
+
         for registro in registros:
             num = registro["linha"]
             nome = _normalizar_texto_livre(registro.get("nome"))
@@ -867,97 +990,124 @@ def importar_servicos(
                 )
                 continue
 
-            # Upsert: localiza o serviço existente pelo código normal (inclusive
-            # inativo — o reativamos, pois o código segue reservado no banco).
-            # As operações de banco da linha ficam protegidas: se o banco falhar
-            # (ex.: schema desatualizado), o erro real aparece no relatório da
-            # linha sem derrubar a importação inteira.
-            try:
-                # Upsert POR CONTRATO — cada contrato tem o seu catálogo:
-                # 1) serviço do MESMO contrato com o código  -> atualiza;
-                # 2) legado (tipo NULL) com o código         -> é ADOTADO pelo
-                #    contrato importado (vira cadastro do contrato);
-                # 3) nenhum dos dois                         -> cria novo.
-                # Nunca altera serviço de OUTRO contrato com o mesmo código.
-                alvo = None
-                adotando_legado = False
-                if codigo:
-                    resp = db.table("produtos").select("id, ativo, tipo").eq("codigo", codigo).execute()
-                    for linha in resp.data or []:
-                        if linha.get("tipo") == tipo:
-                            alvo = linha
-                            break
-                    if alvo is None:
-                        for linha in resp.data or []:
-                            if linha.get("tipo") is None:
-                                alvo = linha
-                                adotando_legado = True
-                                break
-                ignorar_id = alvo["id"] if alvo else None
-
-                # Colisão no MESMO contrato (ou contra legado não adotado).
-                colisao = None
-                for valor in (codigo, codigo_especial):
-                    if not valor:
-                        continue
-                    em_uso = _codigo_produto_em_uso(db, valor, tipo, ignorar_id=ignorar_id)
-                    if em_uso:
-                        colisao = em_uso
+            # Upsert POR CONTRATO (resolvido no catálogo em memória):
+            # 1) serviço do MESMO contrato com o código  -> atualiza;
+            # 2) legado (tipo NULL) com o código         -> é ADOTADO pelo
+            #    contrato importado (vira cadastro do contrato);
+            # 3) nenhum dos dois                         -> cria novo.
+            # Nunca altera serviço de OUTRO contrato com o mesmo código.
+            alvo = None
+            adotando_legado = False
+            if codigo:
+                candidatos = catalogo_normal.get(str(codigo), [])
+                for linha in candidatos:
+                    if linha.get("tipo") == tipo:
+                        alvo = linha
                         break
-                if colisao:
-                    erros.append(
-                        {
-                            "linha": num,
-                            "mensagem": f"Já existe o serviço '{colisao['nome']}' com o código '{valor}' "
-                            "(cadastre com outro código ou edite o serviço existente).",
-                        }
-                    )
+                if alvo is None:
+                    for linha in candidatos:
+                        if linha.get("tipo") is None:
+                            alvo = linha
+                            adotando_legado = True
+                            break
+            ignorar_id = alvo["id"] if alvo else None
+
+            # Colisão no MESMO contrato (ou contra legado não adotado).
+            colisao = None
+            for valor in (codigo, codigo_especial):
+                if not valor:
                     continue
-
-                campos = {
-                    "nome": nome,
-                    "codigo": codigo,
-                    "codigo_especial": codigo_especial,
-                    "unidade": unidade,
-                    "preco_unitario": valores["preco_unitario"],
-                    "qtd_usc_especial": valores["qtd_usc_especial"],
-                }
-                if adotando_legado:
-                    campos["tipo"] = tipo
-
-                if simular:
-                    if alvo:
-                        atualizados += 1
-                    else:
-                        criados += 1
-                else:
-                    if alvo:
-                        if alvo.get("ativo") is False:
-                            campos["ativo"] = True
-                        db.table("produtos").update(campos).eq("id", alvo["id"]).execute()
-                        atualizados += 1
-                    else:
-                        db.table("produtos").insert({**campos, "tipo": tipo, "ativo": True}).execute()
-                        criados += 1
-            except HTTPException:
-                raise
-            except Exception as exc:
-                logger.exception("Erro de banco ao importar linha %d", num)
-                causa = _mensagem_erro_banco(exc)
-                if "value too long for type character varying" in causa.lower():
-                    causa = (
-                        "Texto muito longo para o banco (coluna ainda com limite de 255). "
-                        "Encurte a descrição ou amplie a coluna: "
-                        "ALTER TABLE produtos ALTER COLUMN nome TYPE TEXT;"
-                    )
-                erros.append({"linha": num, "mensagem": f"Falha no banco: {causa}"})
+                em_uso = _servico_em_uso_no_catalogo(catalogo_qualquer.get(str(valor), []), tipo, ignorar_id)
+                if em_uso:
+                    colisao = em_uso
+                    break
+            if colisao:
+                erros.append(
+                    {
+                        "linha": num,
+                        "mensagem": f"Já existe o serviço '{colisao['nome']}' com o código '{valor}' "
+                        "(cadastre com outro código ou edite o serviço existente).",
+                    }
+                )
                 continue
+
+            campos = {
+                "nome": nome,
+                "codigo": codigo,
+                "codigo_especial": codigo_especial,
+                "unidade": unidade,
+                "preco_unitario": valores["preco_unitario"],
+                "qtd_usc_especial": valores["qtd_usc_especial"],
+            }
+            if adotando_legado:
+                campos["tipo"] = tipo
+
+            if simular:
+                if alvo:
+                    atualizados += 1
+                else:
+                    criados += 1
+            elif alvo:
+                if alvo.get("ativo") is False:
+                    campos["ativo"] = True
+                pendentes_update.append((campos, alvo["id"], num))
+            else:
+                pendentes_insert.append(({**campos, "tipo": tipo, "ativo": True}, num))
 
             # Registra os códigos da linha no namespace do arquivo (apenas
             # linhas aceitas — inclusive na simulação).
             for valor in (codigo, codigo_especial):
                 if valor:
                     visto[valor] = num
+
+        # ---- Aplicação (fora do loop; só quando não é simulação) ----------
+        if not simular:
+            # Atualizações: uma por registro (não há batch de UPDATE por id).
+            for campos, alvo_id, num in pendentes_update:
+                try:
+                    db.table("produtos").update(campos).eq("id", alvo_id).execute()
+                    atualizados += 1
+                except HTTPException:
+                    raise
+                except Exception as exc:
+                    logger.exception("Erro de banco ao importar linha %d", num)
+                    causa = _mensagem_erro_banco(exc)
+                    if "value too long for type character varying" in causa.lower():
+                        causa = (
+                            "Texto muito longo para o banco (coluna ainda com limite de 255). "
+                            "Encurte a descrição ou amplie a coluna: "
+                            "ALTER TABLE produtos ALTER COLUMN nome TYPE TEXT;"
+                        )
+                    erros.append({"linha": num, "mensagem": f"Falha no banco: {causa}"})
+
+            # Novos serviços: inserts em LOTE de 100 (era 1 chamada por linha).
+            for inicio in range(0, len(pendentes_insert), 100):
+                bloco = pendentes_insert[inicio:inicio + 100]
+                try:
+                    resp = db.table("produtos").insert([campos for campos, _ in bloco]).execute()
+                    criados += len(resp.data or [])
+                except HTTPException:
+                    raise
+                except Exception:
+                    # Lote inteiro recusado: tenta linha a linha para isolar a
+                    # real e mantê-la no relatório (sem derrubar a importação).
+                    logger.exception("Falha em lote de insert (%d linhas); isolando linhas.", len(bloco))
+                    for campos, num in bloco:
+                        try:
+                            r2 = db.table("produtos").insert(campos).execute()
+                            if r2.data:
+                                criados += 1
+                        except HTTPException:
+                            raise
+                        except Exception as exc:
+                            causa = _mensagem_erro_banco(exc)
+                            if "value too long for type character varying" in causa.lower():
+                                causa = (
+                                    "Texto muito longo para o banco (coluna ainda com limite de 255). "
+                                    "Encurte a descrição ou amplie a coluna: "
+                                    "ALTER TABLE produtos ALTER COLUMN nome TYPE TEXT;"
+                                )
+                            erros.append({"linha": num, "mensagem": f"Falha no banco: {causa}"})
 
         return {
             "importados": criados + atualizados,

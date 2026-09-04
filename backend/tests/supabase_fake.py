@@ -31,8 +31,13 @@ class _Query:
         self._update_payload = None
         self._delete = False
         self._negar_proximo = False  # postgrest: not_ é property que nega o PRÓXIMO filtro
+        self._count_exact = False  # select(..., count="exact") -> header Prefer count=exact
 
     def select(self, *args, **kwargs):
+        # PostgREST: select(..., count="exact") conta TODAS as linhas do filtro
+        # (sem aplicar range/limit), devolvendo o total no campo `count`.
+        if kwargs.get("count") == "exact":
+            self._count_exact = True
         return self
 
     @property
@@ -88,7 +93,7 @@ class _Query:
         self.ordenacao = (coluna, kwargs.get("desc", False))
         return self
 
-    def _aplica(self):
+    def _aplica(self, com_paginacao=True):
         linhas = self.dados[self.tabela]
         for filtro in self.filtros:
             if filtro[0] == "or":
@@ -116,6 +121,8 @@ class _Query:
         if self.ordenacao:
             coluna, desc = self.ordenacao
             linhas = sorted(linhas, key=lambda r: str(r.get(coluna, "")), reverse=desc)
+        if not com_paginacao:
+            return list(linhas)
         if self.limite is not None:
             linhas = linhas[: self.limite]
         if self.range_ is not None:
@@ -241,6 +248,11 @@ class _Query:
             restante = [r for r in self.dados[self.tabela] if r not in removidos]
             self.dados[self.tabela] = restante
             return _Resposta(removidos)
+        if self._count_exact:
+            # count=exact: total considera TODAS as linhas do filtro (a
+            # paginação afeta apenas o corpo da resposta).
+            total = len(self._aplica(com_paginacao=False))
+            return _Resposta(self._aplica(), count=total)
         return _Resposta(self._aplica())
 
 

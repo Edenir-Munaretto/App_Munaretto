@@ -249,6 +249,15 @@ def _agora() -> datetime:
     return datetime.now(UTC)
 
 
+def _termo_busca_seguro(termo: str | None) -> str:
+    """Remove caracteres da gramática do PostgREST (or_/ilike/in) que, se
+    digitados pelo usuário, derrubariam a busca com 500: `( ) , . % : ; "`
+    e colchetes. O termo volta apenas com letras/números/espaços/tracos."""
+    if not termo:
+        return ""
+    return re.sub(r"[(),.%:;\"\\\[\]]", "", termo).strip()
+
+
 def _e_gestor(usuario: UsuarioAutenticado) -> bool:
     """Gestores têm visão completa; usuários de campo veem apenas suas equipes."""
     return any(p in PERMISSOES_GESTOR for p in (usuario.permissoes or []))
@@ -578,8 +587,9 @@ def listar_os(
     response: Response = None,
 ):
     try:
-        base = db.table("ordens_servico")
-
+        # ATENÇÃO: cada consulta usa o PRÓPRIO builder (db.table() → instância
+        # nova). Reutilizar o mesmo builder para o total e a página faria o
+        # `.limit(1)` do count contaminar a listagem.
         # Busca combinada: código/escopo da O.S, código da obra (obra.nome,
         # onde fica a Nota PS da obra) OU o cliente vinculado (nome do cliente
         # e a Nota PS do cliente). O PostgREST não aceita caminhos embutidos
@@ -588,7 +598,7 @@ def listar_os(
         # vez e reutilizada no total e na página.
         busca_expr = None
         if busca:
-            termo = busca.replace("%", "").replace(",", "")
+            termo = _termo_busca_seguro(busca)
             busca_expr = f"codigo.ilike.%{termo}%,descricao_escopo.ilike.%{termo}%"
             try:
                 obra_ids = set()
@@ -655,14 +665,22 @@ def listar_os(
             return q
 
         # Total de registros (cabeçalho X-Total-Count para a paginação do Kanban).
-        q_total = _aplicar_filtros(base.select("id"))
+        # count="exact" pede o total REAL ao PostgREST (header Prefer), que
+        # continua correto acima do teto de linhas por requisição (~1000);
+        # sem ele, contar por len(ids) truncaria na ~1000ª O.S.
+        q_total = _aplicar_filtros(db.table("ordens_servico").select("id", count="exact"))
         if q_total is None:
             return []
-        total = len(q_total.execute().data or [])
+        resp_total = q_total.limit(1).execute()
+        total = int(resp_total.count) if resp_total.count not in (None, 0) else len(resp_total.data or [])
         if response is not None:
             response.headers["X-Total-Count"] = str(total)
 
-        query = _aplicar_filtros(base.select("*, obras(id, nome, cliente_id, cliente_celesc, clientes(nome)), equipes(id, nome)"))
+        query = _aplicar_filtros(
+            db.table("ordens_servico").select(
+                "*, obras(id, nome, cliente_id, cliente_celesc, clientes(nome)), equipes(id, nome)"
+            )
+        )
         # Listagem de encerradas (multi-status): ordena pela data de encerramento
         # (mais recente primeiro, sem data_fim por último). Demais casos seguem
         # a ordem de criação usada no Kanban.
@@ -710,6 +728,82 @@ def listar_os(
         raise HTTPException(status_code=500, detail="Erro ao listar Ordens de Serviço.") from None
 
 
+def _eh_violacao_unique(exc: Exception) -> bool:
+    """True quando o PostgREST/Postgres reporta violação de unicidade (23505).
+
+    A corrida de código `OS-ANO-NNNN` entre criações simultâneas cai aqui: o
+    backend re-tenta a geração em vez de devolver 500 (TOCTOU do código).
+    """
+    texto = str(getattr(exc, "message", "") or exc).lower()
+    return any(marca in texto for marca in ("23505", "duplicate key", "já existe", "already exists"))
+
+
+_CHUNK_LEITURA_UPLOAD = 1024 * 1024  # 1 MB
+
+
+async def _ler_upload_limitado(
+    arquivo: UploadFile,
+    limite: int,
+    *,
+    mensagem_vazio: str = "Arquivo vazio.",
+    mensagem_limite: str = "Arquivo excede o limite de 15 MB.",
+) -> bytes:
+    """Lê o arquivo em chunks de 1 MB e recusa SEM ler tudo quando estoura o
+    limite (uploads grandes não podem ser carregados inteiros em memória)."""
+    partes = []
+    total = 0
+    while True:
+        bloco = await arquivo.read(_CHUNK_LEITURA_UPLOAD)
+        if not bloco:
+            break
+        total += len(bloco)
+        if total > limite:
+            raise HTTPException(status_code=400, detail=mensagem_limite)
+        partes.append(bloco)
+    if total == 0:
+        raise HTTPException(status_code=400, detail=mensagem_vazio)
+    return b"".join(partes)
+
+
+def _apagar_recursos_os(db, os_id: int) -> None:
+    """Rollback de criação parcial: remove os registros auxiliares e a O.S.
+
+    Criar_os não roda em transação (PostgREST); se o snapshot do checklist ou
+    o histórico falhar depois do insert, removemos o que já foi gravado para
+    não deixar O.S órfã/parcial (Lote 3).
+    """
+    for tabela, coluna in (
+        ("os_checklist_itens", "os_id"),
+        ("os_historico", "os_id"),
+        ("ordens_servico", "id"),
+    ):
+        try:
+            db.table(tabela).delete().eq(coluna, os_id).execute()
+        except Exception:
+            logger.exception("Falha no rollback da O.S %s (%s)", os_id, tabela)
+
+
+def _criar_os_com_registro(db, dados: dict, tentativas: int = 5) -> dict:
+    """Insere a O.S com código único, re-tentando em corrida de código.
+
+    O insert pode colidir com outra criação simultânea no intervalo entre a
+    geração (`_gerar_codigo_os`) e a gravação; aí o código é regenerado.
+    """
+    for tentativa in range(tentativas):
+        codigo = _gerar_codigo_os(db)
+        try:
+            resp = db.table("ordens_servico").insert({**dados, "codigo": codigo}).execute()
+        except Exception as exc:
+            if _eh_violacao_unique(exc):
+                logger.warning("Código %s colidiu no insert; tentando novamente (%d/%d).", codigo, tentativa + 1, tentativas)
+                continue
+            raise
+        if not resp.data:
+            raise HTTPException(status_code=500, detail="Falha ao criar O.S.")
+        return resp.data[0]
+    raise HTTPException(status_code=500, detail="Falha ao gerar um código único para a O.S. Tente novamente.")
+
+
 @router.post("/", status_code=201)
 def criar_os(payload: OSCreate, usuario: UsuarioAutenticado = Depends(get_current_user), db=Depends(get_supabase)):
     """Cria uma nova O.S (status inicial 'rascunho')."""
@@ -725,7 +819,6 @@ def criar_os(payload: OSCreate, usuario: UsuarioAutenticado = Depends(get_curren
             raise HTTPException(status_code=404, detail="Equipe não encontrada.")
 
         dados = {
-            "codigo": _gerar_codigo_os(db),
             "obra_id": payload.obra_id,
             "equipe_id": payload.equipe_id,
             "status": "rascunho",
@@ -747,15 +840,21 @@ def criar_os(payload: OSCreate, usuario: UsuarioAutenticado = Depends(get_curren
             "obs": payload.obs,
             "criado_por": usuario.email,
         }
-        resp = db.table("ordens_servico").insert(dados).execute()
-        if not resp.data:
-            raise HTTPException(status_code=500, detail="Falha ao criar O.S.")
-        nova = resp.data[0]
+        nova = _criar_os_com_registro(db, dados)
 
-        # Checklist de execução: snapshot do catálogo para a O.S (histórico fiel).
-        snapshot_checklist(db, nova["id"])
-
-        _gravar_historico(db, nova["id"], None, "rascunho", None, usuario.email, None)
+        # Estágios de apoio (snapshot do checklist + histórico). Sem transação
+        # no PostgREST: se qualquer um falhar, removemos o que já foi gravado
+        # (rollback) em vez de devolver uma O.S órfã ou parcial.
+        try:
+            snapshot_checklist(db, nova["id"])
+            _gravar_historico(db, nova["id"], None, "rascunho", None, usuario.email, None)
+        except HTTPException:
+            _apagar_recursos_os(db, nova["id"])
+            raise
+        except Exception:
+            logger.exception("Falha nos estágios de apoio da O.S %s", nova["id"])
+            _apagar_recursos_os(db, nova["id"])
+            raise
         return nova
     except HTTPException:
         raise
@@ -789,11 +888,11 @@ def detalhar_os(os_id: int, usuario: UsuarioAutenticado = Depends(get_current_us
                 return _obter_detalhe_os(db, usuario, os_id)
             except HTTPException:
                 raise
-            except Exception as exc2:
+            except Exception:
                 logger.exception("Erro ao detalhar O.S %s (após retry)", os_id)
-                raise HTTPException(status_code=500, detail=f"Erro ao obter detalhes da O.S: {exc2}") from None
+                raise HTTPException(status_code=500, detail="Erro ao obter detalhes da O.S.") from None
         logger.exception("Erro ao detalhar O.S %s", os_id)
-        raise HTTPException(status_code=500, detail=f"Erro ao obter detalhes da O.S: {exc}") from None
+        raise HTTPException(status_code=500, detail="Erro ao obter detalhes da O.S.") from None
 
 
 def _obter_detalhe_os(db, usuario: UsuarioAutenticado, os_id: int) -> dict:
@@ -1069,11 +1168,9 @@ def obter_checklist(os_id: int, usuario: UsuarioAutenticado = Depends(get_curren
         return {"itens": itens, "resumo": resumo_checklist(db, os_id)}
     except HTTPException:
         raise
-    except Exception as exc:
+    except Exception:
         logger.exception("Erro ao obter checklist da O.S %s", os_id)
-        # TODO(diagnóstico): expõe a exceção temporariamente para identificar a
-        # causa do 500 em produção; remover após a correção da causa raiz.
-        raise HTTPException(status_code=500, detail=f"Erro ao obter checklist: {exc}") from None
+        raise HTTPException(status_code=500, detail="Erro ao obter o checklist da O.S.") from None
 
 
 @router.put("/{os_id}/checklist/{item_id}", summary="Registra a resposta de um item")
@@ -1154,11 +1251,7 @@ async def enviar_foto_checklist(
         extensao = MIMES_FOTO_PERMITIDOS.get(mime)
         if extensao is None:
             raise HTTPException(status_code=400, detail="Tipo de arquivo não permitido. Envie JPG, PNG ou WEBP.")
-        conteudo = await arquivo.read()
-        if not conteudo:
-            raise HTTPException(status_code=400, detail="Arquivo vazio.")
-        if len(conteudo) > TAMANHO_MAXIMO_FOTO_BYTES:
-            raise HTTPException(status_code=400, detail="Arquivo excede o limite de 15 MB.")
+        conteudo = await _ler_upload_limitado(arquivo, TAMANHO_MAXIMO_FOTO_BYTES)
 
         s3 = get_s3_client()
         bucket_key = f"os_fotos/{os_id}/checklist_{item_id}_{uuid.uuid4().hex}{extensao}"
@@ -1286,9 +1379,9 @@ def relatorio_checklist(os_id: int, usuario: UsuarioAutenticado = Depends(get_cu
         return FileResponse(caminho, media_type="application/pdf", filename=f"{os_data['codigo']}_checklist.pdf")
     except HTTPException:
         raise
-    except Exception as exc:
+    except Exception:
         logger.exception("Erro ao gerar relatório do checklist da O.S %s", os_id)
-        raise HTTPException(status_code=500, detail=f"Erro ao gerar relatório do checklist: {exc}") from None
+        raise HTTPException(status_code=500, detail="Erro ao gerar o relatório do checklist.") from None
 
 
 # ---------------------------------------------------------------------------
@@ -1939,11 +2032,11 @@ async def enviar_foto(
         extensao = MIMES_FOTO_PERMITIDOS.get(mime)
         if extensao is None:
             raise HTTPException(status_code=400, detail="Envie a foto em JPG, PNG ou WEBP.")
-        conteudo = await arquivo.read()
-        if not conteudo:
-            raise HTTPException(status_code=400, detail="Arquivo vazio.")
-        if len(conteudo) > TAMANHO_MAXIMO_FOTO_BYTES:
-            raise HTTPException(status_code=400, detail="Foto excede o limite de 15 MB.")
+        conteudo = await _ler_upload_limitado(
+            arquivo,
+            TAMANHO_MAXIMO_FOTO_BYTES,
+            mensagem_limite="Foto excede o limite de 15 MB.",
+        )
 
         s3 = get_s3_client()
         bucket_key = f"os_fotos/{os_id}/{uuid.uuid4().hex}{extensao}"

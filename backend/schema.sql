@@ -1041,3 +1041,13 @@ ALTER TABLE IF EXISTS sync_ops ENABLE ROW LEVEL SECURITY;
 DROP POLICY IF EXISTS "service_role_full_sync_ops" ON sync_ops;
 CREATE POLICY "service_role_full_sync_ops" ON sync_ops
     FOR ALL TO service_role USING (true) WITH CHECK (true);
+
+-- ============================================================================
+-- ÍNDICE ÚNICO: um único cronômetro aberto por (O.S, funcionário).
+-- Garante no banco o que o backend já valida em código (A2): dois plays
+-- concorrentes não podem abrir dois blocos `fim IS NULL` para o mesmo par.
+-- NOTA: se o banco atual já tiver blocos abertos duplicados (falha antiga),
+-- feche os extras antes de aplicar este schema (UPDATE ... SET fim=now()).
+-- ============================================================================
+CREATE UNIQUE INDEX IF NOT EXISTS uq_os_apontamentos_aberto
+    ON os_apontamentos (os_id, funcionario_id) WHERE fim IS NULL;

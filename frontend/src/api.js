@@ -90,7 +90,10 @@ export async function apiFetch(url, options = {}) {
   if (token) {
     headers['Authorization'] = `Bearer ${token}`;
   }
-  const res = await fetch(url, { ...options, headers });
+  // Timeout padrão de 30s para não travar em WiFi sem internet; chamadas com
+  // sinal próprio (sonda curta, upload de foto, sincronização) o substituem.
+  const sinal = options.signal || AbortSignal.timeout(30000);
+  const res = await fetch(url, { ...options, headers, signal: sinal });
 
   // 401 com token presente = sessão expirada/inválida. Desloga e avisa o app.
   if (res.status === 401 && token) {
