@@ -3281,8 +3281,8 @@ function OrdensServico({ usuarioAtual }) {
     <div className="flex bg-slate-100 rounded-xl p-1">
       {[
         ['quadro', 'Quadro', LayoutGrid],
-        ...(ehGestor ? [['arquivo', 'Encerradas', Archive]] : []),
         ...(ehGestor ? [['cadastros', 'Cadastros', FolderKanban]] : []),
+        ...(ehGestor ? [['arquivo', 'Encerradas', Archive]] : []),
       ].map(([key, label, Icon]) => (
         <button key={key} onClick={() => setVisao(key)}
           className={`flex items-center gap-1.5 px-3 py-1.5 min-h-11 rounded-lg text-sm font-bold transition-all cursor-pointer ${
