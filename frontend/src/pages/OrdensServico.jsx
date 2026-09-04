@@ -3,7 +3,7 @@ import { DragDropContext, Droppable, Draggable } from '@hello-pangea/dnd';
 import {
   Plus, Search, X, Play, Pause, Camera, Package, ClipboardList, MapPin,
   AlertTriangle, Check, Clock, CalendarClock, FileDown, LayoutGrid,
-  FolderKanban, HardHat, Boxes, Trash2, ChevronLeft, Image as ImageIcon,
+  FolderKanban, HardHat, Boxes, Trash2, Image as ImageIcon,
   Pencil, Building, Printer, ListChecks, RefreshCw, WifiOff, ChevronDown, Archive,
   Upload, FileSpreadsheet,
 } from 'lucide-react';
@@ -15,7 +15,7 @@ import {
   isModoCampo, setModoCampo, isOffline, usarLocal,
   prepararPacoteCampo, completarPacoteCampo, limparPacote, infoPacote,
   getOSLocal, getChecklistLocal, getListaLocal, getProdutosLocal, salvarDetalheLocal, salvarChecklistLocal,
-  atualizarStatusLocal, atualizarRespostaLocal, recalcularResumo,
+  atualizarStatusLocal, atualizarRespostaLocal, recalcularResumo, atualizarListaLocal,
   enfileirarOperacao, enfileirarFoto, contarPendentes,
   registrarFotoItemLocal, hidratarFotosPendentes,
   salvarResponsavelLocal,
@@ -41,6 +41,26 @@ const COLUNAS = [
 const STATUS_PIPELINE = ['rascunho', 'aberta', 'em_andamento', 'impedida'];
 
 const LABEL_STATUS = Object.fromEntries(COLUNAS.map(c => [c.id, c.label]));
+
+// Aplica os mesmos filtros/busca do servidor sobre uma lista local (offline):
+// termo busca em código/escopo/obra/equipe + obra/equipe/prioridade/status.
+function filtrarListaLocal(lista, { busca, obra_id, equipe_id, prioridade, status }) {
+  const termo = String(busca || '').trim().toLowerCase();
+  return lista.filter(os => {
+    if (obra_id && Number(os.obra_id) !== Number(obra_id)) return false;
+    if (equipe_id && Number(os.equipe_id) !== Number(equipe_id)) return false;
+    if (prioridade && os.prioridade !== prioridade) return false;
+    if (status && os.status !== status) return false;
+    if (termo) {
+      const alvo = [os.codigo, os.descricao_escopo, os.obras?.nome, os.equipes?.nome]
+        .filter(Boolean)
+        .join(' ')
+        .toLowerCase();
+      if (!alvo.includes(termo)) return false;
+    }
+    return true;
+  });
+}
 
 // Espelha a máquina de estados do backend — usada como FALLBACK enquanto o
 // endpoint /os/transicoes (fonte única) não é carregado.
@@ -375,8 +395,10 @@ function TabChecklist({ osDetalhe, onAtualizado, mostrarToast, podeEditar }) {
   const responder = async (item, resposta, tentativa = 0) => {
     if (!podeEditar) return;
     // Itens com `exige_foto` (resposta sim/nao) precisam de evidência antes —
-    // o backend rejeita com 422; aqui avisamos sem queimar a tentativa.
-    if (item.exige_foto && resposta !== 'na' && !(item.fotos || []).length) {
+    // o backend rejeita com 422. Online bloqueamos já na UI; OFFLINE deixamos
+    // enfileirar: a foto pode existir no servidor sem espelho local e o
+    // servidor valida a verdade no momento do sync.
+    if (item.exige_foto && resposta !== 'na' && !usarLocal() && !(item.fotos || []).length) {
       mostrarToast('Este item exige uma foto de evidência antes da resposta.', 'error');
       return;
     }
@@ -787,12 +809,58 @@ function TabInsumos({ osDetalhe, produtos, onAtualizado, mostrarToast, podeEdita
   const fatorUsc = tipoUsc === 'especial' ? uscEspecial : uscNormal;
   const totalUsc = temUsc && fatorUsc > 0 ? Number((qtd * fatorUsc).toFixed(3)) : qtd;
 
+  // Espelha o lançamento no pacote local (offline e — no Modo Campo — também
+  // após o lançamento online, para o estado local não ficar velho ao cair a
+  // rede; A5).
+  const refletirMaterialLocal = async (produto, totalAplicado) => {
+    const local = await getOSLocal(osDetalhe.id);
+    if (!local) return;
+    const materiais = local.materiais || { itens: [], total_aplicado: 0 };
+    const itens = materiais.itens || [];
+    let item = itens.find(i => i.produto_id === produto.id);
+    if (!item) {
+      item = {
+        produto_id: produto.id, nome: produto.nome, unidade: produto.unidade || '-',
+        aplicado: 0, aplicado_normal: 0, aplicado_especial: 0,
+      };
+      itens.push(item);
+    }
+    item.aplicado = Number((item.aplicado + totalAplicado).toFixed(3));
+    if (tipoUsc === 'especial') item.aplicado_especial = Number((item.aplicado_especial + totalAplicado).toFixed(3));
+    else item.aplicado_normal = Number((item.aplicado_normal + totalAplicado).toFixed(3));
+    materiais.total_aplicado = Number(((materiais.total_aplicado || 0) + totalAplicado).toFixed(3));
+    local.materiais = materiais;
+    local.ultimos_lancamentos = [
+      {
+        id: Date.now(),
+        produto_id: produto.id,
+        quantidade_usada: totalAplicado,
+        quantidade_pecas: qtd,
+        fator_usc: temUsc && fatorUsc > 0 ? fatorUsc : 0,
+        tipo_usc: tipoUsc,
+        codigo_servico: tipoUsc === 'especial'
+          ? produto.codigo_especial || produto.codigo || null
+          : produto.codigo || produto.codigo_especial || null,
+        data_lancamento: new Date().toISOString(),
+        produtos: { nome: produto.nome, unidade: produto.unidade || '-' },
+      },
+      ...(local.ultimos_lancamentos || []),
+    ].slice(0, 10);
+    await salvarDetalheLocal(local);
+  };
+
+  const limparFormulario = () => {
+    setBuscaProduto('');
+    setQtd(1);
+    setTipoUsc('normal');
+  };
+
   const lancar = async () => {
-  const produto = selecionado || (sugestoes.length === 1 ? sugestoes[0] : null);
-  if (!produto) {
-    mostrarToast('Selecione um serviço da lista.', 'error');
-    return;
-  }
+    const produto = selecionado || (sugestoes.length === 1 ? sugestoes[0] : null);
+    if (!produto) {
+      mostrarToast('Selecione um serviço da lista.', 'error');
+      return;
+    }
     setSalvando(true);
     try {
       // Offline (Modo Campo): entra na fila e reflete localmente; o servidor
@@ -803,45 +871,9 @@ function TabInsumos({ osDetalhe, produtos, onAtualizado, mostrarToast, podeEdita
           os_id: osDetalhe.id,
           payload: { produto_id: produto.id, quantidade_usada: qtd, tipo_usc: tipoUsc },
         });
-        const local = await getOSLocal(osDetalhe.id);
-        if (local) {
-          const materiais = local.materiais || { itens: [], total_aplicado: 0 };
-          const itens = materiais.itens || [];
-          let item = itens.find(i => i.produto_id === produto.id);
-          if (!item) {
-            item = {
-              produto_id: produto.id, nome: produto.nome, unidade: produto.unidade || '-',
-              aplicado: 0, aplicado_normal: 0, aplicado_especial: 0,
-            };
-            itens.push(item);
-          }
-          item.aplicado = Number((item.aplicado + totalUsc).toFixed(3));
-          if (tipoUsc === 'especial') item.aplicado_especial = Number((item.aplicado_especial + totalUsc).toFixed(3));
-          else item.aplicado_normal = Number((item.aplicado_normal + totalUsc).toFixed(3));
-          materiais.total_aplicado = Number(((materiais.total_aplicado || 0) + totalUsc).toFixed(3));
-          local.materiais = materiais;
-          local.ultimos_lancamentos = [
-            {
-              id: Date.now(),
-              produto_id: produto.id,
-              quantidade_usada: totalUsc,
-              quantidade_pecas: qtd,
-              fator_usc: temUsc && fatorUsc > 0 ? fatorUsc : 0,
-              tipo_usc: tipoUsc,
-              codigo_servico: tipoUsc === 'especial'
-                ? produto.codigo_especial || produto.codigo || null
-                : produto.codigo || produto.codigo_especial || null,
-              data_lancamento: new Date().toISOString(),
-              produtos: { nome: produto.nome, unidade: produto.unidade || '-' },
-            },
-            ...(local.ultimos_lancamentos || []),
-          ].slice(0, 10);
-          await salvarDetalheLocal(local);
-        }
+        await refletirMaterialLocal(produto, totalUsc);
         mostrarToast(`Serviço "${produto.nome}" lançado (${totalUsc} USC) — será sincronizado ao reconectar.`);
-        setBuscaProduto('');
-        setQtd(1);
-        setTipoUsc('normal');
+        limparFormulario();
         onAtualizado();
         return;
       }
@@ -852,10 +884,9 @@ function TabInsumos({ osDetalhe, produtos, onAtualizado, mostrarToast, podeEdita
       });
       const data = await res.json().catch(() => null);
       if (res.ok) {
+        if (isModoCampo()) await refletirMaterialLocal(produto, totalUsc);
         mostrarToast(`Serviço "${produto.nome}" lançado (${totalUsc} ${temUsc ? (tipoUsc === 'especial' ? 'USC especial' : 'USC normal') : produto.unidade}).`);
-        setBuscaProduto('');
-        setQtd(1);
-        setTipoUsc('normal');
+        limparFormulario();
         onAtualizado();
       } else {
         mostrarToast(erroDaResposta(data, 'Erro ao lançar serviço.'), 'error');
@@ -1430,13 +1461,15 @@ function CronometroHH({ osDetalhe, capturarGps, onAtualizado, mostrarToast, pode
 // Botões de transição de status direto no painel — essencial no modo campo,
 // onde não há drag-and-drop. Transições irreversíveis pedem confirmação.
 // O checklist de execução bloqueia o início (grupo 1) e a conclusão.
-function AcoesStatus({ detalhe, podeEditar, mudarStatus, aoAplicado, ehGestor, transicoesMap, onAbrirChecklist, mostrarToast }) {
+function AcoesStatus({ detalhe, podeEditar, mudarStatus, aoAplicado, ehGestor, transicoesMap, onAbrirChecklist, onImpedir, mostrarToast }) {
   const [destinoConfirmar, setDestinoConfirmar] = useState(null);
   const [processando, setProcessando] = useState(false);
 
   if (!podeEditar) return null;
   const alvos = transicoesMap[detalhe.status] || new Set();
-  // 'impedida' fica fora dos botões: exige justificativa + fotos (modal dedicado do Kanban).
+  // 'impedida' exige justificativa + fotos: abre o modal dedicado (mesmo
+  // fluxo do drag do Kanban, agora também disponível no painel/mobile).
+  const podeImpedir = alvos.has('impedida');
   const principal = detalhe.status === 'rascunho' && alvos.has('aberta') ? 'aberta' : null;
   const retomar = detalhe.status === 'impedida' && alvos.has('em_andamento');
   const iniciar = detalhe.status === 'aberta' && alvos.has('em_andamento');
@@ -1451,7 +1484,17 @@ function AcoesStatus({ detalhe, podeEditar, mudarStatus, aoAplicado, ehGestor, t
       onAbrirChecklist?.();
       return false;
     }
+    setProcessando(true);
     const ok = await mudarStatus(detalhe, 'em_andamento');
+    setProcessando(false);
+    if (ok) aoAplicado();
+    return ok;
+  };
+
+  const ativarOs = async () => {
+    setProcessando(true);
+    const ok = await mudarStatus(detalhe, 'aberta');
+    setProcessando(false);
     if (ok) aoAplicado();
     return ok;
   };
@@ -1474,14 +1517,24 @@ function AcoesStatus({ detalhe, podeEditar, mudarStatus, aoAplicado, ehGestor, t
     if (ok) aoAplicado();
   };
 
-  if (!principal && !retomar && !iniciar && !concluir && !podeCancelar) return null;
+  if (!principal && !retomar && !iniciar && !concluir && !podeCancelar && !podeImpedir) return null;
 
   return (
     <div className="space-y-2">
+      {podeImpedir && (
+        <button
+          onClick={() => onImpedir?.(detalhe)}
+          disabled={processando}
+          className="w-full h-11 rounded-xl border border-orange-200 bg-orange-50 hover:bg-orange-100 text-orange-700 text-sm font-bold flex items-center justify-center gap-2 cursor-pointer transition-all disabled:opacity-40"
+        >
+          <AlertTriangle size={16} /> Impedir O.S
+        </button>
+      )}
       {(principal || iniciar || retomar) && (
         <button
-          onClick={principal ? () => mudarStatus(detalhe, 'aberta').then(ok => ok && aoAplicado()) : liberarInicio}
-          className="w-full h-11 rounded-xl border border-primary-200 bg-primary-50 hover:bg-primary-100 text-primary-700 text-sm font-bold flex items-center justify-center gap-2 cursor-pointer transition-all"
+          onClick={principal ? ativarOs : liberarInicio}
+          disabled={processando}
+          className="w-full h-11 rounded-xl border border-primary-200 bg-primary-50 hover:bg-primary-100 text-primary-700 text-sm font-bold flex items-center justify-center gap-2 cursor-pointer transition-all disabled:opacity-40"
         >
           <Play size={16} /> {principal ? 'Ativar O.S' : retomar ? 'Retomar Execução' : 'Iniciar Execução'}
         </button>
@@ -1525,12 +1578,16 @@ function AcoesStatus({ detalhe, podeEditar, mudarStatus, aoAplicado, ehGestor, t
   );
 }
 
-function PainelExecucao({ osId, produtos, capturarGps, onFechar, recarregarLista, mostrarToast, ehMobile, mudarStatus, ehGestor, onEditar, onExcluir, transicoes }) {
+function PainelExecucao({ osId, produtos, capturarGps, onFechar, recarregarLista, mostrarToast, ehMobile, mudarStatus, ehGestor, onEditar, onExcluir, transicoes, onPedirImpedimento }) {
   const [detalhe, setDetalhe] = useState(null);
   const [erro, setErro] = useState('');
   const [aba, setAba] = useState('insumos');
+  // Timer do retry (1500ms) — cancelado ao trocar de O.S ou desmontar o painel
+  // (sem cleanup o retry antigo disparava com o osId anterior, A8).
+  const timerRetry = useRef(null);
 
   const carregar = useCallback(async (tentativa = 0) => {
+    setErro('');
     try {
       // Offline: busca no pacote de campo baixado na base.
       if (usarLocal()) {
@@ -1551,7 +1608,8 @@ function PainelExecucao({ osId, produtos, capturarGps, onFechar, recarregarLista
       } else if (res.status === 500 && tentativa === 0 && !usarLocal()) {
         // Erros 500 no detalhe costumam ser transitórios (queda de conexão com
         // o banco no servidor): tenta uma segunda vez antes de exibir o erro.
-        setTimeout(() => carregar(1), 1500);
+        clearTimeout(timerRetry.current);
+        timerRetry.current = setTimeout(() => carregar(1), 1500);
       } else setErro(erroDaResposta(data, 'Erro ao carregar O.S.'));
     } catch {
       // Falhas de conexão costumam ser transitórias (cold start do servidor,
@@ -1559,14 +1617,20 @@ function PainelExecucao({ osId, produtos, capturarGps, onFechar, recarregarLista
       // segunda tentativa já cai no pacote local graças à sonda.
       registrarFalhaDeRede();
       if (tentativa === 0) {
-        setTimeout(() => carregar(1), 1500);
+        clearTimeout(timerRetry.current);
+        timerRetry.current = setTimeout(() => carregar(1), 1500);
       } else {
         setErro('Erro de conexão ao carregar a O.S.');
       }
     }
   }, [osId]);
 
-  useEffect(() => { carregar(); }, [carregar]);
+  useEffect(() => {
+    setErro('');
+    carregar();
+    // Limpa o retry pendente ao trocar de O.S ou desmontar (A8).
+    return () => clearTimeout(timerRetry.current);
+  }, [carregar]);
 
   if (erro) {
     return (
@@ -1780,6 +1844,7 @@ function PainelExecucao({ osId, produtos, capturarGps, onFechar, recarregarLista
           ehGestor={ehGestor}
           transicoesMap={transicoes}
           onAbrirChecklist={() => setAba('checklist')}
+          onImpedir={onPedirImpedimento}
           mostrarToast={mostrarToast}
         />        {ehGestor && (
           <div className="grid gap-2 grid-cols-2">
@@ -2507,11 +2572,17 @@ function OrdensServico({ usuarioAtual }) {
   const [modalPendenciasAberto, setModalPendenciasAberto] = useState(false);
   const [ultimoResumo, setUltimoResumo] = useState(null);
 
+  const toastTimerRef = useRef(null);
   const mostrarToast = useCallback((message, type = 'success', acao = null) => {
     setToast({ message, type, acao });
-    // Erros ficam mais tempo na tela (móvel); sucesso some antes.
-    setTimeout(() => setToast(null), type === 'error' ? 8000 : 4500);
+    // Limpa o timer anterior: um toast novo cancela a ocultação do antigo
+    // (timers soltos podiam apagar o toast seguinte antes da hora).
+    if (toastTimerRef.current) clearTimeout(toastTimerRef.current);
+    toastTimerRef.current = setTimeout(() => setToast(null), type === 'error' ? 8000 : 4500);
   }, []);
+
+  // Limpa o timer do toast ao desmontar a página.
+  useEffect(() => () => { if (toastTimerRef.current) clearTimeout(toastTimerRef.current); }, []);
 
   const sincronizarAgora = useCallback(async (silencioso = false) => {
     if (isOffline()) {
@@ -2763,13 +2834,28 @@ function OrdensServico({ usuarioAtual }) {
 
   const capturarGps = useCallback(async () => capturarGeolocalizacao(), []);
 
+  // Geração da listagem: respostas antigas (filtro/visão trocados, "Carregar
+  // mais" repetido) são descartadas antes de tocar o estado (A7).
+  const geracaoListagem = useRef(0);
+
   const buscarPagina = useCallback(async (offset, reset) => {
+    const requisicao = ++geracaoListagem.current;
+    // Resposta antiga não pode sobrescrever o estado atual (corrida A7).
+    const desatualizada = () => requisicao !== geracaoListagem.current;
     try {
-      // Offline: usa o pacote de campo baixado na base.
+      // Offline: usa o pacote de campo baixado na base — filtros, busca e
+      // paginação aplicados em memória (o servidor não está disponível).
       if (usarLocal()) {
         const lista = await getListaLocal();
-        setTotalOs(lista.length);
-        setListaOs(lista);
+        if (desatualizada()) return;
+        const filtrados = filtrarListaLocal(lista, {
+          busca: buscaAplicada, obra_id: filtroObra, equipe_id: filtroEquipe,
+          prioridade: filtroPrioridade, status: filtroStatus,
+        });
+        const pagina = filtrados.slice(offset, offset + LIMITE_PAGINA);
+        if (desatualizada()) return;
+        setTotalOs(filtrados.length);
+        setListaOs(prev => (reset ? pagina : [...prev, ...pagina]));
         setLoading(false);
         return;
       }
@@ -2788,18 +2874,24 @@ function OrdensServico({ usuarioAtual }) {
       if (resOs.ok) {
         const pagina = await resOs.json();
         const total = Number(resOs.headers.get('X-Total-Count') || pagina.length);
+        if (desatualizada()) return;
         setTotalOs(total);
         setListaOs(prev => (reset ? pagina : [...prev, ...pagina]));
-      } else {
+        // Em Modo Campo mantém o quadro local espelhado: se a rede cair logo
+        // em seguida, a lista mostra o último estado visto online (A5).
+        if (isModoCampo()) atualizarListaLocal(pagina).catch(() => { /* best-effort */ });
+      } else if (!desatualizada()) {
         mostrarToast('Erro ao carregar O.S.', 'error');
       }
-      // Catálogo de serviços: necessário ao gestor (cadastro) e ao campo
-      // (lançamento de serviços na O.S). Obras/equipes são apenas do gestor.
+      // Catálogos de serviços/obras/equipes apenas na primeira página (ou ao
+      // trocar filtros): "Carregar mais" não precisa redownloadar.
+      if (!reset) return;
       const [resProdutos, resObras, resEquipes] = await Promise.all([
         apiFetch(`${API_URL}/os/produtos`),
         ehGestor ? apiFetch(`${API_URL}/os/obras`) : Promise.resolve(null),
         ehGestor ? apiFetch(`${API_URL}/os/equipes`) : Promise.resolve(null),
       ]);
+      if (desatualizada()) return;
       if (resProdutos.ok) setProdutos(await resProdutos.json());
       if (ehGestor && resObras?.ok) setObras(await resObras.json());
       if (ehGestor && resEquipes?.ok) setEquipes(await resEquipes.json());
@@ -2808,21 +2900,29 @@ function OrdensServico({ usuarioAtual }) {
       registrarFalhaDeRede();
       if (usarLocal()) {
         const lista = await getListaLocal();
-        setTotalOs(lista.length);
-        setListaOs(lista);
+        if (desatualizada()) return;
+        const filtrados = filtrarListaLocal(lista, {
+          busca: buscaAplicada, obra_id: filtroObra, equipe_id: filtroEquipe,
+          prioridade: filtroPrioridade, status: filtroStatus,
+        });
+        const pagina = filtrados.slice(offset, offset + LIMITE_PAGINA);
+        setTotalOs(filtrados.length);
+        setListaOs(prev => (reset ? pagina : [...prev, ...pagina]));
         const catalogo = await getProdutosLocal();
-        if (catalogo.length) setProdutos(catalogo);
-      } else {
+        if (!desatualizada() && catalogo.length) setProdutos(catalogo);
+      } else if (!desatualizada()) {
         mostrarToast('Erro de conexão ao carregar o módulo de O.S.', 'error');
       }
     } finally {
-      setLoading(false);
+      if (!desatualizada()) setLoading(false);
     }
   }, [buscaAplicada, filtroObra, filtroEquipe, filtroPrioridade, filtroStatus, ehGestor, mostrarToast]);
 
   // Listagem de Encerradas (gestor): paginação e filtros próprios.
   const carregarArquivo = useCallback(async (offset, reset) => {
     if (!ehGestor || usarLocal()) return;
+    const requisicao = ++geracaoListagem.current;
+    const desatualizada = () => requisicao !== geracaoListagem.current;
     setCarregandoArquivo(true);
     try {
       const params = new URLSearchParams();
@@ -2836,16 +2936,18 @@ function OrdensServico({ usuarioAtual }) {
       const res = await apiFetch(`${API_URL}/os/?${params.toString()}`);
       if (res.ok) {
         const pagina = await res.json();
-        setTotalEncerradas(Number(res.headers.get('X-Total-Count') || pagina.length));
+        const total = Number(res.headers.get('X-Total-Count') || pagina.length);
+        if (desatualizada()) return;
+        setTotalEncerradas(total);
         setListaEncerradas(prev => (reset ? pagina : [...prev, ...pagina]));
-      } else {
+      } else if (!desatualizada()) {
         mostrarToast('Erro ao carregar Encerradas.', 'error');
       }
     } catch {
       registrarFalhaDeRede();
-      if (!usarLocal()) mostrarToast('Erro de conexão ao carregar Encerradas.', 'error');
+      if (!usarLocal() && !desatualizada()) mostrarToast('Erro de conexão ao carregar Encerradas.', 'error');
     } finally {
-      setCarregandoArquivo(false);
+      if (!desatualizada()) setCarregandoArquivo(false);
     }
   }, [buscaAplicada, filtroObra, filtroEquipe, filtroPrioridade, filtroArquivo, ehGestor, mostrarToast]);
 
@@ -2887,62 +2989,83 @@ function OrdensServico({ usuarioAtual }) {
 
   // --- Transição de status --------------------------------------------------
 
+  // Trava contra clique duplo (ou duas fontes ao mesmo tempo) enfileirando a
+  // MESMA transição duas vezes — o `disabled` dos botões não basta (A7/doc).
+  // O fallback offline (tentativa === 1) é reentrante e não é bloqueado.
+  const statusEmAndamento = useRef(false);
+
   const mudarStatus = useCallback(async (os, novoStatus, extras = {}, tentativa = 0) => {
-    setProcessando(true);
-    // Localização real no momento da ação (não reutiliza check-in antigo).
-    const gps = await capturarGps();
-
-    // Offline: registra na fila do dispositivo e reflete localmente.
-    if (usarLocal()) {
-      try {
-        await enfileirarOperacao({
-          tipo: 'status',
-          os_id: os.id,
-          payload: {
-            novo_status: novoStatus,
-            justificativa: extras.justificativa || null,
-            geolocalizacao: gps,
-            fotos_ids: extras.fotos_ids || [],
-          },
-        });
-        await atualizarStatusLocal(os.id, novoStatus);
-        setListaOs(prev => prev.map(o => (o.id === os.id ? { ...o, status: novoStatus } : o)));
-        setOsSelecionada(prev => prev);
-        mostrarToast(`${os.codigo} movida para "${LABEL_STATUS[novoStatus]}" (será sincronizada).`);
-        const p = await contarPendentes();
-        setPendentes(p);
-        return true;
-      } catch {
-        mostrarToast('Falha ao registrar a transição no dispositivo.', 'error');
-        return false;
-      } finally {
-        setProcessando(false);
-      }
+    if (tentativa === 0 && statusEmAndamento.current) {
+      mostrarToast('Aguarde a transição anterior terminar.', 'error');
+      return false;
     }
-
+    statusEmAndamento.current = true;
+    setProcessando(true);
     try {
-      const res = await apiFetch(`${API_URL}/os/${os.id}/status`, {
-        method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ novo_status: novoStatus, geolocalizacao: gps, ...extras }),
-      });
-      const data = await res.json().catch(() => null);
-      if (res.ok) {
-        mostrarToast(`${os.codigo} movida para "${LABEL_STATUS[novoStatus]}".`);
-        recarregarLista();
-        return true;
+      // Localização real no momento da ação (não reutiliza check-in antigo).
+      const gps = await capturarGps();
+
+      // Offline: registra na fila do dispositivo e reflete localmente.
+      if (usarLocal()) {
+        try {
+          await enfileirarOperacao({
+            tipo: 'status',
+            os_id: os.id,
+            payload: {
+              novo_status: novoStatus,
+              justificativa: extras.justificativa || null,
+              geolocalizacao: gps,
+              fotos_ids: extras.fotos_ids || [],
+            },
+          });
+          await atualizarStatusLocal(os.id, novoStatus);
+          setListaOs(prev => prev.map(o => (o.id === os.id ? { ...o, status: novoStatus } : o)));
+          setOsSelecionada(prev => prev);
+          mostrarToast(`${os.codigo} movida para "${LABEL_STATUS[novoStatus]}" (será sincronizada).`);
+          const p = await contarPendentes();
+          setPendentes(p);
+          return true;
+        } catch {
+          mostrarToast('Falha ao registrar a transição no dispositivo.', 'error');
+          return false;
+        }
       }
-      mostrarToast(erroDaResposta(data, 'Transição não permitida.'), 'error');
-      return false;
-    } catch {
-      // Sem internet real: a transição entra na fila local (Modo Campo).
-      if (tentativa === 0 && isModoCampo()) {
-        registrarFalhaDeRede();
-        return mudarStatus(os, novoStatus, extras, 1);
+
+      try {
+        const res = await apiFetch(`${API_URL}/os/${os.id}/status`, {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ novo_status: novoStatus, geolocalizacao: gps, ...extras }),
+        });
+        const data = await res.json().catch(() => null);
+        if (res.ok) {
+          // Em Modo Campo reflete no pacote local: uma queda de rede logo
+          // depois não deixa quadro/kanban com o estado antigo (A5). Falha
+          // local não pode derrubar o fluxo (nem virar reenvio duplicado).
+          if (isModoCampo()) {
+            try {
+              await atualizarStatusLocal(os.id, novoStatus);
+            } catch {
+              /* best-effort: o GET do detalhe/lista re-sincroniza depois */
+            }
+          }
+          mostrarToast(`${os.codigo} movida para "${LABEL_STATUS[novoStatus]}".`);
+          recarregarLista();
+          return true;
+        }
+        mostrarToast(erroDaResposta(data, 'Transição não permitida.'), 'error');
+        return false;
+      } catch {
+        // Sem internet real: a transição entra na fila local (Modo Campo).
+        if (tentativa === 0 && isModoCampo()) {
+          registrarFalhaDeRede();
+          return mudarStatus(os, novoStatus, extras, 1);
+        }
+        mostrarToast('Erro de conexão ao alterar status.', 'error');
+        return false;
       }
-      mostrarToast('Erro de conexão ao alterar status.', 'error');
-      return false;
     } finally {
+      statusEmAndamento.current = false;
       setProcessando(false);
     }
   }, [capturarGps, mostrarToast, recarregarLista]);
@@ -3363,8 +3486,10 @@ function OrdensServico({ usuarioAtual }) {
             </div>
           </DragDropContext>
 
-          {/* Drawer de detalhes (desktop) — fora do grid para sobreviver ao
-              estado vazio e às trocas de colunas dinâmicas */}
+          {/* Painel de execução (ÚNICO por viewport): drawer no desktop
+              (>=1024px) e tela cheia no mobile. Montado UMA única vez por
+              O.S selecionada — duas instâncias simultâneas causavam GETs,
+              toasts e cronômetros em dobro (A6). */}
           {osSelecionada != null && (
             <PainelExecucao
               osId={osSelecionada}
@@ -3374,62 +3499,38 @@ function OrdensServico({ usuarioAtual }) {
               onFechar={() => setOsSelecionada(null)}
               recarregarLista={recarregarLista}
               mostrarToast={mostrarToast}
-              ehMobile={false}
+              ehMobile={!ehTelaLarga}
               mudarStatus={mudarStatus}
               ehGestor={ehGestor}
               onEditar={(detalhe) => setModalEdicao(detalhe)}
               onExcluir={(detalhe) => setConfirmacaoExcluir({ os: detalhe })}
+              onPedirImpedimento={(detalhe) => setModalImpedimento({ os: detalhe })}
               transicoes={transicoes}
             />
           )}
 
-          {/* ===== MODO CAMPO (mobile): lista + execução em tela cheia ===== */}
-          <div className="lg:hidden space-y-3">            {osSelecionada != null ? (
-              <>
-                <button onClick={() => setOsSelecionada(null)}
-                  className="flex items-center gap-1.5 text-sm font-bold text-primary-600 cursor-pointer">
-                  <ChevronLeft size={18} /> Voltar ao quadro
-                </button>
-                <PainelExecucao
-                  osId={osSelecionada}
-                  obras={obras}
-                  produtos={produtos}
-                  capturarGps={capturarGps}
-                  onFechar={() => setOsSelecionada(null)}
-                  recarregarLista={recarregarLista}
-                  mostrarToast={mostrarToast}
-                  ehMobile
-                  mudarStatus={mudarStatus}
-                  ehGestor={ehGestor}
-                  onEditar={(detalhe) => setModalEdicao(detalhe)}
-                  onExcluir={(detalhe) => setConfirmacaoExcluir({ os: detalhe })}
-                  transicoes={transicoes}
-                />
-              </>
-            ) : (
-              <>
-                {listaOs.length === 0 && (
-                  <p className="text-center text-sm text-slate-400 py-12">Nenhuma O.S encontrada.</p>
-                )}
-                {/* Agrupada por status para localizar rapidamente as O.S em execução */}
-                {colunasVisiveis.filter(col => porColuna[col.id].length > 0).map(col => (
-                  <div key={col.id} className="space-y-2">
-                    <div className="flex items-center gap-2 pt-1">
-                      <span className={`text-[10px] font-extrabold uppercase tracking-wider ${
-                        col.id === 'impedida' ? 'text-orange-600' : col.id === 'concluida' ? 'text-emerald-600' : col.id === 'cancelada' ? 'text-rose-500' : 'text-slate-500'
-                      }`}>{col.label}</span>
-                      <span className="text-[10px] font-bold bg-slate-100 text-slate-500 rounded-full px-2 py-0.5">
-                        {porColuna[col.id].length}
-                      </span>
-                      <div className="flex-1 h-px bg-slate-200" />
-                    </div>
-                    {porColuna[col.id].map(os => (
-                      <CardOS key={os.id} os={os} onClick={() => setOsSelecionada(os.id)} />
-                    ))}
-                  </div>
-                ))}
-              </>
+          {/* ===== MODO CAMPO (mobile): lista ===== */}
+          <div className="lg:hidden space-y-3">
+            {listaOs.length === 0 && (
+              <p className="text-center text-sm text-slate-400 py-12">Nenhuma O.S encontrada.</p>
             )}
+            {/* Agrupada por status para localizar rapidamente as O.S em execução */}
+            {colunasVisiveis.filter(col => porColuna[col.id].length > 0).map(col => (
+              <div key={col.id} className="space-y-2">
+                <div className="flex items-center gap-2 pt-1">
+                  <span className={`text-[10px] font-extrabold uppercase tracking-wider ${
+                    col.id === 'impedida' ? 'text-orange-600' : col.id === 'concluida' ? 'text-emerald-600' : col.id === 'cancelada' ? 'text-rose-500' : 'text-slate-500'
+                  }`}>{col.label}</span>
+                  <span className="text-[10px] font-bold bg-slate-100 text-slate-500 rounded-full px-2 py-0.5">
+                    {porColuna[col.id].length}
+                  </span>
+                  <div className="flex-1 h-px bg-slate-200" />
+                </div>
+                {porColuna[col.id].map(os => (
+                  <CardOS key={os.id} os={os} onClick={() => setOsSelecionada(os.id)} />
+                ))}
+              </div>
+            ))}
           </div>
 
           {/* Paginação: carrega a próxima página do Kanban */}
@@ -3538,6 +3639,7 @@ function OrdensServico({ usuarioAtual }) {
               ehGestor={ehGestor}
               onEditar={(detalhe) => setModalEdicao(detalhe)}
               onExcluir={(detalhe) => setConfirmacaoExcluir({ os: detalhe })}
+              onPedirImpedimento={(detalhe) => setModalImpedimento({ os: detalhe })}
               transicoes={transicoes}
             />
           )}

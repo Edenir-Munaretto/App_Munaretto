@@ -286,6 +286,15 @@ export async function getListaLocal() {
   return lista.sort((a, b) => String(b.created_at || '').localeCompare(String(a.created_at || '')));
 }
 
+/** Atualiza o quadro local com uma página vinda do servidor (Modo Campo
+ * online → offline): merge por chave, nunca reduz o pacote baixado. */
+export async function atualizarListaLocal(pagina) {
+  for (const os of pagina || []) {
+    if (!os?.id) continue;
+    await dbPut('os_lista', { ...os, os_id: Number(os.id) });
+  }
+}
+
 /** Catálogo de serviços baixado no pacote de campo (lançamento offline). */
 export async function getProdutosLocal() {
   const catalogo = await dbGetAll('produtos');
