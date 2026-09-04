@@ -1850,3 +1850,21 @@ def test_snapshot_respeita_o_tipo_da_os(os_gestor_client, db_fake):
     itens = [i for i in db_fake._dados["os_checklist_itens"] if i["os_id"] == os_id]
     assert {i["classificacao"] for i in itens} == {"1.1"}
     assert all(i["pergunta"] == "Geral?" for i in itens)
+
+def test_relatorio_os_layout_sem_historico_e_mao_de_obra(os_gestor_client, db_fake):
+    """Relatório de execução: sem LINHA DO TEMPO e sem MÃO DE OBRA; serviços
+    aplicados rotulados como USC/ULV."""
+    import pymupdf
+
+    _seed_cenario(db_fake)
+    os_id = _criar_os_aberta_em_andamento(os_gestor_client)
+    resp = os_gestor_client.get(f"/api/os/{os_id}/pdf")
+    assert resp.status_code == 200, resp.text
+
+    doc = pymupdf.open(stream=resp.content, filetype="pdf")
+    texto = "\n".join(page.get_text() for page in doc)
+    assert "APLICADOS (USC/ULV)" in texto
+    assert "Total aplicado: 0 USC/ULV" in texto
+    assert "LINHA DO TEMPO" not in texto
+    assert "HIST" not in texto  # HISTÓRICO DE STATUS
+    assert "M.O." not in texto  # seção de MÃO DE OBRA removida

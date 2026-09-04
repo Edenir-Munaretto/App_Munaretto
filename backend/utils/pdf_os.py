@@ -100,18 +100,15 @@ def gerar_pdf_os(
     os_data: dict,
     obra: dict,
     equipe: str | None = None,
-    historico: list | None = None,
     materiais: dict | None = None,
-    mao_de_obra: dict | None = None,
     quantidade_fotos: int = 0,
 ) -> str:
-    """Monta o PDF da O.S e retorna o caminho temporário do arquivo."""
-    historico = historico or []
-    materiais = materiais or {"itens": [], "total_aplicado": 0}
-    mao_de_obra = mao_de_obra or {}
+    """Monta o PDF da O.S e retorna o caminho temporário do arquivo.
 
-    def brl(valor) -> str:
-        return f"R$ {float(valor or 0):,.2f}".replace(",", "X").replace(".", ",").replace("X", ".")
+    Layout atual: identificação, escopo, SERVIÇOS APLICADOS (USC/ULV) e a
+    contagem de evidências fotográficas.
+    """
+    materiais = materiais or {"itens": [], "total_aplicado": 0}
 
     pdf = _RelatorioOS()
     pdf.add_page()
@@ -139,32 +136,8 @@ def gerar_pdf_os(
         0, 5.5, (os_data.get("descricao_escopo") or "Não informado.").encode("latin-1", "replace").decode("latin-1")
     )
 
-    # --- Linha do tempo ------------------------------------------------------
-    pdf._titulo_secao("LINHA DO TEMPO / HISTÓRICO DE STATUS")
-    rotulos_status = {
-        "rascunho": "Rascunho",
-        "aberta": "Aberta",
-        "em_andamento": "Em Andamento",
-        "impedida": "Impedida",
-        "concluida": "Concluída",
-        "cancelada": "Cancelada",
-    }
-    linhas_hist = []
-    for h in historico:
-        de = rotulos_status.get(h.get("status_anterior"), "-") if h.get("status_anterior") else "-"
-        para = rotulos_status.get(h.get("status_novo"), h.get("status_novo"))
-        linhas_hist.append(
-            [
-                _fmt_data(h.get("criado_em")),
-                f"{de} -> {para}",
-                h.get("justificativa") or "",
-                h.get("usuario_alteracao") or "",
-            ]
-        )
-    pdf._tabela({"Data/Hora": 30, "Transição": 45, "Justificativa": 70, "Usuário": 40}, linhas_hist)
-
-    # --- Materiais -----------------------------------------------------------
-    pdf._titulo_secao("MATERIAIS APLICADOS (USC)")
+    # --- Serviços aplicados ---------------------------------------------------
+    pdf._titulo_secao("SERVIÇOS APLICADOS (USC/ULV)")
 
     rotulos_tipo = {"normal": "USC normal", "especial": "USC especial"}
 
@@ -183,43 +156,24 @@ def gerar_pdf_os(
                     nome,
                     f"{pecas:g}" if pecas > 0 else "—",
                     f"{fator:g}" if fator > 0 else "—",
-                    f"{float(d.get('total') or 0):g} USC",
+                    f"{float(d.get('total') or 0):g} USC/ULV",
                 ]
             )
         # Legado: sem detalhe (dados antigos), mantém apenas o total real.
         if not linhas and float(item.get("aplicado") or 0) > 0:
-            linhas.append(["—", item.get("nome") or "Produto", "—", "—", f"{float(item['aplicado']):g} USC"])
+            linhas.append(["—", item.get("nome") or "Produto", "—", "—", f"{float(item['aplicado']):g} USC/ULV"])
         return linhas
 
     linhas_mat = [linha for item in materiais.get("itens", []) for linha in _linha_material(item)]
     pdf._tabela(
-        {"Cod.": 16, "Produto": 48, "Qtd serviços": 25, "USC unit.": 27, "Total USC": 34},
+        {"Cod.": 16, "Produto": 48, "Qtd serviços": 25, "USC unit.": 27, "Total USC/ULV": 34},
         linhas_mat,
     )
     pdf.set_font("Arial", "B", 9)
     pdf.cell(
         0,
         7,
-        f"Total aplicado: {materiais.get('total_aplicado', 0):g} USC",
-        ln=True,
-    )
-
-    # --- Mão de obra ---------------------------------------------------------
-    pdf._titulo_secao("MÃO DE OBRA (H.H.)")
-    linhas_mo = [
-        [f.get("nome"), f"{f.get('minutos', 0) / 60:.2f} h", brl(f.get("custo"))]
-        for f in (mao_de_obra.get("por_funcionario") or [])
-    ]
-    pdf._tabela({"Colaborador": 80, "Horas trabalhadas": 50, "Custo real": 40}, linhas_mo)
-    pdf.set_font("Arial", "B", 9)
-    pdf.cell(
-        0,
-        7,
-        (
-            f"Total de horas: {mao_de_obra.get('total_horas', 0)} h   |   "
-            f"Custo real de M.O.: {brl(mao_de_obra.get('custo_mo_real'))}   |   "
-            f"M.O. orçada: {brl(mao_de_obra.get('custo_mo_orcado'))}"
-        ),
+        f"Total aplicado: {materiais.get('total_aplicado', 0):g} USC/ULV",
         ln=True,
     )
     pdf.set_font("Arial", "", 8.5)

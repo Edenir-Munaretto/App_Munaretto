@@ -2191,9 +2191,8 @@ def relatorio_pdf(os_id: int, usuario: UsuarioAutenticado = Depends(get_current_
             if os_data.get("equipe_id")
             else []
         )
-        historico = db.table("os_historico").select("*").eq("os_id", os_id).order("criado_em").execute().data
+        # Relatório atual: serviços aplicados + evidências (sem histórico/H.H.).
         materiais = _resumo_materiais(db, os_id)
-        mao_de_obra = _resumo_mao_de_obra(db, os_id, os_data.get("custo_mo_orcado"))
         qtd_fotos = db.table("os_fotos").select("id").eq("os_id", os_id).execute()
 
         # utils/pdf_os.py monta o documento (mantém pdf_generator.py intacto).
@@ -2203,9 +2202,7 @@ def relatorio_pdf(os_id: int, usuario: UsuarioAutenticado = Depends(get_current_
             os_data=os_data,
             obra=(obra[0] if obra else {}),
             equipe=(equipe[0].get("nome") if equipe else None),
-            historico=historico,
             materiais=materiais,
-            mao_de_obra=mao_de_obra,
             quantidade_fotos=len(qtd_fotos.data or []),
         )
         return FileResponse(
