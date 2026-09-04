@@ -37,7 +37,7 @@ import Login from './pages/Login';
 import { MODULOS } from './modules';
 import { API_URL, apiFetch, getToken, setToken, clearToken, segundosAteExpiracao, renovarSessao } from './api';
 import ModalConfirmacao from './components/ModalConfirmacao';
-import { isModoCampo, setModoCampo } from './offline/offline';
+import { isModoCampo, setModoCampo, contarPendentes } from './offline/offline';
 import { limparTudoLocal } from './offline/db';
 
 const ICONES = {
@@ -130,6 +130,8 @@ function App() {
   const [sessaoExpirada, setSessaoExpirada] = useState(false);
   const [segundosRestantes, setSegundosRestantes] = useState(null);
   const [renovando, setRenovando] = useState(false);
+  // Saída (login/logout) com pendências do Modo Campo ainda não sincronizadas.
+  const [limpezaPendente, setLimpezaPendente] = useState(null);
 
   // Monitora a expiração do token e avisa 10 minutos antes (item 3.3 do plano).
   useEffect(() => {
@@ -316,16 +318,10 @@ function App() {
   const totalSinos = notificacoesNaoLidas + alerts.length + sstAlerts.length;
 
   // Tablet compartilhado: ao trocar de usuário o Modo Campo é encerrado e os
-  // dados locais (pacote, fila e fotos) são apagados do dispositivo.
-  const limparDispositivoSeModoCampo = () => {
-    if (isModoCampo()) {
-      setModoCampo(false);
-      limparTudoLocal().catch(() => { /* segue */ });
-    }
-  };
-
-  const handleLogin = (user) => {
-    limparDispositivoSeModoCampo();
+  // dados locais (pacote, fila e fotos) são apagados do dispositivo. Com
+  // pendências NÃO sincronizadas, sair exige confirmação explícita (C5) —
+  // do contrário o trabalho do campo seria perdido sem aviso.
+  const aplicarLogin = (user) => {
     if (user?.token) setToken(user.token);
     const { token, ...dadosUsuario } = user || {};
     localStorage.setItem('munaretto_usuario', JSON.stringify(dadosUsuario));
@@ -334,12 +330,59 @@ function App() {
     setActiveTab('dashboard');
   };
 
-  const handleLogout = () => {
-    limparDispositivoSeModoCampo();
+  const aplicarLogout = () => {
     clearToken();
     localStorage.removeItem('munaretto_usuario');
     setUsuario(null);
     setActiveTab('dashboard');
+  };
+
+  const executarSaida = async (acao, user = null) => {
+    const concluir = () => {
+      if (acao === 'login') aplicarLogin(user);
+      else aplicarLogout();
+    };
+    if (!isModoCampo()) {
+      concluir();
+      return;
+    }
+    let pend = { total: 0 };
+    try {
+      pend = await contarPendentes();
+    } catch {
+      /* sem IndexedDB legível: segue para a confirmação segura */
+    }
+    if (pend.total === 0) {
+      setModoCampo(false);
+      await limparTudoLocal().catch(() => { /* segue */ });
+      concluir();
+      return;
+    }
+    setLimpezaPendente({
+      acao,
+      user,
+      operacoes: pend.operacoes || 0,
+      fotos: pend.fotos || 0,
+    });
+  };
+
+  const confirmarLimpezaPendente = async () => {
+    const alvo = limpezaPendente;
+    if (!alvo) return;
+    setLimpezaPendente({ ...alvo, limpando: true });
+    setModoCampo(false);
+    await limparTudoLocal().catch(() => { /* segue */ });
+    if (alvo.acao === 'login') aplicarLogin(alvo.user);
+    else aplicarLogout();
+    setLimpezaPendente(null);
+  };
+
+  const handleLogin = (user) => {
+    executarSaida('login', user);
+  };
+
+  const handleLogout = () => {
+    executarSaida('logout');
   };
 
   // Busca os dados ATUAIS do usuário no backend e atualiza a sessão.
@@ -734,6 +777,22 @@ function App() {
         loading={excluindoNotif}
         onConfirmar={() => excluirNotif(notifExcluir)}
         onCancelar={() => setNotifExcluir(null)}
+      />
+
+      {/* Sair com pendências do Modo Campo exige confirmação (C5) */}
+      <ModalConfirmacao
+        aberto={limpezaPendente != null}
+        titulo="Sair do Modo Campo com pendências?"
+        mensagem={limpezaPendente
+          ? `Este tablet ainda tem ${limpezaPendente.operacoes} operação(ões) e `
+            + `${limpezaPendente.fotos} foto(s) NÃO sincronizadas com o servidor. `
+            + 'Sair agora apaga tudo do dispositivo e este trabalho será perdido. '
+            + 'Reconecte e sincronize antes de sair, ou confirme a exclusão abaixo.'
+          : ''}
+        confirmarTexto="Sair e apagar mesmo assim"
+        loading={limpezaPendente?.limpando}
+        onConfirmar={confirmarLimpezaPendente}
+        onCancelar={() => setLimpezaPendente(null)}
       />
     </ErrorBoundary>
   );

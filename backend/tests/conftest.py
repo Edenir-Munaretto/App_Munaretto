@@ -79,6 +79,7 @@ def _montar_dados_banco():
         "os_checklist_modelos": [],
         "os_checklist_itens": [],
         "os_checklist_respostas": [],
+        "sync_ops": [],
         # Documentos Diversos do módulo SST
         "sst_documentos": [],
     }

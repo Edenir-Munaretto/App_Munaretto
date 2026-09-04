@@ -42,8 +42,29 @@ def _itens_grupo(itens, grupo):
     return [i for i in itens if i["grupo"] == grupo]
 
 
-def _responder_grupo(client, os_id, itens, grupo, resposta="sim"):
+def _anexar_foto_item_via_banco(db_fake, os_id, item_id):
+    """Anexa uma foto a um item do checklist direto no banco (upload real usa B2/S3)."""
+    db = db_fake._dados
+    proximo = max((f["id"] for f in db["os_fotos"]), default=900) + 1
+    db["os_fotos"].append(
+        {
+            "id": proximo,
+            "os_id": os_id,
+            "checklist_item_id": item_id,
+            "nome_original": f"evidencia{proximo}.jpg",
+            "tamanho_bytes": 1000,
+            "mime_type": "image/jpeg",
+            "bucket_key": f"os_fotos/{os_id}/evidencia{proximo}.jpg",
+        }
+    )
+
+
+def _responder_grupo(client, db_fake, os_id, itens, grupo, resposta="sim"):
     for item in _itens_grupo(itens, grupo):
+        # Itens com `exige_foto` respondidos sim/nao precisam de evidência
+        # ANTES da resposta (regra validada também no backend).
+        if item.get("exige_foto") and resposta in ("sim", "nao"):
+            _anexar_foto_item_via_banco(db_fake, os_id, item["id"])
         r = _responder(client, os_id, item, resposta)
         assert r.status_code == 200, r.text
 
@@ -85,7 +106,7 @@ def test_gate_inicio_libera_com_grupo_1_completo(os_gestor_client, db_fake):
     os_gestor_client.put(f"/api/os/{os_id}/status", json={"novo_status": "aberta"})
 
     itens = _itens(os_gestor_client, os_id)
-    _responder_grupo(os_gestor_client, os_id, itens, 1)
+    _responder_grupo(os_gestor_client, db_fake, os_id, itens, 1)
 
     resp = os_gestor_client.put(f"/api/os/{os_id}/status", json={"novo_status": "em_andamento"})
     assert resp.status_code == 200, resp.text
@@ -107,16 +128,16 @@ def test_gate_inicio_tambem_bloqueia_play(os_gestor_client, os_campo_client, db_
 
     # Com o grupo 1 completo, o play promove a O.S para em_andamento.
     itens = _itens(os_gestor_client, os_id)
-    _responder_grupo(os_gestor_client, os_id, itens, 1)
+    _responder_grupo(os_gestor_client, db_fake, os_id, itens, 1)
     resp = os_campo_client.post(f"/api/os/{os_id}/apontamentos", json={"acao": "play"})
     assert resp.status_code == 200, resp.text
     assert os_campo_client.get(f"/api/os/{os_id}").json()["status"] == "em_andamento"
 
 
-def _promover_para_execucao(client, os_id):
+def _promover_para_execucao(client, db_fake, os_id):
     """Responde o grupo 1 e promove aberta -> em_andamento."""
     itens = _itens(client, os_id)
-    _responder_grupo(client, os_id, itens, 1)
+    _responder_grupo(client, db_fake, os_id, itens, 1)
     client.put(f"/api/os/{os_id}/status", json={"novo_status": "aberta"})
     r = client.put(f"/api/os/{os_id}/status", json={"novo_status": "em_andamento"})
     assert r.status_code == 200, r.text
@@ -129,7 +150,7 @@ def test_gate_conclusao_exige_todos_os_grupos(os_gestor_client, db_fake):
     _seed_cenario(db_fake)
     _seed_modelos(db_fake)
     os_id = _criar_os(os_gestor_client).json()["id"]
-    _promover_para_execucao(os_gestor_client, os_id)  # grupo 2 fica pendente
+    _promover_para_execucao(os_gestor_client, db_fake, os_id)  # grupo 2 fica pendente
 
     resp = os_gestor_client.put(f"/api/os/{os_id}/status", json={"novo_status": "concluida"})
     assert resp.status_code == 422
@@ -143,8 +164,8 @@ def test_concluir_completo_ok(os_gestor_client, db_fake):
     _seed_cenario(db_fake)
     _seed_modelos(db_fake)
     os_id = _criar_os(os_gestor_client).json()["id"]
-    itens = _promover_para_execucao(os_gestor_client, os_id)
-    _responder_grupo(os_gestor_client, os_id, itens, 2)
+    itens = _promover_para_execucao(os_gestor_client, db_fake, os_id)
+    _responder_grupo(os_gestor_client, db_fake, os_id, itens, 2)
 
     resp = os_gestor_client.put(f"/api/os/{os_id}/status", json={"novo_status": "concluida"})
     assert resp.status_code == 200, resp.text
@@ -172,7 +193,7 @@ def test_resposta_nao_sem_justificativa_aceita(os_gestor_client, db_fake):
 
     # 'Não' sem justificativa não bloqueia o início (grupo completo).
     itens = _itens(os_gestor_client, os_id)
-    _responder_grupo(os_gestor_client, os_id, itens, 1)
+    _responder_grupo(os_gestor_client, db_fake, os_id, itens, 1)
     os_gestor_client.put(f"/api/os/{os_id}/status", json={"novo_status": "aberta"})
     resp = os_gestor_client.put(f"/api/os/{os_id}/status", json={"novo_status": "em_andamento"})
     assert resp.status_code == 200, resp.text
@@ -206,8 +227,8 @@ def test_nao_altera_checklist_de_os_encerrada(os_gestor_client, db_fake):
     _seed_cenario(db_fake)
     _seed_modelos(db_fake)
     os_id = _criar_os(os_gestor_client).json()["id"]
-    itens = _promover_para_execucao(os_gestor_client, os_id)
-    _responder_grupo(os_gestor_client, os_id, itens, 2)
+    itens = _promover_para_execucao(os_gestor_client, db_fake, os_id)
+    _responder_grupo(os_gestor_client, db_fake, os_id, itens, 2)
     assert os_gestor_client.put(f"/api/os/{os_id}/status", json={"novo_status": "concluida"}).status_code == 200
 
     item = _itens(os_gestor_client, os_id)[0]
@@ -231,7 +252,7 @@ def test_resumo_no_detalhe(os_gestor_client, db_fake):
     assert resumo["grupos"][0]["total"] == 2
 
     itens = _itens(os_gestor_client, os_id)
-    _responder_grupo(os_gestor_client, os_id, itens, 1)
+    _responder_grupo(os_gestor_client, db_fake, os_id, itens, 1)
     detalhe = os_gestor_client.get(f"/api/os/{os_id}").json()
     assert detalhe["checklist"]["inicio_liberado"] is True
 
@@ -325,8 +346,9 @@ def test_relatorio_pdf(os_gestor_client, db_fake):
     _seed_modelos(db_fake)
     os_id = _criar_os(os_gestor_client, equipe_id=100).json()["id"]
     itens = _itens(os_gestor_client, os_id)
-    _responder_grupo(os_gestor_client, os_id, itens, 1)
-    _responder_grupo(os_gestor_client, os_id, itens, 2)
+    _responder_grupo(os_gestor_client, db_fake, os_id, itens, 1)
+    # Item com exige_foto: resposta 'na' dispensa evidência fotográfica.
+    _responder_grupo(os_gestor_client, db_fake, os_id, itens, 2, resposta="na")
 
     resp = os_gestor_client.get(f"/api/os/{os_id}/checklist/report")
     assert resp.status_code == 200, resp.text
@@ -356,13 +378,14 @@ def test_relatorio_pdf_fotos_em_grade_4_por_pagina(os_gestor_client, db_fake, mo
     monkeypatch.setattr("routers.os.get_s3_client", lambda: fake)
     monkeypatch.setattr("routers.os.bucket", lambda: "bucket-teste")
     for i, item in enumerate(itens):
-        resp = os_gestor_client.put(f"/api/os/{os_id}/checklist/{item['id']}", json={"resposta": "sim"})
-        assert resp.status_code == 200, resp.text
+        # Item com exige_foto: a evidência entra ANTES da resposta.
         resp = os_gestor_client.post(
             f"/api/os/{os_id}/checklist/{item['id']}/foto",
             files={"arquivo": (f"foto{i}.png", _png_bytes(), "image/png")},
         )
         assert resp.status_code == 201, resp.text
+        resp = os_gestor_client.put(f"/api/os/{os_id}/checklist/{item['id']}", json={"resposta": "sim"})
+        assert resp.status_code == 200, resp.text
 
     resp = os_gestor_client.get(f"/api/os/{os_id}/checklist/report")
     assert resp.status_code == 200, resp.text
@@ -442,19 +465,21 @@ def test_relatorio_pdf_com_foto_no_item(os_gestor_client, db_fake, monkeypatch):
     _seed_modelos(db_fake)
     os_id = _criar_os(os_gestor_client, equipe_id=100).json()["id"]
     itens = _itens(os_gestor_client, os_id)
-    for item in itens:
-        _responder(os_gestor_client, os_id, item, "sim")
 
     fake = _FakeS3()
     monkeypatch.setattr("routers.os.get_s3_client", lambda: fake)
     monkeypatch.setattr("routers.os.bucket", lambda: "bucket-teste")
 
+    # Item com exige_foto: a evidência entra ANTES da resposta.
     item = next(i for i in itens if i["exige_foto"])
     resp = os_gestor_client.post(
         f"/api/os/{os_id}/checklist/{item['id']}/foto",
         files={"arquivo": ("foto.png", _png_bytes(), "image/png")},
     )
     assert resp.status_code == 201, resp.text
+
+    for item_check in itens:
+        _responder(os_gestor_client, os_id, item_check, "sim")
 
     resp = os_gestor_client.get(f"/api/os/{os_id}/checklist/report")
     assert resp.status_code == 200, resp.text
@@ -472,10 +497,24 @@ def test_relatorio_pdf_os_concluida_realista(os_gestor_client, os_campo_client, 
     os_id = _criar_os(os_gestor_client, equipe_id=100).json()["id"]
     os_campo_client.put(f"/api/os/{os_id}/status", json={"novo_status": "aberta"})
 
+    fake = _FakeS3()
+    monkeypatch.setattr("routers.os.get_s3_client", lambda: fake)
+    monkeypatch.setattr("routers.os.bucket", lambda: "bucket-teste")
+
     itens = _itens(os_campo_client, os_id)
+    # Evidência do item com exige_foto vai ANTES do lote (fase 1 do tablet:
+    # fotos primeiro, operações depois).
+    item_foto = next(i for i in itens if i.get("exige_foto"))
+    for nome in ("f1.png", "f2.png"):
+        resp = os_campo_client.post(
+            f"/api/os/{os_id}/checklist/{item_foto['id']}/foto",
+            files={"arquivo": (nome, _png_bytes(), "image/png")},
+        )
+        assert resp.status_code == 201, resp.text
+
     ops = []
     for i, item in enumerate(itens):
-        if item["id"] == 3:
+        if item.get("exige_foto"):
             ops.append(_op(f"r{item['id']}", "checklist_resposta", os_id,
                            {"item_id": item["id"], "resposta": "nao",
                             "justificativa": "Conferência refeita no local com novo resultado.",
@@ -488,18 +527,6 @@ def test_relatorio_pdf_os_concluida_realista(os_gestor_client, os_campo_client, 
     ops.append(_op("s2", "status", os_id, {"novo_status": "concluida"}, "2026-08-28T17:00:00Z"))
     resp = _sync(os_campo_client, ops)
     assert all(r["ok"] for r in resp.json()["resultados"]), resp.json()
-
-    fake = _FakeS3()
-    monkeypatch.setattr("routers.os.get_s3_client", lambda: fake)
-    monkeypatch.setattr("routers.os.bucket", lambda: "bucket-teste")
-
-    item3 = next(i for i in itens if i["id"] == 3)
-    for nome in ("f1.png", "f2.png"):
-        resp = os_campo_client.post(
-            f"/api/os/{os_id}/checklist/{item3['id']}/foto",
-            files={"arquivo": (nome, _png_bytes(), "image/png")},
-        )
-        assert resp.status_code == 201, resp.text
 
     resp = os_gestor_client.get(f"/api/os/{os_id}/checklist/report")
     assert resp.status_code == 200, resp.text
@@ -515,19 +542,21 @@ def test_relatorio_pdf_foto_webp_nao_quebra(os_gestor_client, db_fake, monkeypat
     _seed_modelos(db_fake)
     os_id = _criar_os(os_gestor_client, equipe_id=100).json()["id"]
     itens = _itens(os_gestor_client, os_id)
-    for item in itens:
-        _responder(os_gestor_client, os_id, item, "sim")
 
     fake = _FakeS3()
     monkeypatch.setattr("routers.os.get_s3_client", lambda: fake)
     monkeypatch.setattr("routers.os.bucket", lambda: "bucket-teste")
 
+    # Item com exige_foto: a evidência entra ANTES da resposta.
     item = next(i for i in itens if i["exige_foto"])
     resp = os_gestor_client.post(
         f"/api/os/{os_id}/checklist/{item['id']}/foto",
         files={"arquivo": ("foto.webp", b"RIFF\x00\x00\x00\x00WEBPVP8 ", "image/webp")},
     )
     assert resp.status_code == 201, resp.text
+
+    for item_check in itens:
+        _responder(os_gestor_client, os_id, item_check, "sim")
 
     resp = os_gestor_client.get(f"/api/os/{os_id}/checklist/report")
     assert resp.status_code == 200, resp.text
@@ -544,7 +573,8 @@ def test_relatorio_pdf_embeds_como_array_nao_quebra(os_gestor_client, db_fake):
     os_id = _criar_os(os_gestor_client, equipe_id=100).json()["id"]
     itens = _itens(os_gestor_client, os_id)
     for item in itens:
-        _responder(os_gestor_client, os_id, item, "sim")
+        # Item com exige_foto: resposta 'na' dispensa evidência fotográfica.
+        _responder(os_gestor_client, os_id, item, "na" if item.get("exige_foto") else "sim")
 
     # Força o formato ARRAY nos embeds (como alguns ambientes PostgREST devolvem).
     db = db_fake._dados
@@ -571,13 +601,71 @@ def test_relatorio_pdf_naos_sem_justificativa(os_gestor_client, db_fake):
     os_id = _criar_os(os_gestor_client, equipe_id=100).json()["id"]
     itens = _itens(os_gestor_client, os_id)
     for item in itens:
-        resp = _responder(os_gestor_client, os_id, item, "sim")
+        # Item com exige_foto: resposta 'na' dispensa evidência fotográfica.
+        resp = _responder(os_gestor_client, os_id, item, "na" if item.get("exige_foto") else "sim")
         assert resp.status_code == 200, resp.text
+    # Vários 'não' sem justificativa (itens sem exigência de foto).
     itens = _itens(os_gestor_client, os_id)
-    for item in itens[:2]:
+    sem_foto = [i for i in itens if not i.get("exige_foto")][:2]
+    for item in sem_foto:
         resp = _responder(os_gestor_client, os_id, item, "nao")
         assert resp.status_code == 200, resp.text
 
     resp = os_gestor_client.get(f"/api/os/{os_id}/checklist/report")
     assert resp.status_code == 200, resp.text
     assert resp.content.startswith(b"%PDF")
+
+
+# ---------------------------------------------------------------------------
+# Evidência fotográfica obrigatória (A4)
+# ---------------------------------------------------------------------------
+
+
+def test_item_exige_foto_bloqueia_resposta_sem_evidencia(os_gestor_client, db_fake):
+    from tests.test_os import _criar_os, _seed_cenario
+
+    _seed_cenario(db_fake)
+    _seed_modelos(db_fake)
+    os_id = _criar_os(os_gestor_client).json()["id"]
+    item = next(i for i in _itens(os_gestor_client, os_id) if i.get("exige_foto"))
+
+    # 'sim' sem foto -> 422; 'na' dispensa evidência.
+    resp = _responder(os_gestor_client, os_id, item, "sim")
+    assert resp.status_code == 422
+    assert "foto de evidência" in resp.json()["detail"]
+
+    resp = _responder(os_gestor_client, os_id, item, "na")
+    assert resp.status_code == 200, resp.text
+
+    # Voltar para 'sim' continua bloqueado até anexar a evidência.
+    resp = _responder(os_gestor_client, os_id, item, "sim")
+    assert resp.status_code == 422
+
+    _anexar_foto_item_via_banco(db_fake, os_id, item["id"])
+    resp = _responder(os_gestor_client, os_id, item, "sim")
+    assert resp.status_code == 200, resp.text
+
+
+def test_conclusao_exige_evidencia_fotografica_dos_itens(os_gestor_client, db_fake):
+    """A4: concluir com item exige_foto respondido sim/nao sem foto -> 422."""
+    from tests.test_os import _criar_os, _seed_cenario
+
+    _seed_cenario(db_fake)
+    _seed_modelos(db_fake)
+    os_id = _criar_os(os_gestor_client, equipe_id=100).json()["id"]
+    itens = _promover_para_execucao(os_gestor_client, db_fake, os_id)
+    _responder_grupo(os_gestor_client, db_fake, os_id, itens, 2)  # anexa foto automaticamente
+
+    # Simula a remoção da evidência pelo gestor depois da resposta.
+    db_fake._dados["os_fotos"] = [f for f in db_fake._dados["os_fotos"] if f["os_id"] != os_id]
+
+    resp = os_gestor_client.put(f"/api/os/{os_id}/status", json={"novo_status": "concluida"})
+    assert resp.status_code == 422
+    assert "evidência" in resp.json()["detail"]
+
+    # Com a evidência de volta, a conclusão passa.
+    exige = next(i for i in _itens(os_gestor_client, os_id) if i.get("exige_foto"))
+    _anexar_foto_item_via_banco(db_fake, os_id, exige["id"])
+    resp = os_gestor_client.put(f"/api/os/{os_id}/status", json={"novo_status": "concluida"})
+    assert resp.status_code == 200, resp.text
+    assert resp.json()["status"] == "concluida"

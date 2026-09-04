@@ -479,12 +479,15 @@ export async function hidratarFotosPendentes(dados) {
 
 export async function contarPendentes() {
   const [ops, fotos] = await Promise.all([dbGetAll('fila'), dbGetAll('fotos')]);
-  return { operacoes: ops.length, fotos: fotos.length, total: ops.length + fotos.length };
+  const fotosPendentes = fotos.filter(f => f.status !== 'enviada').length;
+  return { operacoes: ops.length, fotos: fotosPendentes, total: ops.length + fotosPendentes };
 }
 
 export async function listarPendentes() {
   const [ops, fotos] = await Promise.all([dbGetAll('fila'), dbGetAll('fotos')]);
-  return { operacoes: ops, fotos };
+  // Fotos já enviadas (id_servidor persistido) não são pendências: ficam
+  // apenas como apoio do mapa id_local -> id até a operação sair da fila.
+  return { operacoes: ops, fotos: fotos.filter(f => f.status !== 'enviada') };
 }
 
 /** Remove do dispositivo um item pendente (foto ou operação) sem enviar. */
@@ -503,4 +506,51 @@ export async function salvarResponsavelLocal(nome) {
 
 export async function responsavelLocal() {
   return dbGet('meta', 'responsavel');
+}
+
+// ---------------------------------------------------------------------------
+// Identidade do dispositivo (idempotência do sync)
+// ---------------------------------------------------------------------------
+// UUID persistido no IndexedDB. Junto com o id_local da operação forma a
+// chave (dispositivo, id_local) usada pelo servidor para deduplicar reenvios.
+
+let _dispositivoId = null;
+
+export async function dispositivoId() {
+  if (_dispositivoId) return _dispositivoId;
+  const reg = await dbGet('meta', 'dispositivo_id');
+  if (reg?.valor) {
+    _dispositivoId = reg.valor;
+    return reg.valor;
+  }
+  const novo =
+    typeof crypto !== 'undefined' && crypto.randomUUID
+      ? crypto.randomUUID()
+      : `${Date.now()}-${Math.random().toString(36).slice(2, 12)}`;
+  await dbPut('meta', { chave: 'dispositivo_id', valor: novo, em: new Date().toISOString() });
+  _dispositivoId = novo;
+  return novo;
+}
+
+// ---------------------------------------------------------------------------
+// Cronômetro H.H. derivado da fila (espelho local offline)
+// ---------------------------------------------------------------------------
+// Enquanto a ÚLTIMA operação de H.H. pendente da O.S for um play, o
+// cronômetro está rodando (início = criado_em do play); se for um pause
+// (ou não houver operação), está parado. Derivar da fila dispensa um
+// "espelho" gravado: descarte/reenvio/confirmação refletem sozinhos e o
+// botão nunca permite dois plays pendentes da mesma sessão.
+
+export async function cronometroDerivadoDaFila(osId) {
+  osId = Number(osId);
+  const ops = (await dbGetAll('fila')).filter(
+    op => op.os_id === osId && (op.tipo === 'apontamento_play' || op.tipo === 'apontamento_pause'),
+  );
+  if (!ops.length) return null;
+  ops.sort((a, b) => String(a.criado_em || '').localeCompare(String(b.criado_em || '')));
+  const ultima = ops[ops.length - 1];
+  if (ultima.tipo === 'apontamento_play') {
+    return { aberto: true, inicio: ultima.criado_em };
+  }
+  return { aberto: false, inicio: null };
 }

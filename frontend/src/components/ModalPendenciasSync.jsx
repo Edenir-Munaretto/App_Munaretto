@@ -1,12 +1,13 @@
 import React, { useEffect, useState } from 'react';
 import {
   X, RefreshCw, Trash2, Image as ImageIcon, ListChecks, AlertTriangle,
-  Check, Clock, WifiOff, UserCheck,
+  Check, Clock, WifiOff, UserCheck, ShieldAlert,
 } from 'lucide-react';
 import {
   listarPendentes, descartarPendente, responsavelLocal, estaEmWifi,
 } from '../offline/offline';
 import { sincronizar } from '../offline/sync';
+import ModalConfirmacao from './ModalConfirmacao';
 
 const LABEL_TIPO = {
   checklist_resposta: 'Resposta do checklist',
@@ -46,8 +47,21 @@ function FotoThumb({ foto }) {
   );
 }
 
-function BadgeEstado({ status }) {
-  if (status === 'erro') {
+/** Conflito definitivo: o servidor recusou a operação/foto com 4xx. */
+function ehConflito(item) {
+  return item.classificacao === 'conflito';
+}
+
+function BadgeEstado({ item }) {
+  if (ehConflito(item)) {
+    return (
+      <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-rose-50 text-rose-700 border border-rose-200 text-[10px] font-bold">
+        <ShieldAlert size={10} />
+        Conflito
+      </span>
+    );
+  }
+  if (item.status === 'erro') {
     return (
       <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-rose-50 text-rose-700 border border-rose-200 text-[10px] font-bold">
         <AlertTriangle size={10} />
@@ -78,6 +92,9 @@ function ModalPendenciasSync({
   const [responsavel, setResponsavel] = useState(null);
   const [resumoLocal, setResumoLocal] = useState(null);
   const [avisoRede, setAvisoRede] = useState(null);
+  // Descarte exige confirmação — fotos podem ser a única evidência e operações
+  // descartadas nunca chegam ao servidor.
+  const [confirmarDescarte, setConfirmarDescarte] = useState(null);
 
   const carregar = async () => {
     const p = await listarPendentes();
@@ -97,6 +114,10 @@ function ModalPendenciasSync({
   if (!aberto) return null;
 
   const resumo = resumoLocal || ultimoResumo || null;
+  const conflitos = [
+    ...fotos.filter(ehConflito).map(f => ({ tipo: 'foto', item: f })),
+    ...operacoes.filter(ehConflito).map(op => ({ tipo: 'operacao', item: op })),
+  ];
 
   const reenviarItem = async (tipo, idLocal) => {
     // Sincronização só no Wi-Fi (uploads em dados móveis travam).
@@ -106,22 +127,50 @@ function ModalPendenciasSync({
     }
     setAvisoRede(null);
     setReenviando(prev => [...prev, idLocal]);
-    const seletor = tipo === 'foto' ? { fotos: [idLocal] } : { operacoes: [idLocal] };
-    const resultado = await sincronizar(null, seletor);
-    setResumoLocal(resultado);
-    await carregar();
-    onItemSincronizado?.(resultado);
-    setReenviando(prev => prev.filter(i => i !== idLocal));
+    try {
+      const seletor = tipo === 'foto' ? { fotos: [idLocal] } : { operacoes: [idLocal] };
+      const resultado = await sincronizar(null, seletor);
+      setResumoLocal(resultado);
+      await carregar();
+      onItemSincronizado?.(resultado);
+    } finally {
+      setReenviando(prev => prev.filter(i => i !== idLocal));
+    }
   };
 
-  const descartar = async (tipo, idLocal) => {
-    await descartarPendente(tipo, idLocal);
+  const pedirDescarte = (tipo, item) => {
+    setConfirmarDescarte({ tipo, item });
+  };
+
+  const confirmarDescarteItem = async () => {
+    const { tipo, item } = confirmarDescarte || {};
+    setConfirmarDescarte(null);
+    if (!tipo) return;
+    await descartarPendente(tipo, item.id_local);
+    await carregar();
+    onItemSincronizado?.();
+  };
+
+  const descartarTodosOsConflitos = async () => {
+    setConfirmarDescarte(null);
+    for (const { tipo, item } of conflitos) {
+      await descartarPendente(tipo, item.id_local);
+    }
     await carregar();
     onItemSincronizado?.();
   };
 
   const temPendentes = fotos.length + operacoes.length > 0;
   const totalFalhas = (resumo?.falhas?.length || 0) + (resumo?.conflitos?.length || 0);
+  const temConflitos = conflitos.length > 0;
+
+  const mensagemDescarte = confirmarDescarte
+    ? confirmarDescarte.tipo === 'foto'
+      ? 'Esta foto é a evidência do serviço e ainda não foi sincronizada. Descartar remove do dispositivo SEM enviar ao servidor — se ela for a única cópia, a evidência será perdida.'
+      : ehConflito(confirmarDescarte.item)
+        ? 'O servidor recusou esta operação (conflito permanente, ex.: O.S já concluída por outra pessoa). Descartar a remove do dispositivo e a alteração NÃO será aplicada.'
+        : 'Esta operação ainda não foi sincronizada. Descartar a remove do dispositivo SEM enviar ao servidor — a alteração não será aplicada.'
+    : '';
 
   return (
     <div className="fixed inset-0 bg-slate-900/40 backdrop-blur-sm flex items-center justify-center z-[60] p-4">
@@ -148,6 +197,16 @@ function ModalPendenciasSync({
             <div className="rounded-xl border border-amber-200 bg-amber-50 px-3 py-2.5 text-[11px] font-bold text-amber-700 flex items-center gap-2">
               <AlertTriangle size={14} className="shrink-0" />
               {avisoRede}
+            </div>
+          )}
+          {temConflitos && (
+            <div className="rounded-xl border border-rose-200 bg-rose-50 px-3 py-2.5 text-[11px] font-semibold text-rose-700 flex items-start gap-2">
+              <ShieldAlert size={14} className="shrink-0 mt-0.5" />
+              <span>
+                <b>{conflitos.length} conflito(s) permanente(s):</b> o servidor recusou estas operações
+                (ex.: a O.S foi concluída/cancelada por outra pessoa enquanto o tablet estava offline).
+                Elas nunca serão aplicadas — revise e descarte para liberar o Finalizar.
+              </span>
             </div>
           )}
           {!temPendentes && (
@@ -188,7 +247,9 @@ function ModalPendenciasSync({
               </p>
               <div className="space-y-2">
                 {fotos.map(foto => (
-                  <div key={foto.id_local} className="flex items-center gap-3 bg-slate-50 border border-slate-100 rounded-xl p-2.5">
+                  <div key={foto.id_local} className={`flex items-center gap-3 rounded-xl p-2.5 border ${
+                    ehConflito(foto) ? 'bg-rose-50/60 border-rose-100' : 'bg-slate-50 border-slate-100'
+                  }`}>
                     <FotoThumb foto={foto} />
                     <div className="min-w-0 flex-1">
                       <p className="text-xs font-bold text-slate-700 truncate">
@@ -196,7 +257,7 @@ function ModalPendenciasSync({
                         <span className="text-slate-400 font-semibold"> · O.S {foto.os_id}</span>
                       </p>
                       <div className="flex items-center gap-2 mt-1 flex-wrap">
-                        <BadgeEstado status={foto.status || 'pendente'} />
+                        <BadgeEstado item={foto} />
                         {foto.tentativas > 0 && (
                           <span className="text-[10px] text-slate-400 font-semibold">
                             {foto.tentativas} tentativa(s)
@@ -217,7 +278,7 @@ function ModalPendenciasSync({
                         <RefreshCw size={14} className={reenviando.includes(foto.id_local) ? 'animate-spin' : ''} />
                       </button>
                       <button
-                        onClick={() => descartar('foto', foto.id_local)}
+                        onClick={() => pedirDescarte('foto', foto)}
                         title="Descartar"
                         className="w-9 h-9 flex items-center justify-center rounded-lg bg-slate-50 text-slate-500 hover:bg-rose-50 hover:text-rose-600 border border-slate-100 transition-colors cursor-pointer"
                       >
@@ -238,7 +299,9 @@ function ModalPendenciasSync({
               </p>
               <div className="space-y-2">
                 {operacoes.map(op => (
-                  <div key={op.id_local} className="flex items-center gap-3 bg-slate-50 border border-slate-100 rounded-xl p-2.5">
+                  <div key={op.id_local} className={`flex items-center gap-3 rounded-xl p-2.5 border ${
+                    ehConflito(op) ? 'bg-rose-50/60 border-rose-100' : 'bg-slate-50 border-slate-100'
+                  }`}>
                     <div className="w-10 h-10 rounded-lg bg-primary-50 text-primary-600 flex items-center justify-center shrink-0">
                       <ListChecks size={16} />
                     </div>
@@ -260,7 +323,7 @@ function ModalPendenciasSync({
                         </p>
                       )}
                       <div className="flex items-center gap-2 mt-1 flex-wrap">
-                        <BadgeEstado status={op.status || 'pendente'} />
+                        <BadgeEstado item={op} />
                         {op.tentativas > 0 && (
                           <span className="text-[10px] text-slate-400 font-semibold">
                             {op.tentativas} tentativa(s)
@@ -281,7 +344,7 @@ function ModalPendenciasSync({
                         <RefreshCw size={14} className={reenviando.includes(op.id_local) ? 'animate-spin' : ''} />
                       </button>
                       <button
-                        onClick={() => descartar('operacao', op.id_local)}
+                        onClick={() => pedirDescarte('operacao', op)}
                         title="Descartar"
                         className="w-9 h-9 flex items-center justify-center rounded-lg bg-slate-50 text-slate-500 hover:bg-rose-50 hover:text-rose-600 border border-slate-100 transition-colors cursor-pointer"
                       >
@@ -309,7 +372,17 @@ function ModalPendenciasSync({
               <WifiOff size={13} /> Sem conexão — reenviar disponível ao reconectar
             </span>
           )}
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-2 flex-wrap">
+            {temConflitos && !sincronizando && !offline && (
+              <button
+                type="button"
+                onClick={() => setConfirmarDescarte({ tipo: 'todos' })}
+                className="px-4 py-2 bg-rose-600 text-white rounded-xl text-sm font-semibold hover:bg-rose-700 transition-all shadow-md cursor-pointer flex items-center gap-2"
+              >
+                <Trash2 size={14} />
+                Descartar {conflitos.length} conflito(s)
+              </button>
+            )}
             <button
               type="button"
               onClick={onFechar}
@@ -330,6 +403,22 @@ function ModalPendenciasSync({
           </div>
         </div>
       </div>
+
+      {/* Confirmação de descarte (foto pode ser a única evidência) */}
+      <ModalConfirmacao
+        aberto={confirmarDescarte != null}
+        titulo={confirmarDescarte?.tipo === 'todos'
+          ? 'Descartar todos os conflitos'
+          : confirmarDescarte?.tipo === 'foto'
+            ? 'Descartar evidência fotográfica?'
+            : 'Descartar operação?'}
+        mensagem={confirmarDescarte?.tipo === 'todos'
+          ? 'Todas as operações/fotos em conflito serão removidas do dispositivo e NUNCA serão aplicadas no servidor. Esta ação não pode ser desfeita.'
+          : mensagemDescarte}
+        confirmarTexto="Descartar"
+        onConfirmar={confirmarDescarte?.tipo === 'todos' ? descartarTodosOsConflitos : confirmarDescarteItem}
+        onCancelar={() => setConfirmarDescarte(null)}
+      />
     </div>
   );
 }

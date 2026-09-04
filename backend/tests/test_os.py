@@ -236,6 +236,8 @@ class TestApontamentoHoras:
     def test_pause_duplo_rejeita(self, os_gestor_client, os_campo_client, db_fake):
         _seed_cenario(db_fake)
         os_id = _criar_os(os_gestor_client, equipe_id=100).json()["id"]
+        # O.S liberada para o campo (fora do rascunho, onde H.H. é proibido).
+        assert os_campo_client.put(f"/api/os/{os_id}/status", json={"novo_status": "aberta"}).status_code == 200
         os_campo_client.post(f"/api/os/{os_id}/apontamentos", json={"acao": "play"})
         assert os_campo_client.post(f"/api/os/{os_id}/apontamentos", json={"acao": "play"}).status_code == 409
         assert os_campo_client.post(f"/api/os/{os_id}/apontamentos", json={"acao": "pause"}).status_code == 200
@@ -1517,8 +1519,81 @@ def test_listar_obras_filtra_por_cliente_celesc(os_gestor_client, db_fake):
         "/api/os/obras",
         json={"cliente_id": None, "cliente_celesc": "Celesc Regional Sul", "nome": "PS-CEL-1", "cidade": None, "endereco": None},
     )
-    # O fake não aplica os defaults do banco (ativo=true) no insert.
+    # O fake nǜo aplica os defaults do banco (ativo=true) no insert.
     db_fake._dados["obras"][-1]["ativo"] = True
     resp = os_gestor_client.get("/api/os/obras?busca=Regional Sul")
     assert resp.status_code == 200, resp.text
     assert any(o["cliente_celesc"] == "Celesc Regional Sul" for o in resp.json())
+
+
+# ---------------------------------------------------------------------------
+# Concorrência de status e sanidade de apontamentos (A1/A3)
+# ---------------------------------------------------------------------------
+
+
+class TestStatusTransicaoAtomica:
+    """A1: update de status com condição de estado (read-modify-write atômico).
+
+    O fake serializa as requisições, então a corrida real (ler estado antigo e
+    atualizar depois que outro dispositivo mudou) é emulada gravando a mudança
+    do "outro dispositivo" no instante do UPDATE.
+    """
+
+    def test_mudanca_concorrente_recebe_409(self, os_gestor_client, db_fake):
+        _seed_cenario(db_fake)
+        os_id = _criar_os(os_gestor_client).json()["id"]
+        assert os_gestor_client.put(f"/api/os/{os_id}/status", json={"novo_status": "aberta"}).status_code == 200
+
+        # "Outro dispositivo" aplica a transição no meio da requisição (entre a
+        # leitura/validação e o update do primeiro).
+        real_table = db_fake.table
+
+        def _table_com_corrida(nome):
+            q = real_table(nome)
+            if nome != "ordens_servico":
+                return q
+            execucao_original = q.execute
+
+            def execute():
+                if q._update_payload is not None:
+                    linha = next(o for o in db_fake._dados["ordens_servico"] if o["id"] == os_id)
+                    linha["status"] = "em_andamento"
+                return execucao_original()
+
+            q.execute = execute
+            return q
+
+        db_fake.table = _table_com_corrida
+
+        resp = os_gestor_client.put(f"/api/os/{os_id}/status", json={"novo_status": "em_andamento"})
+        assert resp.status_code == 409
+        assert "alterada por outra pessoa" in resp.json()["detail"]
+        # O estado final é o do vencedor da corrida (não foi sobrescrito).
+        linha = next(o for o in db_fake._dados["ordens_servico"] if o["id"] == os_id)
+        assert linha["status"] == "em_andamento"
+
+
+class TestApontamentoHorasSanidade:
+    """A3: H.H. bloqueado em rascunho e parâmetros de origem restritos na web."""
+
+    def test_play_em_rascunho_rejeitado(self, os_gestor_client, os_campo_client, db_fake):
+        _seed_cenario(db_fake)
+        os_id = _criar_os(os_gestor_client, equipe_id=100).json()["id"]  # nasce em 'rascunho'
+
+        resp = os_campo_client.post(f"/api/os/{os_id}/apontamentos", json={"acao": "play"})
+        assert resp.status_code == 400
+        assert "rascunho" in resp.json()["detail"].lower()
+        assert db_fake._dados["os_apontamentos"] == []
+
+    def test_web_nao_aceita_inicio_fim(self, os_gestor_client, os_campo_client, db_fake):
+        _seed_cenario(db_fake)
+        os_id = _criar_os(os_gestor_client, equipe_id=100).json()["id"]
+        assert os_campo_client.put(f"/api/os/{os_id}/status", json={"novo_status": "aberta"}).status_code == 200
+
+        resp = os_campo_client.post(
+            f"/api/os/{os_id}/apontamentos?inicio=2026-08-28T08:00:00Z&fim=2026-08-28T10:00:00Z",
+            json={"acao": "play"},
+        )
+        assert resp.status_code == 400
+        assert "sincronização offline" in resp.json()["detail"]
+        assert db_fake._dados["os_apontamentos"] == []

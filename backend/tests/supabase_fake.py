@@ -196,16 +196,20 @@ class _Query:
         return _Resposta(criados)
 
     def upsert(self, payload, on_conflict=None):
-        """Insere ou atualiza linhas com base na chave de conflito."""
+        """Insere ou atualiza linhas com base na chave de conflito.
+
+        `on_conflict` aceita uma coluna ou várias separadas por vírgula
+        (ex.: 'dispositivo,id_local' — UNIQUE composta, como na sync_ops)."""
         if isinstance(payload, dict):
             payload = [payload]
         self.dados[self.tabela] = self.dados.get(self.tabela, [])
+        chaves = [c.strip() for c in on_conflict.split(",")] if on_conflict else None
         atualizados = []
         for item in payload:
             alvo = None
-            if on_conflict:
+            if chaves:
                 for r in self.dados[self.tabela]:
-                    if r.get(on_conflict) == item.get(on_conflict):
+                    if all(r.get(k) == item.get(k) for k in chaves):
                         alvo = r
                         break
             if alvo is not None:

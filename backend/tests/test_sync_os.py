@@ -69,6 +69,11 @@ def test_sync_fluxo_completo_do_dia(os_gestor_client, db_fake):
     os_id = _criar_os(os_gestor_client).json()["id"]
     os_gestor_client.put(f"/api/os/{os_id}/status", json={"novo_status": "aberta"})
 
+    # Item do grupo 2 exige foto: a evidência é enviada ANTES do lote (fase 1
+    # do tablet: fotos primeiro, operações depois).
+    g2 = [i for i in _itens(os_gestor_client, os_id) if i["grupo"] == 2]
+    _anexar_foto_item_via_banco(db_fake, os_id, g2[0]["id"])
+
     resp = _sync(os_gestor_client, _fluxo_dia_operacoes(os_gestor_client, os_id))
     assert resp.status_code == 200, resp.text
     resultados = resp.json()["resultados"]
@@ -246,10 +251,31 @@ def test_sync_status_impedida_com_foto_local_mapeada(os_gestor_client, os_campo_
 # ---------------------------------------------------------------------------
 
 
-def _responder_tudo(client, os_id):
+def _anexar_foto_item_via_banco(db_fake, os_id, item_id):
+    """Anexa uma foto a um item do checklist direto no banco (upload real usa B2/S3)."""
+    db = db_fake._dados
+    proximo = max((f["id"] for f in db["os_fotos"]), default=900) + 1
+    db["os_fotos"].append(
+        {
+            "id": proximo,
+            "os_id": os_id,
+            "checklist_item_id": item_id,
+            "nome_original": f"evidencia{proximo}.jpg",
+            "tamanho_bytes": 1000,
+            "mime_type": "image/jpeg",
+            "bucket_key": f"os_fotos/{os_id}/evidencia{proximo}.jpg",
+        }
+    )
+
+
+def _responder_tudo(client, db_fake, os_id):
     """Responde todos os itens do checklist (online) — usado pelo gestor."""
     itens = client.get(f"/api/os/{os_id}/checklist").json()["itens"]
     for item in itens:
+        # Itens com `exige_foto` respondidos sim/nao precisam de evidência
+        # ANTES da resposta (regra validada também no backend).
+        if item.get("exige_foto"):
+            _anexar_foto_item_via_banco(db_fake, os_id, item["id"])
         resp = client.put(
             f"/api/os/{os_id}/checklist/{item['id']}",
             json={"resposta": "sim", "justificativa": None},
@@ -268,7 +294,7 @@ def test_sync_conflito_gestor_conclui_enquanto_tablet_offline(os_gestor_client, 
     os_campo_client.put(f"/api/os/{os_id}/status", json={"novo_status": "aberta"})
 
     # O gestor responde o checklist e CONCLUI a O.S enquanto o tablet está offline.
-    _responder_tudo(os_gestor_client, os_id)
+    _responder_tudo(os_gestor_client, db_fake, os_id)
     resp = os_gestor_client.put(f"/api/os/{os_id}/status", json={"novo_status": "em_andamento"})
     assert resp.status_code == 200, resp.text
     resp = os_gestor_client.put(f"/api/os/{os_id}/status", json={"novo_status": "concluida"})
@@ -434,3 +460,255 @@ def test_sync_material_em_os_concluida_rejeitado(os_gestor_client, os_campo_clie
     assert resultados["s1"]["ok"] is True
     assert resultados["m2"]["ok"] is False
     assert resultados["m2"]["status"] == 400
+
+
+# ---------------------------------------------------------------------------
+# Idempotência do lote (sync_ops) — C1
+# ---------------------------------------------------------------------------
+
+
+def test_sync_reenvio_do_mesmo_lote_nao_duplica_material(os_gestor_client, os_campo_client, db_fake):
+    """C1: a resposta do lote se perdeu -> o tablet reenvia as mesmas operações
+    com o mesmo (dispositivo, id_local); o backend devolve a resposta gravada
+    (duplicada) sem criar um segundo lançamento."""
+    from tests.test_os import _criar_os, _seed_cenario
+
+    _seed_cenario(db_fake)
+    os_id = _criar_os(os_gestor_client, equipe_id=100).json()["id"]
+    assert os_campo_client.put(f"/api/os/{os_id}/status", json={"novo_status": "aberta"}).status_code == 200
+
+    ops = [_op("m1", "material", os_id, {"produto_id": 7, "quantidade_usada": 2}, "2026-08-28T09:00:00Z")]
+    corpo = {"operacoes": ops, "dispositivo": "tablet-campo-1"}
+
+    r1 = os_campo_client.post("/api/os/sincronizar", json=corpo)
+    assert r1.status_code == 200, r1.text
+    assert r1.json()["resultados"][0]["ok"] is True
+    assert len(db_fake._dados["os_materiais"]) == 1
+
+    r2 = os_campo_client.post("/api/os/sincronizar", json=corpo)
+    resultado = r2.json()["resultados"][0]
+    assert resultado["ok"] is True, resultado
+    assert resultado["duplicada"] is True
+    assert len(db_fake._dados["os_materiais"]) == 1  # não duplicou
+
+
+def test_sync_mesmo_id_local_em_outro_dispositivo_aplica(os_gestor_client, os_campo_client, db_fake):
+    """O mesmo id_local vindo de OUTRO dispositivo é uma operação legítima
+    (a chave de idempotência é (dispositivo, id_local))."""
+    from tests.test_os import _criar_os, _seed_cenario
+
+    _seed_cenario(db_fake)
+    os_id = _criar_os(os_gestor_client, equipe_id=100).json()["id"]
+    assert os_campo_client.put(f"/api/os/{os_id}/status", json={"novo_status": "aberta"}).status_code == 200
+
+    ops = [_op("m1", "material", os_id, {"produto_id": 7, "quantidade_usada": 1}, "2026-08-28T09:00:00Z")]
+    corpo = {"operacoes": ops, "dispositivo": "tablet-campo-1"}
+    assert os_campo_client.post("/api/os/sincronizar", json=corpo).json()["resultados"][0]["ok"] is True
+
+    r2 = os_campo_client.post("/api/os/sincronizar", json={"operacoes": ops, "dispositivo": "tablet-campo-2"})
+    resultado = r2.json()["resultados"][0]
+    assert resultado["ok"] is True
+    assert not resultado.get("duplicada")
+    assert len(db_fake._dados["os_materiais"]) == 2
+
+
+def test_sync_replay_play_pause_nao_duplica_blocos(os_gestor_client, os_campo_client, db_fake):
+    """Replay do lote de H.H.: play/pause já aplicados não abrem outro bloco."""
+    from tests.test_os import _criar_os, _seed_cenario
+
+    _seed_cenario(db_fake)
+    os_id = _criar_os(os_gestor_client, equipe_id=100).json()["id"]
+    assert os_campo_client.put(f"/api/os/{os_id}/status", json={"novo_status": "aberta"}).status_code == 200
+
+    ops = [
+        _op("play", "apontamento_play", os_id, {"geolocalizacao": "-27.0,-52.3"}, "2026-08-28T08:05:00Z"),
+        _op("pause", "apontamento_pause", os_id, {"geolocalizacao": "-27.0,-52.3"}, "2026-08-28T12:00:00Z"),
+    ]
+    corpo = {"operacoes": ops, "dispositivo": "tablet-campo-1"}
+    r1 = os_campo_client.post("/api/os/sincronizar", json=corpo)
+    assert all(x["ok"] for x in r1.json()["resultados"]), r1.json()
+    assert len(db_fake._dados["os_apontamentos"]) == 1
+
+    r2 = os_campo_client.post("/api/os/sincronizar", json=corpo)
+    resultados = {x["id_local"]: x for x in r2.json()["resultados"]}
+    assert resultados["play"]["ok"] is True
+    assert resultados["play"]["duplicada"] is True
+    assert resultados["pause"]["ok"] is True
+    assert resultados["pause"]["duplicada"] is True
+    assert len(db_fake._dados["os_apontamentos"]) == 1  # nenhum bloco extra
+
+
+def test_sync_reenvio_de_status_ja_aplicado_replay(os_gestor_client, os_campo_client, db_fake):
+    """Replay de transição de status já aplicada não grava histórico de novo."""
+    from tests.test_os import _criar_os, _seed_cenario
+
+    _seed_cenario(db_fake)
+    os_id = _criar_os(os_gestor_client, equipe_id=100).json()["id"]
+    assert os_campo_client.put(f"/api/os/{os_id}/status", json={"novo_status": "aberta"}).status_code == 200
+
+    ops = [_op("s1", "status", os_id, {"novo_status": "em_andamento"}, "2026-08-28T08:00:00Z")]
+    corpo = {"operacoes": ops, "dispositivo": "tablet-campo-1"}
+    r1 = os_campo_client.post("/api/os/sincronizar", json=corpo)
+    assert r1.json()["resultados"][0]["ok"] is True
+    assert os_campo_client.get(f"/api/os/{os_id}").json()["status"] == "em_andamento"
+
+    def _eventos_em_andamento():
+        return [h for h in db_fake._dados["os_historico"] if h["os_id"] == os_id and h["status_novo"] == "em_andamento"]
+
+    r2 = os_campo_client.post("/api/os/sincronizar", json=corpo)
+    resultado = r2.json()["resultados"][0]
+    assert resultado["ok"] is True
+    assert resultado["duplicada"] is True
+    assert len(_eventos_em_andamento()) == 1  # histórico não duplicado
+
+
+def test_sync_status_ja_no_estado_alvo_e_tratado_como_ok(os_gestor_client, os_campo_client, db_fake):
+    """Transição aplicada por outro caminho (gestor online, lotes anteriores ao
+    sync_ops etc.) deixa a O.S no estado alvo; o reenvio não vira erro eterno."""
+    from tests.test_os import _criar_os, _seed_cenario
+
+    _seed_cenario(db_fake)
+    os_id = _criar_os(os_gestor_client, equipe_id=100).json()["id"]
+    assert os_gestor_client.put(f"/api/os/{os_id}/status", json={"novo_status": "aberta"}).status_code == 200
+    assert os_gestor_client.put(f"/api/os/{os_id}/status", json={"novo_status": "em_andamento"}).status_code == 200
+
+    ops = [_op("s1", "status", os_id, {"novo_status": "em_andamento"}, "2026-08-28T08:00:00Z")]
+    resp = os_campo_client.post("/api/os/sincronizar", json={"operacoes": ops, "dispositivo": "tablet-campo-1"})
+    resultado = resp.json()["resultados"][0]
+    assert resultado["ok"] is True, resultado
+    assert os_campo_client.get(f"/api/os/{os_id}").json()["status"] == "em_andamento"
+
+
+# ---------------------------------------------------------------------------
+# Sanidade de apontamentos vindos do sync (A3)
+# ---------------------------------------------------------------------------
+
+
+def _hh_sync(os_campo_client, os_id, play_em, pause_payload, pause_em):
+    return os_campo_client.post(
+        "/api/os/sincronizar",
+        json={
+            "operacoes": [
+                _op("play", "apontamento_play", os_id, {}, play_em),
+                _op("pause", "apontamento_pause", os_id, pause_payload, pause_em),
+            ],
+            "dispositivo": "tablet-campo-1",
+        },
+    )
+
+
+def test_sync_apontamento_play_no_futuro_rejeitado(os_gestor_client, os_campo_client, db_fake):
+    from tests.test_os import _criar_os, _seed_cenario
+
+    _seed_cenario(db_fake)
+    os_id = _criar_os(os_gestor_client, equipe_id=100).json()["id"]
+    assert os_campo_client.put(f"/api/os/{os_id}/status", json={"novo_status": "aberta"}).status_code == 200
+
+    resp = _hh_sync(
+        os_campo_client, os_id, "2050-01-01T00:00:00Z", {"fim": "2050-01-01T00:30:00Z"}, "2050-01-01T00:30:00Z"
+    )
+    resultado = {r["id_local"]: r for r in resp.json()["resultados"]}["play"]
+    assert resultado["ok"] is False
+    assert resultado["status"] == 400
+    assert "futuro" in resultado["erro"]
+
+
+def test_sync_apontamento_fim_no_futuro_rejeitado(os_gestor_client, os_campo_client, db_fake):
+    from tests.test_os import _criar_os, _seed_cenario
+
+    _seed_cenario(db_fake)
+    os_id = _criar_os(os_gestor_client, equipe_id=100).json()["id"]
+    assert os_campo_client.put(f"/api/os/{os_id}/status", json={"novo_status": "aberta"}).status_code == 200
+
+    resp = _hh_sync(
+        os_campo_client, os_id, "2026-08-28T08:05:00Z", {"fim": "2050-01-01T00:00:00Z"}, "2050-01-01T00:00:00Z"
+    )
+    resultados = {r["id_local"]: r for r in resp.json()["resultados"]}
+    assert resultados["play"]["ok"] is True
+    assert resultados["pause"]["ok"] is False
+    assert resultados["pause"]["status"] == 400
+    assert "futuro" in resultados["pause"]["erro"]
+
+
+def test_sync_apontamento_duracao_acima_de_24h_rejeitada(os_gestor_client, os_campo_client, db_fake):
+    from tests.test_os import _criar_os, _seed_cenario
+
+    _seed_cenario(db_fake)
+    os_id = _criar_os(os_gestor_client, equipe_id=100).json()["id"]
+    assert os_campo_client.put(f"/api/os/{os_id}/status", json={"novo_status": "aberta"}).status_code == 200
+
+    # Play 08:00 do dia 28; pause alega fim 52h depois: fora do teto.
+    resp = _hh_sync(
+        os_campo_client, os_id, "2026-08-28T08:00:00Z",
+        {"fim": "2026-08-30T12:00:00Z"}, "2026-08-30T12:00:00Z",
+    )
+    resultados = {r["id_local"]: r for r in resp.json()["resultados"]}
+    assert resultados["play"]["ok"] is True
+    assert resultados["pause"]["ok"] is False
+    assert resultados["pause"]["status"] == 400
+    assert "24 horas" in resultados["pause"]["erro"]
+
+
+def test_sync_apontamento_fim_antes_do_inicio_rejeitado(os_gestor_client, os_campo_client, db_fake):
+    from tests.test_os import _criar_os, _seed_cenario
+
+    _seed_cenario(db_fake)
+    os_id = _criar_os(os_gestor_client, equipe_id=100).json()["id"]
+    assert os_campo_client.put(f"/api/os/{os_id}/status", json={"novo_status": "aberta"}).status_code == 200
+
+    # Bloco começou 08:05; o pause (criado 09:00) alega fim 06:00 (relógio/touch
+    # corrompido). O fim precisa ser depois do início do bloco.
+    resp = _hh_sync(
+        os_campo_client, os_id, "2026-08-28T08:05:00Z", {"fim": "2026-08-28T06:00:00Z"}, "2026-08-28T09:00:00Z"
+    )
+    resultados = {r["id_local"]: r for r in resp.json()["resultados"]}
+    assert resultados["play"]["ok"] is True
+    assert resultados["pause"]["ok"] is False
+    assert resultados["pause"]["status"] == 400
+    assert "depois do início" in resultados["pause"]["erro"]
+
+
+# ---------------------------------------------------------------------------
+# Evidência fotográfica obrigatória no sync (A4)
+# ---------------------------------------------------------------------------
+
+
+def test_sync_resposta_exige_foto_sem_evidencia_rejeitada(os_gestor_client, os_campo_client, db_fake):
+    from tests.test_os import _criar_os, _seed_cenario
+
+    _seed_cenario(db_fake)
+    _seed_modelos(db_fake)
+    os_id = _criar_os(os_gestor_client, equipe_id=100).json()["id"]
+    assert os_campo_client.put(f"/api/os/{os_id}/status", json={"novo_status": "aberta"}).status_code == 200
+    exige = next(i for i in _itens(os_campo_client, os_id) if i.get("exige_foto"))
+
+    # 'sim' sem evidência -> 422 (a foto teria que ter sido enviada antes).
+    resp = os_campo_client.post(
+        "/api/os/sincronizar",
+        json={"operacoes": [_op("r1", "checklist_resposta", os_id,
+                                {"item_id": exige["id"], "resposta": "sim"}, "2026-08-28T06:50:00Z")],
+              "dispositivo": "tablet-campo-1"},
+    )
+    resultado = resp.json()["resultados"][0]
+    assert resultado["ok"] is False
+    assert resultado["status"] == 422
+    assert "foto de evidência" in resultado["erro"]
+
+    # 'na' dispensa evidência.
+    resp = os_campo_client.post(
+        "/api/os/sincronizar",
+        json={"operacoes": [_op("r2", "checklist_resposta", os_id,
+                                {"item_id": exige["id"], "resposta": "na"}, "2026-08-28T06:51:00Z")],
+              "dispositivo": "tablet-campo-1"},
+    )
+    assert resp.json()["resultados"][0]["ok"] is True
+
+    # Com a foto anexada (fase 1 do tablet), 'sim' passa.
+    _anexar_foto_item_via_banco(db_fake, os_id, exige["id"])
+    resp = os_campo_client.post(
+        "/api/os/sincronizar",
+        json={"operacoes": [_op("r3", "checklist_resposta", os_id,
+                                {"item_id": exige["id"], "resposta": "sim"}, "2026-08-28T06:52:00Z")],
+              "dispositivo": "tablet-campo-1"},
+    )
+    assert resp.json()["resultados"][0]["ok"] is True

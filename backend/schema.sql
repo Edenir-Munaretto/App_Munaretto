@@ -1010,3 +1010,34 @@ BEGIN
 END $$;
 ALTER TABLE IF EXISTS ordens_servico
     ADD CONSTRAINT ordens_servico_tipo_check CHECK (tipo IN ('construcao', 'manutencao', 'linha_viva'));
+
+-- ============================================================================
+-- TABELA: sync_ops (idempotência da sincronização offline / Modo Campo)
+-- Registro de entrega das operações enviadas pelo tablet em POST /os/sincronizar.
+-- Quando a resposta do lote se perde, o dispositivo reenvia as mesmas operações
+-- com o mesmo (dispositivo, id_local); o backend devolve a resposta já gravada
+-- em vez de aplicar de novo (evita duplicar material, blocos de H.H. etc.).
+-- `dispositivo` é um uuid persistido no IndexedDB de cada tablet.
+-- ============================================================================
+CREATE TABLE IF NOT EXISTS sync_ops (
+    id BIGSERIAL PRIMARY KEY,
+    dispositivo TEXT NOT NULL DEFAULT '',
+    id_local VARCHAR(64) NOT NULL,
+    os_id BIGINT,
+    tipo VARCHAR(32) NOT NULL,
+    criado_em TIMESTAMP WITH TIME ZONE,
+    payload JSONB NOT NULL DEFAULT '{}'::jsonb,
+    status TEXT NOT NULL DEFAULT 'pendente', -- pendente | ok | erro
+    resposta JSONB,
+    erro TEXT,
+    criado_servidor TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    CONSTRAINT sync_ops_dispositivo_id_local UNIQUE (dispositivo, id_local)
+);
+
+CREATE INDEX IF NOT EXISTS idx_sync_ops_os ON sync_ops (os_id, criado_servidor);
+
+ALTER TABLE IF EXISTS sync_ops ENABLE ROW LEVEL SECURITY;
+
+DROP POLICY IF EXISTS "service_role_full_sync_ops" ON sync_ops;
+CREATE POLICY "service_role_full_sync_ops" ON sync_ops
+    FOR ALL TO service_role USING (true) WITH CHECK (true);

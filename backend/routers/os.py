@@ -17,7 +17,7 @@ import logging
 import os
 import re
 import uuid
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 
 from fastapi import APIRouter, Depends, File, HTTPException, Query, Response, UploadFile
 from fastapi.responses import FileResponse
@@ -100,6 +100,11 @@ MIN_JUSTIFICATIVA_IMPEDIDA = 20
 MIMES_FOTO_PERMITIDOS = {"image/jpeg": ".jpg", "image/png": ".png", "image/webp": ".webp"}
 TAMANHO_MAXIMO_FOTO_BYTES = 15 * 1024 * 1024
 VALIDADE_PRESIGNED_SEGUNDOS = 15 * 60
+
+# Apontamento de horas vindo do tablet offline: tolerância de relógio e teto
+# de duração para horários 'inicio'/'fim' carregados pelo sync.
+TOLERANCIA_RELOGIO_SEGUNDOS = 5 * 60
+MAX_DURACAO_BLOCO_HH = timedelta(hours=24)
 
 PERMISSOES_GESTOR = {"configuracoes", "dashboard", "os"}
 
@@ -228,6 +233,11 @@ class SincronizarIn(BaseModel):
     # -> id do registro no servidor. Usado em operações 'status' cujo payload
     # referencia evidências tiradas offline (fotos_ids com ids locais).
     mapa_fotos: dict[str, int] = Field(default_factory=dict)
+    # Identificador persistente do dispositivo (guardado no IndexedDB do
+    # tablet). Forma, junto com o id_local, a chave de idempotência do lote
+    # (tabela sync_ops): se a resposta se perder, o reenvio devolve a resposta
+    # já gravada em vez de aplicar a operação de novo.
+    dispositivo: str = Field(default="", max_length=64)
 
 
 # ---------------------------------------------------------------------------
@@ -946,13 +956,37 @@ def alterar_status(
                         detalhe += f" e mais {len(pendentes) - 6}."
                 raise HTTPException(status_code=422, detail=detalhe)
 
+            # Evidência fotográfica obrigatória (exige_foto): a conclusão
+            # também exige que cada item respondido 'sim'/'nao' tenha foto.
+            sem_evidencia = _itens_exige_foto_sem_evidencia(db, os_id)
+            if sem_evidencia:
+                detalhe = "Há itens com resposta 'sim'/'não' sem a foto de evidência obrigatória: "
+                detalhe += "; ".join(f"{i['classificacao']} {i['pergunta']}" for i in sem_evidencia[:6])
+                if len(sem_evidencia) > 6:
+                    detalhe += f" e mais {len(sem_evidencia) - 6}."
+                raise HTTPException(status_code=422, detail=detalhe)
+
         updates = {"status": novo}
         if novo in ("concluida", "cancelada"):
             updates["data_fim"] = _agora().isoformat()
 
-        resp = db.table("ordens_servico").update(updates).eq("id", os_id).execute()
+        # Update atômico: a condição de estado impede que duas solicitações
+        # (dois dispositivos) validem o mesmo status atual e o último vença.
+        resp = (
+            db.table("ordens_servico")
+            .update(updates)
+            .eq("id", os_id)
+            .eq("status", atual)
+            .execute()
+        )
         if not resp.data:
-            raise HTTPException(status_code=500, detail="Falha ao alterar status.")
+            raise HTTPException(
+                status_code=409,
+                detail=(
+                    "A O.S foi alterada por outra pessoa enquanto você a operava. "
+                    "Recarregue o quadro para ver o estado atual."
+                ),
+            )
 
         # Encerra cronômetros esquecidos ao encerrar a O.S.
         if novo in ("concluida", "cancelada"):
@@ -992,6 +1026,24 @@ def _item_checklist_ou_404(db, os_id: int, item_id: int) -> dict:
     if not item:
         raise HTTPException(status_code=404, detail="Item do checklist não encontrado nesta O.S.")
     return item[0]
+
+
+def _itens_exige_foto_sem_evidencia(db, os_id: int) -> list[dict]:
+    """Itens respondidos 'sim'/'nao' cujo modelo exige foto e não têm nenhuma.
+
+    Respostas 'na' (não se aplica) não exigem evidência. Usado no gate de
+    resposta e no gate de conclusão da O.S.
+    """
+    faltantes = []
+    for item in itens_com_respostas(db, os_id):
+        if not item.get("exige_foto"):
+            continue
+        resposta = (item.get("resposta") or {}).get("resposta", "")
+        if resposta not in ("sim", "nao"):
+            continue
+        if not item.get("fotos"):
+            faltantes.append(item)
+    return faltantes
 
 
 @router.get("/{os_id}/checklist", summary="Itens e respostas do checklist")
@@ -1044,6 +1096,26 @@ def responder_checklist(
         if resposta not in RESPOSTAS_VALIDAS:
             raise HTTPException(status_code=400, detail="Resposta inválida. Use 'sim', 'nao' ou 'na'.")
         justificativa = (payload.justificativa or "").strip() or None
+
+        # Evidência fotográfica obrigatória: itens com `exige_foto` respondidos
+        # 'sim'/'nao' precisam de pelo menos uma foto anexada ao item.
+        if resposta in ("sim", "nao") and item.get("exige_foto"):
+            tem_foto = (
+                db.table("os_fotos")
+                .select("id")
+                .eq("checklist_item_id", item["id"])
+                .limit(1)
+                .execute()
+                .data
+            )
+            if not tem_foto:
+                raise HTTPException(
+                    status_code=422,
+                    detail=(
+                        "Este item exige uma foto de evidência. Anexe a foto ao item "
+                        "antes de registrar a resposta."
+                    ),
+                )
 
         db.table("os_checklist_respostas").upsert(
             {
@@ -1251,6 +1323,12 @@ def sincronizar(
     falha NÃO aborta o restante do lote — cada resultado é reportado com o
     id_local para o dispositivo marcar como pendente/revisão.
 
+    IDEMPOTÊNCIA: cada operação é registrada em `sync_ops` com a chave
+    (dispositivo, id_local). Se a resposta do lote se perder e o tablet
+    reenviar as mesmas operações, o backend devolve a resposta já gravada
+    (resultado com `duplicada: true`) em vez de aplicar de novo — evita
+    duplicar lançamentos de material e blocos de H.H.
+
     Tipos aceitos:
       - checklist_resposta : {item_id, resposta, justificativa?, geolocalizacao?}
       - status             : {novo_status, justificativa?, fotos_ids?, geolocalizacao?}
@@ -1262,6 +1340,8 @@ def sincronizar(
     if not payload.operacoes:
         return {"resultados": resultados}
 
+    dispositivo = (payload.dispositivo or "").strip()
+
     # Ordenação estável: por O.S e pela hora registrada no dispositivo;
     # operações sem timestamp mantêm a ordem de chegada.
     operacoes = sorted(
@@ -1270,10 +1350,26 @@ def sincronizar(
     )
 
     for op in operacoes:
-        try:
-            if op.tipo not in TIPOS_SYNC_VALIDOS:
-                raise HTTPException(status_code=400, detail=f"Tipo de operação inválido: '{op.tipo}'.")
+        if op.tipo not in TIPOS_SYNC_VALIDOS:
+            resultados.append(
+                {"id_local": op.id_local, "ok": False, "status": 400, "erro": f"Tipo de operação inválido: '{op.tipo}'."}
+            )
+            continue
 
+        # Reenvio de um lote cuja resposta se perdeu na rede: devolve a
+        # resposta gravada sem reaplicar a operação.
+        registrado = _consulta_sync_op(db, dispositivo, op.id_local)
+        if registrado and registrado.get("status") == "ok":
+            resultados.append(
+                {"id_local": op.id_local, "ok": True, "duplicada": True, "dados": registrado.get("resposta")}
+            )
+            continue
+
+        if registrado is None:
+            # Garante o registro de entrega antes de aplicar (linha 'pendente').
+            _gravar_sync_op(db, dispositivo, op.id_local, status="pendente", op=op)
+
+        try:
             if op.tipo == "checklist_resposta":
                 item_id = op.payload.get("item_id")
                 if item_id is None:
@@ -1311,17 +1407,26 @@ def sincronizar(
                     raise
                 except (TypeError, ValueError):
                     raise HTTPException(status_code=400, detail="'fotos_ids' deve ser uma lista de números.") from None
-                dados = alterar_status(
-                    op.os_id,
-                    StatusUpdate(
-                        novo_status=op.payload.get("novo_status", ""),
-                        justificativa=op.payload.get("justificativa"),
-                        fotos_ids=fotos_ids,
-                        geolocalizacao=op.payload.get("geolocalizacao"),
-                    ),
-                    usuario,
-                    db,
-                )
+                try:
+                    dados = alterar_status(
+                        op.os_id,
+                        StatusUpdate(
+                            novo_status=op.payload.get("novo_status", ""),
+                            justificativa=op.payload.get("justificativa"),
+                            fotos_ids=fotos_ids,
+                            geolocalizacao=op.payload.get("geolocalizacao"),
+                        ),
+                        usuario,
+                        db,
+                    )
+                except HTTPException as exc:
+                    if exc.status_code == 400 and str(exc.detail).startswith("A O.S já está em"):
+                        # Conflito benigno: o estado atual já é o desejado
+                        # (ex.: transição aplicada por lote anterior cuja
+                        # resposta se perdeu). Conta como sucesso.
+                        dados = {"id": op.os_id, "status": op.payload.get("novo_status", "")}
+                    else:
+                        raise
             elif op.tipo == "material":
                 dados = lancar_material(
                     op.os_id,
@@ -1334,7 +1439,7 @@ def sincronizar(
                     db,
                 )
             else:
-                dados = apontar_hora(
+                dados = _apontar_hora(
                     op.os_id,
                     ApontamentoAcao(acao="play" if op.tipo == "apontamento_play" else "pause"),
                     geolocalizacao=op.payload.get("geolocalizacao"),
@@ -1346,18 +1451,75 @@ def sincronizar(
                     db=db,
                 )
 
-            resultados.append({"id_local": op.id_local, "ok": True, "dados": dados})
+            resultado = {"id_local": op.id_local, "ok": True, "dados": dados}
         except HTTPException as exc:
-            resultados.append({"id_local": op.id_local, "ok": False, "status": exc.status_code, "erro": exc.detail})
+            resultado = {"id_local": op.id_local, "ok": False, "status": exc.status_code, "erro": exc.detail}
         except ValidationError as exc:
-            resultados.append({"id_local": op.id_local, "ok": False, "status": 422, "erro": f"Dados inválidos: {exc}"})
+            resultado = {"id_local": op.id_local, "ok": False, "status": 422, "erro": f"Dados inválidos: {exc}"}
         except Exception:
             logger.exception("Erro ao aplicar operação %s do sync", op.id_local)
-            resultados.append(
-                {"id_local": op.id_local, "ok": False, "status": 500, "erro": "Erro interno ao aplicar a operação."}
+            resultado = {
+                "id_local": op.id_local,
+                "ok": False,
+                "status": 500,
+                "erro": "Erro interno ao aplicar a operação.",
+            }
+
+        # Entrega confirmada (ok) ou conflito definitivo (4xx): grava o
+        # estado. Falhas internas (5xx) ficam 'pendente' para o reenvio tentar
+        # de novo (sem gravar a mensagem de erro como definitiva).
+        if resultado["ok"] or resultado["status"] < 500:
+            _gravar_sync_op(
+                db,
+                dispositivo,
+                op.id_local,
+                status="ok" if resultado["ok"] else "erro",
+                resposta=resultado.get("dados"),
+                erro=resultado.get("erro"),
             )
+        resultados.append(resultado)
 
     return {"resultados": resultados}
+
+
+def _consulta_sync_op(db, dispositivo: str, id_local: str) -> dict | None:
+    """Registro de entrega já gravado da operação (ou None)."""
+    try:
+        resp = (
+            db.table("sync_ops")
+            .select("*")
+            .eq("dispositivo", dispositivo)
+            .eq("id_local", id_local)
+            .execute()
+        )
+    except Exception:
+        logger.exception("Falha ao consultar sync_ops de %s", id_local)
+        return None
+    return resp.data[0] if resp.data else None
+
+
+def _gravar_sync_op(db, dispositivo: str, id_local: str, *, status: str, resposta=None, erro=None, op=None) -> None:
+    """Grava/atualiza o registro de entrega da operação em `sync_ops`.
+
+    A tabela tem UNIQUE(dispositivo, id_local): a primeira gravação cria a
+    linha e as seguintes apenas atualizam o estado dela. Falha de banco aqui
+    NÃO aborta a operação — sem o registro o sync volta ao comportamento
+    legado (sem deduplicação) no próximo reenvio.
+    """
+    try:
+        linha = {"dispositivo": dispositivo, "id_local": id_local, "status": status}
+        if resposta is not None:
+            linha["resposta"] = resposta
+        if erro is not None:
+            linha["erro"] = erro
+        if op is not None:
+            linha["os_id"] = op.os_id
+            linha["tipo"] = op.tipo
+            linha["criado_em"] = op.criado_em
+            linha["payload"] = op.payload
+        db.table("sync_ops").upsert(linha, on_conflict="dispositivo,id_local").execute()
+    except Exception:
+        logger.exception("Falha ao registrar sync_ops de %s", id_local)
 
 
 # ---------------------------------------------------------------------------
@@ -1574,10 +1736,48 @@ def apontar_hora(
     os_id: int,
     payload: ApontamentoAcao,
     geolocalizacao: str | None = Query(None, max_length=100),
-    inicio: str | None = Query(None, description="ISO timestamp real do play (sync offline)"),
-    fim: str | None = Query(None, description="ISO timestamp real do pause (sync offline)"),
+    inicio: str | None = Query(None, description="ISO timestamp real do play (apenas sync offline)"),
+    fim: str | None = Query(None, description="ISO timestamp real do pause (apenas sync offline)"),
     usuario: UsuarioAutenticado = Depends(get_current_user),
     db=Depends(get_supabase),
+):
+    """Play/Pause do cronômetro H.H. pela interface web.
+
+    Os parâmetros `inicio`/`fim` existem apenas para o sync offline carregar
+    o horário REAL da ação no dispositivo; na web o horário é sempre o do
+    servidor, então informá-los aqui é recusado.
+    """
+    if inicio or fim:
+        raise HTTPException(
+            status_code=400,
+            detail="Os parâmetros 'inicio'/'fim' só podem ser informados pela sincronização offline.",
+        )
+    return _apontar_hora(
+        os_id,
+        payload,
+        geolocalizacao=geolocalizacao,
+        inicio=inicio,
+        fim=fim,
+        usuario=usuario,
+        db=db,
+    )
+
+
+def _validar_timestamp_nao_futuro(dt: datetime, detalhe: str) -> None:
+    """Recusa horários muito à frente do servidor (relógio do tablet errado)."""
+    if dt > _agora() + timedelta(seconds=TOLERANCIA_RELOGIO_SEGUNDOS):
+        raise HTTPException(status_code=400, detail=detalhe)
+
+
+def _apontar_hora(
+    os_id: int,
+    payload: ApontamentoAcao,
+    *,
+    geolocalizacao: str | None,
+    inicio: str | None,
+    fim: str | None,
+    usuario: UsuarioAutenticado,
+    db,
 ):
     """Registra blocos de trabalho do membro da equipe.
 
@@ -1588,6 +1788,7 @@ def apontar_hora(
     Os parâmetros `inicio`/`fim` permitem carregar o horário REAL registrado
     no dispositivo offline (a sincronização acontece horas depois; sem isso
     o bloco seria gravado com a hora do envio e as horas H.H. se perderiam).
+    Na origem web esses parâmetros nunca vêm preenchidos (a rota os recusa).
     """
     acao = payload.acao.strip().lower()
     if acao not in ("play", "pause"):
@@ -1616,7 +1817,7 @@ def apontar_hora(
                 "Configurações → Usuários.",
             )
 
-        if os_data["status"] in ("concluida", "cancelada", "impedida"):
+        if os_data["status"] in ("rascunho", "concluida", "cancelada", "impedida"):
             raise HTTPException(
                 status_code=400,
                 detail=f"Não é possível apontar horas em uma O.S {os_data['status']}.",
@@ -1635,6 +1836,10 @@ def apontar_hora(
             if abertos.data:
                 raise HTTPException(status_code=409, detail="Já existe um cronômetro em andamento para você nesta O.S.")
             inicio_real = _timestamp_ou_agora(inicio)
+            _validar_timestamp_nao_futuro(
+                inicio_real,
+                "O horário de início do apontamento está no futuro. Verifique o relógio do dispositivo.",
+            )
             resp = (
                 db.table("os_apontamentos")
                 .insert(
@@ -1680,7 +1885,15 @@ def apontar_hora(
         bloco = abertos.data[0]
         inicio_real = datetime.fromisoformat(bloco["inicio"])
         fim_real = _timestamp_ou_agora(fim)
-        minutos = max(0, int(((fim_real - inicio_real).total_seconds()) // 60))
+        _validar_timestamp_nao_futuro(
+            fim_real,
+            "O horário de fim do apontamento está no futuro. Verifique o relógio do dispositivo.",
+        )
+        if fim_real <= inicio_real:
+            raise HTTPException(status_code=400, detail="O fim do apontamento deve ser depois do início.")
+        if fim_real - inicio_real > MAX_DURACAO_BLOCO_HH:
+            raise HTTPException(status_code=400, detail="A duração do apontamento excede o teto de 24 horas.")
+        minutos = int(((fim_real - inicio_real).total_seconds()) // 60)
         resp = (
             db.table("os_apontamentos")
             .update(
@@ -1690,10 +1903,14 @@ def apontar_hora(
                 }
             )
             .eq("id", bloco["id"])
+            .is_("fim", "null")
             .execute()
         )
         if not resp.data:
-            raise HTTPException(status_code=500, detail="Falha ao encerrar cronômetro.")
+            raise HTTPException(
+                status_code=409,
+                detail="O cronômetro já foi encerrado por outra solicitação. Recarregue para ver o estado atual.",
+            )
         return {"acao": "pause", "minutos_trabalhados": minutos}
     except HTTPException:
         raise

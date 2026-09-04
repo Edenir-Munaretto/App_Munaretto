@@ -20,6 +20,7 @@ import {
   registrarFotoItemLocal, hidratarFotosPendentes,
   salvarResponsavelLocal,
   registrarFalhaDeRede, testarConexao, estaEmWifi,
+  cronometroDerivadoDaFila,
 } from '../offline/offline';
 import { sincronizar } from '../offline/sync';
 
@@ -373,6 +374,12 @@ function TabChecklist({ osDetalhe, onAtualizado, mostrarToast, podeEditar }) {
 
   const responder = async (item, resposta, tentativa = 0) => {
     if (!podeEditar) return;
+    // Itens com `exige_foto` (resposta sim/nao) precisam de evidência antes —
+    // o backend rejeita com 422; aqui avisamos sem queimar a tentativa.
+    if (item.exige_foto && resposta !== 'na' && !(item.fotos || []).length) {
+      mostrarToast('Este item exige uma foto de evidência antes da resposta.', 'error');
+      return;
+    }
     setSalvandoItem(item.id);
     const gps = await capturarGeolocalizacao();
 
@@ -1294,25 +1301,53 @@ function formatarTempo(segundos) {
 function CronometroHH({ osDetalhe, capturarGps, onAtualizado, mostrarToast, podeEditar }) {
   const [processando, setProcessando] = useState(false);
   const [segundosDecorridos, setSegundosDecorridos] = useState(0);
-  const aberto = osDetalhe.cronometro_aberto;
+  // Espelho local do cronômetro derivado da fila de pendências (Modo Campo):
+  // com um play ainda pendente o botão NÃO volta a "Iniciar", impedindo que
+  // toques repetidos (ou as duas instâncias do painel) enfileirem 2+ plays.
+  const [hhPendente, setHhPendente] = useState(null);
+  const servidor = osDetalhe.cronometro_aberto;
+
+  // Reavalia a fila sempre que o detalhe recarrega (onAtualizado após cada
+  // ação offline enfileira e recarrega o detalhe local).
+  useEffect(() => {
+    let ativo = true;
+    setHhPendente(null);
+    if (!usarLocal() || !osDetalhe?.id) return undefined;
+    cronometroDerivadoDaFila(osDetalhe.id)
+      .then(estado => {
+        if (ativo) setHhPendente(estado);
+      })
+      .catch(() => { /* sem fila legível: mantém o estado do servidor */ });
+    return () => { ativo = false; };
+  }, [osDetalhe]);
+
+  // Sem operações de H.H. pendentes, vale o estado real (servidor/pacote);
+  // com pendências, vale o que a fila diz (última op play/pause).
+  const temFilaHh = hhPendente != null;
+  const aberto = temFilaHh ? hhPendente.aberto : !!servidor;
+  const inicioIso = temFilaHh ? (hhPendente.aberto ? hhPendente.inicio : null) : servidor?.inicio;
 
   // Atualiza o contador a cada segundo enquanto o cronômetro está ativo
   useEffect(() => {
-    if (!aberto?.inicio) {
+    if (!aberto || !inicioIso) {
       setSegundosDecorridos(0);
-      return;
+      return undefined;
     }
     const calcular = () => {
-      const inicio = new Date(aberto.inicio);
+      const inicio = new Date(inicioIso);
       const agora = new Date();
       setSegundosDecorridos(Math.max(0, Math.floor((agora - inicio) / 1000)));
     };
     calcular();
     const intervalo = setInterval(calcular, 1000);
     return () => clearInterval(intervalo);
-  }, [aberto?.inicio]);
+  }, [aberto, inicioIso]);
 
   const acionar = async (acao, tentativa = 0) => {
+    if (acao === 'play' && usarLocal() && hhPendente?.aberto) {
+      mostrarToast('Já existe um início de trabalho registrado neste dispositivo aguardando sincronização.', 'error');
+      return;
+    }
     setProcessando(true);
     // Localização real no momento da ação (não reutiliza check-in antigo).
     const gps = await capturarGps();
@@ -1328,7 +1363,7 @@ function CronometroHH({ osDetalhe, capturarGps, onAtualizado, mostrarToast, pode
         mostrarToast(acao === 'play'
           ? 'Início registrado no dispositivo (será sincronizado).'
           : 'Pausa registrada no dispositivo (será sincronizada).');
-        // Reflexo otimista do cronômetro aberto.
+        // Reflexo otimista do cronômetro aberto (reavalia a fila).
         onAtualizado();
       } catch {
         mostrarToast('Falha ao registrar o apontamento no dispositivo.', 'error');
