@@ -1,7 +1,7 @@
 import React, { useCallback, useEffect, useState } from 'react';
 import {
   AlertTriangle, Building, ClipboardList, FileDown, FileText, FolderOpen,
-  MapPin, Package, RefreshCw, X,
+  MapPin, Package, Plus, RefreshCw, X,
 } from 'lucide-react';
 import { API_URL, apiFetch } from '../api';
 import { unidadeContrato } from '../utils/contratos';
@@ -64,7 +64,7 @@ function BlocoVazio({ texto }) {
   );
 }
 
-export default function PainelObra({ obra, onFechar, onAbrirOS, mostrarToast }) {
+export default function PainelObra({ obra, onFechar, onAbrirOS, onNovaOS, refreshResumoKey = 0, mostrarToast }) {
   const [filtro, setFiltro] = useState('todas');
   const [aba, setAba] = useState('os'); // os | servicos
   const [dados, setDados] = useState(null);
@@ -93,9 +93,11 @@ export default function PainelObra({ obra, onFechar, onAbrirOS, mostrarToast }) 
     }
   }, [obra.id]);
 
+  // Recarrega quando uma O.S nova é criada a partir deste painel
+  // (refreshResumoKey é incrementado pelo módulo ao concluir a criação).
   useEffect(() => {
     carregarResumo(filtro);
-  }, [filtro, carregarResumo]);
+  }, [filtro, carregarResumo, refreshResumoKey]);
 
   const baixarPdf = async (recurso, arquivo) => {
     setGerando(true);
@@ -251,22 +253,31 @@ export default function PainelObra({ obra, onFechar, onAbrirOS, mostrarToast }) 
               <span className="text-[9px]">{dados.os?.length} O.S no filtro selecionado</span>
             </div>
 
-            {/* Abas */}
-            <div className="flex bg-slate-100 rounded-xl p-1">
-              {[
-                ['os', 'O.S da Obra', ClipboardList],
-                ['servicos', 'Serviços da Obra', Package],
-              ].map(([chave, rotulo, Icone]) => (
-                <button
-                  key={chave}
-                  onClick={() => setAba(chave)}
-                  className={`flex-1 flex items-center justify-center gap-1.5 px-3 py-2 rounded-lg text-xs font-bold transition-all cursor-pointer ${
-                    aba === chave ? 'bg-white text-primary-700 shadow-sm' : 'text-slate-500 hover:text-slate-700'
-                  }`}
-                >
-                  <Icone size={14} /> {rotulo}
-                </button>
-              ))}
+            {/* Abas + criação contextual de O.S */}
+            <div className="flex items-center gap-2">
+              <div className="flex flex-1 bg-slate-100 rounded-xl p-1">
+                {[
+                  ['os', 'O.S da Obra', ClipboardList],
+                  ['servicos', 'Serviços da Obra', Package],
+                ].map(([chave, rotulo, Icone]) => (
+                  <button
+                    key={chave}
+                    onClick={() => setAba(chave)}
+                    className={`flex-1 flex items-center justify-center gap-1.5 px-3 py-2 rounded-lg text-xs font-bold transition-all cursor-pointer ${
+                      aba === chave ? 'bg-white text-primary-700 shadow-sm' : 'text-slate-500 hover:text-slate-700'
+                    }`}
+                  >
+                    <Icone size={14} /> {rotulo}
+                  </button>
+                ))}
+              </div>
+              <button
+                onClick={() => onNovaOS?.(obra.id)}
+                title={`Criar uma nova O.S para a obra ${obra.nome}`}
+                className="shrink-0 flex items-center gap-1.5 px-3 py-2 bg-primary-600 text-white rounded-xl text-[11px] font-extrabold hover:bg-primary-700 transition-all cursor-pointer shadow-sm"
+              >
+                <Plus size={13} /> Nova O.S
+              </button>
             </div>
 
             {aba === 'os' && (

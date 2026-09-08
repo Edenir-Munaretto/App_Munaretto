@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { DragDropContext, Droppable, Draggable } from '@hello-pangea/dnd';
 import {
-  Plus, Search, X, Play, Pause, Camera, Package, ClipboardList, MapPin,
+  Search, X, Play, Pause, Camera, Package, ClipboardList, MapPin,
   AlertTriangle, Check, Clock, CalendarClock, FileDown, LayoutGrid,
   FolderKanban, HardHat, Boxes, Trash2, Image as ImageIcon,
   Pencil, Building, Printer, ListChecks, RefreshCw, WifiOff, ChevronDown, Archive,
@@ -2066,13 +2066,14 @@ function ObraAutocomplete({ obras, value, disabled = false, onChange }) {
   );
 }
 
-function ModalNovaOS({ aberto, obras, equipes, onFechar, onCriada, mostrarToast, edicao }) {
+function ModalNovaOS({ aberto, obras, equipes, onFechar, onCriada, mostrarToast, edicao, obraInicial = null }) {
   const [form, setForm] = useState(FORM_OS_INICIAL);
   const [salvando, setSalvando] = useState(false);
   const [criada, setCriada] = useState(null); // {id, codigo} ao salvar com sucesso
   const [imprimindo, setImprimindo] = useState(false);
 
   // Preenche o formulário no modo edição (ou zera no modo criação).
+  // Criação a partir do PainelObra (`obraInicial`) já vem com a obra travada.
   useEffect(() => {
     if (!aberto) return;
     if (edicao) {
@@ -2098,10 +2099,21 @@ function ModalNovaOS({ aberto, obras, equipes, onFechar, onCriada, mostrarToast,
       });
       setCriada(null);
     } else {
-      setForm(FORM_OS_INICIAL);
+      const base = { ...FORM_OS_INICIAL };
+      if (obraInicial) {
+        const obraSelecionada = obras.find(o => o.id === Number(obraInicial));
+        base.obra_id = String(obraInicial);
+        if (obraSelecionada) {
+          // Mesmo autopreenchimento do autocomplete ao escolher a obra.
+          base.municipio = obraSelecionada.cidade || '';
+          base.local_servico = obraSelecionada.endereco || '';
+        }
+      }
+      setForm(base);
       setCriada(null);
     }
-  }, [aberto, edicao]);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [aberto, edicao, obraInicial]);
 
   const totalGeral = Number(form.custo_mo_orcado || 0);
 
@@ -2238,7 +2250,7 @@ function ModalNovaOS({ aberto, obras, equipes, onFechar, onCriada, mostrarToast,
             <ObraAutocomplete
               obras={obras}
               value={form.obra_id}
-              disabled={!!edicao}
+              disabled={!!edicao || !!obraInicial}
               onChange={(obraSel) => setForm(f => ({
                 ...f,
                 obra_id: obraSel ? String(obraSel.id) : '',
@@ -2246,8 +2258,12 @@ function ModalNovaOS({ aberto, obras, equipes, onFechar, onCriada, mostrarToast,
                 local_servico: f.local_servico || obraSel?.endereco || '',
               }))}
             />
-            {edicao && (
-              <p className="text-[10px] text-slate-400 mt-1 font-semibold">A obra não pode ser alterada após a criação.</p>
+            {(edicao || obraInicial) && (
+              <p className="text-[10px] text-slate-400 mt-1 font-semibold">
+                {edicao
+                  ? 'A obra não pode ser alterada após a criação.'
+                  : `O.S criada para a obra "${obras.find(o => o.id === Number(obraInicial))?.nome || ''}".`}
+              </p>
             )}
           </div>
           <div>
@@ -2564,6 +2580,8 @@ function OrdensServico({ usuarioAtual }) {
   const [visao, setVisao] = useState('quadro');       // quadro | arquivo | cadastros
   const [osSelecionada, setOsSelecionada] = useState(null);
   const [modalNova, setModalNova] = useState(false);
+  const [novaOSObraId, setNovaOSObraId] = useState(null); // obra travada ao criar O.S pelo PainelObra
+  const [versaoResumoObra, setVersaoResumoObra] = useState(0); // refresh do resumo do PainelObra após criar O.S
   const [modalEdicao, setModalEdicao] = useState(null); // detalhe da O.S em edição
   const [modalImpedimento, setModalImpedimento] = useState(null); // {os, destinoColuna}
   const [modalReabrir, setModalReabrir] = useState(null); // {os} — reabertura de encerrada (gestor)
@@ -3295,12 +3313,11 @@ function OrdensServico({ usuarioAtual }) {
     </div>
   );
 
-  const botaoNova = ehGestor ? (
-    <button onClick={() => setModalNova(true)}
-      className="flex items-center justify-center gap-2 px-5 py-2.5 bg-primary-600 text-white rounded-xl font-semibold text-sm hover:bg-primary-700 transition-all shadow-md shadow-primary-900/10 cursor-pointer">
-      <Plus size={18} /> Nova O.S
-    </button>
-  ) : null;
+  const abrirNovaOSDaObra = (obraId) => {
+    // Criação de O.S é contextual: abre o modal com a obra travada.
+    setNovaOSObraId(obraId);
+    setModalNova(true);
+  };
 
   const filtros = (
     <div className="flex flex-col md:flex-row gap-3 md:items-center bg-white p-4 rounded-2xl border border-slate-100 shadow-sm">
@@ -3458,21 +3475,20 @@ function OrdensServico({ usuarioAtual }) {
           )}
 
           {/* Pendências + sincronizar (visível quando há fila offline) */}
-          {pendentes.total > 0 && (
-            <button
-              onClick={() => setModalPendenciasAberto(true)}
-              title="Abrir pendências de sincronização"
-              className="flex items-center gap-2 px-4 py-2.5 rounded-xl border border-amber-300 bg-amber-50 text-amber-700 font-bold text-xs hover:bg-amber-100 transition-all cursor-pointer"
-            >
-              <RefreshCw size={15} className={sincronizando ? 'animate-spin' : ''} />
-              {sincronizando
-                ? (progressoSync ? `Sincronizando (${progressoSync.enviadas}${progressoSync.total ? `/${progressoSync.total}` : ''})...` : 'Sincronizando...')
-                : `Pendências (${pendentes.total})`}
-            </button>
-          )}
-          {botaoNova}
-        </div>
-      </div>
+              {pendentes.total > 0 && (
+                <button
+                  onClick={() => setModalPendenciasAberto(true)}
+                  title="Abrir pendências de sincronização"
+                  className="flex items-center gap-2 px-4 py-2.5 rounded-xl border border-amber-300 bg-amber-50 text-amber-700 font-bold text-xs hover:bg-amber-100 transition-all cursor-pointer"
+                >
+                  <RefreshCw size={15} className={sincronizando ? 'animate-spin' : ''} />
+                  {sincronizando
+                    ? (progressoSync ? `Sincronizando (${progressoSync.enviadas}${progressoSync.total ? `/${progressoSync.total}` : ''})...` : 'Sincronizando...')
+                    : `Pendências (${pendentes.total})`}
+                </button>
+              )}
+            </div>
+          </div>
 
       {/* Aviso de operação offline */}
       {offline && (
@@ -3742,6 +3758,8 @@ function OrdensServico({ usuarioAtual }) {
         <PainelCadastros
           obras={obras} equipes={equipes} produtos={produtos}
           recarregar={recarregarLista} mostrarToast={mostrarToast}
+          onNovaOS={abrirNovaOSDaObra}
+          refreshResumoKey={versaoResumoObra}
           onAbrirOS={(os) => {
             // Abre a O.S na visão certa (Quadro se em execução; Encerradas se
             // concluída/cancelada) — o PainelObra sai da tela junto da aba.
@@ -3757,8 +3775,13 @@ function OrdensServico({ usuarioAtual }) {
           aberto={modalNova || !!modalEdicao}
           obras={obras} equipes={equipes}
           edicao={modalEdicao}
-          onFechar={() => { setModalNova(false); setModalEdicao(null); }}
-          onCriada={recarregarLista}
+          obraInicial={novaOSObraId}
+          onFechar={() => { setModalNova(false); setModalEdicao(null); setNovaOSObraId(null); }}
+          onCriada={() => {
+            recarregarLista();
+            // Recarrega o resumo do PainelObra (nova O.S criada desta obra).
+            setVersaoResumoObra(v => v + 1);
+          }}
           mostrarToast={mostrarToast}
         />
       )}
@@ -3850,7 +3873,7 @@ function CampoTexto({ label, ...props }) {
   );
 }
 
-function PainelCadastros({ obras, equipes, produtos, recarregar, mostrarToast, onAbrirOS }) {
+function PainelCadastros({ obras, equipes, produtos, recarregar, mostrarToast, onAbrirOS, onNovaOS, refreshResumoKey }) {
   const [abaAtiva, setAbaAtiva] = useState('obras');
 
   // Gestão consolidada por obra: painel lateral aberto a partir dos cards.
@@ -4938,6 +4961,8 @@ function PainelCadastros({ obras, equipes, produtos, recarregar, mostrarToast, o
           obra={obraAberta}
           onFechar={() => setObraAberta(null)}
           onAbrirOS={onAbrirOS}
+          onNovaOS={onNovaOS}
+          refreshResumoKey={refreshResumoKey}
           mostrarToast={mostrarToast}
         />
       )}
