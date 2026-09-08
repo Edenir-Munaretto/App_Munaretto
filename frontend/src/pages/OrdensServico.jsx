@@ -400,14 +400,10 @@ function TabChecklist({ osDetalhe, onAtualizado, mostrarToast, podeEditar }) {
 
   const responder = async (item, resposta, tentativa = 0) => {
     if (!podeEditar) return;
-    // Itens com `exige_foto` (resposta sim/nao) precisam de evidência antes —
-    // o backend rejeita com 422. Online bloqueamos já na UI; OFFLINE deixamos
-    // enfileirar: a foto pode existir no servidor sem espelho local e o
-    // servidor valida a verdade no momento do sync.
-    if (item.exige_foto && resposta !== 'na' && !usarLocal() && !(item.fotos || []).length) {
-      mostrarToast('Este item exige uma foto de evidência antes da resposta.', 'error');
-      return;
-    }
+    // Itens com `exige_foto` aceitam a resposta sim/não SEM foto — a foto pode
+    // ser anexada depois (botão Foto). Enquanto faltar, o grupo/checklist não
+    // é marcado como completo (ver resumo exibido abaixo) e a conclusão da
+    // O.S continua barrada pelo backend.
     setSalvandoItem(item.id);
     const gps = await capturarGeolocalizacao();
 
@@ -527,6 +523,23 @@ function TabChecklist({ osDetalhe, onAtualizado, mostrarToast, podeEditar }) {
     (itensPorGrupo[item.grupo] = itensPorGrupo[item.grupo] || []).push(item);
   }
 
+  // Pendência de EVIDÊNCIA: itens `exige_foto` respondidos sim/não sem foto.
+  // Não trava o preenchimento — apenas mantém grupo/checklist como incompleto
+  // (a foto anexada depois, mesmo offline, resolve a pendência).
+  const fotoPendenteDe = (item) =>
+    item.exige_foto &&
+    ['sim', 'nao'].includes(item.resposta?.resposta) &&
+    !(item.fotos || []).length;
+  const itensComFotoPendente = dados.itens.filter(fotoPendenteDe);
+  const idsFotoPendente = new Set(itensComFotoPendente.map(i => i.id));
+  const fotosPendentesPorGrupo = {};
+  for (const p of itensComFotoPendente) {
+    fotosPendentesPorGrupo[p.grupo] = (fotosPendentesPorGrupo[p.grupo] || 0) + 1;
+  }
+  const totalRespondidas = resumo.respondidos;
+  const todasRespondidas = resumo.total > 0 && totalRespondidas === resumo.total;
+  const completoEfetivo = todasRespondidas && itensComFotoPendente.length === 0;
+
   const marcar = (marcado) => (marcado
     ? 'bg-primary-600 text-white border-primary-600 shadow-sm'
     : 'bg-white text-slate-500 border-slate-200 hover:bg-slate-50');
@@ -535,17 +548,19 @@ function TabChecklist({ osDetalhe, onAtualizado, mostrarToast, podeEditar }) {
     <div className="space-y-4">
       {/* Resumo geral */}
       <div className={`rounded-xl border px-3 py-2.5 text-xs flex items-center justify-between gap-2 ${
-        resumo.inicio_liberado && resumo.completo ? 'bg-emerald-50 border-emerald-200 text-emerald-700'
+        resumo.inicio_liberado && completoEfetivo ? 'bg-emerald-50 border-emerald-200 text-emerald-700'
           : resumo.inicio_liberado ? 'bg-amber-50 border-amber-200 text-amber-700' : 'bg-rose-50 border-rose-200 text-rose-700'
       }`}>
         <span className="font-bold flex items-center gap-1.5">
           <ListChecks size={14} />
-          {resumo.respondidos}/{resumo.total} respondidos
+          {totalRespondidas}/{resumo.total} respondidos
           {!resumo.inicio_liberado && ' · checklist de início pendente'}
-          {resumo.inicio_liberado && !resumo.completo && ' · em andamento'}
-          {resumo.completo && ' · completo'}
+          {resumo.inicio_liberado && !todasRespondidas && ' · em andamento'}
+          {resumo.inicio_liberado && todasRespondidas && !completoEfetivo &&
+            ` · ${itensComFotoPendente.length} foto(s) pendente(s)`}
+          {completoEfetivo && ' · completo'}
         </span>
-        <span className="text-[10px] font-semibold">{resumo.completo ? '✓' : ''}</span>
+        <span className="text-[10px] font-semibold">{completoEfetivo ? '✓' : ''}</span>
       </div>
 
       {!podeEditar && (
@@ -561,7 +576,9 @@ function TabChecklist({ osDetalhe, onAtualizado, mostrarToast, podeEditar }) {
       <div className="rounded-2xl border border-slate-200 bg-white overflow-hidden divide-y divide-slate-100">
         {resumo.grupos.filter(g => g.total > 0).map(grupo => {
           const aberto = grupoAberto === grupo.grupo;
-          const completo = grupo.completo;
+          const fotosPendentes = fotosPendentesPorGrupo[grupo.grupo] || 0;
+          const aguardandoFoto = !fotosPendentes ? false : grupo.respondidos === grupo.total;
+          const completo = grupo.completo && !fotosPendentes;
           const itens = itensPorGrupo[grupo.grupo] || [];
           return (
             <div key={grupo.grupo}>
@@ -576,9 +593,10 @@ function TabChecklist({ osDetalhe, onAtualizado, mostrarToast, podeEditar }) {
               >
                 <span className={`w-9 h-9 shrink-0 rounded-full flex items-center justify-center text-xs font-black transition-colors ${
                   completo ? 'bg-emerald-100 text-emerald-700'
+                    : aguardandoFoto ? 'bg-amber-100 text-amber-700'
                     : aberto ? 'bg-primary-600 text-white' : 'bg-slate-100 text-slate-500'
                 }`}>
-                  {completo ? <Check size={16} /> : grupo.grupo}
+                  {completo ? <Check size={16} /> : aguardandoFoto ? <Camera size={15} /> : grupo.grupo}
                 </span>
                 <span className="min-w-0 flex-1">
                   <span className="flex items-center justify-between gap-2">
@@ -587,13 +605,16 @@ function TabChecklist({ osDetalhe, onAtualizado, mostrarToast, podeEditar }) {
                       <span className="text-xs font-semibold text-slate-400"> · {grupo.nome}</span>
                     </span>
                     <span className={`shrink-0 text-[10px] font-bold rounded-full px-2 py-0.5 ${
-                      completo ? 'bg-emerald-100 text-emerald-700' : 'bg-slate-100 text-slate-500'
+                      completo ? 'bg-emerald-100 text-emerald-700'
+                        : aguardandoFoto ? 'bg-amber-100 text-amber-700'
+                        : 'bg-slate-100 text-slate-500'
                     }`}>
                       {grupo.respondidos}/{grupo.total}
+                      {fotosPendentes ? ` · ${fotosPendentes} foto(s)` : ''}
                     </span>
                   </span>
                   <span className="block h-1 mt-1.5 bg-slate-100 rounded-full overflow-hidden">
-                    <span className="block h-full bg-primary-500 transition-all"
+                    <span className={`block h-full ${aguardandoFoto ? 'bg-amber-500' : 'bg-primary-500'} transition-all`}
                       style={{ width: `${grupo.total ? (grupo.respondidos / grupo.total) * 100 : 0}%` }} />
                   </span>
                 </span>
@@ -615,6 +636,11 @@ function TabChecklist({ osDetalhe, onAtualizado, mostrarToast, podeEditar }) {
                             <p className="text-xs font-semibold text-slate-700 leading-tight">{item.pergunta}</p>
                             {item.exige_foto && (
                               <p className="text-[9px] font-bold text-amber-600 mt-0.5">📷 evidência fotográfica</p>
+                            )}
+                            {idsFotoPendente.has(item.id) && (
+                              <p className="text-[9px] font-bold text-rose-600 mt-0.5">
+                                Evidência fotográfica pendente — anexe a foto para concluir o checklist.
+                              </p>
                             )}
                             <div className="flex items-center gap-1.5 mt-1.5 flex-wrap">
                               {podeEditar ? (
