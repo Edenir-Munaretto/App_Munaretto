@@ -8,6 +8,7 @@ import io
 import logging
 import re
 import unicodedata
+from typing import Literal
 
 from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, UploadFile
 from fastapi.responses import Response
@@ -17,7 +18,15 @@ from pydantic import BaseModel, Field, field_validator
 
 from auth import require_permisao, require_qualquer_permisao
 from supabase_client import get_supabase
-from utils.tipos_os import TIPOS_OS, unidade_contrato
+from utils.resumo_obra import (
+    ORDEM_STATUS,
+    STATUS_EM_EXECUCAO,
+    STATUS_ENCERRADAS,
+    STATUS_PARA_TOTAIS,
+    _numero,
+    agregar_servicos,
+)
+from utils.tipos_os import ORDEM_CONTRATOS, TIPOS_OS, unidade_contrato
 
 # Alias legado usado nas validações de contrato deste módulo.
 TIPOS_SERVICO = TIPOS_OS
@@ -47,7 +56,11 @@ class ObraCreate(BaseModel):
     # Cliente do cadastro OU Cliente Celesc (obra de terceiro): um dos dois
     # deve ser informado, mas o cliente_id é opcional no banco.
     cliente_id: int | None = Field(None, description="ID do cliente dono da obra (cadastro de clientes)")
-    cliente_celesc: str | None = Field(None, max_length=255, description="Nome/contrato quando a obra é da Celesc (sem cadastro de cliente)")
+    cliente_celesc: str | None = Field(
+        None,
+        max_length=255,
+        description="Nome/contrato quando a obra é da Celesc (sem cadastro de cliente)",
+    )
     nome: str = Field(..., min_length=2, description="Nome/identificação da obra")
     endereco: str | None = None
     cidade: str | None = None
@@ -69,6 +82,51 @@ class ObraResponse(ObraCreate):
     ativo: bool = True
     created_at: str | None = None
     clientes: ClienteMinResponse | None = None
+    # Contadores da gestão consolidada por obra (preenchidos na listagem).
+    # Defaults mantêm cadastro/testes funcionando sem as consultas extras.
+    os_total: int = 0
+    os_ativas: int = 0
+    os_encerradas: int = 0
+    totais_por_tipo: list[dict] = Field(default_factory=list)
+
+
+class OsResumoObraResponse(BaseModel):
+    id: int
+    codigo: str | None = None
+    tipo: str | None = None
+    status: str | None = None
+    data_abertura: str | None = None
+    data_fim: str | None = None
+    equipe: str | None = None
+    total_aplicado: float = 0
+    fotos_count: int = 0
+
+
+class ServicoResumoObraResponse(BaseModel):
+    produto_id: int | None = None
+    nome: str = ""
+    unidade: str = "UN"
+    codigo_servico: str | None = None
+    tipo: str = "normal"
+    pecas: float = 0
+    total: float = 0
+    os_usadas: int = 0
+
+
+class ContratoResumoObraResponse(BaseModel):
+    tipo: str
+    unidade: str
+    total: float = 0
+    itens: list[ServicoResumoObraResponse] = Field(default_factory=list)
+
+
+class ResumoObraResponse(BaseModel):
+    obra: dict
+    filtro: Literal["todas", "ativas", "encerradas"]
+    resumo: dict
+    os: list[OsResumoObraResponse]
+    contratos: list[ContratoResumoObraResponse]
+    servicos: list[dict]
 
 
 class EquipeCreate(BaseModel):
@@ -264,7 +322,12 @@ def listar_obras(
     incluir_inativas: bool = False,
     db=Depends(get_supabase),
 ):
-    """Lista obras; opcionalmente filtra por termo (nome/cidade/cliente Celesc)."""
+    """Lista obras; opcionalmente filtra por termo (nome/cidade/cliente Celesc).
+
+    Enriquecida para a gestão por obra: contadores de O.S (total/ativas/
+    encerradas) e totais aplicados por contrato — 2 consultas globais
+    (O.S por obra + lançamentos das O.S), sem N+1.
+    """
     try:
         query = db.table("obras").select("*, clientes(nome)")
         if not incluir_inativas:
@@ -272,7 +335,50 @@ def listar_obras(
         if busca:
             busca = _termo_busca_seguro(busca)
             query = query.or_(f"nome.ilike.%{busca}%,cidade.ilike.%{busca}%,cliente_celesc.ilike.%{busca}%")
-        return query.order("nome").execute().data
+        obras = query.order("nome").execute().data or []
+        if not obras:
+            return obras
+
+        obra_ids = [o["id"] for o in obras]
+        os_rows = (
+            db.table("ordens_servico").select("id, obra_id, status, tipo").in_("obra_id", obra_ids).execute().data or []
+        )
+        soma_por_os: dict[int, float] = {}
+        if os_rows:
+            # Soma aplicada por O.S (uma consulta para todas as obras da lista).
+            os_ids = [r["id"] for r in os_rows]
+            aplicacoes = (
+                db.table("os_materiais")
+                .select("os_id, quantidade_usada")
+                .in_("os_id", os_ids)
+                .execute()
+                .data
+            )
+            for m in aplicacoes or []:
+                soma_por_os[m["os_id"]] = soma_por_os.get(m["os_id"], 0.0) + _numero(m.get("quantidade_usada"))
+
+        os_por_obra: dict[int, list[dict]] = {}
+        for r in os_rows:
+            os_por_obra.setdefault(r["obra_id"], []).append(r)
+
+        for obra in obras:
+            rows = os_por_obra.get(obra["id"], [])
+            obra["os_total"] = len(rows)
+            obra["os_ativas"] = sum(1 for r in rows if r.get("status") in STATUS_EM_EXECUCAO)
+            obra["os_encerradas"] = sum(1 for r in rows if r.get("status") in STATUS_ENCERRADAS)
+            totais: dict[str, float] = {}
+            for r in rows:
+                if r.get("status") not in STATUS_PARA_TOTAIS:
+                    continue
+                tipo = r.get("tipo") or "construcao"
+                totais[tipo] = totais.get(tipo, 0.0) + soma_por_os.get(r["id"], 0.0)
+            totais_por_tipo = []
+            for tipo in ORDEM_CONTRATOS:
+                total = round(totais.get(tipo, 0.0), 3)
+                if total > 0:
+                    totais_por_tipo.append({"tipo": tipo, "unidade": unidade_contrato(tipo), "total": total})
+            obra["totais_por_tipo"] = totais_por_tipo
+        return obras
     except Exception:
         logger.exception("Erro ao listar obras")
         raise HTTPException(status_code=500, detail="Erro ao listar obras.") from None
@@ -325,6 +431,120 @@ def excluir_obra(obra_id: int, db=Depends(get_supabase)):
     except Exception:
         logger.exception("Erro ao excluir obra %s", obra_id)
         raise HTTPException(status_code=500, detail="Erro ao excluir obra.") from None
+
+
+@router.get("/obras/{obra_id}/resumo", response_model=ResumoObraResponse, dependencies=GESTOR_ONLY)
+def resumo_obra(
+    obra_id: int,
+    status: Literal["todas", "ativas", "encerradas"] = Query("todas"),
+    db=Depends(get_supabase),
+):
+    """Resumo consolidado da obra (gestão por obra — Fase 1).
+
+    Retorna a obra (com cliente), contadores e período, as O.S (com total
+    aplicado e nº de fotos) e os serviços agregados por contrato. O filtro
+    "ativas" = aberta/em_andamento/impedida; "encerradas" = concluida/
+    cancelada; rascunho entra apenas em "todas". Contadores/período são
+    sempre da obra inteira; lista e agregados respeitam o filtro.
+    """
+    try:
+        resp_obra = db.table("obras").select("*, clientes(nome)").eq("id", obra_id).execute()
+        if not resp_obra.data:
+            raise HTTPException(status_code=404, detail="Obra não encontrada.")
+        obra = resp_obra.data[0]
+
+        os_todas = (
+            db.table("ordens_servico")
+            .select("id, codigo, tipo, status, data_abertura, data_fim, equipes(id, nome)")
+            .eq("obra_id", obra_id)
+            .order("id", desc=True)
+            .execute()
+            .data
+        ) or []
+
+        # --- Contadores e período SEMPRE da obra inteira (independentes do filtro).
+        por_status: dict[str, int] = {}
+        for r in os_todas:
+            st = r.get("status") or "sem_status"
+            por_status[st] = por_status.get(st, 0) + 1
+        resumo = {
+            "total": len(os_todas),
+            "ativas": sum(1 for r in os_todas if r.get("status") in STATUS_EM_EXECUCAO),
+            "encerradas": sum(1 for r in os_todas if r.get("status") in STATUS_ENCERRADAS),
+            "por_status": {st: por_status[st] for st in ORDEM_STATUS if st in por_status},
+        }
+        aberturas = [r["data_abertura"] for r in os_todas if r.get("data_abertura")]
+        encerramentos = [r["data_fim"] for r in os_todas if r.get("data_fim")]
+        resumo["periodo"] = {
+            "inicio": min(aberturas) if aberturas else None,
+            "fim": (max(encerramentos) if encerramentos else (max(aberturas) if aberturas else None)),
+        }
+
+        # --- Lista e agregados respeitam o filtro de status.
+        def _no_grupo(r: dict) -> bool:
+            st = r.get("status")
+            if status == "ativas":
+                return st in STATUS_EM_EXECUCAO
+            if status == "encerradas":
+                return st in STATUS_ENCERRADAS
+            return True
+
+        os_filtradas = [r for r in os_todas if _no_grupo(r)]
+        os_ids = [r["id"] for r in os_filtradas]
+
+        lancamentos: list[dict] = []
+        soma_por_os: dict[int, float] = {}
+        fotos_count: dict[int, int] = {}
+        if os_ids:
+            lancamentos = (
+                db.table("os_materiais")
+                .select("os_id, produto_id, quantidade_usada, quantidade_pecas, fator_usc, tipo_usc, codigo_servico")
+                .in_("os_id", os_ids)
+                .execute()
+                .data
+            ) or []
+            for m in lancamentos:
+                soma_por_os[m["os_id"]] = soma_por_os.get(m["os_id"], 0.0) + _numero(m.get("quantidade_usada"))
+            for f in (
+                db.table("os_fotos").select("os_id").in_("os_id", os_ids).execute().data or []
+            ):
+                fotos_count[f["os_id"]] = fotos_count.get(f["os_id"], 0) + 1
+
+        lista_os = [
+            {
+                "id": r["id"],
+                "codigo": r.get("codigo"),
+                "tipo": r.get("tipo"),
+                "status": r.get("status"),
+                "data_abertura": r.get("data_abertura"),
+                "data_fim": r.get("data_fim"),
+                "equipe": ((r.get("equipes") or {}).get("nome") if isinstance(r.get("equipes"), dict) else None),
+                "total_aplicado": round(soma_por_os.get(r["id"], 0.0), 3),
+                "fotos_count": fotos_count.get(r["id"], 0),
+            }
+            for r in os_filtradas
+        ]
+
+        contratos = agregar_servicos(
+            db,
+            [{"os_id": r["id"], "tipo": r.get("tipo")} for r in os_filtradas],
+            lancamentos=lancamentos,
+        )
+        servicos = [{**item, "contrato": c["tipo"]} for c in contratos for item in c["itens"]]
+
+        return {
+            "obra": obra,
+            "filtro": status,
+            "resumo": resumo,
+            "os": lista_os,
+            "contratos": contratos,
+            "servicos": servicos,
+        }
+    except HTTPException:
+        raise
+    except Exception:
+        logger.exception("Erro ao montar resumo da obra %s", obra_id)
+        raise HTTPException(status_code=500, detail="Erro ao montar resumo da obra.") from None
 
 
 # ---------------------------------------------------------------------------

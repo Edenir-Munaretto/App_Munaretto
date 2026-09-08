@@ -6,6 +6,9 @@ em `routers/os.py` e `routers/apoio_os.py`) e o catálogo padrão de checklist.
 
 TIPOS_OS = {"construcao", "linha_viva", "manutencao"}
 
+# Ordem canônica de exibição dos contratos (relatórios/resumos por obra).
+ORDEM_CONTRATOS = ("construcao", "manutencao", "linha_viva")
+
 ROTULOS_TIPO = {
     "construcao": "Construção",
     "manutencao": "Manutenção",
