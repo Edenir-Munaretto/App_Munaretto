@@ -4089,18 +4089,18 @@ function PainelCadastros({ obras, equipes, produtos, recarregar, mostrarToast, o
             <h3 className="font-extrabold text-slate-800 text-sm">Obras Cadastradas ({obrasFiltradas.length})</h3>
             <div className="flex flex-col sm:flex-row gap-2 sm:items-center">
               {/* Barra de Busca */}
-              <div className="relative w-full sm:max-w-xs">
+              <div className="relative w-full sm:max-w-sm">
                 <input
                   type="text"
                   placeholder="Buscar obra..."
                   value={filtroObraLista}
                   onChange={e => setFiltroObraLista(e.target.value)}
-                  className="w-full pl-8 pr-7 py-1.5 border border-slate-200 rounded-xl text-xs focus:outline-none focus:border-primary-500 bg-slate-50 focus:bg-white"
+                  className="w-full pl-9 pr-8 py-2 border border-slate-300 rounded-xl text-sm focus:outline-none focus:border-primary-500 focus:ring-2 focus:ring-primary-500/15 bg-slate-50 focus:bg-white"
                 />
-                <Search size={12} className="absolute left-2.5 top-2.5 text-slate-400" />
+                <Search size={14} className="absolute left-3 top-3 text-slate-400" />
                 {filtroObraLista && (
-                  <button onClick={() => setFiltroObraLista('')} className="absolute right-2.5 top-2.5 text-slate-400 hover:text-slate-600">
-                    <X size={12} />
+                  <button onClick={() => setFiltroObraLista('')} className="absolute right-3 top-3 text-slate-400 hover:text-slate-600">
+                    <X size={14} />
                   </button>
                 )}
               </div>
