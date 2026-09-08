@@ -1,10 +1,11 @@
 import React, { useCallback, useEffect, useState } from 'react';
 import {
-  AlertTriangle, Building, ClipboardList, FileDown, FolderOpen, MapPin,
-  Package, RefreshCw, X,
+  AlertTriangle, Building, ClipboardList, FileDown, FileText, FolderOpen,
+  MapPin, Package, RefreshCw, X,
 } from 'lucide-react';
 import { API_URL, apiFetch } from '../api';
 import { unidadeContrato } from '../utils/contratos';
+import TerminoObra from './TerminoObra';
 
 // ---------------------------------------------------------------------------
 // Painel de gestão consolidada por obra (Fase 1): resumo da obra, O.S e
@@ -70,6 +71,7 @@ export default function PainelObra({ obra, onFechar, onAbrirOS, mostrarToast }) 
   const [carregando, setCarregando] = useState(true);
   const [erro, setErro] = useState(null);
   const [gerando, setGerando] = useState(false);
+  const [terminoAberto, setTerminoAberto] = useState(false);
 
   const carregarResumo = useCallback(async (status) => {
     setCarregando(true);
@@ -177,24 +179,37 @@ export default function PainelObra({ obra, onFechar, onAbrirOS, mostrarToast }) 
             })}
           </div>
 
-          {/* Ações: relatórios PDF */}
-          <div className="grid grid-cols-2 gap-2">
+          {/* Ações: relatórios PDF e carta de término */}
+          <div className="grid grid-cols-3 gap-2">
             <button
               onClick={() => baixarPdf('relatorio', `obra_${obra.id}_relatorio.pdf`)}
               disabled={gerando}
-              className="flex items-center justify-center gap-1.5 px-3 py-2 bg-primary-600 text-white rounded-xl text-[11px] font-extrabold hover:bg-primary-700 transition-all cursor-pointer disabled:opacity-50"
+              title="Baixar o relatório da obra (PDF)"
+              className="flex items-center justify-center gap-1.5 px-2 py-2 bg-primary-600 text-white rounded-xl text-[10px] font-extrabold hover:bg-primary-700 transition-all cursor-pointer disabled:opacity-50"
             >
-              <FileDown size={13} /> Relatório da Obra
+              <FileDown size={12} /> Relatório da Obra
             </button>
             <button
               onClick={() => baixarPdf('servicos', `obra_${obra.id}_servicos.pdf`)}
               disabled={gerando}
-              className="flex items-center justify-center gap-1.5 px-3 py-2 bg-white border border-slate-200 text-slate-600 rounded-xl text-[11px] font-extrabold hover:bg-slate-50 transition-all cursor-pointer disabled:opacity-50"
+              title="Baixar os serviços por obra (PDF)"
+              className="flex items-center justify-center gap-1.5 px-2 py-2 bg-white border border-slate-200 text-slate-600 rounded-xl text-[10px] font-extrabold hover:bg-slate-50 transition-all cursor-pointer disabled:opacity-50"
             >
-              <FileDown size={13} /> Serviços por Obra
+              <FileDown size={12} /> Serviços por Obra
+            </button>
+            <button
+              onClick={() => setTerminoAberto(true)}
+              title="Preencher a carta de término (conclusão) da obra"
+              className="flex items-center justify-center gap-1.5 px-2 py-2 bg-emerald-600 text-white rounded-xl text-[10px] font-extrabold hover:bg-emerald-700 transition-all cursor-pointer"
+            >
+              <FileText size={12} /> Término
             </button>
           </div>
         </div>
+
+        {terminoAberto && (
+          <TerminoObra obra={obra} onFechar={() => setTerminoAberto(false)} mostrarToast={mostrarToast} />
+        )}
 
         {carregando ? (
           <div className="flex flex-col items-center justify-center gap-2 py-14 text-slate-400">
