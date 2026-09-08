@@ -89,14 +89,20 @@ def agregar_servicos(db, os_linhas: list[dict], lancamentos: list[dict] | None =
         tipo_lanc = str(lanc.get("tipo_usc") or "normal").strip().lower() or "normal"
         codigo = str(lanc.get("codigo_servico") or "").strip() or None
         chave = (contrato, lanc.get("produto_id"), tipo_lanc, codigo)
-        grupo = grupos.setdefault(chave, {"os_ids": set(), "pecas": 0.0, "total": 0.0})
+        grupo = grupos.setdefault(chave, {"os_ids": set(), "pecas": 0.0, "total": 0.0, "fatores": set()})
         grupo["os_ids"].add(lanc.get("os_id"))
         grupo["pecas"] += _numero(lanc.get("quantidade_pecas"))
         grupo["total"] += _numero(lanc.get("quantidade_usada"))
+        if _numero(lanc.get("fator_usc")) > 0:
+            grupo["fatores"].add(round(_numero(lanc.get("fator_usc")), 3))
 
     itens_por_contrato: dict[str, list[dict]] = defaultdict(list)
     for (contrato, produto_id, tipo_lanc, codigo), grupo in grupos.items():
         prod = catalogo.get(produto_id) or {} if produto_id else {}
+        # Fator exibível (ex.: "USC unit."): só quando TODOS os lançamentos do
+        # grupo usam o mesmo fator — caso contrário o valor agregado é misto.
+        fatores = grupo["fatores"]
+        fator = next(iter(fatores)) if len(fatores) == 1 else None
         itens_por_contrato[contrato].append(
             {
                 "produto_id": produto_id,
@@ -105,6 +111,7 @@ def agregar_servicos(db, os_linhas: list[dict], lancamentos: list[dict] | None =
                 "codigo_servico": codigo,
                 "tipo": tipo_lanc,
                 "pecas": round(grupo["pecas"], 3),
+                "fator": fator,
                 "total": round(grupo["total"], 3),
                 "os_usadas": len(grupo["os_ids"]),
             }

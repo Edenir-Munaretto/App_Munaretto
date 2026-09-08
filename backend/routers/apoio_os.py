@@ -4,17 +4,20 @@ Segue o mesmo padrão dos demais routers do projeto: Supabase via PostgREST,
 validação com Pydantic e permissão de módulo ("os").
 """
 
+import contextlib
 import io
 import logging
+import os
 import re
 import unicodedata
 from typing import Literal
 
 from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, UploadFile
-from fastapi.responses import Response
+from fastapi.responses import FileResponse, Response
 from openpyxl import Workbook, load_workbook
 from openpyxl.styles import Alignment, Border, Font, PatternFill, Side
 from pydantic import BaseModel, Field, field_validator
+from starlette.background import BackgroundTask
 
 from auth import require_permisao, require_qualquer_permisao
 from supabase_client import get_supabase
@@ -38,6 +41,12 @@ router = APIRouter(dependencies=[Depends(require_qualquer_permisao(["os", "os_ca
 GESTOR_ONLY = [Depends(require_permisao("os"))]
 
 logger = logging.getLogger(__name__)
+
+
+def _remover_arquivo(caminho: str) -> None:
+    """Remove o arquivo temporário após o download (padrão dos PDFs do app)."""
+    with contextlib.suppress(OSError):
+        os.remove(caminho)
 
 
 def _termo_busca_seguro(termo: str | None) -> str:
@@ -109,6 +118,7 @@ class ServicoResumoObraResponse(BaseModel):
     codigo_servico: str | None = None
     tipo: str = "normal"
     pecas: float = 0
+    fator: float | None = None
     total: float = 0
     os_usadas: int = 0
 
@@ -433,118 +443,182 @@ def excluir_obra(obra_id: int, db=Depends(get_supabase)):
         raise HTTPException(status_code=500, detail="Erro ao excluir obra.") from None
 
 
+def _montar_resumo_obra(db, obra_id: int, status: str = "todas") -> dict:
+    """Consulta consolidada da obra — usada pelo resumo e pelos PDFs.
+
+    Levanta 404 quando a obra não existe. Contadores/período são sempre da
+    obra inteira; lista de O.S e agregados respeitam o filtro de status
+    ("ativas"/"encerradas"; rascunho entra apenas em "todas").
+    """
+    resp_obra = db.table("obras").select("*, clientes(nome)").eq("id", obra_id).execute()
+    if not resp_obra.data:
+        raise HTTPException(status_code=404, detail="Obra não encontrada.")
+    obra = resp_obra.data[0]
+
+    os_todas = (
+        db.table("ordens_servico")
+        .select("id, codigo, tipo, status, data_abertura, data_fim, equipes(id, nome)")
+        .eq("obra_id", obra_id)
+        .order("id", desc=True)
+        .execute()
+        .data
+    ) or []
+
+    # --- Contadores e período SEMPRE da obra inteira (independentes do filtro).
+    por_status: dict[str, int] = {}
+    for r in os_todas:
+        st = r.get("status") or "sem_status"
+        por_status[st] = por_status.get(st, 0) + 1
+    resumo = {
+        "total": len(os_todas),
+        "ativas": sum(1 for r in os_todas if r.get("status") in STATUS_EM_EXECUCAO),
+        "encerradas": sum(1 for r in os_todas if r.get("status") in STATUS_ENCERRADAS),
+        "por_status": {st: por_status[st] for st in ORDEM_STATUS if st in por_status},
+    }
+    aberturas = [r["data_abertura"] for r in os_todas if r.get("data_abertura")]
+    encerramentos = [r["data_fim"] for r in os_todas if r.get("data_fim")]
+    resumo["periodo"] = {
+        "inicio": min(aberturas) if aberturas else None,
+        "fim": (max(encerramentos) if encerramentos else (max(aberturas) if aberturas else None)),
+    }
+
+    # --- Lista e agregados respeitam o filtro de status.
+    def _no_grupo(r: dict) -> bool:
+        st = r.get("status")
+        if status == "ativas":
+            return st in STATUS_EM_EXECUCAO
+        if status == "encerradas":
+            return st in STATUS_ENCERRADAS
+        return True
+
+    os_filtradas = [r for r in os_todas if _no_grupo(r)]
+    os_ids = [r["id"] for r in os_filtradas]
+
+    lancamentos: list[dict] = []
+    soma_por_os: dict[int, float] = {}
+    fotos_count: dict[int, int] = {}
+    if os_ids:
+        lancamentos = (
+            db.table("os_materiais")
+            .select("os_id, produto_id, quantidade_usada, quantidade_pecas, fator_usc, tipo_usc, codigo_servico")
+            .in_("os_id", os_ids)
+            .execute()
+            .data
+        ) or []
+        for m in lancamentos:
+            soma_por_os[m["os_id"]] = soma_por_os.get(m["os_id"], 0.0) + _numero(m.get("quantidade_usada"))
+        for f in (
+            db.table("os_fotos").select("os_id").in_("os_id", os_ids).execute().data or []
+        ):
+            fotos_count[f["os_id"]] = fotos_count.get(f["os_id"], 0) + 1
+
+    lista_os = [
+        {
+            "id": r["id"],
+            "codigo": r.get("codigo"),
+            "tipo": r.get("tipo"),
+            "status": r.get("status"),
+            "data_abertura": r.get("data_abertura"),
+            "data_fim": r.get("data_fim"),
+            "equipe": ((r.get("equipes") or {}).get("nome") if isinstance(r.get("equipes"), dict) else None),
+            "total_aplicado": round(soma_por_os.get(r["id"], 0.0), 3),
+            "fotos_count": fotos_count.get(r["id"], 0),
+        }
+        for r in os_filtradas
+    ]
+
+    contratos = agregar_servicos(
+        db,
+        [{"os_id": r["id"], "tipo": r.get("tipo")} for r in os_filtradas],
+        lancamentos=lancamentos,
+    )
+    servicos = [{**item, "contrato": c["tipo"]} for c in contratos for item in c["itens"]]
+
+    return {
+        "obra": obra,
+        "filtro": status,
+        "resumo": resumo,
+        "os": lista_os,
+        "contratos": contratos,
+        "servicos": servicos,
+    }
+
+
 @router.get("/obras/{obra_id}/resumo", response_model=ResumoObraResponse, dependencies=GESTOR_ONLY)
 def resumo_obra(
     obra_id: int,
     status: Literal["todas", "ativas", "encerradas"] = Query("todas"),
     db=Depends(get_supabase),
 ):
-    """Resumo consolidado da obra (gestão por obra — Fase 1).
-
-    Retorna a obra (com cliente), contadores e período, as O.S (com total
-    aplicado e nº de fotos) e os serviços agregados por contrato. O filtro
-    "ativas" = aberta/em_andamento/impedida; "encerradas" = concluida/
-    cancelada; rascunho entra apenas em "todas". Contadores/período são
-    sempre da obra inteira; lista e agregados respeitam o filtro.
-    """
+    """Resumo consolidado da obra (gestão por obra — Fase 1)."""
     try:
-        resp_obra = db.table("obras").select("*, clientes(nome)").eq("id", obra_id).execute()
-        if not resp_obra.data:
-            raise HTTPException(status_code=404, detail="Obra não encontrada.")
-        obra = resp_obra.data[0]
-
-        os_todas = (
-            db.table("ordens_servico")
-            .select("id, codigo, tipo, status, data_abertura, data_fim, equipes(id, nome)")
-            .eq("obra_id", obra_id)
-            .order("id", desc=True)
-            .execute()
-            .data
-        ) or []
-
-        # --- Contadores e período SEMPRE da obra inteira (independentes do filtro).
-        por_status: dict[str, int] = {}
-        for r in os_todas:
-            st = r.get("status") or "sem_status"
-            por_status[st] = por_status.get(st, 0) + 1
-        resumo = {
-            "total": len(os_todas),
-            "ativas": sum(1 for r in os_todas if r.get("status") in STATUS_EM_EXECUCAO),
-            "encerradas": sum(1 for r in os_todas if r.get("status") in STATUS_ENCERRADAS),
-            "por_status": {st: por_status[st] for st in ORDEM_STATUS if st in por_status},
-        }
-        aberturas = [r["data_abertura"] for r in os_todas if r.get("data_abertura")]
-        encerramentos = [r["data_fim"] for r in os_todas if r.get("data_fim")]
-        resumo["periodo"] = {
-            "inicio": min(aberturas) if aberturas else None,
-            "fim": (max(encerramentos) if encerramentos else (max(aberturas) if aberturas else None)),
-        }
-
-        # --- Lista e agregados respeitam o filtro de status.
-        def _no_grupo(r: dict) -> bool:
-            st = r.get("status")
-            if status == "ativas":
-                return st in STATUS_EM_EXECUCAO
-            if status == "encerradas":
-                return st in STATUS_ENCERRADAS
-            return True
-
-        os_filtradas = [r for r in os_todas if _no_grupo(r)]
-        os_ids = [r["id"] for r in os_filtradas]
-
-        lancamentos: list[dict] = []
-        soma_por_os: dict[int, float] = {}
-        fotos_count: dict[int, int] = {}
-        if os_ids:
-            lancamentos = (
-                db.table("os_materiais")
-                .select("os_id, produto_id, quantidade_usada, quantidade_pecas, fator_usc, tipo_usc, codigo_servico")
-                .in_("os_id", os_ids)
-                .execute()
-                .data
-            ) or []
-            for m in lancamentos:
-                soma_por_os[m["os_id"]] = soma_por_os.get(m["os_id"], 0.0) + _numero(m.get("quantidade_usada"))
-            for f in (
-                db.table("os_fotos").select("os_id").in_("os_id", os_ids).execute().data or []
-            ):
-                fotos_count[f["os_id"]] = fotos_count.get(f["os_id"], 0) + 1
-
-        lista_os = [
-            {
-                "id": r["id"],
-                "codigo": r.get("codigo"),
-                "tipo": r.get("tipo"),
-                "status": r.get("status"),
-                "data_abertura": r.get("data_abertura"),
-                "data_fim": r.get("data_fim"),
-                "equipe": ((r.get("equipes") or {}).get("nome") if isinstance(r.get("equipes"), dict) else None),
-                "total_aplicado": round(soma_por_os.get(r["id"], 0.0), 3),
-                "fotos_count": fotos_count.get(r["id"], 0),
-            }
-            for r in os_filtradas
-        ]
-
-        contratos = agregar_servicos(
-            db,
-            [{"os_id": r["id"], "tipo": r.get("tipo")} for r in os_filtradas],
-            lancamentos=lancamentos,
-        )
-        servicos = [{**item, "contrato": c["tipo"]} for c in contratos for item in c["itens"]]
-
-        return {
-            "obra": obra,
-            "filtro": status,
-            "resumo": resumo,
-            "os": lista_os,
-            "contratos": contratos,
-            "servicos": servicos,
-        }
+        return _montar_resumo_obra(db, obra_id, status)
     except HTTPException:
         raise
     except Exception:
         logger.exception("Erro ao montar resumo da obra %s", obra_id)
         raise HTTPException(status_code=500, detail="Erro ao montar resumo da obra.") from None
+
+
+@router.get("/obras/{obra_id}/relatorio", dependencies=GESTOR_ONLY)
+def relatorio_obra(
+    obra_id: int,
+    status: Literal["todas", "ativas", "encerradas"] = Query("todas"),
+    db=Depends(get_supabase),
+):
+    """PDF do relatório da obra (identificação, O.S e totais por contrato)."""
+    try:
+        from utils.pdf_obra import gerar_pdf_obra
+
+        dados = _montar_resumo_obra(db, obra_id, status)
+        caminho = gerar_pdf_obra(
+            obra=dados["obra"],
+            os_linhas=dados["os"],
+            contratos=dados["contratos"],
+            filtro=dados["filtro"],
+            resumo=dados["resumo"],
+        )
+        return FileResponse(
+            caminho,
+            media_type="application/pdf",
+            filename=f"obra_{dados['obra'].get('id')}_relatorio.pdf",
+            background=BackgroundTask(_remover_arquivo, caminho),
+        )
+    except HTTPException:
+        raise
+    except Exception:
+        logger.exception("Erro ao gerar relatório PDF da obra %s", obra_id)
+        raise HTTPException(status_code=500, detail="Erro ao gerar relatório da obra.") from None
+
+
+@router.get("/obras/{obra_id}/servicos", dependencies=GESTOR_ONLY)
+def relatorio_servicos_obra(
+    obra_id: int,
+    status: Literal["todas", "ativas", "encerradas"] = Query("todas"),
+    db=Depends(get_supabase),
+):
+    """PDF dos serviços consolidados da obra (por contrato)."""
+    try:
+        from utils.pdf_obra import gerar_pdf_servicos_obra
+
+        dados = _montar_resumo_obra(db, obra_id, status)
+        caminho = gerar_pdf_servicos_obra(
+            obra=dados["obra"],
+            contratos=dados["contratos"],
+            filtro=dados["filtro"],
+            resumo=dados["resumo"],
+        )
+        return FileResponse(
+            caminho,
+            media_type="application/pdf",
+            filename=f"obra_{dados['obra'].get('id')}_servicos.pdf",
+            background=BackgroundTask(_remover_arquivo, caminho),
+        )
+    except HTTPException:
+        raise
+    except Exception:
+        logger.exception("Erro ao gerar PDF de serviços da obra %s", obra_id)
+        raise HTTPException(status_code=500, detail="Erro ao gerar PDF de serviços da obra.") from None
 
 
 # ---------------------------------------------------------------------------

@@ -294,3 +294,59 @@ class TestListarObrasEnriquecidas:
     def test_rotina_transicoes_intacta_apos_novos_constantes(self):
         for origem in ("rascunho", "aberta", "em_andamento", "impedida", "concluida", "cancelada"):
             assert origem in TRANSICOES_STATUS
+
+
+class TestRelatoriosPdfObra:
+    def _texto_pdf(self, resp):
+        assert resp.status_code == 200, resp.text
+        assert resp.headers["content-type"].startswith("application/pdf")
+        import pymupdf
+
+        doc = pymupdf.open(stream=resp.content, filetype="pdf")
+        return "\n".join(page.get_text() for page in doc)
+
+    def test_relatorio_da_obra_com_tabela_e_totais_por_contrato(self, os_gestor_client, db_fake):
+        _seed_obra_com_os(db_fake)
+        resp = os_gestor_client.get("/api/os/obras/501/relatorio")
+        assert "obra_501_relatorio.pdf" in resp.headers.get("content-disposition", "")
+        texto = self._texto_pdf(resp)
+
+        assert "RELATÓRIO DA OBRA" in texto
+        assert "Obra Alpha" in texto
+        assert "Cliente" in texto
+        assert "Filtro aplicado" in texto
+        assert "OS-TESTE-0103" in texto
+        assert "TOTAIS POR CONTRATO" in texto
+        # Totais exibidos na unidade do contrato (USC construção / ULV manutenção).
+        assert "Construção (USC)" in texto
+        assert "Manutenção (ULV)" in texto
+
+    def test_relatorio_servicos_obedece_ao_filtro_ativas(self, os_gestor_client, db_fake):
+        _seed_obra_com_os(db_fake)
+        resp = os_gestor_client.get("/api/os/obras/501/servicos", params={"status": "ativas"})
+        assert "obra_501_servicos.pdf" in resp.headers.get("content-disposition", "")
+        texto = self._texto_pdf(resp)
+
+        assert "SERVIÇOS POR OBRA" in texto
+        assert "SERVIÇOS - CONSTRUÇÃO (USC)" in texto
+        assert "SERVIÇOS - MANUTENÇÃO (ULV)" in texto
+        assert "CIM-50" in texto
+        assert "POS-E" in texto
+        assert "LMP-10" in texto
+        assert "DEM-1" not in texto  # cancelada não entra no filtro "ativas"
+        assert "USC unit." in texto
+
+    def test_pdfs_da_obra_sem_os_geram_com_aviso(self, os_gestor_client, db_fake):
+        _inserir_obra(db_fake, 502, "Obra Vazia")
+        texto_rel = self._texto_pdf(os_gestor_client.get("/api/os/obras/502/relatorio"))
+        assert "Nenhuma O.S vinculada a esta obra com o filtro selecionado." in texto_rel
+        assert "Nenhum serviço aplicado nas O.S consideradas." in texto_rel
+
+        texto_serv = self._texto_pdf(os_gestor_client.get("/api/os/obras/502/servicos"))
+        assert "SERVIÇOS DA OBRA" in texto_serv
+        assert "Nenhuma O.S com serviços lançados para o filtro selecionado." in texto_serv
+
+    def test_pdf_da_obra_inexistente_404(self, os_gestor_client, db_fake):
+        _seed_obra_com_os(db_fake)
+        assert os_gestor_client.get("/api/os/obras/9999/relatorio").status_code == 404
+        assert os_gestor_client.get("/api/os/obras/9999/servicos").status_code == 404
