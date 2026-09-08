@@ -7,6 +7,8 @@ assinatura. Os valores são impressos COMO DIGITADOS (sem conversão numérica)
 — o preenchimento vem do modal de término do PainelObra.
 """
 
+import os
+
 from fpdf import FPDF
 
 from utils.pdf_base import _novo_caminho_temp
@@ -21,6 +23,14 @@ IE = "258.319.135"
 ENDERECO = "Rua Magdalena Savoldi, nº 1831 - São José"
 CIDADE_UF = "Concórdia/SC"
 CEP = "89.713-075"
+
+# Logo da empresa (mesmo ativo usado no modelo de O.S impresso).
+CAMINHO_LOGO = os.path.join(
+    os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
+    "templates",
+    "artes_construcao",
+    "logo.png",
+)
 
 MESES = [
     "Janeiro", "Fevereiro", "Março", "Abril", "Maio", "Junho",
@@ -155,14 +165,38 @@ def gerar_pdf_termino(obra: dict, termo: dict) -> str:
     pdf = _CartaTermino()
     pdf.add_page()
 
-    # --- Cabeçalho: logotipo (texto) à esquerda + dados da empresa à direita.
+    # --- Cabeçalho: logo pequena + logotipo em texto + dados da empresa.
     pdf.set_text_color(15, 23, 42)
-    pdf.set_font("Arial", "B", 20)
-    pdf.set_xy(12, 10)
-    pdf.cell(100, 8, "MUNARETTO")
-    pdf.set_xy(12, 18.5)
-    pdf.set_font("Arial", "B", 15)
-    pdf.cell(100, 7, "ELETRIFICAÇÕES")
+    # Altura fixa para a logo; largura proporcional ao PNG (159x105 px).
+    altura_logo = 14.0
+    proporcao_logo = 159.0 / 105.0
+    largura_logo = round(altura_logo * proporcao_logo, 1)
+    try:
+        import pymupdf
+
+        pix = pymupdf.Pixmap(CAMINHO_LOGO)
+        if pix.width > 0 and pix.height > 0:
+            proporcao_logo = pix.width / pix.height
+            largura_logo = round(altura_logo * proporcao_logo, 1)
+    except Exception:
+        pass  # sem imagem disponível: segue apenas com o texto do logotipo
+
+    if os.path.exists(CAMINHO_LOGO):
+        pdf.image(CAMINHO_LOGO, x=12, y=8.5, w=largura_logo, h=altura_logo)
+        texto_x = 12 + largura_logo + 4
+        pdf.set_font("Arial", "B", 16)
+        pdf.set_xy(texto_x, 10.5)
+        pdf.cell(80, 7, "MUNARETTO")
+        pdf.set_font("Arial", "B", 12.5)
+        pdf.set_xy(texto_x, 19)
+        pdf.cell(80, 6, "ELETRIFICAÇÕES")
+    else:
+        pdf.set_font("Arial", "B", 20)
+        pdf.set_xy(12, 10)
+        pdf.cell(100, 8, "MUNARETTO")
+        pdf.set_xy(12, 18.5)
+        pdf.set_font("Arial", "B", 15)
+        pdf.cell(100, 7, "ELETRIFICAÇÕES")
 
     pdf.set_font("Arial", "B", 8)
     pdf.set_xy(108, 8)
@@ -209,9 +243,9 @@ def gerar_pdf_termino(obra: dict, termo: dict) -> str:
     y += 6
     pdf.set_xy(12, y)
     pdf.set_font("Arial", "B", 10.5)
-    pdf.cell(110, 6, "TRANSFORMADORES INSTALADOS")
+    pdf.cell(112, 6, "TRANSFORMADORES INSTALADOS")
     pdf.set_xy(130, y)
-    pdf.cell(68, 6, "SAIU", align="R")
+    pdf.cell(68, 6, "SAIU")
     y += 6.5
     campos_instalado = [
         ("Marca", instalado.get("marca")),
@@ -226,13 +260,17 @@ def gerar_pdf_termino(obra: dict, termo: dict) -> str:
         ("Nº TAP's", instalado.get("n_taps")),
         ("Placa", instalado.get("placa")),
     ]
+    # Coluna da direita no MESMO padrão da ficha instalado (largura de rótulo
+    # e altura de linha iguais). As linhas além dos 3 campos ficam em branco,
+    # mantendo as duas fichas com a mesma altura/visual.
     campos_saiu = [
-        ("MARCA", saiu.get("marca")),
+        ("Marca", saiu.get("marca")),
         ("N°", saiu.get("numero")),
-        ("POT.", saiu.get("potencia")),
+        ("Pot.", saiu.get("potencia")),
     ]
+    campos_saiu.extend([("", "")] * (len(campos_instalado) - len(campos_saiu)))
     y_instalado = _grade(pdf, 12, y, 112, campos_instalado, largura_rotulo=44, altura_linha=7.2)
-    y_saiu = _grade(pdf, 130, y, 68, campos_saiu, largura_rotulo=30, altura_linha=7.2)
+    y_saiu = _grade(pdf, 130, y, 68, campos_saiu, largura_rotulo=44, altura_linha=7.2)
     y = max(y_instalado, y_saiu)
 
     # --- Encarregado.
