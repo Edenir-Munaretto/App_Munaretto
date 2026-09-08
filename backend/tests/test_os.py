@@ -1966,3 +1966,64 @@ class TestCorrecoesLote1:
             files={"arquivo": ("evidencia.jpg", b"\xff\xd8\xff\xe0conteudo", "image/jpeg")},
         )
         assert resp.status_code == 409, resp.text
+
+
+class _S3Presigned:
+    """Stub do S3 para testes de listagem (presigned + delete)."""
+
+    def delete_object(self, **kwargs):
+        return {}
+
+    def generate_presigned_url(self, *args, **kwargs):
+        return "https://presigned.teste/url"
+
+
+def test_upload_foto_com_magia_invalida_400(os_gestor_client, db_fake):
+    """Magic bytes não conferem com o content_type declarado -> recusa 400."""
+    _seed_cenario(db_fake)
+    os_id = _criar_os(os_gestor_client).json()["id"]
+    resp = os_gestor_client.post(
+        f"/api/os/{os_id}/fotos",
+        files={"arquivo": ("falsa.jpg", b"conteudo que nao e jpeg", "image/jpeg")},
+    )
+    assert resp.status_code == 400
+    assert "não corresponde" in resp.json()["detail"]
+
+
+def test_listar_fotos_campo_sem_dados_internos(os_gestor_client, os_campo_client, db_fake, monkeypatch):
+    """Usuário de campo não recebe bucket_key/enviado_por (exposição mínima)."""
+    _seed_cenario(db_fake)
+    monkeypatch.setattr("routers.os.get_s3_client", lambda: _S3Presigned())
+    monkeypatch.setattr("routers.os.bucket", lambda: "bucket-teste")
+    os_id = _criar_os(os_gestor_client, equipe_id=100).json()["id"]
+    assert os_campo_client.put(f"/api/os/{os_id}/status", json={"novo_status": "aberta"}).status_code == 200
+    db_fake._dados["os_fotos"].append(
+        {
+            "id": 1,
+            "os_id": os_id,
+            "nome_original": "evidencia.jpg",
+            "tamanho_bytes": 100,
+            "mime_type": "image/jpeg",
+            "bucket_key": "os_fotos/1/abc.jpg",
+            "enviado_por": "gestor@munaretto.com",
+            "created_at": "2026-01-01T00:00:00Z",
+        }
+    )
+
+    lista_campo = os_campo_client.get(f"/api/os/{os_id}/fotos").json()
+    assert len(lista_campo) == 1
+    assert "bucket_key" not in lista_campo[0]
+    assert "enviado_por" not in lista_campo[0]
+    assert lista_campo[0]["url_temporaria"].startswith("https://")
+
+    lista_gestor = os_gestor_client.get(f"/api/os/{os_id}/fotos").json()
+    assert "bucket_key" in lista_gestor[0]
+    assert "enviado_por" in lista_gestor[0]
+
+
+def test_respostas_com_headers_de_seguranca(client):
+    """Middlewares de segurança adicionam os cabeçalhos mínimos."""
+    resp = client.get("/health")
+    assert resp.headers.get("x-content-type-options") == "nosniff"
+    assert resp.headers.get("x-frame-options") == "DENY"
+    assert resp.headers.get("referrer-policy") == "same-origin"

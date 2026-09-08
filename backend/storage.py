@@ -65,7 +65,13 @@ def get_s3_client():
         aws_access_key_id=B2_KEY_ID,
         aws_secret_access_key=B2_APPLICATION_KEY,
         region_name=B2_REGION,
-        config=Config(signature_version="s3v4"),
+        # Timeouts e retry limitado: rede morta não pode pendurar o upload/PDF.
+        config=Config(
+            signature_version="s3v4",
+            connect_timeout=10,
+            read_timeout=60,
+            retries={"max_attempts": 2, "mode": "standard"},
+        ),
     )
     return _cliente
 

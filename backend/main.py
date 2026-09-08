@@ -6,6 +6,7 @@ import uvicorn
 from dotenv import load_dotenv
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from starlette.middleware.base import BaseHTTPMiddleware
 
 from routers import (
     apoio_os,
@@ -55,14 +56,16 @@ _configurar_logging()
 
 APP_ENV = os.environ.get("APP_ENV", "development")
 
+# Falha-seguro: a documentação interativa só abre quando o ambiente foi
+# EXPLICITAMENTE marcado como desenvolvimento (esquecer APP_ENV não expõe
+# /docs e /openapi.json em produção).
 app = FastAPI(
     title="App Munaretto Web API",
     description="Backend API para gerenciamento de clientes, contratos, férias e fluxo de caixa.",
     version="1.0.0",
-    # Em produção, desabilita a documentação interativa e o schema OpenAPI.
-    docs_url=None if APP_ENV == "production" else "/docs",
-    redoc_url=None if APP_ENV == "production" else "/redoc",
-    openapi_url=None if APP_ENV == "production" else "/openapi.json",
+    docs_url="/docs" if APP_ENV == "development" else None,
+    redoc_url="/redoc" if APP_ENV == "development" else None,
+    openapi_url="/openapi.json" if APP_ENV == "development" else None,
 )
 
 # Configuração de CORS: origens explícitas vindas da variável de ambiente CORS_ORIGINS.
@@ -80,8 +83,33 @@ app.add_middleware(
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
-    expose_headers=["Content-Disposition"],
+    expose_headers=["Content-Disposition", "X-Total-Count"],
 )
+
+
+class _HeadersSeguranca(BaseHTTPMiddleware):
+    """Cabeçalhos de segurança mínimos em todas as respostas (Lote 2)."""
+
+    async def dispatch(self, request, call_next):
+        response = await call_next(request)
+        response.headers.setdefault("X-Content-Type-Options", "nosniff")
+        response.headers.setdefault("X-Frame-Options", "DENY")
+        response.headers.setdefault("Referrer-Policy", "same-origin")
+        if APP_ENV == "production":
+            response.headers.setdefault("Strict-Transport-Security", "max-age=31536000; includeSubDomains")
+        return response
+
+
+app.add_middleware(_HeadersSeguranca)
+
+# Host permitido (defesa contra host header poisoning): ativo apenas quando a
+# variável TRUSTED_HOSTS é configurada (ex.: app-munaretto.onrender.com,
+# localhost). Sem a variável, mantém o comportamento atual (permite todos).
+_hosts_confiaveis = [h.strip() for h in os.environ.get("TRUSTED_HOSTS", "").split(",") if h.strip()]
+if _hosts_confiaveis:
+    from fastapi.middleware.trustedhost import TrustedHostMiddleware
+
+    app.add_middleware(TrustedHostMiddleware, allowed_hosts=_hosts_confiaveis)
 
 # Inclui os roteadores da API
 app.include_router(clientes.router, prefix="/api/clientes", tags=["Clientes"])

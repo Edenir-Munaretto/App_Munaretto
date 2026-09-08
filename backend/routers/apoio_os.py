@@ -1576,11 +1576,9 @@ def importar_servicos(
     except HTTPException:
         raise
     except Exception as exc:
-        logger.exception("Erro ao importar serviços em lote")
-        raise HTTPException(
-            status_code=500,
-            detail=f"Erro ao importar serviços. Detalhe: {_mensagem_erro_banco(exc)}",
-        ) from None
+        # O detalhe interno do banco fica SÓ no log (nunca na resposta 500).
+        logger.exception("Erro ao importar serviços em lote: %s", _mensagem_erro_banco(exc))
+        raise HTTPException(status_code=500, detail="Erro ao importar serviços em lote.") from None
 
 
 def _texto_ou_none(valor) -> str | None:

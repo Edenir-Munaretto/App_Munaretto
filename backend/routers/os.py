@@ -790,6 +790,31 @@ async def _ler_upload_limitado(
     return b"".join(partes)
 
 
+def _validar_magia_imagem(mime: str, conteudo: bytes) -> None:
+    """Confere os bytes de assinatura (magic bytes) do formato declarado.
+
+    O `content_type` é informado pelo cliente — sem esta checagem, conteúdo
+    arbitrário seria gravado como imagem no bucket (mitigado só pela
+    privacidade do bucket). Leniente com arquivos ínfimos (chunk mínimo).
+    """
+    assinaturas = {
+        "image/jpeg": (b"\xff\xd8\xff",),
+        "image/png": (b"\x89PNG\r\n\x1a\n",),
+        "image/webp": (b"RIFF", b"WEBP"),  # RIFF no início e WEBP a partir de 8
+    }
+    prefixos = assinaturas.get(mime or "")
+    if not prefixos:
+        return  # mime já validado pelo mapa de permitidos antes
+    if not conteudo:
+        raise HTTPException(status_code=400, detail="Arquivo vazio.")
+    if mime == "image/webp":
+        if not (conteudo.startswith(b"RIFF") and b"WEBP" in conteudo[8:16]):
+            raise HTTPException(status_code=400, detail="O arquivo enviado não é uma imagem WEBP válida.")
+        return
+    if not any(conteudo.startswith(p) for p in prefixos):
+        raise HTTPException(status_code=400, detail="O arquivo enviado não corresponde ao tipo de imagem informado.")
+
+
 def _apagar_recursos_os(db, os_id: int) -> None:
     """Rollback de criação parcial: remove os registros auxiliares e a O.S.
 
@@ -1289,6 +1314,7 @@ async def enviar_foto_checklist(
         if extensao is None:
             raise HTTPException(status_code=400, detail="Tipo de arquivo não permitido. Envie JPG, PNG ou WEBP.")
         conteudo = await _ler_upload_limitado(arquivo, TAMANHO_MAXIMO_FOTO_BYTES)
+        _validar_magia_imagem(mime, conteudo)
 
         s3 = get_s3_client()
         bucket_key = f"os_fotos/{os_id}/checklist_{item_id}_{uuid.uuid4().hex}{extensao}"
@@ -1394,12 +1420,25 @@ def relatorio_checklist(os_id: int, usuario: UsuarioAutenticado = Depends(get_cu
         itens = itens_com_respostas(db, os_id)
         s3 = get_s3_client()
 
+        # Teto AGREGADO das fotos embutidas no PDF: cada foto individual já é
+        # limitada, mas ~30 itens de 15 MB explodiriam a memória da requisição.
+        bytes_baixados = {"total": 0}
+        TETO_PDF_FOTOS_BYTES = 60 * 1024 * 1024
+
         def _baixar_foto(chave):
             try:
-                return s3.get_object(Bucket=bucket(), Key=chave)["Body"].read()
+                corpo = s3.get_object(Bucket=bucket(), Key=chave)["Body"].read()
             except Exception:
                 logger.exception("Erro ao baixar foto %s para o relatório", chave)
                 return None
+            bytes_baixados["total"] += len(corpo)
+            if bytes_baixados["total"] > TETO_PDF_FOTOS_BYTES:
+                raise HTTPException(
+                    status_code=413,
+                    detail="As evidências desta O.S excedem o limite do relatório (60 MB). "
+                    "Remova fotos muito grandes ou gere o relatório com menos fotos.",
+                )
+            return corpo
 
         from utils.pdf_os_checklist import gerar_pdf_checklist
 
@@ -2163,6 +2202,7 @@ async def enviar_foto(
             TAMANHO_MAXIMO_FOTO_BYTES,
             mensagem_limite="Foto excede o limite de 15 MB.",
         )
+        _validar_magia_imagem(mime, conteudo)
 
         s3 = get_s3_client()
         bucket_key = f"os_fotos/{os_id}/{uuid.uuid4().hex}{extensao}"
@@ -2202,6 +2242,7 @@ def listar_fotos(os_id: int, usuario: UsuarioAutenticado = Depends(get_current_u
         _garantir_acesso_os(db, usuario, os_data)
         fotos = db.table("os_fotos").select("*").eq("os_id", os_id).order("created_at").execute().data
         s3 = get_s3_client()
+        eh_gestor = _e_gestor_os(usuario)
         resultado = []
         for meta in fotos or []:
             url = s3.generate_presigned_url(
@@ -2209,7 +2250,13 @@ def listar_fotos(os_id: int, usuario: UsuarioAutenticado = Depends(get_current_u
                 Params={"Bucket": bucket(), "Key": meta["bucket_key"]},
                 ExpiresIn=VALIDADE_PRESIGNED_SEGUNDOS,
             )
-            resultado.append({**meta, "url_temporaria": url})
+            item = {**meta, "url_temporaria": url}
+            if not eh_gestor:
+                # Usuário de campo não precisa da chave do bucket nem de quem
+                # enviou a evidência (exposição mínima).
+                item.pop("bucket_key", None)
+                item.pop("enviado_por", None)
+            resultado.append(item)
         return resultado
     except HTTPException:
         raise

@@ -1,5 +1,6 @@
 import logging
 import os
+import random
 import time
 from collections.abc import Callable
 from typing import Any
@@ -39,7 +40,11 @@ def _erro_transitorio(err: Exception) -> bool:
 
 
 def _com_retry(fn: Callable[..., Any], *args, **kwargs):
-    """Executa fn com tentativas e backoff exponencial em erros transitórios."""
+    """Executa fn com tentativas e backoff exponencial em erros transitórios.
+
+    O atraso recebe JITTER aleatório (0 a 25%): com múltiplas instâncias do
+    servidor, as retentativas não acontecem em sincronia (thundering herd).
+    """
     ultimo_erro: Exception | None = None
     for tentativa in range(MAX_TENTATIVAS):
         try:
@@ -48,12 +53,14 @@ def _com_retry(fn: Callable[..., Any], *args, **kwargs):
             ultimo_erro = err
             if not _erro_transitorio(err) or tentativa >= MAX_TENTATIVAS - 1:
                 raise
-            atraso = BASE_ATRASO * (2**tentativa)
+            atraso = BASE_ATRASO * (2**tentativa) + random.uniform(0, 0.25)
+            # Log sem a exceção crua (política: nada de headers/credenciais no log).
+            detalhe = f"status={getattr(err, 'status_code', None)} tipo={type(err).__name__}"
             logger.warning(
                 "Falha transitória no Supabase (tentativa %d/%d): %s. Nova tentativa em %.1fs",
                 tentativa + 1,
                 MAX_TENTATIVAS,
-                err,
+                detalhe,
                 atraso,
             )
             time.sleep(atraso)
