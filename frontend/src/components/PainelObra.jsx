@@ -195,7 +195,7 @@ export default function PainelObra({ obra, onFechar, onAbrirOS, onNovaOS, refres
               onClick={() => baixarPdf('servicos', `obra_${obra.id}_servicos.pdf`)}
               disabled={gerando}
               title="Baixar os serviços por obra (PDF)"
-              className="flex items-center justify-center gap-1.5 px-2 py-2 bg-white border border-slate-200 text-slate-600 rounded-xl text-[10px] font-extrabold hover:bg-slate-50 transition-all cursor-pointer disabled:opacity-50"
+              className="flex items-center justify-center gap-1.5 px-2 py-2 bg-amber-500 text-white rounded-xl text-[10px] font-extrabold hover:bg-amber-600 transition-all cursor-pointer disabled:opacity-50"
             >
               <FileDown size={12} /> Serviços por Obra
             </button>
