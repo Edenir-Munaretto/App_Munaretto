@@ -435,6 +435,15 @@ function _urlFotoPendente(foto) {
   return url || '';
 }
 
+function _revogarUrlFotoPendente(foto) {
+  const chave = `${foto.checklist_item_id}:${foto.id_local}`;
+  const url = _urlsFotosPendentes.get(chave);
+  if (url) {
+    _urlsFotosPendentes.delete(chave);
+    try { URL.revokeObjectURL(url); } catch { /* noop */ }
+  }
+}
+
 /** Guarda a foto no dispositivo e a anexa ao item do checklist local como
  * PREVIEW (`pendente: true`). Retorna {foto, entrada}. */
 export async function registrarFotoItemLocal({ os_id, item_id, arquivo, geolocalizacao }) {
@@ -508,7 +517,11 @@ export async function listarPendentes() {
 
 /** Remove do dispositivo um item pendente (foto ou operação) sem enviar. */
 export async function descartarPendente(tipo, idLocal) {
-  if (tipo === 'foto') return dbDel('fotos', idLocal);
+  if (tipo === 'foto') {
+    const foto = await dbGet('fotos', idLocal);
+    _revogarUrlFotoPendente(foto || { checklist_item_id: null, id_local: idLocal });
+    return dbDel('fotos', idLocal);
+  }
   return dbDel('fila', idLocal);
 }
 

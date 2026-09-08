@@ -495,6 +495,8 @@ function TabChecklist({ osDetalhe, onAtualizado, mostrarToast, podeEditar }) {
       const res = await apiFetch(`${API_URL}/os/${osDetalhe.id}/checklist/${item.id}/foto${qs}`, {
         method: 'POST',
         body: fd,
+        // Upload de foto em rede de campo é lento: 90s em vez do padrão de 30s.
+        signal: AbortSignal.timeout(90000),
       });
       if (res.ok) {
         mostrarToast('Foto anexada ao item.');
@@ -1208,7 +1210,12 @@ function TabEvidencias({ osDetalhe, onAtualizado, mostrarToast, podeEditar, pode
       const fd = new FormData();
       fd.append('arquivo', arquivo);
       try {
-        const res = await apiFetch(`${API_URL}/os/${osDetalhe.id}/fotos`, { method: 'POST', body: fd });
+        const res = await apiFetch(`${API_URL}/os/${osDetalhe.id}/fotos`, {
+          method: 'POST',
+          body: fd,
+          // Upload de foto em rede de campo é lento: 90s em vez do padrão.
+          signal: AbortSignal.timeout(90000),
+        });
         if (res.ok) ok += 1;
         else mostrarToast(erroDaResposta(await res.json().catch(() => null), `Falha ao enviar ${arquivo.name}.`), 'error');
       } catch {
@@ -1600,13 +1607,22 @@ function PainelExecucao({ osId, produtos, capturarGps, onFechar, recarregarLista
   // Timer do retry (1500ms) — cancelado ao trocar de O.S ou desmontar o painel
   // (sem cleanup o retry antigo disparava com o osId anterior, A8).
   const timerRetry = useRef(null);
+  // Guarda anti-corrida: trocar de O.S rapidamente não pode deixar a resposta
+  // da O.S antiga sobrescrever o detalhe da nova (A??).
+  const osIdRef = useRef(osId);
 
   const carregar = useCallback(async (tentativa = 0) => {
     setErro('');
+    if (osIdRef.current !== osId) {
+      // Primeira carga para esta O.S: limpa o detalhe anterior.
+      osIdRef.current = osId;
+      setDetalhe(null);
+    }
     try {
       // Offline: busca no pacote de campo baixado na base.
       if (usarLocal()) {
         const local = await getOSLocal(osId);
+        if (osIdRef.current !== osId) return;
         if (local) {
           setDetalhe(local);
           return;
@@ -1616,6 +1632,7 @@ function PainelExecucao({ osId, produtos, capturarGps, onFechar, recarregarLista
       }
       const res = await apiFetch(`${API_URL}/os/${osId}`);
       const data = await res.json().catch(() => null);
+      if (osIdRef.current !== osId) return;
       if (res.ok) {
         setDetalhe(data);
         // Em Modo Campo, mantém o pacote local atualizado para o campo.
@@ -1635,6 +1652,7 @@ function PainelExecucao({ osId, produtos, capturarGps, onFechar, recarregarLista
         clearTimeout(timerRetry.current);
         timerRetry.current = setTimeout(() => carregar(1), 1500);
       } else {
+        if (osIdRef.current !== osId) return;
         setErro('Erro de conexão ao carregar a O.S.');
       }
     }
@@ -2110,6 +2128,7 @@ function ModalNovaOS({ aberto, obras, equipes, onFechar, onCriada, mostrarToast,
 
   const salvar = async (e) => {
     e.preventDefault();
+    if (salvando) return; // duplo toque/Enter repetido
     if (!form.obra_id) { mostrarToast('Selecione a obra.', 'error'); return; }
     setSalvando(true);
     try {
@@ -2428,7 +2447,12 @@ function ModalImpedimento({ aberto, osAlvo, onConfirmar, onCancelar, processando
       const fd = new FormData();
       fd.append('arquivo', arquivo);
       try {
-        const res = await apiFetch(`${API_URL}/os/${osAlvo.id}/fotos`, { method: 'POST', body: fd });
+        const res = await apiFetch(`${API_URL}/os/${osAlvo.id}/fotos`, {
+          method: 'POST',
+          body: fd,
+          // Upload de foto em rede de campo é lento: 90s em vez do padrão.
+          signal: AbortSignal.timeout(90000),
+        });
         if (res.ok) {
           const data = await res.json();
           novosFotoIds = [...novosFotoIds, data.id];
@@ -2710,16 +2734,29 @@ function OrdensServico({ usuarioAtual }) {
     const naSonda = () => atualizar(true);
     window.addEventListener('online', noEvento);
     window.addEventListener('offline', noEvento);
-    // Sonda imediata ao montar (Modo Campo) e a cada 10s.
-    if (modoCampo) naSonda();
-    const sonda = setInterval(naSonda, 10000);
+    // Sonda imediata ao montar (Modo Campo) e a cada 10s — SOMENTE no Modo
+    // Campo: fora dele, eventos online/offline + o contador já bastam (a
+    // sonda incondicional consumia rede/bateria e marcava "sem conexão" com
+    // falhas transitórias da API mesmo fora do campo).
+    if (modoCampo) {
+      naSonda();
+      const sonda = setInterval(naSonda, 10000);
+      const contador = setInterval(() => {
+        contarPendentes().then(setPendentes).catch(() => {});
+      }, 15000);
+      return () => {
+        window.removeEventListener('online', noEvento);
+        window.removeEventListener('offline', noEvento);
+        clearInterval(sonda);
+        clearInterval(contador);
+      };
+    }
     const contador = setInterval(() => {
-      contarPendentes().then(setPendentes);
-    }, 4000);
+      contarPendentes().then(setPendentes).catch(() => {});
+    }, 30000);
     return () => {
       window.removeEventListener('online', noEvento);
       window.removeEventListener('offline', noEvento);
-      clearInterval(sonda);
       clearInterval(contador);
     };
   }, [sincronizarAgora, modoCampo]);
@@ -3697,7 +3734,7 @@ function OrdensServico({ usuarioAtual }) {
                     </span>
                     <span className="flex items-center gap-4 shrink-0 text-[10px] text-slate-400 font-semibold flex-wrap">
                       <span>Encerrada em <b className="text-slate-600">{fmtData(os.data_fim)}</b></span>
-                      <span className="hidden sm:inline">{(os.total_materiais_aplicado || 0).toFixed(3)} {unidadeContrato(os.tipo)} aplicado</span>
+                      <span className="hidden sm:inline">{Number(os.total_materiais_aplicado || 0).toFixed(3)} {unidadeContrato(os.tipo)} aplicado</span>
                       <span className="hidden sm:inline">{os.fotos_count || 0} foto(s)</span>
                     </span>
                   </button>

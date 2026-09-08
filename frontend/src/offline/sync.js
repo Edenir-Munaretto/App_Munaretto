@@ -178,9 +178,16 @@ export async function sincronizar(onProgress, seletor = null) {
   };
   const mapaFotos = {};
 
+  // Com seletor (reenvio individual), apenas o TIPO selecionado é enviado —
+  // reenviar uma operação não pode reprocessar todas as fotos pendentes e
+  // vice-versa.
+  const somenteSeletor = !!(seletor && (seletor.fotos?.length || seletor.operacoes?.length));
+
   let fotos = await dbGetAll('fotos');
   if (seletor?.fotos?.length) {
     fotos = fotos.filter(f => seletor.fotos.includes(f.id_local));
+  } else if (somenteSeletor) {
+    fotos = [];
   }
   const fotosOk = await enviarFotos(fotos, resumo, mapaFotos, onProgress);
   if (!fotosOk) return resumo;
@@ -188,6 +195,8 @@ export async function sincronizar(onProgress, seletor = null) {
   let ops = await dbGetAll('fila');
   if (seletor?.operacoes?.length) {
     ops = ops.filter(op => seletor.operacoes.includes(op.id_local));
+  } else if (somenteSeletor) {
+    ops = [];
   }
   if (ops.length) {
     const opsOk = await enviarOperacoes(ops, mapaFotos, resumo, onProgress);

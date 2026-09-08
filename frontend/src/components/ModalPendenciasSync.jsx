@@ -30,12 +30,16 @@ function fmtHora(iso) {
 function FotoThumb({ foto }) {
   const [url, setUrl] = useState(null);
   useEffect(() => {
+    let objetoUrl = null;
     try {
-      setUrl(URL.createObjectURL(foto.arquivo?.blob));
+      objetoUrl = URL.createObjectURL(foto.arquivo?.blob);
+      setUrl(objetoUrl);
     } catch {
       setUrl(null);
     }
-    return () => { if (url) URL.revokeObjectURL(url); };
+    // Revoga a URL CRIADA neste efeito (não a do estado — a closure com `url`
+    // ficava sempre nula e o objeto URL vazava por foto renderizada).
+    return () => { if (objetoUrl) URL.revokeObjectURL(objetoUrl); };
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [foto.id_local]);
   if (!url) return <ImageIcon size={16} className="text-slate-400" />;

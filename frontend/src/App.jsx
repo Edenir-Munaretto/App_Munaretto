@@ -393,8 +393,11 @@ function App() {
       const res = await apiFetch(`${API_URL}/usuarios/me`);
       if (res.ok) {
         const dados = await res.json();
-        setUsuario(dados);
-        localStorage.setItem('munaretto_usuario', JSON.stringify(dados));
+        // Nunca persiste token vindo de /me: o token vive só na chave do
+        // api.js (uma 2ª cópia no localStorage fugiria da limpeza do 401).
+        const { token, ...dadosSemToken } = dados;
+        setUsuario(dadosSemToken);
+        localStorage.setItem('munaretto_usuario', JSON.stringify(dadosSemToken));
       }
     } catch (err) {
       console.error('Erro ao atualizar dados do usuário:', err);

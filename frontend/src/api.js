@@ -51,6 +51,9 @@ export async function renovarSessao() {
       const res = await fetch(`${API_URL}/usuarios/refresh`, {
         method: 'POST',
         headers: { Authorization: `Bearer ${getToken()}` },
+        // Timeout próprio: sem ele a promise ficava pendurada em rede morta
+        // e travava o botão "Renovar sessão".
+        signal: AbortSignal.timeout(15000),
       });
       if (res.ok) {
         const data = await res.json();

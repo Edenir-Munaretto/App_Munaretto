@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 import {
   AlertTriangle, Building, ClipboardList, FileDown, FileText, FolderOpen,
   MapPin, Package, Plus, RefreshCw, X,
@@ -72,12 +72,17 @@ export default function PainelObra({ obra, onFechar, onAbrirOS, onNovaOS, refres
   const [erro, setErro] = useState(null);
   const [gerando, setGerando] = useState(false);
   const [terminoAberto, setTerminoAberto] = useState(false);
+  // Guarda anti-corrida: trocar os filtros rápido não pode deixar a resposta
+  // antiga (mais lenta) sobrescrever a do filtro atual.
+  const geracaoResumo = useRef(0);
 
   const carregarResumo = useCallback(async (status) => {
+    const geracao = ++geracaoResumo.current;
     setCarregando(true);
     setErro(null);
     try {
       const res = await apiFetch(`${API_URL}/os/obras/${obra.id}/resumo?status=${encodeURIComponent(status)}`);
+      if (geracao !== geracaoResumo.current) return;
       if (!res.ok) {
         const corpo = await res.json().catch(() => null);
         setErro(corpo?.detail || 'Falha ao carregar o resumo da obra.');
@@ -86,10 +91,11 @@ export default function PainelObra({ obra, onFechar, onAbrirOS, onNovaOS, refres
       }
       setDados(await res.json());
     } catch {
+      if (geracao !== geracaoResumo.current) return;
       setErro('Falha de conexão ao carregar o resumo da obra.');
       setDados(null);
     } finally {
-      setCarregando(false);
+      if (geracao === geracaoResumo.current) setCarregando(false);
     }
   }, [obra.id]);
 
@@ -115,7 +121,9 @@ export default function PainelObra({ obra, onFechar, onAbrirOS, onNovaOS, refres
       document.body.appendChild(a);
       a.click();
       document.body.removeChild(a);
-      window.URL.revokeObjectURL(url);
+      // Revoga com atraso: em alguns navegadores (Safari/WebView) revogar logo
+      // após o clique cancela o download iniciado.
+      setTimeout(() => window.URL.revokeObjectURL(url), 60000);
     } catch {
       mostrarToast('Falha de conexão ao gerar o PDF.', 'error');
     } finally {

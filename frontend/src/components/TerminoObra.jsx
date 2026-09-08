@@ -134,6 +134,7 @@ export default function TerminoObra({ obra, onFechar, mostrarToast }) {
   }, [form, obra.id, mostrarToast]);
 
   const baixarPdf = async () => {
+    if (processando) return; // duplo toque rápido
     setProcessando(true);
     try {
       const ok = await salvar(true);
@@ -158,7 +159,8 @@ export default function TerminoObra({ obra, onFechar, mostrarToast }) {
       document.body.appendChild(a);
       a.click();
       document.body.removeChild(a);
-      window.URL.revokeObjectURL(url);
+      // Revoga com atraso (Safari/WebView cancelam download se revogar na hora).
+      setTimeout(() => window.URL.revokeObjectURL(url), 60000);
       mostrarToast('Carta de término baixada.');
     } catch {
       mostrarToast('Falha de conexão ao gerar o PDF.', 'error');
@@ -168,6 +170,7 @@ export default function TerminoObra({ obra, onFechar, mostrarToast }) {
   };
 
   const salvarPdf = async () => {
+    if (processando) return; // duplo toque rápido
     setProcessando(true);
     try {
       await salvar();
