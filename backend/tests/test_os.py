@@ -2093,3 +2093,97 @@ class TestCorrecoesLote3:
         assert len(itens) == 1
         assert itens[0]["classificacao"] == "1.1"
         assert itens[0]["pergunta"] == "Construção: conferiu o projeto?"
+
+
+class _S3Contador:
+    """Registra as chaves apagadas do bucket (delete_object)."""
+
+    def __init__(self):
+        self.apagadas = []
+
+    def delete_object(self, **kwargs):
+        self.apagadas.append(kwargs["Key"])
+        return {}
+
+
+class TestCorrecoesLote5:
+    """Lacunas de cobertura do Lote 5."""
+
+    def test_estorno_de_material_ok_404_e_campo_negado(self, os_gestor_client, os_campo_client, db_fake):
+        _seed_cenario(db_fake)
+        os_id = _criar_os(os_gestor_client).json()["id"]
+        assert os_gestor_client.put(f"/api/os/{os_id}/status", json={"novo_status": "aberta"}).status_code == 200
+        lanc = os_gestor_client.post(f"/api/os/{os_id}/materiais", json={"produto_id": 7, "quantidade_usada": 2}).json()
+        lid = lanc["id"]
+
+        resp = os_gestor_client.delete(f"/api/os/{os_id}/materiais/{lid}")
+        assert resp.status_code == 200, resp.text
+        assert all(m["os_id"] != os_id for m in db_fake._dados["os_materiais"])
+
+        assert os_gestor_client.delete(f"/api/os/{os_id}/materiais/{lid}").status_code == 404
+
+        os2 = _criar_os(os_gestor_client, equipe_id=100).json()["id"]
+        assert os_campo_client.put(f"/api/os/{os2}/status", json={"novo_status": "aberta"}).status_code == 200
+        lanc2 = os_campo_client.post(f"/api/os/{os2}/materiais", json={"produto_id": 7, "quantidade_usada": 1}).json()
+        assert os_campo_client.delete(f"/api/os/{os2}/materiais/{lanc2['id']}").status_code == 403
+
+    def test_excluir_foto_gestor_remove_linha_e_objeto(self, os_gestor_client, db_fake, monkeypatch):
+        _seed_cenario(db_fake)
+        s3 = _S3Contador()
+        monkeypatch.setattr("routers.os.get_s3_client", lambda: s3)
+        monkeypatch.setattr("routers.os.bucket", lambda: "bucket-teste")
+        os_id = _criar_os(os_gestor_client).json()["id"]
+        _anexar_foto_via_banco(db_fake, os_id, qtd=1)
+        foto_id = db_fake._dados["os_fotos"][0]["id"]
+        chave = db_fake._dados["os_fotos"][0]["bucket_key"]
+
+        resp = os_gestor_client.delete(f"/api/os/{os_id}/fotos/{foto_id}")
+        assert resp.status_code == 200, resp.text
+        assert db_fake._dados["os_fotos"] == []
+        assert s3.apagadas == [chave]
+
+    def test_excluir_os_com_filhos_remove_objetos_do_bucket(self, os_gestor_client, db_fake, monkeypatch):
+        _seed_cenario(db_fake)
+        s3 = _S3Contador()
+        monkeypatch.setattr("routers.os.get_s3_client", lambda: s3)
+        monkeypatch.setattr("routers.os.bucket", lambda: "bucket-teste")
+        os_id = _criar_os(os_gestor_client).json()["id"]
+        for novo in ("aberta", "em_andamento", "concluida"):
+            assert os_gestor_client.put(f"/api/os/{os_id}/status", json={"novo_status": novo}).status_code == 200
+        os_gestor_client.post(f"/api/os/{os_id}/materiais", json={"produto_id": 7, "quantidade_usada": 2})
+        _anexar_foto_via_banco(db_fake, os_id, qtd=2)
+
+        chaves = [f["bucket_key"] for f in db_fake._dados["os_fotos"] if f["os_id"] == os_id]
+        resp = os_gestor_client.delete(f"/api/os/{os_id}")
+        assert resp.status_code == 200, resp.text
+        assert all(o["id"] != os_id for o in db_fake._dados["ordens_servico"])
+        assert sorted(s3.apagadas) == sorted(chaves)
+
+    def test_matriz_de_transicoes_invalidas_422(self, os_gestor_client, db_fake):
+        _seed_cenario(db_fake)
+        # Cada par (atual -> destino) fora da máquina de estados deve devolver
+        # 422 ANTES de qualquer gate de checklist/justificativa.
+        casos = [
+            ("aberta", "rascunho"),
+            ("em_andamento", "aberta"),
+            ("impedida", "cancelada"),
+            ("concluida", "cancelada"),
+            ("cancelada", "concluida"),
+            ("rascunho", "concluida"),
+        ]
+        for status_atual, destino in casos:
+            os_id = _criar_os(os_gestor_client).json()["id"]
+            db_fake._dados["ordens_servico"][-1]["status"] = status_atual
+            resp = os_gestor_client.put(f"/api/os/{os_id}/status", json={"novo_status": destino})
+            assert resp.status_code == 422, (status_atual, destino, resp.text)
+            assert "Transição inválida" in resp.json()["detail"]
+
+    def test_upload_foto_mime_nao_permitido_400(self, os_gestor_client, db_fake):
+        _seed_cenario(db_fake)
+        os_id = _criar_os(os_gestor_client).json()["id"]
+        resp = os_gestor_client.post(
+            f"/api/os/{os_id}/fotos",
+            files={"arquivo": ("nota.txt", b"apenas texto", "text/plain")},
+        )
+        assert resp.status_code == 400
+        assert db_fake._dados["os_fotos"] == []

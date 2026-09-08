@@ -509,3 +509,12 @@ class TestTerminoObra:
         self._criar_obra_termino(db_fake)
         resp = os_gestor_client.put("/api/os/obras/506/termino", json={"consumidor": "x" * 300})
         assert resp.status_code == 422
+
+
+    def test_rotas_da_obra_negadas_para_campo(self, os_campo_client, db_fake):
+        _inserir_obra(db_fake, 507, "Obra Restrita")
+        assert os_campo_client.get("/api/os/obras/507/resumo").status_code == 403
+        assert os_campo_client.get("/api/os/obras/507/relatorio").status_code == 403
+        assert os_campo_client.get("/api/os/obras/507/servicos").status_code == 403
+        assert os_campo_client.get("/api/os/obras/507/termino").status_code == 403
+        assert os_campo_client.post("/api/os/obras/507/termino/pdf", json={}).status_code == 403
