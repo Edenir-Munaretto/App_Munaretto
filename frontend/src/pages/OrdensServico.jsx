@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { DragDropContext, Droppable, Draggable } from '@hello-pangea/dnd';
 import {
-  Plus, Search, X, Play, Pause, Camera, Package, ClipboardList, MapPin,
+  Plus, Search, X, Play, Camera, Package, ClipboardList, MapPin,
   AlertTriangle, Check, Clock, CalendarClock, FileDown, LayoutGrid,
   FolderKanban, HardHat, Boxes, Trash2, Image as ImageIcon,
   Pencil, Building, Printer, ListChecks, RefreshCw, WifiOff, ChevronDown, Archive,
@@ -22,7 +22,6 @@ import {
   registrarFotoItemLocal, hidratarFotosPendentes,
   salvarResponsavelLocal,
   registrarFalhaDeRede, testarConexao, estaEmWifi,
-  cronometroDerivadoDaFila,
 } from '../offline/offline';
 import { sincronizar } from '../offline/sync';
 
@@ -1343,143 +1342,6 @@ function TabTimeline({ historico }) {
 // Painel de execução (drawer do gestor e tela cheia no mobile)
 // ---------------------------------------------------------------------------
 
-// Formata segundos como HH:MM:SS
-function formatarTempo(segundos) {
-  const h = Math.floor(segundos / 3600);
-  const m = Math.floor((segundos % 3600) / 60);
-  const s = segundos % 60;
-  return `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}`;
-}
-
-function CronometroHH({ osDetalhe, capturarGps, onAtualizado, mostrarToast, podeEditar }) {
-  const [processando, setProcessando] = useState(false);
-  const [segundosDecorridos, setSegundosDecorridos] = useState(0);
-  // Espelho local do cronômetro derivado da fila de pendências (Modo Campo):
-  // com um play ainda pendente o botão NÃO volta a "Iniciar", impedindo que
-  // toques repetidos (ou as duas instâncias do painel) enfileirem 2+ plays.
-  const [hhPendente, setHhPendente] = useState(null);
-  const servidor = osDetalhe.cronometro_aberto;
-
-  // Reavalia a fila sempre que o detalhe recarrega (onAtualizado após cada
-  // ação offline enfileira e recarrega o detalhe local).
-  useEffect(() => {
-    let ativo = true;
-    setHhPendente(null);
-    if (!usarLocal() || !osDetalhe?.id) return undefined;
-    cronometroDerivadoDaFila(osDetalhe.id)
-      .then(estado => {
-        if (ativo) setHhPendente(estado);
-      })
-      .catch(() => { /* sem fila legível: mantém o estado do servidor */ });
-    return () => { ativo = false; };
-  }, [osDetalhe]);
-
-  // Sem operações de H.H. pendentes, vale o estado real (servidor/pacote);
-  // com pendências, vale o que a fila diz (última op play/pause).
-  const temFilaHh = hhPendente != null;
-  const aberto = temFilaHh ? hhPendente.aberto : !!servidor;
-  const inicioIso = temFilaHh ? (hhPendente.aberto ? hhPendente.inicio : null) : servidor?.inicio;
-
-  // Atualiza o contador a cada segundo enquanto o cronômetro está ativo
-  useEffect(() => {
-    if (!aberto || !inicioIso) {
-      setSegundosDecorridos(0);
-      return undefined;
-    }
-    const calcular = () => {
-      const inicio = new Date(inicioIso);
-      const agora = new Date();
-      setSegundosDecorridos(Math.max(0, Math.floor((agora - inicio) / 1000)));
-    };
-    calcular();
-    const intervalo = setInterval(calcular, 1000);
-    return () => clearInterval(intervalo);
-  }, [aberto, inicioIso]);
-
-  const acionar = async (acao, tentativa = 0) => {
-    if (acao === 'play' && usarLocal() && hhPendente?.aberto) {
-      mostrarToast('Já existe um início de trabalho registrado neste dispositivo aguardando sincronização.', 'error');
-      return;
-    }
-    setProcessando(true);
-    // Localização real no momento da ação (não reutiliza check-in antigo).
-    const gps = await capturarGps();
-
-    // Offline: registra na fila com o horário real do dispositivo.
-    if (usarLocal()) {
-      try {
-        await enfileirarOperacao({
-          tipo: acao === 'play' ? 'apontamento_play' : 'apontamento_pause',
-          os_id: osDetalhe.id,
-          payload: { geolocalizacao: gps },
-        });
-        mostrarToast(acao === 'play'
-          ? 'Início registrado no dispositivo (será sincronizado).'
-          : 'Pausa registrada no dispositivo (será sincronizada).');
-        // Reflexo otimista do cronômetro aberto (reavalia a fila).
-        onAtualizado();
-      } catch {
-        mostrarToast('Falha ao registrar o apontamento no dispositivo.', 'error');
-      } finally {
-        setProcessando(false);
-      }
-      return;
-    }
-
-    try {
-      const url = `${API_URL}/os/${osDetalhe.id}/apontamentos${gps ? `?geolocalizacao=${encodeURIComponent(gps)}` : ''}`;
-      const res = await apiFetch(url, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ acao }),
-      });
-      const data = await res.json().catch(() => null);
-      if (res.ok) {
-        mostrarToast(acao === 'play' ? 'Cronômetro iniciado.' : `Pausa registrada (${data.minutos_trabalhados} min).`);
-        onAtualizado();
-      } else {
-        mostrarToast(erroDaResposta(data, 'Erro no apontamento.'), 'error');
-      }
-    } catch {
-      // Sem internet real: registra na fila local (Modo Campo).
-      if (tentativa === 0 && isModoCampo()) {
-        registrarFalhaDeRede();
-        return acionar(acao, 1);
-      }
-      mostrarToast('Erro de conexão no apontamento de horas.', 'error');
-    } finally {
-      setProcessando(false);
-    }
-  };
-
-  if (!podeEditar) return null;
-  const desabilitado = ['rascunho', 'impedida', 'concluida', 'cancelada'].includes(osDetalhe.status);
-
-  return (
-    <div className="space-y-2">
-      <button
-        onClick={() => acionar(aberto ? 'pause' : 'play')}
-        disabled={desabilitado || processando}
-        className={`w-full h-16 rounded-2xl text-white font-extrabold text-base flex items-center justify-center gap-3 shadow-lg transition-all disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer ${
-          aberto ? 'bg-amber-500 hover:bg-amber-600 shadow-amber-900/20' : 'bg-emerald-600 hover:bg-emerald-700 shadow-emerald-900/20'
-        }`}
-      >
-        {aberto ? <><Pause size={26} /> PAUSAR TRABALHO</> : <><Play size={26} /> INICIAR TRABALHO</>}
-      </button>
-      {/* Cronômetro visual em tempo real */}
-      {aberto && (
-        <div className="flex items-center justify-center gap-2 bg-amber-50 border border-amber-200 rounded-xl py-2">
-          <Clock size={14} className="text-amber-600 animate-pulse" />
-          <span className="font-mono text-lg font-extrabold text-amber-700 tabular-nums tracking-wider">
-            {formatarTempo(segundosDecorridos)}
-          </span>
-          <span className="text-xs text-amber-500 font-semibold">em andamento</span>
-        </div>
-      )}
-    </div>
-  );
-}
-
 // Botões de transição de status direto no painel — essencial no modo campo,
 // onde não há drag-and-drop. Transições irreversíveis pedem confirmação.
 // O checklist de execução bloqueia o início (grupo 1) e a conclusão.
@@ -1587,7 +1449,7 @@ function AcoesStatus({ detalhe, podeEditar, mudarStatus, aoAplicado, ehGestor, t
         titulo={destinoConfirmar === 'concluida' ? 'Concluir O.S' : 'Cancelar O.S'}
         mensagem={
           destinoConfirmar === 'concluida'
-            ? `Confirmar a conclusão da O.S ${detalhe.codigo}? Esta ação encerra os cronômetros e não pode ser desfeita.`
+            ? `Confirmar a conclusão da O.S ${detalhe.codigo}? Esta ação não pode ser desfeita.`
             : `Confirmar o cancelamento da O.S ${detalhe.codigo}? Esta ação não pode ser desfeita.`
         }
         confirmarTexto={destinoConfirmar === 'concluida' ? 'Confirmar' : 'Cancelar O.S'}
@@ -1600,7 +1462,7 @@ function AcoesStatus({ detalhe, podeEditar, mudarStatus, aoAplicado, ehGestor, t
   );
 }
 
-function PainelExecucao({ osId, produtos, capturarGps, onFechar, recarregarLista, mostrarToast, ehMobile, mudarStatus, ehGestor, onEditar, onExcluir, transicoes, onPedirImpedimento, onReabrir }) {
+function PainelExecucao({ osId, produtos, onFechar, recarregarLista, mostrarToast, ehMobile, mudarStatus, ehGestor, onEditar, onExcluir, transicoes, onPedirImpedimento, onReabrir }) {
   const [detalhe, setDetalhe] = useState(null);
   const [erro, setErro] = useState('');
   const [aba, setAba] = useState('insumos');
@@ -1696,7 +1558,6 @@ function PainelExecucao({ osId, produtos, capturarGps, onFechar, recarregarLista
     );
   }
 
-  const mo = detalhe.mao_de_obra || {};
   const mat = detalhe.materiais || {};
   const encerrada = ['concluida', 'cancelada'].includes(detalhe.status);
   const podeEditar = !encerrada;
@@ -1832,45 +1693,20 @@ function PainelExecucao({ osId, produtos, capturarGps, onFechar, recarregarLista
         </div>
       )}
 
-      {/* Cartões de custo */}
-      <div className="grid grid-cols-2 gap-2 mt-3">
-        <div className="bg-sky-50 rounded-xl p-2.5 border border-sky-100">
-          <p className="text-[9px] font-bold text-sky-600 uppercase">Horas H.H.</p>
-          <p className="text-sm font-extrabold text-sky-800">{mo.total_horas ?? 0} h</p>
-        </div>
-        <div className="bg-amber-50 rounded-xl p-2.5 border border-amber-100">
-          <p className="text-[9px] font-bold text-amber-600 uppercase">Materiais</p>
-          <p className="text-sm font-extrabold text-amber-800">{mat.total_aplicado ?? 0} {unidadeContrato(detalhe.tipo)}</p>
-        </div>
-      </div>
-
-      {/* Breakdown de horas por funcionário */}
-      {(mo.por_funcionario?.length > 0) && (
-        <details className="mt-2 group">
-          <summary className="text-[10px] font-bold text-slate-400 uppercase tracking-wide cursor-pointer flex items-center gap-1 select-none list-none">
-            <span className="group-open:rotate-90 transition-transform inline-block">▶</span>
-            Horas por funcionário
-          </summary>
-          <div className="mt-1.5 bg-slate-50 border border-slate-100 rounded-xl divide-y divide-slate-100">
-            {mo.por_funcionario.map((f, i) => (
-              <div key={i} className="flex items-center justify-between px-3 py-2">
-                <span className="text-xs text-slate-600 font-semibold truncate">{f.nome || 'Funcionário'}</span>
-                <span className="text-xs font-bold text-sky-700 shrink-0">{(f.minutos / 60).toFixed(1)} h</span>
-              </div>
-            ))}
+      {/* Cartão de Materiais (apenas gestor) — cronômetro/H.H. foi descontinuado */}
+      {ehGestor && (
+        <div className="mt-3">
+          <div className="bg-amber-50 rounded-xl p-2.5 border border-amber-100">
+            <p className="text-[9px] font-bold text-amber-600 uppercase">Materiais</p>
+            <p className="text-sm font-extrabold text-amber-800">
+              {mat.total_aplicado ?? 0} {unidadeContrato(detalhe.tipo)}
+            </p>
           </div>
-        </details>
+        </div>
       )}
 
       {/* Ações rápidas */}
       <div className="space-y-2 mt-3">
-        <CronometroHH
-          osDetalhe={detalhe}
-          capturarGps={capturarGps}
-          onAtualizado={() => { carregar(); recarregarLista(); }}
-          mostrarToast={mostrarToast}
-          podeEditar={podeEditar}
-        />
         <AcoesStatus
           detalhe={detalhe}
           podeEditar={podeEditar}
@@ -3637,7 +3473,6 @@ function OrdensServico({ usuarioAtual }) {
               osId={osSelecionada}
               obras={obras}
               produtos={produtos}
-              capturarGps={capturarGps}
               onFechar={() => setOsSelecionada(null)}
               recarregarLista={recarregarLista}
               mostrarToast={mostrarToast}
@@ -3773,7 +3608,6 @@ function OrdensServico({ usuarioAtual }) {
               osId={osSelecionada}
               obras={obras}
               produtos={produtos}
-              capturarGps={capturarGps}
               onFechar={() => setOsSelecionada(null)}
               recarregarLista={recarregarLista}
               mostrarToast={mostrarToast}
@@ -3844,7 +3678,7 @@ function OrdensServico({ usuarioAtual }) {
         titulo={confirmacaoEncerrar?.destino === 'concluida' ? 'Concluir O.S' : 'Cancelar O.S'}
         mensagem={
           confirmacaoEncerrar?.destino === 'concluida'
-            ? `Confirmar a conclusão da O.S ${confirmacaoEncerrar?.os?.codigo}? Esta ação encerra os cronômetros e não pode ser desfeita.`
+            ? `Confirmar a conclusão da O.S ${confirmacaoEncerrar?.os?.codigo}? Esta ação não pode ser desfeita.`
             : `Confirmar o cancelamento da O.S ${confirmacaoEncerrar?.os?.codigo}? Esta ação não pode ser desfeita.`
         }
         loading={processando}
