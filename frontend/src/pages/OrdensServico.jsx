@@ -18,7 +18,7 @@ import {
   prepararPacoteCampo, completarPacoteCampo, limparPacote, infoPacote,
   getOSLocal, getChecklistLocal, getListaLocal, getProdutosLocal, salvarDetalheLocal, salvarChecklistLocal,
   atualizarStatusLocal, atualizarRespostaLocal, recalcularResumo, atualizarListaLocal,
-  enfileirarOperacao, enfileirarFoto, contarPendentes,
+  enfileirarOperacao, enfileirarFoto, contarPendentes, descartarPendente,
   registrarFotoItemLocal, hidratarFotosPendentes,
   salvarResponsavelLocal,
   registrarFalhaDeRede, testarConexao, estaEmWifi,
@@ -822,8 +822,9 @@ function TabInsumos({ osDetalhe, produtos, onAtualizado, mostrarToast, podeEdita
 
   // Espelha o lançamento no pacote local (offline e — no Modo Campo — também
   // após o lançamento online, para o estado local não ficar velho ao cair a
-  // rede; A5).
-  const refletirMaterialLocal = async (produto, totalAplicado) => {
+  // rede; A5). `idLocal` liga o registro ao item da FILA quando o lançamento
+  // ainda não foi sincronizado (permite estornar direto no dispositivo).
+  const refletirMaterialLocal = async (produto, totalAplicado, idLocal = null) => {
     const local = await getOSLocal(osDetalhe.id);
     if (!local) return;
     const materiais = local.materiais || { itens: [], total_aplicado: 0 };
@@ -841,22 +842,24 @@ function TabInsumos({ osDetalhe, produtos, onAtualizado, mostrarToast, podeEdita
     else item.aplicado_normal = Number((item.aplicado_normal + totalAplicado).toFixed(3));
     materiais.total_aplicado = Number(((materiais.total_aplicado || 0) + totalAplicado).toFixed(3));
     local.materiais = materiais;
-    local.ultimos_lancamentos = [
-      {
-        id: Date.now(),
-        produto_id: produto.id,
-        quantidade_usada: totalAplicado,
-        quantidade_pecas: qtd,
-        fator_usc: temUsc && fatorUsc > 0 ? fatorUsc : 0,
-        tipo_usc: tipoUsc,
-        codigo_servico: tipoUsc === 'especial'
-          ? produto.codigo_especial || produto.codigo || null
-          : produto.codigo || produto.codigo_especial || null,
-        data_lancamento: new Date().toISOString(),
-        produtos: { nome: produto.nome, unidade: produto.unidade || '-' },
-      },
-      ...(local.ultimos_lancamentos || []),
-    ].slice(0, 10);
+    const linha = {
+      id: Date.now(),
+      produto_id: produto.id,
+      quantidade_usada: totalAplicado,
+      quantidade_pecas: qtd,
+      fator_usc: temUsc && fatorUsc > 0 ? fatorUsc : 0,
+      tipo_usc: tipoUsc,
+      codigo_servico: tipoUsc === 'especial'
+        ? produto.codigo_especial || produto.codigo || null
+        : produto.codigo || produto.codigo_especial || null,
+      data_lancamento: new Date().toISOString(),
+      produtos: { nome: produto.nome, unidade: produto.unidade || '-' },
+    };
+    if (idLocal) {
+      linha.id_local = idLocal;
+      linha.pendente_local = true; // aguardando sincronização (estorno local)
+    }
+    local.ultimos_lancamentos = [linha, ...(local.ultimos_lancamentos || [])].slice(0, 10);
     await salvarDetalheLocal(local);
   };
 
@@ -877,7 +880,7 @@ function TabInsumos({ osDetalhe, produtos, onAtualizado, mostrarToast, podeEdita
       // Offline (Modo Campo): entra na fila e reflete localmente; o servidor
       // revalida e converte na sincronização (mesma lógica USC do gestor).
       if (usarLocal()) {
-        await enfileirarOperacao({
+        const op = await enfileirarOperacao({
           tipo: 'material',
           os_id: osDetalhe.id,
           payload: {
@@ -887,7 +890,7 @@ function TabInsumos({ osDetalhe, produtos, onAtualizado, mostrarToast, podeEdita
             tipo_os: osDetalhe.tipo, // p/ exibir a unidade do contrato nas pendências
           },
         });
-        await refletirMaterialLocal(produto, totalUsc);
+        await refletirMaterialLocal(produto, totalUsc, op.id_local);
         mostrarToast(`Serviço "${produto.nome}" lançado (${totalUsc} ${unidade}) — será sincronizado ao reconectar.`);
         limparFormulario();
         onAtualizado();
@@ -914,9 +917,49 @@ function TabInsumos({ osDetalhe, produtos, onAtualizado, mostrarToast, podeEdita
     }
   };
 
+  // Remove o lançamento pendente do snapshot local e atualiza os totais.
+  const removerMaterialLocal = async (alvo) => {
+    const local = await getOSLocal(osDetalhe.id);
+    if (!local) return;
+    const valor = Number(alvo.quantidade_usada || 0);
+    const materiais = local.materiais || { itens: [], total_aplicado: 0 };
+    const itens = (materiais.itens || [])
+      .map(item => {
+        if (item.produto_id !== alvo.produto_id) return item;
+        const novo = { ...item };
+        novo.aplicado = Number((Number(novo.aplicado || 0) - valor).toFixed(3));
+        if (alvo.tipo_usc === 'especial') {
+          novo.aplicado_especial = Number((Number(novo.aplicado_especial || 0) - valor).toFixed(3));
+        } else {
+          novo.aplicado_normal = Number((Number(novo.aplicado_normal || 0) - valor).toFixed(3));
+        }
+        return novo;
+      })
+      .filter(item => Number(item.aplicado || 0) > 0);
+    materiais.itens = itens;
+    materiais.total_aplicado = Number(Math.max(0, Number(materiais.total_aplicado || 0) - valor).toFixed(3));
+    local.materiais = materiais;
+    local.ultimos_lancamentos = (local.ultimos_lancamentos || []).filter(l => l.id !== alvo.id);
+    await salvarDetalheLocal(local);
+  };
+
   const estornar = async (id) => {
     // Chamado só após confirmação no ModalConfirmacao
     setEstornandoId(null);
+    const alvo = (osDetalhe.lancamentos || []).find(l => l.id === id);
+    // Lançamento pendente no dispositivo (ainda não sincronizado): remove da
+    // fila e do snapshot local — não existe no servidor ainda.
+    if (alvo?.pendente_local && usarLocal()) {
+      try {
+        if (alvo.id_local) await descartarPendente('operacao', alvo.id_local);
+        await removerMaterialLocal(alvo);
+        mostrarToast('Lançamento removido do dispositivo (não será sincronizado).');
+        onAtualizado();
+      } catch {
+        mostrarToast('Falha ao remover o lançamento pendente.', 'error');
+      }
+      return;
+    }
     try {
       const res = await apiFetch(`${API_URL}/os/${osDetalhe.id}/materiais/${id}`, { method: 'DELETE' });
       if (res.ok) {
@@ -1155,6 +1198,11 @@ function TabInsumos({ osDetalhe, produtos, onAtualizado, mostrarToast, podeEdita
                         : 'bg-primary-50 text-primary-700 border-primary-200'
                     }`}>
                       {rotuloTipo}
+                    </span>
+                  )}
+                  {l.pendente_local && (
+                    <span className="ml-1.5 shrink-0 text-[9px] font-bold px-1.5 py-0.5 rounded-full border border-amber-200 bg-amber-50 text-amber-700">
+                      não sincronizado
                     </span>
                   )}
                 </span>
@@ -1562,9 +1610,10 @@ function PainelExecucao({ osId, produtos, onFechar, recarregarLista, mostrarToas
   const encerrada = ['concluida', 'cancelada'].includes(detalhe.status);
   const podeEditar = !encerrada;
   // Em O.S encerrada, somente o gestor pode lançar serviços e estornar
-  // lançamentos (ajustes pós-conclusão); demais ações seguem bloqueadas.
+  // lançamentos (ajustes pós-conclusão); o CAMPO também estorna em O.S em
+  // execução (correção de lançamento errado), com backend validando equipe.
   const podeLancarServico = podeEditar || (ehGestor && encerrada);
-  const podeEstornar = ehGestor;
+  const podeEstornar = ehGestor || !encerrada;
   const podeExcluir = ehGestor && podeEditar;
   // Exclusão da O.S: gestor, apenas rascunho ou encerradas (sem execução ativa).
   const podeExcluirOs = ehGestor && ['rascunho', 'concluida', 'cancelada'].includes(detalhe.status);
