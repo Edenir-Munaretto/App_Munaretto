@@ -4113,7 +4113,7 @@ function PainelCadastros({ obras, equipes, produtos, recarregar, mostrarToast, o
             </div>
           </div>
 
-          <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-3 max-h-[450px] overflow-y-auto pr-1">
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-3 max-h-[450px] overflow-y-auto pr-1">
               {obrasFiltradas.length === 0 ? (
                 <div className="col-span-full text-center text-xs text-slate-400 py-12">Nenhuma obra encontrada.</div>
               ) : (
@@ -4122,7 +4122,7 @@ function PainelCadastros({ obras, equipes, produtos, recarregar, mostrarToast, o
                     key={o.id}
                     onClick={() => setObraAberta(o)}
                     title="Abrir a gestão da obra"
-                    className="group relative flex flex-col gap-1 text-xs bg-slate-50 hover:bg-slate-100/70 rounded-xl p-3 border border-slate-100 transition-all cursor-pointer select-none"
+                    className="group relative flex flex-col gap-1 text-xs bg-slate-50 hover:bg-slate-100/70 rounded-xl p-2.5 border border-slate-200 hover:border-primary-300 transition-all cursor-pointer select-none"
                   >
                     <div className="flex items-start justify-between gap-2">
                       <span className="font-extrabold text-slate-800 break-words leading-tight">{o.nome}</span>
@@ -4151,7 +4151,7 @@ function PainelCadastros({ obras, equipes, produtos, recarregar, mostrarToast, o
                       </div>
                     </div>
                     
-                    <div className="flex items-center gap-1.5 text-slate-500 font-semibold mt-1">
+                    <div className="flex items-center gap-1.5 text-slate-500 font-semibold mt-0.5">
                       <Building size={11} className="text-slate-400 flex-shrink-0" />
                       <span className="truncate">{o.clientes?.nome || o.cliente_celesc || 'Sem cliente'}</span>
                     </div>
@@ -4168,7 +4168,7 @@ function PainelCadastros({ obras, equipes, produtos, recarregar, mostrarToast, o
                     )}
 
                     {/* Resumo da gestão por obra: contagem de O.S e totais por contrato */}
-                    <div className="flex flex-wrap items-center gap-1.5 mt-1.5">
+                    <div className="flex flex-wrap items-center gap-1.5 mt-1">
                       {o.os_total > 0 && (
                         <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-white border border-slate-200 text-[10px] font-extrabold text-slate-600 whitespace-nowrap">
                           <ClipboardList size={10} className="text-primary-600" />
