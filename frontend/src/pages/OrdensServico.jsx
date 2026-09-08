@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { DragDropContext, Droppable, Draggable } from '@hello-pangea/dnd';
 import {
-  Search, X, Play, Pause, Camera, Package, ClipboardList, MapPin,
+  Plus, Search, X, Play, Pause, Camera, Package, ClipboardList, MapPin,
   AlertTriangle, Check, Clock, CalendarClock, FileDown, LayoutGrid,
   FolderKanban, HardHat, Boxes, Trash2, Image as ImageIcon,
   Pencil, Building, Printer, ListChecks, RefreshCw, WifiOff, ChevronDown, Archive,
@@ -3879,35 +3879,25 @@ function PainelCadastros({ obras, equipes, produtos, recarregar, mostrarToast, o
   // Gestão consolidada por obra: painel lateral aberto a partir dos cards.
   const [obraAberta, setObraAberta] = useState(null);
 
-  // Clientes (usados no autopreenchimento por Nota PS e no select da obra).
-  const [listaClientes, setListaClientes] = useState([]);
-  const [clienteAuto, setClienteAuto] = useState(null); // cliente encontrado pela Nota PS
-
-  useEffect(() => {
-    apiFetch(`${API_URL}/clientes/`)
-      .then(res => (res.ok ? res.json() : []))
-      .then(setListaClientes)
-      .catch(() => setListaClientes([]));
-  }, []);
+  // Cadastros em MODAL (padrão dos demais módulos): edicao preenche o modal.
+  const [obraModalAberto, setObraModalAberto] = useState(false);
+  const [obraModalEdicao, setObraModalEdicao] = useState(null); // obra em edição
+  const [equipeModalAberto, setEquipeModalAberto] = useState(false);
+  const [equipeModalEdicao, setEquipeModalEdicao] = useState(null); // equipe em edição
+  const [produtoModalAberto, setProdutoModalAberto] = useState(false);
+  const [produtoModalEdicao, setProdutoModalEdicao] = useState(null); // serviço em edição
 
   // Obras
-  const [novaObra, setNovaObra] = useState({ nome: '', cliente_id: '', cliente_celesc: '', cidade: '', endereco: '' });
-  const [obraCelesc, setObraCelesc] = useState(false); // true = obra de terceiro (Cliente Celesc)
   const [filtroObraLista, setFiltroObraLista] = useState('');
-  const [obraEmEdicao, setObraEmEdicao] = useState(null);
   const [excluirObraAlvo, setExcluirObraAlvo] = useState(null);
 
   // Equipes
-  const [novaEquipe, setNovaEquipe] = useState({ nome: '', numero: '', membros: [], lider: '' });
   const [filtroEquipeLista, setFiltroEquipeLista] = useState('');
-  const [equipeEmEdicao, setEquipeEmEdicao] = useState(null);
   const [excluirEquipeAlvo, setExcluirEquipeAlvo] = useState(null);
 
   // Produtos (serviços por contrato) — catálogos INDIVIDUAIS (sem "Todos")
-  const [novoProduto, setNovoProduto] = useState({ nome: '', codigo: '', codigo_especial: '', unidade: 'UN', preco_unitario: '', qtd_usc_especial: '', tipo: '' });
   const [filtroProdutoLista, setFiltroProdutoLista] = useState('');
   const [filtroTipoProduto, setFiltroTipoProduto] = useState(TIPO_PADRAO_OS);
-  const [produtoEmEdicao, setProdutoEmEdicao] = useState(null);
   const [excluirProdutoAlvo, setExcluirProdutoAlvo] = useState(null);
 
   // Importação em lote de serviços (.xlsx) — contrato fixo escolhido na tela.
@@ -3917,32 +3907,6 @@ function PainelCadastros({ obras, equipes, produtos, recarregar, mostrarToast, o
   const [impResumo, setImpResumo] = useState(null);   // {resumo, contrato} da simulação
   const [impProcessando, setImpProcessando] = useState(false);
   const inputImportRef = useRef(null);
-
-  const post = async (url, corpo, msgOk) => {
-    try {
-      const res = await apiFetch(url, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(corpo) });
-      const data = await res.json().catch(() => null);
-      if (res.ok) { mostrarToast(msgOk); recarregar(); return true; }
-      mostrarToast(erroDaResposta(data, 'Erro ao salvar.'), 'error');
-      return false;
-    } catch {
-      mostrarToast('Erro de conexão.', 'error');
-      return false;
-    }
-  };
-
-  const put = async (url, corpo, msgOk) => {
-    try {
-      const res = await apiFetch(url, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(corpo) });
-      const data = await res.json().catch(() => null);
-      if (res.ok) { mostrarToast(msgOk); recarregar(); return true; }
-      mostrarToast(erroDaResposta(data, 'Erro ao salvar.'), 'error');
-      return false;
-    } catch {
-      mostrarToast('Erro de conexão.', 'error');
-      return false;
-    }
-  };
 
   const inativar = async (url, msgOk) => {
     try {
@@ -3965,42 +3929,6 @@ function PainelCadastros({ obras, equipes, produtos, recarregar, mostrarToast, o
       (o.endereco || '').toLowerCase().includes(termo)
     );
   }, [obras, filtroObraLista]);
-
-  // Autopreenchimento: digitar a Nota PS localiza o cliente correspondente e
-  // já vincula o cliente + cidade/endereço do cadastro dele (só vale no modo
-  // "Cliente do cadastro"; obras da Celesc não passam pelo cadastro).
-  useEffect(() => {
-    if (obraCelesc) {
-      setClienteAuto(null);
-      return;
-    }
-    if (obraEmEdicao) {
-      setClienteAuto(null);
-      return;
-    }
-    const termo = (novaObra.nome || '').trim().toLowerCase();
-    if (termo.length < 3) {
-      setClienteAuto(null);
-      return;
-    }
-    const timer = setTimeout(() => {
-      const candidatos = listaClientes.filter(c =>
-        (c.nota_ps || '').trim().toLowerCase().includes(termo)
-      );
-      const cliente = candidatos.find(c => (c.nota_ps || '').trim().toLowerCase() === termo) ||
-        (candidatos.length === 1 ? candidatos[0] : null);
-      setClienteAuto(cliente);
-      if (cliente) {
-        setNovaObra(prev => ({
-          ...prev,
-          cliente_id: prev.cliente_id || String(cliente.id),
-          cidade: prev.cidade || cliente.cidade || '',
-          endereco: prev.endereco || cliente.endereco || '',
-        }));
-      }
-    }, 400);
-    return () => clearTimeout(timer);
-  }, [novaObra.nome, listaClientes, obraEmEdicao, obraCelesc]);
 
   const equipesFiltradas = useMemo(() => {
     if (!filtroEquipeLista) return equipes;
@@ -4026,24 +3954,6 @@ function PainelCadastros({ obras, equipes, produtos, recarregar, mostrarToast, o
     }
     return lista;
   }, [produtos, filtroProdutoLista, filtroTipoProduto]);
-
-  const iniciarProdutoEdicao = (p) => {
-    setProdutoEmEdicao(p);
-    setNovoProduto({
-      nome: p.nome || '',
-      codigo: p.codigo || '',
-      codigo_especial: p.codigo_especial || '',
-      unidade: p.unidade || 'UN',
-      preco_unitario: p.preco_unitario != null ? String(p.preco_unitario) : '',
-      qtd_usc_especial: p.qtd_usc_especial != null ? String(p.qtd_usc_especial) : '',
-      tipo: p.tipo || '',
-    });
-  };
-
-  const cancelarProdutoEdicao = () => {
-    setProdutoEmEdicao(null);
-    setNovoProduto({ nome: '', codigo: '', codigo_especial: '', unidade: 'UN', preco_unitario: '', qtd_usc_especial: '', tipo: '' });
-  };
 
   // --- Importação em lote de serviços (.xlsx) ---
 
@@ -4174,11 +4084,10 @@ function PainelCadastros({ obras, equipes, produtos, recarregar, mostrarToast, o
 
       {/* Conteúdo Aba OBRAS */}
       {abaAtiva === 'obras' && (
-        <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-          {/* Esquerda: Lista e Busca */}
-          <div className="lg:col-span-2 space-y-4">
-            <div className="flex flex-col sm:flex-row gap-3 sm:items-center justify-between">
-              <h3 className="font-extrabold text-slate-800 text-sm">Obras Cadastradas ({obrasFiltradas.length})</h3>
+        <div className="space-y-4">
+          <div className="flex flex-col sm:flex-row gap-3 sm:items-center justify-between">
+            <h3 className="font-extrabold text-slate-800 text-sm">Obras Cadastradas ({obrasFiltradas.length})</h3>
+            <div className="flex flex-col sm:flex-row gap-2 sm:items-center">
               {/* Barra de Busca */}
               <div className="relative w-full sm:max-w-xs">
                 <input
@@ -4195,9 +4104,16 @@ function PainelCadastros({ obras, equipes, produtos, recarregar, mostrarToast, o
                   </button>
                 )}
               </div>
+              <button
+                onClick={() => setObraModalAberto(true)}
+                className="flex items-center justify-center gap-1.5 px-4 py-2 bg-primary-600 text-white rounded-xl text-xs font-bold hover:bg-primary-700 transition-all cursor-pointer shadow-sm shrink-0"
+              >
+                <Plus size={14} /> Nova Obra
+              </button>
             </div>
+          </div>
 
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-3 max-h-[450px] overflow-y-auto pr-1">
+          <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-3 max-h-[450px] overflow-y-auto pr-1">
               {obrasFiltradas.length === 0 ? (
                 <div className="col-span-full text-center text-xs text-slate-400 py-12">Nenhuma obra encontrada.</div>
               ) : (
@@ -4214,15 +4130,8 @@ function PainelCadastros({ obras, equipes, produtos, recarregar, mostrarToast, o
                         <button
                           onClick={(e) => {
                             e.stopPropagation();
-                            setObraEmEdicao(o);
-                            setObraCelesc(!!o.cliente_celesc && !o.cliente_id);
-                            setNovaObra({
-                              nome: o.nome || '',
-                              cliente_id: String(o.cliente_id || ''),
-                              cliente_celesc: o.cliente_celesc || '',
-                              cidade: o.cidade || '',
-                              endereco: o.endereco || ''
-                            });
+                            setObraModalEdicao(o);
+                            setObraModalAberto(true);
                           }}
                           className="text-slate-400 hover:text-primary-600 cursor-pointer p-1 rounded hover:bg-white border hover:border-slate-200"
                           title="Editar obra"
@@ -4286,148 +4195,25 @@ function PainelCadastros({ obras, equipes, produtos, recarregar, mostrarToast, o
                 ))
               )}
             </div>
+
+            {/* Formulário de obra em modal (padrão dos demais módulos) */}
+            {obraModalAberto && (
+              <ModalObraCadastro
+                edicao={obraModalEdicao}
+                recarregar={recarregar}
+                mostrarToast={mostrarToast}
+                onFechar={() => { setObraModalAberto(false); setObraModalEdicao(null); }}
+              />
+            )}
           </div>
-
-          {/* Direita: Formulário */}
-          <div className="bg-slate-50/50 rounded-2xl border border-slate-100 p-5 space-y-4 h-fit">
-            <div className="flex items-center justify-between">
-              <h4 className="text-xs font-extrabold uppercase tracking-wider text-slate-500">
-                {obraEmEdicao ? `Editar Obra` : 'Nova Obra'}
-              </h4>
-              {obraEmEdicao && (
-                <span className="text-[9px] font-bold bg-amber-50 text-amber-700 rounded-full px-2 py-0.5 border border-amber-200 animate-pulse">
-                  Modo Edição
-                </span>
-              )}
-            </div>
-            
-            <div className="space-y-3">
-              {/* Tipo de cliente: cadastro de clientes OU Cliente Celesc */}
-              <div className="flex bg-slate-100 rounded-xl p-1 gap-1">
-                {[['cadastro', 'Cliente do cadastro'], ['celesc', 'Cliente Celesc']].map(([modo, rotulo]) => {
-                  const ativo = obraCelesc === (modo === 'celesc');
-                  return (
-                    <button key={modo} type="button"
-                      onClick={() => {
-                        setObraCelesc(modo === 'celesc');
-                        setNovaObra(prev => ({
-                          ...prev,
-                          ...(modo === 'celesc'
-                            ? { cliente_id: '' }
-                            : { cliente_celesc: '' }),
-                        }));
-                      }}
-                      className={`flex-1 py-2 rounded-lg text-[11px] font-bold transition-all cursor-pointer ${
-                        ativo ? 'bg-white text-primary-700 shadow-sm' : 'text-slate-500 hover:text-slate-700'
-                      }`}>
-                      {rotulo}
-                    </button>
-                  );
-                })}
-              </div>
-
-              <div>
-                <CampoTexto label="Nota PS *" value={novaObra.nome} onChange={e => setNovaObra({ ...novaObra, nome: e.target.value })} />
-                {!obraCelesc && clienteAuto && (
-                  <p className="text-[10px] font-bold text-emerald-600 mt-1">
-                    Cliente vinculado automaticamente: {clienteAuto.nome}
-                  </p>
-                )}
-                {!obraCelesc && !clienteAuto && !obraEmEdicao && (novaObra.nome || '').trim().length >= 3 && (
-                  <p className="text-[10px] font-semibold text-slate-400 mt-1">
-                    Nenhum cliente com esta Nota PS — selecione manualmente abaixo.
-                  </p>
-                )}
-              </div>
-
-              {!obraCelesc ? (
-                <ClienteAutocomplete
-                  clientes={listaClientes}
-                  value={novaObra.cliente_id}
-                  onChange={(cliente) => {
-                    if (!cliente) {
-                      setNovaObra({ ...novaObra, cliente_id: '' });
-                      return;
-                    }
-                    // Ao selecionar o cliente, preenche Nota PS, cidade e endereço.
-                    setNovaObra({
-                      ...novaObra,
-                      cliente_id: String(cliente.id),
-                      nome: cliente.nota_ps || novaObra.nome,
-                      cidade: cliente.cidade || '',
-                      endereco: cliente.endereco || '',
-                    });
-                  }}
-                />
-              ) : (
-                <CampoTexto label="Cliente Celesc (obra de terceiro) *"
-                  value={novaObra.cliente_celesc}
-                  onChange={e => setNovaObra({ ...novaObra, cliente_celesc: e.target.value })}
-                  placeholder="Ex.: Celesc — Regional X" />
-              )}
-              <CampoTexto label="Cidade" value={novaObra.cidade} onChange={e => setNovaObra({ ...novaObra, cidade: e.target.value })} />
-              <CampoTexto label="Endereço" value={novaObra.endereco} onChange={e => setNovaObra({ ...novaObra, endereco: e.target.value })} />
-            </div>
-
-            <div className="flex gap-2 pt-2">
-              {obraEmEdicao && (
-                <button
-                  type="button"
-                  onClick={() => {
-                    setObraEmEdicao(null);
-                    setObraCelesc(false);
-                    setNovaObra({ nome: '', cliente_id: '', cliente_celesc: '', cidade: '', endereco: '' });
-                  }}
-                  className="flex-1 py-2.5 bg-white border border-slate-200 text-slate-700 rounded-xl text-xs font-bold transition-all cursor-pointer hover:bg-slate-50"
-                >
-                  Cancelar
-                </button>
-              )}
-              <button
-                onClick={async () => {
-                  if (!novaObra.nome) { mostrarToast('Informe a Nota PS.', 'error'); return; }
-                  if (obraCelesc) {
-                    if (!(novaObra.cliente_celesc || '').trim()) { mostrarToast('Informe o Cliente Celesc (nome/contrato da obra).', 'error'); return; }
-                  } else if (!novaObra.cliente_id) {
-                    mostrarToast('Selecione o cliente do cadastro ou mude para "Cliente Celesc".', 'error');
-                    return;
-                  }
-                  const payload = {
-                    nome: novaObra.nome,
-                    cliente_id: obraCelesc ? null : Number(novaObra.cliente_id),
-                    cliente_celesc: obraCelesc ? (novaObra.cliente_celesc || '').trim() || null : null,
-                    cidade: novaObra.cidade || null,
-                    endereco: novaObra.endereco || null
-                  };
-                  
-                  let ok;
-                  if (obraEmEdicao) {
-                    ok = await put(`${API_URL}/os/obras/${obraEmEdicao.id}`, payload, 'Obra atualizada.');
-                  } else {
-                    ok = await post(`${API_URL}/os/obras`, payload, 'Obra criada.');
-                  }
-
-                  if (ok) {
-                    setObraCelesc(false);
-                    setNovaObra({ nome: '', cliente_id: '', cliente_celesc: '', cidade: '', endereco: '' });
-                    setObraEmEdicao(null);
-                  }
-                }}
-                className="flex-[2] py-2.5 bg-primary-600 text-white rounded-xl text-xs font-bold hover:bg-primary-700 transition-all cursor-pointer text-center">
-                {obraEmEdicao ? 'Salvar Alterações' : 'Cadastrar Obra'}
-              </button>
-            </div>
-          </div>
-        </div>
       )}
 
       {/* Conteúdo Aba EQUIPES */}
       {abaAtiva === 'equipes' && (
-        <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-          {/* Esquerda: Lista e Busca */}
-          <div className="lg:col-span-2 space-y-4">
-            <div className="flex flex-col sm:flex-row gap-3 sm:items-center justify-between">
-              <h3 className="font-extrabold text-slate-800 text-sm">Equipes Cadastradas ({equipesFiltradas.length})</h3>
+        <div className="space-y-4">
+          <div className="flex flex-col sm:flex-row gap-3 sm:items-center justify-between">
+            <h3 className="font-extrabold text-slate-800 text-sm">Equipes Cadastradas ({equipesFiltradas.length})</h3>
+            <div className="flex flex-col sm:flex-row gap-2 sm:items-center">
               {/* Barra de Busca */}
               <div className="relative w-full sm:max-w-xs">
                 <input
@@ -4444,9 +4230,16 @@ function PainelCadastros({ obras, equipes, produtos, recarregar, mostrarToast, o
                   </button>
                 )}
               </div>
+              <button
+                onClick={() => setEquipeModalAberto(true)}
+                className="flex items-center justify-center gap-1.5 px-4 py-2 bg-primary-600 text-white rounded-xl text-xs font-bold hover:bg-primary-700 transition-all cursor-pointer shadow-sm shrink-0"
+              >
+                <Plus size={14} /> Nova Equipe
+              </button>
             </div>
+          </div>
 
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-3 max-h-[450px] overflow-y-auto pr-1">
+          <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-3 max-h-[450px] overflow-y-auto pr-1">
               {equipesFiltradas.length === 0 ? (
                 <div className="col-span-full text-center text-xs text-slate-400 py-12">Nenhuma equipe encontrada.</div>
               ) : (
@@ -4464,14 +4257,10 @@ function PainelCadastros({ obras, equipes, produtos, recarregar, mostrarToast, o
                     </div>
                       <div className="flex items-center gap-1 opacity-60 group-hover:opacity-100 transition-opacity">
                         <button
-                          onClick={() => {
-                            setEquipeEmEdicao(eq);
-                            setNovaEquipe({
-                              nome: eq.nome || '',
-                              numero: eq.numero || '',
-                              membros: (eq.membros || []).map(m => String(m.funcionario_id)),
-                              lider: String((eq.membros || []).find(m => m.lider)?.funcionario_id || '')
-                            });
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            setEquipeModalEdicao(eq);
+                            setEquipeModalAberto(true);
                           }}
                           className="text-slate-400 hover:text-primary-600 cursor-pointer p-1 rounded hover:bg-white border hover:border-slate-200"
                           title="Editar equipe"
@@ -4512,98 +4301,52 @@ function PainelCadastros({ obras, equipes, produtos, recarregar, mostrarToast, o
                 ))
               )}
             </div>
-          </div>
 
-          {/* Direita: Formulário */}
-          <div className="bg-slate-50/50 rounded-2xl border border-slate-100 p-5 space-y-4 h-fit">
-            <div className="flex items-center justify-between">
-              <h4 className="text-xs font-extrabold uppercase tracking-wider text-slate-500">
-                {equipeEmEdicao ? 'Editar Equipe' : 'Nova Equipe'}
-              </h4>
-              {equipeEmEdicao && (
-                <span className="text-[9px] font-bold bg-amber-50 text-amber-700 rounded-full px-2 py-0.5 border border-amber-200 animate-pulse">
-                  Modo Edição
-                </span>
-              )}
-            </div>
-            <div className="space-y-3">
-              <CampoTexto label="Nome da equipe *" value={novaEquipe.nome} onChange={e => setNovaEquipe({ ...novaEquipe, nome: e.target.value })} />
-              <CampoTexto label="Número da equipe * (impresso no modelo de O.S)" value={novaEquipe.numero} onChange={e => setNovaEquipe({ ...novaEquipe, numero: e.target.value })} />
-              <MembrosEquipePicker
-                membros={novaEquipe.membros}
-                lider={novaEquipe.lider}
-                onChange={(membros, lider) => setNovaEquipe({ ...novaEquipe, membros, lider })}
+            {/* Formulário de equipe em modal (padrão dos demais módulos) */}
+            {equipeModalAberto && (
+              <ModalEquipeCadastro
+                edicao={equipeModalEdicao}
+                recarregar={recarregar}
+                mostrarToast={mostrarToast}
+                onFechar={() => { setEquipeModalAberto(false); setEquipeModalEdicao(null); }}
               />
-            </div>
-
-            <div className="flex gap-2 pt-2">
-              {equipeEmEdicao && (
-                <button
-                  type="button"
-                  onClick={() => {
-                    setEquipeEmEdicao(null);
-                    setNovaEquipe({ nome: '', numero: '', membros: [], lider: '' });
-                  }}
-                  className="flex-1 py-2.5 bg-white border border-slate-200 text-slate-700 rounded-xl text-xs font-bold transition-all cursor-pointer hover:bg-slate-50"
-                >
-                  Cancelar
-                </button>
-              )}
-              <button
-                onClick={async () => {
-                  if (!novaEquipe.nome) { mostrarToast('Informe o nome da equipe.', 'error'); return; }
-                  if (!novaEquipe.numero) { mostrarToast('Informe o número da equipe.', 'error'); return; }
-                  const payload = {
-                    nome: novaEquipe.nome,
-                    numero: novaEquipe.numero || null,
-                    membro_ids: novaEquipe.membros.map(Number),
-                    lider_id: novaEquipe.lider ? Number(novaEquipe.lider) : null,
-                  };
-                  const ok = equipeEmEdicao
-                    ? await put(`${API_URL}/os/equipes/${equipeEmEdicao.id}`, payload, 'Equipe atualizada.')
-                    : await post(`${API_URL}/os/equipes`, payload, 'Equipe criada.');
-                  if (ok) {
-                    setNovaEquipe({ nome: '', numero: '', membros: [], lider: '' });
-                    setEquipeEmEdicao(null);
-                  }
-                }}
-                className={`${equipeEmEdicao ? 'flex-[2]' : 'w-full'} py-2.5 bg-primary-600 text-white rounded-xl text-xs font-bold hover:bg-primary-700 transition-all cursor-pointer text-center`}>
-                {equipeEmEdicao ? 'Salvar Alterações' : 'Cadastrar Equipe'}
-              </button>
-            </div>
+            )}
           </div>
-        </div>
       )}
 
       {/* Conteúdo Aba PRODUTOS */}
       {abaAtiva === 'produtos' && (
-        <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-          {/* Esquerda: Lista e Busca */}
-          <div className="lg:col-span-2 space-y-4">
-            <div className="flex flex-col sm:flex-row gap-3 sm:items-center justify-between">
-              <h3 className="font-extrabold text-slate-800 text-sm">Serviços ({produtosFiltrados.length})</h3>
-              <div className="flex flex-wrap items-center gap-2">
-                {/* Ações de importação em lote */}
-                <div className="flex items-center gap-1.5">
-                  <button
-                    type="button"
-                    onClick={baixarModeloServicos}
-                    title="Baixar modelo .xlsx para preenchimento"
-                    className="flex items-center gap-1.5 px-3 py-2 rounded-xl border border-slate-200 bg-white text-slate-600 text-[10px] font-bold hover:bg-slate-50 transition-all cursor-pointer"
-                  >
-                    <FileSpreadsheet size={13} />
-                    Modelo
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => { setModalImportar(true); setImpResumo(null); setImpArquivo(null); }}
-                    title="Cadastrar serviços em lote (.xlsx)"
-                    className="flex items-center gap-1.5 px-3 py-2 rounded-xl bg-primary-600 text-white text-[10px] font-bold hover:bg-primary-700 transition-all cursor-pointer"
-                  >
-                    <Upload size={13} />
-                    Importar em lote
-                  </button>
-                </div>
+        <div className="space-y-4">
+          <div className="flex flex-col sm:flex-row gap-3 sm:items-center justify-between">
+            <h3 className="font-extrabold text-slate-800 text-sm">Serviços ({produtosFiltrados.length})</h3>
+            <div className="flex flex-wrap items-center gap-2">
+              <button
+                onClick={() => setProdutoModalAberto(true)}
+                className="flex items-center justify-center gap-1.5 px-4 py-2 bg-primary-600 text-white rounded-xl text-[10px] font-bold hover:bg-primary-700 transition-all cursor-pointer shadow-sm"
+              >
+                <Plus size={14} /> Novo Serviço
+              </button>
+              {/* Ações de importação em lote */}
+              <div className="flex items-center gap-1.5">
+                <button
+                  type="button"
+                  onClick={baixarModeloServicos}
+                  title="Baixar modelo .xlsx para preenchimento"
+                  className="flex items-center gap-1.5 px-3 py-2 rounded-xl border border-slate-200 bg-white text-slate-600 text-[10px] font-bold hover:bg-slate-50 transition-all cursor-pointer"
+                >
+                  <FileSpreadsheet size={13} />
+                  Modelo
+                </button>
+                <button
+                  type="button"
+                  onClick={() => { setModalImportar(true); setImpResumo(null); setImpArquivo(null); }}
+                  title="Cadastrar serviços em lote (.xlsx)"
+                  className="flex items-center gap-1.5 px-3 py-2 rounded-xl border border-slate-200 bg-white text-slate-600 text-[10px] font-bold hover:bg-slate-50 transition-all cursor-pointer"
+                >
+                  <Upload size={13} />
+                  Importar em lote
+                </button>
+              </div>
                 {/* Filtro por contrato (catálogos individuais) */}
                 <div className="flex bg-slate-100 rounded-xl p-1">
                   {TIPOS_SERVICO_OPCOES.map(({ valor, rotulo }) => (
@@ -4647,7 +4390,11 @@ function PainelCadastros({ obras, equipes, produtos, recarregar, mostrarToast, o
                       <span className="font-extrabold text-slate-800 break-words leading-tight">{p.nome}</span>
                       <div className="flex items-center gap-1 flex-shrink-0">
                         <button
-                          onClick={() => iniciarProdutoEdicao(p)}
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            setProdutoModalEdicao(p);
+                            setProdutoModalAberto(true);
+                          }}
                           className="text-slate-400 hover:text-amber-600 cursor-pointer p-1 rounded hover:bg-white border hover:border-slate-200 opacity-60 group-hover:opacity-100 transition-opacity"
                           title="Editar serviço"
                         >
@@ -4692,89 +4439,18 @@ function PainelCadastros({ obras, equipes, produtos, recarregar, mostrarToast, o
                 ))
               )}
             </div>
-          </div>
 
-          {/* Direita: Formulário */}
-          <div className="bg-slate-50/50 rounded-2xl border border-slate-100 p-5 space-y-4 h-fit">
-            <h4 className="text-xs font-extrabold uppercase tracking-wider text-slate-500">
-              {produtoEmEdicao ? 'Editar Serviço' : 'Novo Serviço'}
-            </h4>
-            
-            <div className="space-y-3">
-              <CampoTexto label="Serviço *" value={novoProduto.nome} onChange={e => setNovoProduto({ ...novoProduto, nome: e.target.value })} />
-              <div className="grid grid-cols-2 gap-2">
-                <CampoTexto
-                  label="Código normal"
-                  placeholder={`Bipagem do ${unidadeContrato(novoProduto.tipo || filtroTipoProduto)} normal`}
-                  value={novoProduto.codigo}
-                  onChange={e => setNovoProduto({ ...novoProduto, codigo: e.target.value })}
-                />
-                <CampoTexto
-                  label="Código especial"
-                  placeholder={`Bipagem do ${unidadeContrato(novoProduto.tipo || filtroTipoProduto)} especial`}
-                  value={novoProduto.codigo_especial}
-                  onChange={e => setNovoProduto({ ...novoProduto, codigo_especial: e.target.value })}
-                />
-              </div>
-              <div className="grid grid-cols-2 gap-2">
-                <CampoTexto label="Unidade" value={novoProduto.unidade} onChange={e => setNovoProduto({ ...novoProduto, unidade: e.target.value })} />
-                <CampoTexto
-                  label={`Qtd ${unidadeContrato(novoProduto.tipo || filtroTipoProduto)}`}
-                  type="number" step="0.01" min="0" value={novoProduto.preco_unitario}
-                  onChange={e => setNovoProduto({ ...novoProduto, preco_unitario: e.target.value })}
-                />
-              </div>
-              <CampoTexto
-                label={`Qtd ${unidadeContrato(novoProduto.tipo || filtroTipoProduto)} especial`}
-                type="number" step="0.01" min="0" value={novoProduto.qtd_usc_especial}
-                onChange={e => setNovoProduto({ ...novoProduto, qtd_usc_especial: e.target.value })}
+            {/* Formulário de serviço em modal (padrão dos demais módulos) */}
+            {produtoModalAberto && (
+              <ModalProdutoCadastro
+                edicao={produtoModalEdicao}
+                contratoAtual={filtroTipoProduto}
+                recarregar={recarregar}
+                mostrarToast={mostrarToast}
+                onFechar={() => { setProdutoModalAberto(false); setProdutoModalEdicao(null); }}
               />
-              <div>
-                <label className="block text-xs font-bold text-slate-700 mb-1.5">Contrato *</label>
-                <select
-                  value={novoProduto.tipo}
-                  onChange={e => setNovoProduto({ ...novoProduto, tipo: e.target.value })}
-                  className="w-full px-3 py-2 border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-primary-500/20 focus:border-primary-500 text-sm font-semibold bg-white"
-                >
-                  <option value="">Selecione o contrato...</option>
-                  {TIPOS_SERVICO_OPCOES.map(({ valor, rotulo }) => (
-                    <option key={valor} value={valor}>{rotulo}</option>
-                  ))}
-                </select>
-              </div>
-            </div>
-
-            <button
-              onClick={async () => {
-                if (!novoProduto.nome) { mostrarToast('Informe o nome do serviço.', 'error'); return; }
-                if (!novoProduto.tipo) { mostrarToast('Selecione o contrato do serviço.', 'error'); return; }
-                const corpo = {
-                  nome: novoProduto.nome,
-                  codigo: novoProduto.codigo || null,
-                  codigo_especial: novoProduto.codigo_especial || null,
-                  unidade: novoProduto.unidade || 'UN',
-                  preco_unitario: Number(novoProduto.preco_unitario || 0),
-                  qtd_usc_especial: Number(novoProduto.qtd_usc_especial || 0),
-                  tipo: novoProduto.tipo,
-                };
-                const ok = produtoEmEdicao
-                  ? await put(`${API_URL}/os/produtos/${produtoEmEdicao.id}`, corpo, 'Serviço atualizado.')
-                  : await post(`${API_URL}/os/produtos`, corpo, 'Serviço criado.');
-                if (ok) cancelarProdutoEdicao();
-              }}
-              className="w-full py-2.5 bg-primary-600 text-white rounded-xl text-xs font-bold hover:bg-primary-700 transition-all cursor-pointer">
-              {produtoEmEdicao ? 'Salvar Alterações' : 'Cadastrar Serviço'}
-            </button>
-            {produtoEmEdicao && (
-              <button
-                onClick={cancelarProdutoEdicao}
-                className="w-full py-2 border border-slate-200 text-slate-600 rounded-xl text-xs font-semibold hover:bg-slate-50 transition-all cursor-pointer"
-              >
-                Cancelar edição
-              </button>
             )}
           </div>
-        </div>
       )}
 
       {/* Modal de Confirmação para Obras */}
@@ -4966,6 +4642,402 @@ function PainelCadastros({ obras, equipes, produtos, recarregar, mostrarToast, o
           mostrarToast={mostrarToast}
         />
       )}
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Cadastro de Obra em MODAL (padrão dos demais módulos): abre sobre a lista,
+// carrega os clientes ao abrir (autocomplete) e vincula automaticamente o
+// cliente ao digitar a Nota PS (preenche cidade/endereço do cadastro).
+// ---------------------------------------------------------------------------
+function ModalObraCadastro({ edicao, recarregar, mostrarToast, onFechar }) {
+  const vazio = () => ({ nome: '', cliente_id: '', cliente_celesc: '', cidade: '', endereco: '' });
+  const [novaObra, setNovaObra] = useState(() => edicao
+    ? {
+        nome: edicao.nome || '',
+        cliente_id: String(edicao.cliente_id || ''),
+        cliente_celesc: edicao.cliente_celesc || '',
+        cidade: edicao.cidade || '',
+        endereco: edicao.endereco || '',
+      }
+    : vazio());
+  const [obraCelesc, setObraCelesc] = useState(!!(edicao && edicao.cliente_celesc && !edicao.cliente_id));
+  const [listaClientes, setListaClientes] = useState([]);
+  const [clienteAuto, setClienteAuto] = useState(null); // cliente encontrado pela Nota PS
+  const [salvando, setSalvando] = useState(false);
+
+  useEffect(() => {
+    apiFetch(`${API_URL}/clientes/`)
+      .then(res => (res.ok ? res.json() : []))
+      .then(setListaClientes)
+      .catch(() => setListaClientes([]));
+  }, []);
+
+  // Autopreenchimento por Nota PS (vale só na criação com "Cliente do cadastro").
+  useEffect(() => {
+    if (obraCelesc || edicao) {
+      setClienteAuto(null);
+      return;
+    }
+    const termo = (novaObra.nome || '').trim().toLowerCase();
+    if (termo.length < 3) {
+      setClienteAuto(null);
+      return;
+    }
+    const timer = setTimeout(() => {
+      const candidatos = listaClientes.filter(c =>
+        (c.nota_ps || '').trim().toLowerCase().includes(termo)
+      );
+      const cliente = candidatos.find(c => (c.nota_ps || '').trim().toLowerCase() === termo) ||
+        (candidatos.length === 1 ? candidatos[0] : null);
+      setClienteAuto(cliente);
+      if (cliente) {
+        setNovaObra(prev => ({
+          ...prev,
+          cliente_id: prev.cliente_id || String(cliente.id),
+          cidade: prev.cidade || cliente.cidade || '',
+          endereco: prev.endereco || cliente.endereco || '',
+        }));
+      }
+    }, 400);
+    return () => clearTimeout(timer);
+  }, [novaObra.nome, listaClientes, obraCelesc, edicao]);
+
+  const salvar = async () => {
+    if (!novaObra.nome) { mostrarToast('Informe a Nota PS.', 'error'); return; }
+    if (obraCelesc) {
+      if (!(novaObra.cliente_celesc || '').trim()) { mostrarToast('Informe o Cliente Celesc (nome/contrato da obra).', 'error'); return; }
+    } else if (!novaObra.cliente_id) {
+      mostrarToast('Selecione o cliente do cadastro ou mude para "Cliente Celesc".', 'error');
+      return;
+    }
+    setSalvando(true);
+    try {
+      const payload = {
+        nome: novaObra.nome,
+        cliente_id: obraCelesc ? null : Number(novaObra.cliente_id),
+        cliente_celesc: obraCelesc ? (novaObra.cliente_celesc || '').trim() || null : null,
+        cidade: novaObra.cidade || null,
+        endereco: novaObra.endereco || null,
+      };
+      const res = await apiFetch(edicao ? `${API_URL}/os/obras/${edicao.id}` : `${API_URL}/os/obras`, {
+        method: edicao ? 'PUT' : 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload),
+      });
+      const data = await res.json().catch(() => null);
+      if (!res.ok) {
+        mostrarToast(erroDaResposta(data, 'Erro ao salvar.'), 'error');
+        return;
+      }
+      mostrarToast(edicao ? 'Obra atualizada.' : 'Obra criada.');
+      recarregar();
+      onFechar();
+    } catch {
+      mostrarToast('Erro de conexão.', 'error');
+    } finally {
+      setSalvando(false);
+    }
+  };
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm p-4">
+      <div className="bg-white rounded-2xl shadow-2xl max-w-lg w-full overflow-hidden max-h-[92vh] overflow-y-auto animate-in fade-in zoom-in duration-200">
+        <div className="bg-slate-900 text-white px-6 py-4 flex items-center justify-between sticky top-0">
+          <h3 className="text-sm font-extrabold">{edicao ? 'Editar Obra' : 'Nova Obra'}</h3>
+          <button type="button" onClick={onFechar} className="text-slate-400 hover:text-white cursor-pointer"><X size={18} /></button>
+        </div>
+        <div className="p-6 space-y-3">
+          <div className="flex bg-slate-100 rounded-xl p-1 gap-1">
+            {[['cadastro', 'Cliente do cadastro'], ['celesc', 'Cliente Celesc']].map(([modo, rotulo]) => {
+              const ativo = obraCelesc === (modo === 'celesc');
+              return (
+                <button key={modo} type="button"
+                  onClick={() => {
+                    setObraCelesc(modo === 'celesc');
+                    setNovaObra(prev => ({
+                      ...prev,
+                      ...(modo === 'celesc'
+                        ? { cliente_id: '' }
+                        : { cliente_celesc: '' }),
+                    }));
+                  }}
+                  className={`flex-1 py-2 rounded-lg text-[11px] font-bold transition-all cursor-pointer ${
+                    ativo ? 'bg-white text-primary-700 shadow-sm' : 'text-slate-500 hover:text-slate-700'
+                  }`}>
+                  {rotulo}
+                </button>
+              );
+            })}
+          </div>
+
+          <div>
+            <CampoTexto label="Nota PS *" value={novaObra.nome} onChange={e => setNovaObra({ ...novaObra, nome: e.target.value })} />
+            {!obraCelesc && clienteAuto && (
+              <p className="text-[10px] font-bold text-emerald-600 mt-1">
+                Cliente vinculado automaticamente: {clienteAuto.nome}
+              </p>
+            )}
+            {!obraCelesc && !clienteAuto && !edicao && (novaObra.nome || '').trim().length >= 3 && (
+              <p className="text-[10px] font-semibold text-slate-400 mt-1">
+                Nenhum cliente com esta Nota PS — selecione manualmente abaixo.
+              </p>
+            )}
+          </div>
+
+          {!obraCelesc ? (
+            <ClienteAutocomplete
+              clientes={listaClientes}
+              value={novaObra.cliente_id}
+              onChange={(cliente) => {
+                if (!cliente) {
+                  setNovaObra({ ...novaObra, cliente_id: '' });
+                  return;
+                }
+                // Ao selecionar o cliente, preenche Nota PS, cidade e endereço.
+                setNovaObra({
+                  ...novaObra,
+                  cliente_id: String(cliente.id),
+                  nome: cliente.nota_ps || novaObra.nome,
+                  cidade: cliente.cidade || '',
+                  endereco: cliente.endereco || '',
+                });
+              }}
+            />
+          ) : (
+            <CampoTexto label="Cliente Celesc (obra de terceiro) *"
+              value={novaObra.cliente_celesc}
+              onChange={e => setNovaObra({ ...novaObra, cliente_celesc: e.target.value })}
+              placeholder="Ex.: Celesc — Regional X" />
+          )}
+          <CampoTexto label="Cidade" value={novaObra.cidade} onChange={e => setNovaObra({ ...novaObra, cidade: e.target.value })} />
+          <CampoTexto label="Endereço" value={novaObra.endereco} onChange={e => setNovaObra({ ...novaObra, endereco: e.target.value })} />
+        </div>
+        <div className="px-6 py-4 border-t border-slate-100 bg-slate-50 flex gap-2 justify-end">
+          <button
+            type="button"
+            onClick={onFechar}
+            className="px-4 py-2.5 bg-white border border-slate-200 text-slate-600 rounded-xl text-xs font-bold hover:bg-slate-100 transition-colors cursor-pointer"
+          >
+            Cancelar
+          </button>
+          <button
+            onClick={salvar}
+            disabled={salvando}
+            className="flex items-center gap-1.5 px-5 py-2.5 bg-primary-600 text-white rounded-xl text-xs font-bold hover:bg-primary-700 transition-all cursor-pointer disabled:opacity-50"
+          >
+            {salvando ? 'Salvando...' : (edicao ? 'Salvar Alterações' : 'Cadastrar Obra')}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Cadastro de Equipe em MODAL (nome, número e composição de membros/líder).
+// ---------------------------------------------------------------------------
+function ModalEquipeCadastro({ edicao, recarregar, mostrarToast, onFechar }) {
+  const vazio = () => ({ nome: '', numero: '', membros: [], lider: '' });
+  const [novaEquipe, setNovaEquipe] = useState(() => edicao
+    ? {
+        nome: edicao.nome || '',
+        numero: edicao.numero || '',
+        membros: (edicao.membros || []).map(m => String(m.funcionario_id)),
+        lider: String((edicao.membros || []).find(m => m.lider)?.funcionario_id || ''),
+      }
+    : vazio());
+  const [salvando, setSalvando] = useState(false);
+
+  const salvar = async () => {
+    if (!novaEquipe.nome) { mostrarToast('Informe o nome da equipe.', 'error'); return; }
+    if (!novaEquipe.numero) { mostrarToast('Informe o número da equipe.', 'error'); return; }
+    setSalvando(true);
+    try {
+      const payload = {
+        nome: novaEquipe.nome,
+        numero: novaEquipe.numero || null,
+        membro_ids: novaEquipe.membros.map(Number),
+        lider_id: novaEquipe.lider ? Number(novaEquipe.lider) : null,
+      };
+      const res = await apiFetch(edicao ? `${API_URL}/os/equipes/${edicao.id}` : `${API_URL}/os/equipes`, {
+        method: edicao ? 'PUT' : 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload),
+      });
+      const data = await res.json().catch(() => null);
+      if (!res.ok) {
+        mostrarToast(erroDaResposta(data, 'Erro ao salvar.'), 'error');
+        return;
+      }
+      mostrarToast(edicao ? 'Equipe atualizada.' : 'Equipe criada.');
+      recarregar();
+      onFechar();
+    } catch {
+      mostrarToast('Erro de conexão.', 'error');
+    } finally {
+      setSalvando(false);
+    }
+  };
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm p-4">
+      <div className="bg-white rounded-2xl shadow-2xl max-w-lg w-full overflow-hidden max-h-[92vh] overflow-y-auto animate-in fade-in zoom-in duration-200">
+        <div className="bg-slate-900 text-white px-6 py-4 flex items-center justify-between sticky top-0">
+          <h3 className="text-sm font-extrabold">{edicao ? 'Editar Equipe' : 'Nova Equipe'}</h3>
+          <button type="button" onClick={onFechar} className="text-slate-400 hover:text-white cursor-pointer"><X size={18} /></button>
+        </div>
+        <div className="p-6 space-y-3">
+          <CampoTexto label="Nome da equipe *" value={novaEquipe.nome} onChange={e => setNovaEquipe({ ...novaEquipe, nome: e.target.value })} />
+          <CampoTexto label="Número da equipe * (impresso no modelo de O.S)" value={novaEquipe.numero} onChange={e => setNovaEquipe({ ...novaEquipe, numero: e.target.value })} />
+          <MembrosEquipePicker
+            membros={novaEquipe.membros}
+            lider={novaEquipe.lider}
+            onChange={(membros, lider) => setNovaEquipe({ ...novaEquipe, membros, lider })}
+          />
+        </div>
+        <div className="px-6 py-4 border-t border-slate-100 bg-slate-50 flex gap-2 justify-end">
+          <button
+            type="button"
+            onClick={onFechar}
+            className="px-4 py-2.5 bg-white border border-slate-200 text-slate-600 rounded-xl text-xs font-bold hover:bg-slate-100 transition-colors cursor-pointer"
+          >
+            Cancelar
+          </button>
+          <button
+            onClick={salvar}
+            disabled={salvando}
+            className="flex items-center gap-1.5 px-5 py-2.5 bg-primary-600 text-white rounded-xl text-xs font-bold hover:bg-primary-700 transition-all cursor-pointer disabled:opacity-50"
+          >
+            {salvando ? 'Salvando...' : (edicao ? 'Salvar Alterações' : 'Cadastrar Equipe')}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Cadastro de Serviço (produto do catálogo) em MODAL.
+// ---------------------------------------------------------------------------
+function ModalProdutoCadastro({ edicao, contratoAtual, recarregar, mostrarToast, onFechar }) {
+  const vazio = () => ({ nome: '', codigo: '', codigo_especial: '', unidade: 'UN', preco_unitario: '', qtd_usc_especial: '', tipo: '' });
+  const [novoProduto, setNovoProduto] = useState(() => edicao
+    ? {
+        nome: edicao.nome || '',
+        codigo: edicao.codigo || '',
+        codigo_especial: edicao.codigo_especial || '',
+        unidade: edicao.unidade || 'UN',
+        preco_unitario: edicao.preco_unitario != null ? String(edicao.preco_unitario) : '',
+        qtd_usc_especial: edicao.qtd_usc_especial != null ? String(edicao.qtd_usc_especial) : '',
+        tipo: edicao.tipo || '',
+      }
+    : vazio());
+  const [salvando, setSalvando] = useState(false);
+  const contratoRotulo = unidadeContrato(novoProduto.tipo || contratoAtual);
+
+  const salvar = async () => {
+    if (!novoProduto.nome) { mostrarToast('Informe o nome do serviço.', 'error'); return; }
+    if (!novoProduto.tipo) { mostrarToast('Selecione o contrato do serviço.', 'error'); return; }
+    setSalvando(true);
+    try {
+      const corpo = {
+        nome: novoProduto.nome,
+        codigo: novoProduto.codigo || null,
+        codigo_especial: novoProduto.codigo_especial || null,
+        unidade: novoProduto.unidade || 'UN',
+        preco_unitario: Number(novoProduto.preco_unitario || 0),
+        qtd_usc_especial: Number(novoProduto.qtd_usc_especial || 0),
+        tipo: novoProduto.tipo,
+      };
+      const res = await apiFetch(edicao ? `${API_URL}/os/produtos/${edicao.id}` : `${API_URL}/os/produtos`, {
+        method: edicao ? 'PUT' : 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(corpo),
+      });
+      const data = await res.json().catch(() => null);
+      if (!res.ok) {
+        mostrarToast(erroDaResposta(data, 'Erro ao salvar.'), 'error');
+        return;
+      }
+      mostrarToast(edicao ? 'Serviço atualizado.' : 'Serviço criado.');
+      recarregar();
+      onFechar();
+    } catch {
+      mostrarToast('Erro de conexão.', 'error');
+    } finally {
+      setSalvando(false);
+    }
+  };
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm p-4">
+      <div className="bg-white rounded-2xl shadow-2xl max-w-lg w-full overflow-hidden max-h-[92vh] overflow-y-auto animate-in fade-in zoom-in duration-200">
+        <div className="bg-slate-900 text-white px-6 py-4 flex items-center justify-between sticky top-0">
+          <h3 className="text-sm font-extrabold">{edicao ? 'Editar Serviço' : 'Novo Serviço'}</h3>
+          <button type="button" onClick={onFechar} className="text-slate-400 hover:text-white cursor-pointer"><X size={18} /></button>
+        </div>
+        <div className="p-6 space-y-3">
+          <CampoTexto label="Serviço *" value={novoProduto.nome} onChange={e => setNovoProduto({ ...novoProduto, nome: e.target.value })} />
+          <div className="grid grid-cols-2 gap-2">
+            <CampoTexto
+              label="Código normal"
+              placeholder={`Bipagem do ${contratoRotulo} normal`}
+              value={novoProduto.codigo}
+              onChange={e => setNovoProduto({ ...novoProduto, codigo: e.target.value })}
+            />
+            <CampoTexto
+              label="Código especial"
+              placeholder={`Bipagem do ${contratoRotulo} especial`}
+              value={novoProduto.codigo_especial}
+              onChange={e => setNovoProduto({ ...novoProduto, codigo_especial: e.target.value })}
+            />
+          </div>
+          <div className="grid grid-cols-2 gap-2">
+            <CampoTexto label="Unidade" value={novoProduto.unidade} onChange={e => setNovoProduto({ ...novoProduto, unidade: e.target.value })} />
+            <CampoTexto
+              label={`Qtd ${contratoRotulo}`}
+              type="number" step="0.01" min="0" value={novoProduto.preco_unitario}
+              onChange={e => setNovoProduto({ ...novoProduto, preco_unitario: e.target.value })}
+            />
+          </div>
+          <CampoTexto
+            label={`Qtd ${contratoRotulo} especial`}
+            type="number" step="0.01" min="0" value={novoProduto.qtd_usc_especial}
+            onChange={e => setNovoProduto({ ...novoProduto, qtd_usc_especial: e.target.value })}
+          />
+          <div>
+            <label className="block text-xs font-bold text-slate-700 mb-1.5">Contrato *</label>
+            <select
+              value={novoProduto.tipo}
+              onChange={e => setNovoProduto({ ...novoProduto, tipo: e.target.value })}
+              className="w-full px-3 py-2 border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-primary-500/20 focus:border-primary-500 text-sm font-semibold bg-white"
+            >
+              <option value="">Selecione o contrato...</option>
+              {TIPOS_SERVICO_OPCOES.map(({ valor, rotulo }) => (
+                <option key={valor} value={valor}>{rotulo}</option>
+              ))}
+            </select>
+          </div>
+        </div>
+        <div className="px-6 py-4 border-t border-slate-100 bg-slate-50 flex gap-2 justify-end">
+          <button
+            type="button"
+            onClick={onFechar}
+            className="px-4 py-2.5 bg-white border border-slate-200 text-slate-600 rounded-xl text-xs font-bold hover:bg-slate-100 transition-colors cursor-pointer"
+          >
+            Cancelar
+          </button>
+          <button
+            onClick={salvar}
+            disabled={salvando}
+            className="flex items-center gap-1.5 px-5 py-2.5 bg-primary-600 text-white rounded-xl text-xs font-bold hover:bg-primary-700 transition-all cursor-pointer disabled:opacity-50"
+          >
+            {salvando ? 'Salvando...' : (edicao ? 'Salvar Alterações' : 'Cadastrar Serviço')}
+          </button>
+        </div>
+      </div>
     </div>
   );
 }
