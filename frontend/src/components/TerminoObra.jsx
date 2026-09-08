@@ -9,6 +9,8 @@ import { API_URL, apiFetch, erroDaResposta } from '../api';
 // há término salvo.
 // ---------------------------------------------------------------------------
 
+// Os blocos "instalado" e "que saiu" usam os MESMOS campos (ficha do PDF
+// equivalente — ex.: troca de transformador com dados repetidos).
 const INSTALADO_CAMPOS = [
   ['marca', 'Marca'],
   ['numero', 'Nº Trafo'],
@@ -21,12 +23,6 @@ const INSTALADO_CAMPOS = [
   ['tap', 'TAP'],
   ['n_taps', 'Nº TAP\'s'],
   ['placa', 'Placa'],
-];
-
-const SAIU_CAMPOS = [
-  ['marca', 'Marca'],
-  ['numero', 'N°'],
-  ['potencia', 'Pot.'],
 ];
 
 const vazio = () => ({
@@ -227,8 +223,8 @@ export default function TerminoObra({ obra, onFechar, mostrarToast }) {
               </Grupo>
 
               <Grupo titulo="Transformador que saiu (quando houver troca)">
-                <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
-                  {SAIU_CAMPOS.map(([chave, rotulo]) => (
+                <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-3">
+                  {INSTALADO_CAMPOS.map(([chave, rotulo]) => (
                     <Campo key={chave} rotulo={rotulo} valor={form.saiu[chave]} onChange={v => setSaiu(chave, v)} />
                   ))}
                 </div>
