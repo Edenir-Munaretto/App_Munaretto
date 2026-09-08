@@ -4239,12 +4239,12 @@ function PainelCadastros({ obras, equipes, produtos, recarregar, mostrarToast, o
             </div>
           </div>
 
-          <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-3 max-h-[450px] overflow-y-auto pr-1">
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-3 max-h-[450px] overflow-y-auto pr-1">
               {equipesFiltradas.length === 0 ? (
                 <div className="col-span-full text-center text-xs text-slate-400 py-12">Nenhuma equipe encontrada.</div>
               ) : (
                 equipesFiltradas.map(eq => (
-                  <div key={eq.id} className="group relative flex flex-col gap-2 text-xs bg-slate-50 hover:bg-slate-100/70 rounded-xl p-3 border border-slate-100 transition-all">
+                  <div key={eq.id} className="group relative flex flex-col gap-2 text-xs bg-slate-50 hover:bg-slate-100/70 rounded-xl p-2.5 border border-slate-200 hover:border-primary-300 transition-all">
                     <div className="flex items-center justify-between gap-2">
                     <div className="flex items-center gap-1.5">
                       <HardHat size={14} className="text-primary-600 flex-shrink-0" />
@@ -4380,12 +4380,12 @@ function PainelCadastros({ obras, equipes, produtos, recarregar, mostrarToast, o
               </div>
             </div>
 
-            <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-3 max-h-[450px] overflow-y-auto pr-1">
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-3 max-h-[450px] overflow-y-auto pr-1">
               {produtosFiltrados.length === 0 ? (
                 <div className="col-span-full text-center text-xs text-slate-400 py-12">Nenhum serviço encontrado.</div>
               ) : (
                 produtosFiltrados.map(p => (
-                  <div key={p.id} className="group relative flex flex-col gap-1 text-xs bg-slate-50 hover:bg-slate-100/70 rounded-xl p-3 border border-slate-100 transition-all">
+                  <div key={p.id} className="group relative flex flex-col gap-1 text-xs bg-slate-50 hover:bg-slate-100/70 rounded-xl p-2.5 border border-slate-200 hover:border-primary-300 transition-all">
                     <div className="flex items-start justify-between gap-2">
                       <span className="font-extrabold text-slate-800 break-words leading-tight">{p.nome}</span>
                       <div className="flex items-center gap-1 flex-shrink-0">
