@@ -1405,6 +1405,15 @@ function AcoesStatus({ detalhe, podeEditar, mudarStatus, aoAplicado, ehGestor, t
 
   return (
     <div className="space-y-2">
+      {(principal || iniciar || retomar) && (
+        <button
+          onClick={principal ? ativarOs : liberarInicio}
+          disabled={processando}
+          className="w-full h-16 rounded-2xl bg-primary-600 hover:bg-primary-700 text-white text-base font-extrabold shadow-lg shadow-primary-900/10 flex items-center justify-center gap-3 cursor-pointer transition-all disabled:opacity-40 disabled:cursor-not-allowed"
+        >
+          <Play size={24} /> {principal ? 'Ativar O.S' : retomar ? 'Retomar Execução' : 'Iniciar Execução'}
+        </button>
+      )}
       {podeImpedir && (
         <button
           onClick={() => onImpedir?.(detalhe)}
@@ -1412,15 +1421,6 @@ function AcoesStatus({ detalhe, podeEditar, mudarStatus, aoAplicado, ehGestor, t
           className="w-full h-11 rounded-xl border border-orange-200 bg-orange-50 hover:bg-orange-100 text-orange-700 text-sm font-bold flex items-center justify-center gap-2 cursor-pointer transition-all disabled:opacity-40"
         >
           <AlertTriangle size={16} /> Impedir O.S
-        </button>
-      )}
-      {(principal || iniciar || retomar) && (
-        <button
-          onClick={principal ? ativarOs : liberarInicio}
-          disabled={processando}
-          className="w-full h-11 rounded-xl border border-primary-200 bg-primary-50 hover:bg-primary-100 text-primary-700 text-sm font-bold flex items-center justify-center gap-2 cursor-pointer transition-all disabled:opacity-40"
-        >
-          <Play size={16} /> {principal ? 'Ativar O.S' : retomar ? 'Retomar Execução' : 'Iniciar Execução'}
         </button>
       )}
       <div className={`grid ${concluir && podeCancelar ? 'grid-cols-2' : 'grid-cols-1'} gap-2`}>
