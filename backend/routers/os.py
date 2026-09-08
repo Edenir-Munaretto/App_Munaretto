@@ -36,6 +36,7 @@ from utils.checklist_os import (
     resumo_checklist,
     snapshot_checklist,
 )
+from utils.date_helpers import agora_fuso_brasil
 from utils.tipos_os import ROTULOS_TIPO, TIPOS_OS, unidade_contrato
 
 # O módulo é acessível ao gestor ("os") e ao usuário de campo ("os_campo").
@@ -328,18 +329,29 @@ def _os_ou_404(db, os_id: int) -> dict:
 def _gerar_codigo_os(db) -> str:
     """Gera código único no formato OS-<ANO>-<NNNN> (sequencial por ano).
 
-    Em caso de colisão (duas criações simultâneas), tenta o próximo número.
+    O ano segue o fuso de Brasília (à noite do dia 31/12 local o ano ainda
+    não virou aqui, mas o UTC já). Em caso de colisão (duas criações
+    simultâneas), tenta o próximo número.
     """
-    ano = _agora().year
+    ano = agora_fuso_brasil().year
     prefixo = f"OS-{ano}-"
     for _ in range(10):
-        existentes = db.table("ordens_servico").select("codigo").like("codigo", f"{prefixo}%").execute()
+        # Último código do ano. PostgREST/Supabase limitam o retorno em ~1000
+        # linhas: sem order/limit o "maior" calculado ficaria errado quando a
+        # O.S do ano passa de mil (candidato colide e a criação falha).
+        ultimo = (
+            db.table("ordens_servico")
+            .select("codigo")
+            .like("codigo", f"{prefixo}%")
+            .order("codigo", desc=True)
+            .limit(1)
+            .execute()
+            .data
+        )
         maior = 0
-        for linha in existentes.data or []:
-            try:
-                maior = max(maior, int(linha["codigo"].rsplit("-", 1)[1]))
-            except (ValueError, IndexError):
-                continue
+        if ultimo:
+            with contextlib.suppress(ValueError, IndexError):
+                maior = int(ultimo[0]["codigo"].rsplit("-", 1)[1])
         codigo = f"{prefixo}{maior + 1:04d}"
         # Confirma que o candidato ainda não existe (criação concorrente).
         duplicado = db.table("ordens_servico").select("id").eq("codigo", codigo).execute()
@@ -1082,6 +1094,11 @@ def alterar_status(
         if reabertura:
             # Volta ao funil: sem data de encerramento (limpa a do ciclo antigo).
             updates["data_fim"] = None
+        # Abertura = quando a O.S passa a ser executada (rascunho -> aberta ou
+        # reabertura). Antes ficava a data de CRIAÇÃO do rascunho, distorcendo
+        # resumo/relatórios/PDFs quando a O.S abria dias depois de criada.
+        if (atual == "rascunho" and novo == "aberta") or reabertura:
+            updates["data_abertura"] = _agora().isoformat()
 
         # Update atômico: a condição de estado impede que duas solicitações
         # (dois dispositivos) validem o mesmo status atual e o último vença.
@@ -1259,6 +1276,12 @@ async def enviar_foto_checklist(
     try:
         os_data = _os_ou_404(db, os_id)
         _garantir_acesso_os(db, usuario, os_data)
+        # Evidência é registro de auditoria da execução: imutável após encerrar.
+        if os_data["status"] in ("concluida", "cancelada"):
+            raise HTTPException(
+                status_code=409,
+                detail="Evidências não podem ser alteradas em uma O.S encerrada.",
+            )
         item = _item_checklist_ou_404(db, os_id, item_id)
 
         mime = (arquivo.content_type or "").lower()
@@ -1469,17 +1492,54 @@ def sincronizar(
             continue
 
         # Reenvio de um lote cuja resposta se perdeu na rede: devolve a
-        # resposta gravada sem reaplicar a operação.
+        # resposta gravada sem reaplicar a operação. Só devolve ao DONO do
+        # registro (sync_ops.usuario_id): impede que outro usuário que
+        # reencontre o par (dispositivo, id_local) leia dados de outra equipe.
         registrado = _consulta_sync_op(db, dispositivo, op.id_local)
-        if registrado and registrado.get("status") == "ok":
+        if (
+            registrado
+            and registrado.get("status") == "ok"
+            and registrado.get("usuario_id") == usuario.id
+        ):
             resultados.append(
                 {"id_local": op.id_local, "ok": True, "duplicada": True, "dados": registrado.get("resposta")}
             )
             continue
 
+        # Garante o registro de entrega antes de aplicar (linha 'pendente').
         if registrado is None:
-            # Garante o registro de entrega antes de aplicar (linha 'pendente').
-            _gravar_sync_op(db, dispositivo, op.id_local, status="pendente", op=op)
+            _gravar_sync_op(db, dispositivo, op.id_local, status="pendente", op=op, usuario_id=usuario.id)
+            registrado = {"status": "pendente"}
+
+        if registrado.get("status") in ("pendente", "processando"):
+            # Reenvio duplicado (concorrente ou após falha 5xx): o processador
+            # é definido de forma ATÔMICA (pendente -> processando). Quem não
+            # vencer o claim não aplica a operação — evita a aplicação em dobro
+            # quando a resposta da primeira entrega se perdeu na rede.
+            assumiu = (
+                db.table("sync_ops")
+                .update({"status": "processando"})
+                .eq("dispositivo", dispositivo)
+                .eq("id_local", op.id_local)
+                .eq("status", "pendente")
+                .execute()
+            )
+            if not assumiu.data:
+                relido = _consulta_sync_op(db, dispositivo, op.id_local)
+                if relido and relido.get("status") == "ok" and relido.get("usuario_id") == usuario.id:
+                    resultados.append(
+                        {"id_local": op.id_local, "ok": True, "duplicada": True, "dados": relido.get("resposta")}
+                    )
+                else:
+                    resultados.append(
+                        {
+                            "id_local": op.id_local,
+                            "ok": False,
+                            "status": 409,
+                            "erro": "Operação já está sendo processada por outra sincronização. Reenvie o lote.",
+                        }
+                    )
+                continue
 
         try:
             if op.tipo == "checklist_resposta":
@@ -1578,8 +1638,8 @@ def sincronizar(
             }
 
         # Entrega confirmada (ok) ou conflito definitivo (4xx): grava o
-        # estado. Falhas internas (5xx) ficam 'pendente' para o reenvio tentar
-        # de novo (sem gravar a mensagem de erro como definitiva).
+        # estado. Falhas internas (5xx) voltam para 'pendente' — o claim
+        # ('processando') é liberado para o reenvio tentar de novo.
         if resultado["ok"] or resultado["status"] < 500:
             _gravar_sync_op(
                 db,
@@ -1588,7 +1648,10 @@ def sincronizar(
                 status="ok" if resultado["ok"] else "erro",
                 resposta=resultado.get("dados"),
                 erro=resultado.get("erro"),
+                usuario_id=usuario.id,
             )
+        else:
+            _gravar_sync_op(db, dispositivo, op.id_local, status="pendente", op=op, usuario_id=usuario.id)
         resultados.append(resultado)
 
     return {"resultados": resultados}
@@ -1610,16 +1673,22 @@ def _consulta_sync_op(db, dispositivo: str, id_local: str) -> dict | None:
     return resp.data[0] if resp.data else None
 
 
-def _gravar_sync_op(db, dispositivo: str, id_local: str, *, status: str, resposta=None, erro=None, op=None) -> None:
+def _gravar_sync_op(
+    db, dispositivo: str, id_local: str, *, status: str, resposta=None, erro=None, op=None, usuario_id=None
+) -> None:
     """Grava/atualiza o registro de entrega da operação em `sync_ops`.
 
     A tabela tem UNIQUE(dispositivo, id_local): a primeira gravação cria a
-    linha e as seguintes apenas atualizam o estado dela. Falha de banco aqui
+    linha e as seguintes apenas atualizam o estado dela. `usuario_id` é o dono
+    da entrega — só ele recebe a resposta gravada em caso de reenvio (evita
+    que outro usuário leia dados fora da equipe dele). Falha de banco aqui
     NÃO aborta a operação — sem o registro o sync volta ao comportamento
     legado (sem deduplicação) no próximo reenvio.
     """
     try:
         linha = {"dispositivo": dispositivo, "id_local": id_local, "status": status}
+        if usuario_id is not None:
+            linha["usuario_id"] = usuario_id
         if resposta is not None:
             linha["resposta"] = resposta
         if erro is not None:
@@ -1954,21 +2023,35 @@ def _apontar_hora(
                 inicio_real,
                 "O horário de início do apontamento está no futuro. Verifique o relógio do dispositivo.",
             )
-            resp = (
-                db.table("os_apontamentos")
-                .insert(
-                    {
-                        "os_id": os_id,
-                        "funcionario_id": func["id"],
-                        "inicio": inicio_real.isoformat(),
-                    }
+            try:
+                resp = (
+                    db.table("os_apontamentos")
+                    .insert(
+                        {
+                            "os_id": os_id,
+                            "funcionario_id": func["id"],
+                            "inicio": inicio_real.isoformat(),
+                        }
+                    )
+                    .execute()
                 )
-                .execute()
-            )
+            except Exception as exc:
+                # Dois tablets do mesmo usuário deram play juntos: o índice
+                # único protege o dado; devolve o conflito amigável (409).
+                if _eh_violacao_unique(exc):
+                    raise HTTPException(
+                        status_code=409,
+                        detail="Já existe um cronômetro em andamento para você nesta O.S.",
+                    ) from None
+                raise
             if not resp.data:
                 raise HTTPException(status_code=500, detail="Falha ao iniciar cronômetro.")
 
             # Início automático de serviço: 'aberta' -> 'em_andamento'.
+            # Update ATÔMICO condicionado ao status lido: se outra pessoa
+            # concluiu/cancelou a O.S entre a leitura e o update, nada é
+            # alterado — o apontamento recém-criado é desfeito (409), sem
+            # "ressuscitar" uma O.S encerrada nem gravar histórico falso.
             if os_data["status"] == "aberta":
                 resumo = resumo_checklist(db, os_id)
                 if not resumo["inicio_liberado"]:
@@ -1981,7 +2064,23 @@ def _apontar_hora(
                             f"Grupo 1 - {grupo['nome']}: {grupo['respondidos']}/{grupo['total']} respondidos."
                         ),
                     )
-                db.table("ordens_servico").update({"status": "em_andamento"}).eq("id", os_id).execute()
+                promovida = (
+                    db.table("ordens_servico")
+                    .update({"status": "em_andamento"})
+                    .eq("id", os_id)
+                    .eq("status", "aberta")
+                    .execute()
+                )
+                if not promovida.data:
+                    # A O.S saiu de 'aberta' enquanto o play era processado.
+                    db.table("os_apontamentos").delete().eq("id", resp.data[0]["id"]).execute()
+                    raise HTTPException(
+                        status_code=409,
+                        detail=(
+                            "A O.S foi alterada por outra pessoa enquanto você iniciava o serviço. "
+                            "Recarregue o quadro para ver o estado atual."
+                        ),
+                    )
                 _gravar_historico(
                     db,
                     os_id,
@@ -2048,6 +2147,12 @@ async def enviar_foto(
     try:
         os_data = _os_ou_404(db, os_id)
         _garantir_acesso_os(db, usuario, os_data)
+        # Evidência é registro de auditoria da execução: imutável após encerrar.
+        if os_data["status"] in ("concluida", "cancelada"):
+            raise HTTPException(
+                status_code=409,
+                detail="Evidências não podem ser alteradas em uma O.S encerrada.",
+            )
 
         mime = (arquivo.content_type or "").lower()
         extensao = MIMES_FOTO_PERMITIDOS.get(mime)

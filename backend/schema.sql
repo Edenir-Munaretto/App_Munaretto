@@ -1031,7 +1031,7 @@ CREATE TABLE IF NOT EXISTS sync_ops (
     tipo VARCHAR(32) NOT NULL,
     criado_em TIMESTAMP WITH TIME ZONE,
     payload JSONB NOT NULL DEFAULT '{}'::jsonb,
-    status TEXT NOT NULL DEFAULT 'pendente', -- pendente | ok | erro
+    status TEXT NOT NULL DEFAULT 'pendente', -- pendente | processando | ok | erro
     resposta JSONB,
     erro TEXT,
     criado_servidor TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT CURRENT_TIMESTAMP,
@@ -1039,6 +1039,28 @@ CREATE TABLE IF NOT EXISTS sync_ops (
 );
 
 CREATE INDEX IF NOT EXISTS idx_sync_ops_os ON sync_ops (os_id, criado_servidor);
+
+-- Dono da entrega (usuário autenticado que enviou a operação): o reenvio só
+-- devolve a resposta gravada ao dono (evita vazar dados de outra equipe).
+ALTER TABLE IF EXISTS sync_ops ADD COLUMN IF NOT EXISTS usuario_id INTEGER REFERENCES usuarios(id) ON DELETE SET NULL;
+
+-- FK do os_id (era apenas BIGINT): com a exclusão da O.S o registro de
+-- entrega órfão deixa de apontar para linha inexistente. Só é criada quando
+-- não há órfãos (evita falhar o schema em produção com dados legados).
+DO $$
+BEGIN
+    IF NOT EXISTS (
+        SELECT 1 FROM pg_constraint WHERE conname = 'fk_sync_ops_os'
+    ) THEN
+        IF NOT EXISTS (SELECT 1 FROM sync_ops WHERE os_id IS NOT NULL AND os_id NOT IN (SELECT id FROM ordens_servico)) THEN
+            ALTER TABLE sync_ops
+                ADD CONSTRAINT fk_sync_ops_os FOREIGN KEY (os_id)
+                REFERENCES ordens_servico(id) ON DELETE SET NULL;
+        ELSE
+            RAISE NOTICE 'fk_sync_ops_os nao criada: existem linhas orfas em sync_ops.os_id. Limpe antes de re-rodar o schema.';
+        END IF;
+    END IF;
+END $$;
 
 ALTER TABLE IF EXISTS sync_ops ENABLE ROW LEVEL SECURITY;
 

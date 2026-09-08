@@ -143,33 +143,34 @@ class TrafoTermino(BaseModel):
     """Dados do transformador da carta de término (INSTALADO e SAIU usam os
     MESMOS campos — formulário e ficha do PDF equivalentes)."""
 
-    marca: str | None = None
-    numero: str | None = None
-    potencia: str | None = None
-    ano: str | None = None
-    impedancia: str | None = None
-    massa: str | None = None
-    volume: str | None = None
-    tap_1: str | None = None
-    tap: str | None = None
-    n_taps: str | None = None
-    placa: str | None = None
+    marca: str | None = Field(None, max_length=120)
+    numero: str | None = Field(None, max_length=80)
+    potencia: str | None = Field(None, max_length=80)
+    ano: str | None = Field(None, max_length=50)
+    impedancia: str | None = Field(None, max_length=80)
+    massa: str | None = Field(None, max_length=80)
+    volume: str | None = Field(None, max_length=80)
+    tap_1: str | None = Field(None, max_length=80)
+    tap: str | None = Field(None, max_length=80)
+    n_taps: str | None = Field(None, max_length=80)
+    placa: str | None = Field(None, max_length=80)
 
 
 class TerminoDados(BaseModel):
     """Preenchimento da carta de término/conclusão da obra.
 
     Campos de TEXTO (impressos como digitados no PDF — "3,57" e "01/09/2025"
-    não passam por conversão numérica).
+    não passam por conversão numérica). Datas aceitas em dd/mm/aaaa ou
+    AAAA-MM-DD (o PDF normaliza para o formato do documento).
     """
 
-    numero_projeto: str | None = None
-    consumidor: str | None = None
-    local_rede: str | None = None
-    data_conclusao: str | None = None
-    encarregado: str | None = None
-    cidade_emissao: str | None = None
-    data_emissao: str | None = None
+    numero_projeto: str | None = Field(None, max_length=100)
+    consumidor: str | None = Field(None, max_length=255)
+    local_rede: str | None = Field(None, max_length=255)
+    data_conclusao: str | None = Field(None, max_length=20)
+    encarregado: str | None = Field(None, max_length=120)
+    cidade_emissao: str | None = Field(None, max_length=120)
+    data_emissao: str | None = Field(None, max_length=20)
     instalado: TrafoTermino = Field(default_factory=TrafoTermino)
     saiu: TrafoTermino = Field(default_factory=TrafoTermino)
 
@@ -681,14 +682,26 @@ def obter_termino_obra(obra_id: int, db=Depends(get_supabase)):
 
 @router.put("/obras/{obra_id}/termino", response_model=TerminoResponse, dependencies=GESTOR_ONLY)
 def salvar_termino_obra(obra_id: int, dados: TerminoDados, db=Depends(get_supabase)):
-    """Grava (ou substitui) o término da obra — atualiza só a coluna JSON."""
+    """Grava (ou substitui) o término da obra — atualiza só a coluna JSON.
+
+    PUT PARCIAL: campos não enviados preservam o que já estava salvo
+    (exclude_unset + merge), consistente com o editar_os — enviar só o
+    número do projeto não apaga o transformador já preenchido.
+    """
     try:
-        _obter_ou_404(db, "obras", obra_id, "Obra")
-        payload = dados.model_dump()
-        resp = db.table("obras").update({"termino_dados": payload}).eq("id", obra_id).execute()
+        obra = _obter_ou_404(db, "obras", obra_id, "Obra")
+        salvo = obra.get("termino_dados") or {}
+        payload = dados.model_dump(exclude_unset=True)
+        mesclado = {**salvo, **payload}
+        for bloco in ("instalado", "saiu"):
+            enviado = payload.get(bloco)
+            if isinstance(enviado, dict):
+                anterior = mesclado.get(bloco) or {}
+                mesclado[bloco] = {**anterior, **enviado} if isinstance(anterior, dict) else enviado
+        resp = db.table("obras").update({"termino_dados": mesclado}).eq("id", obra_id).execute()
         if not resp.data:
             raise HTTPException(status_code=500, detail="Falha ao salvar o término da obra.")
-        return {"obra_id": obra_id, "termo": resp.data[0].get("termino_dados") or payload}
+        return {"obra_id": obra_id, "termo": resp.data[0].get("termino_dados") or mesclado}
     except HTTPException:
         raise
     except Exception:
