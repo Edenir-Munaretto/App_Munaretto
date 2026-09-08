@@ -489,3 +489,23 @@ class TestTerminoObra:
         assert os_campo_client.get("/api/os/obras/506/termino").status_code == 403
         assert os_campo_client.put("/api/os/obras/506/termino", json=TERMINO_PAYLOAD).status_code == 403
         assert os_campo_client.post("/api/os/obras/506/termino/pdf", json=TERMINO_PAYLOAD).status_code == 403
+
+
+    def test_put_parcial_preserva_blocos_salvos(self, os_gestor_client, db_fake):
+        """PUT parcial do término NÃO apaga instalado/saiu já salvos."""
+        self._criar_obra_termino(db_fake)
+        assert os_gestor_client.put("/api/os/obras/506/termino", json=TERMINO_PAYLOAD).status_code == 200
+
+        resp = os_gestor_client.put("/api/os/obras/506/termino", json={"numero_projeto": "999999"})
+        assert resp.status_code == 200, resp.text
+        salvo = os_gestor_client.get("/api/os/obras/506/termino").json()["termo"]
+        assert salvo["numero_projeto"] == "999999"
+        assert salvo["instalado"]["marca"] == "SIGMA"
+        assert salvo["instalado"]["tap_1"] == "13,800"
+        assert salvo["saiu"]["marca"] == "BALESTRO"
+        assert salvo["consumidor"] == "ARI SANDRIN"
+
+    def test_termino_campo_acima_do_limite_422(self, os_gestor_client, db_fake):
+        self._criar_obra_termino(db_fake)
+        resp = os_gestor_client.put("/api/os/obras/506/termino", json={"consumidor": "x" * 300})
+        assert resp.status_code == 422

@@ -712,3 +712,77 @@ def test_sync_resposta_exige_foto_sem_evidencia_rejeitada(os_gestor_client, os_c
               "dispositivo": "tablet-campo-1"},
     )
     assert resp.json()["resultados"][0]["ok"] is True
+
+
+def test_sync_reenvio_nao_vaza_resposta_de_outro_usuario(os_gestor_client, os_campo_client, db_fake):
+    """Segurança: reenvio com (dispositivo, id_local) gravado por OUTRO usuário
+    não devolve a resposta armazenada — a operação é reaplicada sob as
+    permissões do reenviador (sem acesso à O.S da outra equipe -> 403)."""
+    from tests.test_os import _criar_os, _seed_cenario
+
+    _seed_cenario(db_fake)
+    # O.S da equipe 200 (o usuário de campo atua na equipe 100).
+    os_id = _criar_os(os_gestor_client, equipe_id=200).json()["id"]
+    assert os_gestor_client.put(f"/api/os/{os_id}/status", json={"novo_status": "aberta"}).status_code == 200
+
+    ops = [_op("m1", "material", os_id, {"produto_id": 7, "quantidade_usada": 2}, "2026-08-28T09:00:00Z")]
+    corpo = {"operacoes": ops, "dispositivo": "tablet-campo-1"}
+
+    # Gestor grava a entrega com sucesso (registro ok com a resposta dentro).
+    r1 = os_gestor_client.post("/api/os/sincronizar", json=corpo)
+    assert r1.json()["resultados"][0]["ok"] is True
+
+    # Usuário de campo reenvia o mesmo lote: não recebe dados de outra equipe.
+    r2 = os_campo_client.post("/api/os/sincronizar", json=corpo)
+    resultado = r2.json()["resultados"][0]
+    assert resultado["ok"] is False
+    assert resultado["status"] == 403
+    assert not resultado.get("duplicada")
+    assert not resultado.get("dados")
+
+
+def test_sync_reenvio_enquanto_pendente_nao_duplica(os_gestor_client, os_campo_client, db_fake):
+    """Entrega duplicada CONCORRENTE: quem vence o claim aplica uma única vez;
+    quem encontra 'processando' recebe 409 (sem reaplicar a operação)."""
+    from tests.test_os import _criar_os, _seed_cenario
+
+    _seed_cenario(db_fake)
+    os_id = _criar_os(os_gestor_client, equipe_id=100).json()["id"]
+    assert os_campo_client.put(f"/api/os/{os_id}/status", json={"novo_status": "aberta"}).status_code == 200
+
+    def _registro(id_local, status):
+        return {
+            "id": len(db_fake._dados["sync_ops"]) + 1,
+            "dispositivo": "tablet-campo-1",
+            "id_local": id_local,
+            "os_id": os_id,
+            "tipo": "material",
+            "criado_em": "2026-08-28T09:00:00Z",
+            "payload": {"produto_id": 7, "quantidade_usada": 1},
+            "status": status,
+            "usuario_id": 92,
+        }
+
+    # Reenvio após "resposta perdida": registro pendente assume o processamento
+    # e aplica a operação uma única vez.
+    db_fake._dados["sync_ops"].append(_registro("m1", "pendente"))
+    ops = [_op("m1", "material", os_id, {"produto_id": 7, "quantidade_usada": 1}, "2026-08-28T09:00:00Z")]
+    corpo = {"operacoes": ops, "dispositivo": "tablet-campo-1"}
+    r1 = os_campo_client.post("/api/os/sincronizar", json=corpo)
+    assert r1.json()["resultados"][0]["ok"] is True, r1.text
+    assert len(db_fake._dados["os_materiais"]) == 1
+
+    # Reenvio normal agora encontra 'ok' do dono: duplicada, sem novo lançamento.
+    r2 = os_campo_client.post("/api/os/sincronizar", json=corpo)
+    resultado = r2.json()["resultados"][0]
+    assert resultado["ok"] is True and resultado["duplicada"] is True
+    assert len(db_fake._dados["os_materiais"]) == 1
+
+    # Entrega ainda 'processando' (outra requisição venceu o claim): 409.
+    db_fake._dados["sync_ops"].append(_registro("m2", "processando"))
+    ops2 = [_op("m2", "material", os_id, {"produto_id": 7, "quantidade_usada": 1}, "2026-08-28T09:00:00Z")]
+    r3 = os_campo_client.post("/api/os/sincronizar", json={"operacoes": ops2, "dispositivo": "tablet-campo-1"})
+    resultado3 = r3.json()["resultados"][0]
+    assert resultado3["ok"] is False
+    assert resultado3["status"] == 409
+    assert len(db_fake._dados["os_materiais"]) == 1

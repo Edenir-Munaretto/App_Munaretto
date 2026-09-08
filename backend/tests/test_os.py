@@ -1923,3 +1923,46 @@ def test_relatorio_os_descricao_longa_com_quebra(os_gestor_client, db_fake):
     assert "bota-fora autorizado" in texto
     assert "fiscal da obra central" in texto
     assert "Total aplicado: 13.32" in texto  # 2 x 6.66, sem sufixo na linha
+
+
+class TestCorrecoesLote1:
+    """Regressões do lote de correções críticas (data_abertura real, fotos em
+    O.S encerradas e bloqueios de auditoria)."""
+
+    def test_data_abertura_gravada_na_transicao_para_aberta(self, os_gestor_client, db_fake):
+        _seed_cenario(db_fake)
+        os_id = _criar_os(os_gestor_client).json()["id"]
+
+        # Rascunho criado: a abertura só passa a valer quando a O.S abre.
+        rascunho = os_gestor_client.get(f"/api/os/{os_id}").json()
+        assert not rascunho.get("data_abertura")
+
+        assert os_gestor_client.put(f"/api/os/{os_id}/status", json={"novo_status": "aberta"}).status_code == 200
+        aberta = os_gestor_client.get(f"/api/os/{os_id}").json()
+        assert aberta.get("data_abertura"), "data_abertura deve ser gravada ao abrir a O.S"
+
+    def test_foto_negada_em_os_cancelada(self, os_gestor_client, db_fake):
+        _seed_cenario(db_fake)
+        os_id = _criar_os(os_gestor_client).json()["id"]
+        assert os_gestor_client.put(f"/api/os/{os_id}/status", json={"novo_status": "cancelada"}).status_code == 200
+
+        resp = os_gestor_client.post(
+            f"/api/os/{os_id}/fotos",
+            files={"arquivo": ("evidencia.jpg", b"\xff\xd8\xff\xe0conteudo", "image/jpeg")},
+        )
+        assert resp.status_code == 409, resp.text
+        assert db_fake._dados["os_fotos"] == []
+
+    def test_foto_negada_em_os_concluida(self, os_gestor_client, db_fake):
+        _seed_cenario(db_fake)
+        os_id = _criar_os(os_gestor_client, equipe_id=100).json()["id"]
+        # Movimenta até concluída pelo caminho da máquina (sem gates extras).
+        for novo in ("aberta", "em_andamento", "concluida"):
+            r = os_gestor_client.put(f"/api/os/{os_id}/status", json={"novo_status": novo})
+            assert r.status_code == 200, r.text
+
+        resp = os_gestor_client.post(
+            f"/api/os/{os_id}/fotos",
+            files={"arquivo": ("evidencia.jpg", b"\xff\xd8\xff\xe0conteudo", "image/jpeg")},
+        )
+        assert resp.status_code == 409, resp.text
