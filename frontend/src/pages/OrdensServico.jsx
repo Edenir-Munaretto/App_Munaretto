@@ -1807,16 +1807,10 @@ function PainelExecucao({ osId, produtos, capturarGps, onFechar, recarregarLista
       )}
 
       {/* Cartões de custo */}
-      <div className="grid grid-cols-3 gap-2 mt-3">
+      <div className="grid grid-cols-2 gap-2 mt-3">
         <div className="bg-sky-50 rounded-xl p-2.5 border border-sky-100">
           <p className="text-[9px] font-bold text-sky-600 uppercase">Horas H.H.</p>
           <p className="text-sm font-extrabold text-sky-800">{mo.total_horas ?? 0} h</p>
-        </div>
-        <div className="bg-emerald-50 rounded-xl p-2.5 border border-emerald-100" title={mo.custo_mo_real > 0 ? '' : 'Valor da hora por equipe ainda não definido'}>
-          <p className="text-[9px] font-bold text-emerald-600 uppercase">Custo M.O.</p>
-          <p className="text-sm font-extrabold text-emerald-800">
-            {mo.custo_mo_real > 0 ? brl(mo.custo_mo_real) : '—'}
-          </p>
         </div>
         <div className="bg-amber-50 rounded-xl p-2.5 border border-amber-100">
           <p className="text-[9px] font-bold text-amber-600 uppercase">Materiais</p>
@@ -1835,10 +1829,7 @@ function PainelExecucao({ osId, produtos, capturarGps, onFechar, recarregarLista
             {mo.por_funcionario.map((f, i) => (
               <div key={i} className="flex items-center justify-between px-3 py-2">
                 <span className="text-xs text-slate-600 font-semibold truncate">{f.nome || 'Funcionário'}</span>
-                <div className="flex items-center gap-3 shrink-0">
-                  <span className="text-xs font-bold text-sky-700">{(f.minutos / 60).toFixed(1)} h</span>
-                  <span className="text-xs text-slate-400">{brl(f.custo)}</span>
-                </div>
+                <span className="text-xs font-bold text-sky-700 shrink-0">{(f.minutos / 60).toFixed(1)} h</span>
               </div>
             ))}
           </div>

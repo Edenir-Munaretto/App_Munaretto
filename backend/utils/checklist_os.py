@@ -7,7 +7,8 @@ catálogo não mudam O.S antigas (histórico fiel).
 Regras de liberação:
   - INÍCIO (aberta -> em_andamento): grupo 1 (Preparação) totalmente respondido.
   - CONCLUSÃO (-> concluida): todos os itens respondidos.
-  - Resposta 'Não' não bloqueia, mas exige justificativa.
+  - Resposta 'Não' não bloqueia; a justificativa é OPCIONAL (decisão de
+    produto — modelos antigos podem vir com justificativa, mas não é exigida).
   - O.S sem itens (catálogo vazio/legada) não é bloqueada por este módulo.
 """
 
@@ -65,19 +66,30 @@ def snapshot_checklist(db, os_id: int) -> None:
     existentes = db.table("os_checklist_itens").select("classificacao").eq("os_id", os_id).execute().data or []
     presentes = {i["classificacao"] for i in existentes}
 
-    linhas = [
-        {
-            "os_id": os_id,
-            "modelo_id": m["id"],
-            "grupo": m["grupo"],
-            "ordem": m["ordem"],
-            "classificacao": m["classificacao"],
-            "pergunta": m["pergunta"],
-            "exige_foto": bool(m.get("exige_foto", False)),
-        }
-        for m in modelos
-        if m["classificacao"] not in presentes
-    ]
+    # Catálogo com a MESMA classificação em 'geral' e no tipo da O.S (dados
+    # duplicados por engano): a O.S fica com UMA linha por classificação —
+    # vale o modelo do próprio tipo (mais específico); entre iguais, o
+    # primeiro da ordenação (grupo/ordem do catálogo).
+    melhores: dict[str, tuple[int, dict]] = {}
+    for m in modelos:
+        if m["classificacao"] in presentes:
+            continue
+        preferencia = 1 if m["tipo"] == tipo_os else 0
+        atual = melhores.get(m["classificacao"])
+        if atual is None or preferencia > atual[0]:
+            melhores[m["classificacao"]] = (
+                preferencia,
+                {
+                    "os_id": os_id,
+                    "modelo_id": m["id"],
+                    "grupo": m["grupo"],
+                    "ordem": m["ordem"],
+                    "classificacao": m["classificacao"],
+                    "pergunta": m["pergunta"],
+                    "exige_foto": bool(m.get("exige_foto", False)),
+                },
+            )
+    linhas = [linha for _, linha in melhores.values()]
     if not linhas:
         return
     try:

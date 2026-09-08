@@ -833,12 +833,13 @@ CREATE TABLE IF NOT EXISTS os_checklist_itens (
     UNIQUE (os_id, classificacao)
 );
 
--- Respostas (uma por item). 'Não' exige justificativa (validado no backend).
+-- Respostas (uma por item). Justificativa é OPCIONAL (decisão de produto:
+-- resposta 'não' não bloqueia; o campo existe para contexto quando preenchida).
 CREATE TABLE IF NOT EXISTS os_checklist_respostas (
     id SERIAL PRIMARY KEY,
     item_id INTEGER NOT NULL REFERENCES os_checklist_itens(id) ON DELETE CASCADE,
     resposta VARCHAR(10) NOT NULL CHECK (resposta IN ('sim', 'nao', 'na')),
-    justificativa TEXT,                           -- obrigatória quando resposta = 'nao'
+    justificativa TEXT,                           -- opcional (contexto da resposta)
     respondido_por VARCHAR(255),                  -- e-mail de quem respondeu
     geolocalizacao VARCHAR(100),                  -- "lat,lng" capturada no dispositivo
     foto_id INTEGER REFERENCES os_fotos(id) ON DELETE SET NULL,

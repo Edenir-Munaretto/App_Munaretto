@@ -2027,3 +2027,69 @@ def test_respostas_com_headers_de_seguranca(client):
     assert resp.headers.get("x-content-type-options") == "nosniff"
     assert resp.headers.get("x-frame-options") == "DENY"
     assert resp.headers.get("referrer-policy") == "same-origin"
+
+
+class TestCorrecoesLote3:
+    """Regressões do Lote 3 (lógica de negócio)."""
+
+    def test_troca_de_tipo_bloqueada_apos_lancamento(self, os_gestor_client, db_fake):
+        _seed_cenario(db_fake)
+        os_id = _criar_os(os_gestor_client).json()["id"]
+        assert os_gestor_client.put(f"/api/os/{os_id}/status", json={"novo_status": "aberta"}).status_code == 200
+        lance = os_gestor_client.post(f"/api/os/{os_id}/materiais", json={"produto_id": 7, "quantidade_usada": 2})
+        assert lance.status_code == 201
+        resp = os_gestor_client.put(f"/api/os/{os_id}", json={"tipo": "manutencao"})
+        assert resp.status_code == 409
+        assert "tipo/contrato" in resp.json()["detail"]
+
+        # Sem histórico (rascunho recém-criado) a troca continua permitida.
+        os2 = _criar_os(os_gestor_client).json()["id"]
+        assert os_gestor_client.put(f"/api/os/{os2}", json={"tipo": "linha_viva"}).status_code == 200
+
+    def test_edicao_parcial_nao_dispara_trava_de_tipo(self, os_gestor_client, db_fake):
+        """PUT parcial sem o campo tipo (default do modelo) continua editando."""
+        _seed_cenario(db_fake)
+        os_id = _criar_os(os_gestor_client, tipo="manutencao").json()["id"]
+        assert os_gestor_client.put(f"/api/os/{os_id}/status", json={"novo_status": "aberta"}).status_code == 200
+        lance = os_gestor_client.post(f"/api/os/{os_id}/materiais", json={"produto_id": 7, "quantidade_usada": 1})
+        assert lance.status_code == 201
+        resp = os_gestor_client.put(f"/api/os/{os_id}", json={"descricao_escopo": "Só o escopo mudou."})
+        assert resp.status_code == 200, resp.text
+
+    def test_lancamento_zerado_pelo_arredondamento_400(self, os_gestor_client, db_fake):
+        _seed_cenario(db_fake)
+        db_fake._dados["produtos"].append(
+            {
+                "id": 9,
+                "codigo": "TINY-01",
+                "nome": "Serviço mínimo",
+                "unidade": "UN",
+                "preco_unitario": 0.0001,
+                "ativo": True,
+                "tipo": "construcao",
+            }
+        )
+        os_id = _criar_os(os_gestor_client).json()["id"]
+        assert os_gestor_client.put(f"/api/os/{os_id}/status", json={"novo_status": "aberta"}).status_code == 200
+
+        resp = os_gestor_client.post(f"/api/os/{os_id}/materiais", json={"produto_id": 9, "quantidade_usada": 0.001})
+        assert resp.status_code == 400
+        assert "zero" in resp.json()["detail"]
+
+    def test_snapshot_com_classificacao_duplicada_nao_quebra(self, os_gestor_client, db_fake):
+        """Catálogo com a MESMA classificação em 'geral' e no tipo da O.S gera
+        UMA linha (vale o modelo específico), sem falhar o snapshot."""
+        _seed_cenario(db_fake)
+        db_fake._dados["os_checklist_modelos"].extend(
+            [
+                {"id": 1, "tipo": "geral", "grupo": 1, "ordem": 1, "classificacao": "1.1",
+                 "pergunta": "Geral: conferiu o projeto?", "exige_foto": False, "ativo": True},
+                {"id": 2, "tipo": "construcao", "grupo": 1, "ordem": 1, "classificacao": "1.1",
+                 "pergunta": "Construção: conferiu o projeto?", "exige_foto": False, "ativo": True},
+            ]
+        )
+        os_id = _criar_os(os_gestor_client).json()["id"]
+        itens = [i for i in db_fake._dados["os_checklist_itens"] if i["os_id"] == os_id]
+        assert len(itens) == 1
+        assert itens[0]["classificacao"] == "1.1"
+        assert itens[0]["pergunta"] == "Construção: conferiu o projeto?"

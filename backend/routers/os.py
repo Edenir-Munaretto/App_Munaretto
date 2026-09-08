@@ -1013,6 +1013,26 @@ def editar_os(
         if payload.equipe_id and not db.table("equipes").select("id").eq("id", payload.equipe_id).execute().data:
             raise HTTPException(status_code=404, detail="Equipe não encontrada.")
 
+        # Tipo/contrato define a unidade (USC/ULV), o catálogo de serviços e o
+        # snapshot do checklist: com histórico lançado, trocá-lo reescreveria
+        # os totais retroativamente — por isso a troca só é permitida enquanto
+        # a O.S ainda não tem lançamentos nem itens de checklist. O campo tem
+        # default no modelo, então só vale quando vier EXPLÍCITO no PUT.
+        if "tipo" in payload.model_fields_set:
+            novo_tipo = payload.tipo
+            tipo_atual = os_data.get("tipo") or "construcao"
+            if novo_tipo != tipo_atual:
+                tem_lancamentos = db.table("os_materiais").select("id").eq("os_id", os_id).limit(1).execute().data
+                tem_checklist = db.table("os_checklist_itens").select("id").eq("os_id", os_id).limit(1).execute().data
+                if tem_lancamentos or tem_checklist:
+                    raise HTTPException(
+                        status_code=409,
+                        detail=(
+                            "O tipo/contrato da O.S não pode ser alterado depois de lançar serviços "
+                            "ou gerar o checklist — os totais mudariam de unidade retroativamente."
+                        ),
+                    )
+
         # exclude_unset: PUT parcial não zera campos omissos (payloads que
         # não trazem o campo deixam o valor atual intacto, ex.: só escopo).
         atualizacoes = payload.model_dump(exclude_unset=True)
@@ -1328,7 +1348,8 @@ async def enviar_foto_checklist(
         nome_original = os.path.basename((arquivo.filename or "").replace("\\", "/")).strip() or f"item_{item_id}.jpg"
         # "Trocar foto" substitui: cada item do checklist admite uma única foto
         # de evidência. Fotos anteriores do item (envios web ou sincronização
-        # offline) são removidas — linhas antigas e objetos no bucket.
+        # offline) são removidas — LINHA primeiro, objeto depois (falha do B2
+        # vira só objeto órfão, nunca linha apontando para objeto inexistente).
         antigas = (
             db.table("os_fotos")
             .select("id, bucket_key")
@@ -1357,10 +1378,14 @@ async def enviar_foto_checklist(
             raise HTTPException(status_code=500, detail="Falha ao salvar a foto.")
         for antiga in antigas or []:
             try:
+                db.table("os_fotos").delete().eq("id", antiga["id"]).execute()
+            except Exception:
+                logger.exception("Erro ao remover linha da foto %s", antiga["id"])
+                continue
+            try:
                 s3.delete_object(Bucket=bucket(), Key=antiga["bucket_key"])
             except Exception:
                 logger.exception("Erro ao remover objeto %s do B2", antiga["bucket_key"])
-            db.table("os_fotos").delete().eq("id", antiga["id"]).execute()
         return resp.data[0]
     except HTTPException:
         raise
@@ -1873,6 +1898,13 @@ def lancar_material(
             quantidade = round(payload.quantidade_usada * fator_usc, 3)
         else:
             quantidade = payload.quantidade_usada
+        if quantidade <= 0:
+            # Arredondamento de 3 casas pode zerar lançamentos minúsculos; o
+            # banco tem CHECK > 0 e devolveria 500 genérico.
+            raise HTTPException(
+                status_code=400,
+                detail="A quantidade resultante é zero após o arredondamento. Informe um valor maior.",
+            )
 
         # Snapshot do código do serviço aplicado: o mesmo serviço tem códigos
         # distintos conforme o tipo escolhido (normal -> codigo, especial ->
@@ -2276,12 +2308,13 @@ def excluir_foto(
         meta = db.table("os_fotos").select("*").eq("id", foto_id).eq("os_id", os_id).execute()
         if not meta.data:
             raise HTTPException(status_code=404, detail="Foto não encontrada nesta O.S.")
+        # Linha primeiro, objeto depois: falha do B2 deixa só objeto órfão.
+        db.table("os_fotos").delete().eq("id", foto_id).execute()
         s3 = get_s3_client()
         try:
             s3.delete_object(Bucket=bucket(), Key=meta.data[0]["bucket_key"])
         except Exception:
             logger.exception("Erro ao remover objeto %s do B2", meta.data[0]["bucket_key"])
-        db.table("os_fotos").delete().eq("id", foto_id).execute()
         return {"success": True, "message": "Foto excluída."}
     except HTTPException:
         raise
@@ -2296,8 +2329,10 @@ def excluir_os(os_id: int, usuario: UsuarioAutenticado = Depends(get_current_use
 
     Permitido apenas para o gestor e somente nos status sem execução de campo:
     'rascunho' (criada por engano), 'concluida' ou 'cancelada'. A exclusão é
-    em cascata (apontamentos, materiais, fotos, checklist e histórico); os
-    objetos das fotos são removidos do bucket antes da exclusão.
+    em cascata (apontamentos, materiais, fotos, checklist e histórico). As
+    linhas são removidas PRIMEIRO e os objetos do bucket depois — se a
+    remoção do B2 falhar sobra apenas objeto órfão (custo), nunca uma linha
+    apontando para objeto inexistente.
     """
     try:
         _exigir_gestor(usuario)
@@ -2309,16 +2344,16 @@ def excluir_os(os_id: int, usuario: UsuarioAutenticado = Depends(get_current_use
                 detail="Apenas O.S em rascunho ou encerradas (concluída/cancelada) podem ser excluídas.",
             )
 
-        # Remove antes os objetos do bucket (as linhas caem em cascata).
         fotos = db.table("os_fotos").select("bucket_key").eq("os_id", os_id).execute().data or []
+        db.table("ordens_servico").delete().eq("id", os_id).execute()
+
+        # Depois da exclusão das linhas (cascata): tenta limpar os objetos.
         s3 = get_s3_client()
         for foto in fotos:
             try:
                 s3.delete_object(Bucket=bucket(), Key=foto["bucket_key"])
             except Exception:
                 logger.exception("Erro ao remover objeto %s do B2", foto["bucket_key"])
-
-        db.table("ordens_servico").delete().eq("id", os_id).execute()
         return {"success": True, "message": f"O.S {os_data['codigo']} excluída."}
     except HTTPException:
         raise
