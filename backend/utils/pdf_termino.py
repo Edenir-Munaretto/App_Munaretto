@@ -241,11 +241,16 @@ def gerar_pdf_termino(obra: dict, termo: dict) -> str:
 
     # --- Transformadores: ficha INSTALADO (esquerda) + SAIU (direita).
     y += 6
+    # As duas fichas têm a MESMA largura (90 mm cada, com 6 mm de espaço
+    # entre elas): rótulo (44 mm) e valor idênticos lado a lado, sem texto
+    # espremido na coluna da direita.
+    largura_ficha = 90
+    x_saiu = 12 + largura_ficha + 6
     pdf.set_xy(12, y)
     pdf.set_font("Arial", "B", 10.5)
-    pdf.cell(112, 6, "TRANSFORMADORES INSTALADOS")
-    pdf.set_xy(130, y)
-    pdf.cell(68, 6, "SAIU")
+    pdf.cell(largura_ficha, 6, "TRANSFORMADORES INSTALADOS")
+    pdf.set_xy(x_saiu, y)
+    pdf.cell(largura_ficha, 6, "SAIU")
     y += 6.5
     campos_instalado = [
         ("Marca", instalado.get("marca")),
@@ -276,8 +281,8 @@ def gerar_pdf_termino(obra: dict, termo: dict) -> str:
         ("Nº TAP's", saiu.get("n_taps")),
         ("Placa", saiu.get("placa")),
     ]
-    y_instalado = _grade(pdf, 12, y, 112, campos_instalado, largura_rotulo=44, altura_linha=7.2)
-    y_saiu = _grade(pdf, 130, y, 68, campos_saiu, largura_rotulo=44, altura_linha=7.2)
+    y_instalado = _grade(pdf, 12, y, largura_ficha, campos_instalado, largura_rotulo=44, altura_linha=7.2)
+    y_saiu = _grade(pdf, x_saiu, y, largura_ficha, campos_saiu, largura_rotulo=44, altura_linha=7.2)
     y = max(y_instalado, y_saiu)
 
     # --- Encarregado.
