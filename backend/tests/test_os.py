@@ -2109,7 +2109,7 @@ class _S3Contador:
 class TestCorrecoesLote5:
     """Lacunas de cobertura do Lote 5."""
 
-    def test_estorno_de_material_ok_404_e_campo_negado(self, os_gestor_client, os_campo_client, db_fake):
+    def test_estorno_de_material_ok_404_e_campo_em_execucao(self, os_gestor_client, os_campo_client, db_fake):
         _seed_cenario(db_fake)
         os_id = _criar_os(os_gestor_client).json()["id"]
         assert os_gestor_client.put(f"/api/os/{os_id}/status", json={"novo_status": "aberta"}).status_code == 200
@@ -2122,10 +2122,38 @@ class TestCorrecoesLote5:
 
         assert os_gestor_client.delete(f"/api/os/{os_id}/materiais/{lid}").status_code == 404
 
+        # Campo estorna em O.S em execução (correção de lançamento errado).
         os2 = _criar_os(os_gestor_client, equipe_id=100).json()["id"]
         assert os_campo_client.put(f"/api/os/{os2}/status", json={"novo_status": "aberta"}).status_code == 200
         lanc2 = os_campo_client.post(f"/api/os/{os2}/materiais", json={"produto_id": 7, "quantidade_usada": 1}).json()
-        assert os_campo_client.delete(f"/api/os/{os2}/materiais/{lanc2['id']}").status_code == 403
+        resp = os_campo_client.delete(f"/api/os/{os2}/materiais/{lanc2['id']}")
+        assert resp.status_code == 200, resp.text
+        assert all(m["os_id"] != os2 for m in db_fake._dados["os_materiais"])
+
+    def test_estorno_campo_bloqueado_em_os_encerrada(self, os_gestor_client, os_campo_client, db_fake):
+        """Ajuste pós-conclusão continua sendo do gestor."""
+        _seed_cenario(db_fake)
+        os_id = _criar_os(os_gestor_client, equipe_id=100).json()["id"]
+        for novo in ("aberta", "em_andamento", "concluida"):
+            assert os_campo_client.put(f"/api/os/{os_id}/status", json={"novo_status": novo}).status_code == 200
+        lanc = os_gestor_client.post(f"/api/os/{os_id}/materiais", json={"produto_id": 7, "quantidade_usada": 2}).json()
+
+        resp = os_campo_client.delete(f"/api/os/{os_id}/materiais/{lanc['id']}")
+        assert resp.status_code == 400
+        assert "gestor" in resp.json()["detail"]
+
+        # Gestor segue estornando em encerrada.
+        resp_g = os_gestor_client.delete(f"/api/os/{os_id}/materiais/{lanc['id']}")
+        assert resp_g.status_code == 200, resp_g.text
+
+    def test_estorno_campo_fora_da_equipe_403(self, os_gestor_client, os_campo_client, db_fake):
+        _seed_cenario(db_fake)
+        # O.S da equipe 200 (o campo atua na equipe 100).
+        os_id = _criar_os(os_gestor_client, equipe_id=200).json()["id"]
+        assert os_gestor_client.put(f"/api/os/{os_id}/status", json={"novo_status": "aberta"}).status_code == 200
+        lanc = os_gestor_client.post(f"/api/os/{os_id}/materiais", json={"produto_id": 7, "quantidade_usada": 2}).json()
+        resp = os_campo_client.delete(f"/api/os/{os_id}/materiais/{lanc['id']}")
+        assert resp.status_code == 403
 
     def test_excluir_foto_gestor_remove_linha_e_objeto(self, os_gestor_client, db_fake, monkeypatch):
         _seed_cenario(db_fake)

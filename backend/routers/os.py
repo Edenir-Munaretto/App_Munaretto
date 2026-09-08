@@ -1948,10 +1948,23 @@ def lancar_material(
 def estornar_material(
     os_id: int, lancamento_id: int, usuario: UsuarioAutenticado = Depends(get_current_user), db=Depends(get_supabase)
 ):
+    """Estorna (remove) um lançamento de serviço aplicado na O.S.
+
+    O usuário de CAMPO pode corrigir lançamentos errados em O.S em execução
+    (aberta/em_andamento/impedida) das próprias equipes; ajustes em O.S
+    encerradas (pós-conclusão) seguem restritos ao gestor.
+    """
     try:
-        _exigir_gestor(usuario)
         os_data = _os_ou_404(db, os_id)
         _garantir_acesso_os(db, usuario, os_data)
+        if not _e_gestor_os(usuario) and os_data["status"] not in ("aberta", "em_andamento", "impedida"):
+            raise HTTPException(
+                status_code=400,
+                detail=(
+                    "O usuário de campo só pode estornar serviços em O.S em execução "
+                    "(aberta, em andamento ou impedida). Ajustes em O.S encerradas são do gestor."
+                ),
+            )
         registro = db.table("os_materiais").select("id").eq("id", lancamento_id).eq("os_id", os_id).execute()
         if not registro.data:
             raise HTTPException(status_code=404, detail="Lançamento não encontrado nesta O.S.")
