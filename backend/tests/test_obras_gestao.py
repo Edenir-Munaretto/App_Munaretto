@@ -376,6 +376,20 @@ TERMINO_PAYLOAD = {
     "saiu": {"marca": "BALESTRO", "numero": "23078", "potencia": "30"},
 }
 
+TERMINO_SAIU_COMPLETO = {
+    "marca": "SIGMA",
+    "numero": "999888",
+    "potencia": "75",
+    "ano": "2024-03-10",
+    "impedancia": "4,10",
+    "massa": "410",
+    "volume": "150",
+    "tap_1": "13,800",
+    "tap": "12,000",
+    "n_taps": "02",
+    "placa": "PLACA-XYZ",
+}
+
 
 class TestTerminoObra:
     def _criar_obra_termino(self, db_fake, obra_id=506):
@@ -438,6 +452,31 @@ class TestTerminoObra:
         texto = "\n".join(page.get_text() for page in doc)
         assert "Carta de conclusão de obra." in texto
         assert "TRANSFORMADORES INSTALADOS" in texto
+
+    def test_saiu_aceita_mesmos_campos_do_instalado(self, os_gestor_client, db_fake):
+        """O bloco 'saiu' tem a MESMA ficha do instalado (11 campos)."""
+        self._criar_obra_termino(db_fake)
+        payload = {**TERMINO_PAYLOAD, "saiu": dict(TERMINO_SAIU_COMPLETO)}
+        resp = os_gestor_client.put("/api/os/obras/506/termino", json=payload)
+        assert resp.status_code == 200, resp.text
+        salvo = os_gestor_client.get("/api/os/obras/506/termino").json()["termo"]["saiu"]
+        for chave in ("marca", "numero", "potencia", "ano", "impedancia", "massa", "volume",
+                      "tap_1", "tap", "n_taps", "placa"):
+            assert salvo.get(chave) == TERMINO_SAIU_COMPLETO[chave], chave
+
+    def test_pdf_termino_imprime_campos_do_saiu(self, os_gestor_client, db_fake):
+        """Os valores completos do 'saiu' saem impressos na ficha SAIU."""
+        self._criar_obra_termino(db_fake)
+        payload = {**TERMINO_PAYLOAD, "saiu": dict(TERMINO_SAIU_COMPLETO)}
+        resp = os_gestor_client.post("/api/os/obras/506/termino/pdf", json=payload)
+        assert resp.status_code == 200, resp.text
+        import pymupdf
+
+        doc = pymupdf.open(stream=resp.content, filetype="pdf")
+        texto = "\n".join(page.get_text() for page in doc)
+        assert "999888" in texto
+        assert "PLACA-XYZ" in texto
+        assert "4,10" in texto
 
     def test_termino_obra_inexistente_404(self, os_gestor_client, db_fake):
         self._criar_obra_termino(db_fake)

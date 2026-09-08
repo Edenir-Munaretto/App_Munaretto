@@ -139,8 +139,9 @@ class ResumoObraResponse(BaseModel):
     servicos: list[dict]
 
 
-class TrafoInstaladoTermino(BaseModel):
-    """Dados do transformador INSTALADO (ficha da carta de término)."""
+class TrafoTermino(BaseModel):
+    """Dados do transformador da carta de término (INSTALADO e SAIU usam os
+    MESMOS campos — formulário e ficha do PDF equivalentes)."""
 
     marca: str | None = None
     numero: str | None = None
@@ -153,14 +154,6 @@ class TrafoInstaladoTermino(BaseModel):
     tap: str | None = None
     n_taps: str | None = None
     placa: str | None = None
-
-
-class TrafoSaiuTermino(BaseModel):
-    """Dados do transformador que SAIU (retirado), quando houver."""
-
-    marca: str | None = None
-    numero: str | None = None
-    potencia: str | None = None
 
 
 class TerminoDados(BaseModel):
@@ -177,8 +170,8 @@ class TerminoDados(BaseModel):
     encarregado: str | None = None
     cidade_emissao: str | None = None
     data_emissao: str | None = None
-    instalado: TrafoInstaladoTermino = Field(default_factory=TrafoInstaladoTermino)
-    saiu: TrafoSaiuTermino = Field(default_factory=TrafoSaiuTermino)
+    instalado: TrafoTermino = Field(default_factory=TrafoTermino)
+    saiu: TrafoTermino = Field(default_factory=TrafoTermino)
 
 
 class TerminoResponse(BaseModel):

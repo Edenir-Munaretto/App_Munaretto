@@ -260,15 +260,22 @@ def gerar_pdf_termino(obra: dict, termo: dict) -> str:
         ("Nº TAP's", instalado.get("n_taps")),
         ("Placa", instalado.get("placa")),
     ]
-    # Coluna da direita no MESMO padrão da ficha instalado (largura de rótulo
-    # e altura de linha iguais). As linhas além dos 3 campos ficam em branco,
-    # mantendo as duas fichas com a mesma altura/visual.
+    # Coluna da direita com os MESMOS campos do instalado (formulário e ficha
+    # equivalentes): largura de rótulo/altura de linha iguais mantêm as duas
+    # fichas com a mesma altura e visual.
     campos_saiu = [
         ("Marca", saiu.get("marca")),
-        ("N°", saiu.get("numero")),
-        ("Pot.", saiu.get("potencia")),
+        ("Nº Trafo", saiu.get("numero")),
+        ("Potência", saiu.get("potencia")),
+        ("Ano", saiu.get("ano")),
+        ("Imp.", saiu.get("impedancia")),
+        ("Massa", saiu.get("massa")),
+        ("Volume", saiu.get("volume")),
+        ("1° TAP", saiu.get("tap_1")),
+        ("TAP", saiu.get("tap")),
+        ("Nº TAP's", saiu.get("n_taps")),
+        ("Placa", saiu.get("placa")),
     ]
-    campos_saiu.extend([("", "")] * (len(campos_instalado) - len(campos_saiu)))
     y_instalado = _grade(pdf, 12, y, 112, campos_instalado, largura_rotulo=44, altura_linha=7.2)
     y_saiu = _grade(pdf, 130, y, 68, campos_saiu, largura_rotulo=44, altura_linha=7.2)
     y = max(y_instalado, y_saiu)
