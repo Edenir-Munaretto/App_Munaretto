@@ -139,6 +139,53 @@ class ResumoObraResponse(BaseModel):
     servicos: list[dict]
 
 
+class TrafoInstaladoTermino(BaseModel):
+    """Dados do transformador INSTALADO (ficha da carta de término)."""
+
+    marca: str | None = None
+    numero: str | None = None
+    potencia: str | None = None
+    ano: str | None = None
+    impedancia: str | None = None
+    massa: str | None = None
+    volume: str | None = None
+    tap_1: str | None = None
+    tap: str | None = None
+    n_taps: str | None = None
+    placa: str | None = None
+
+
+class TrafoSaiuTermino(BaseModel):
+    """Dados do transformador que SAIU (retirado), quando houver."""
+
+    marca: str | None = None
+    numero: str | None = None
+    potencia: str | None = None
+
+
+class TerminoDados(BaseModel):
+    """Preenchimento da carta de término/conclusão da obra.
+
+    Campos de TEXTO (impressos como digitados no PDF — "3,57" e "01/09/2025"
+    não passam por conversão numérica).
+    """
+
+    numero_projeto: str | None = None
+    consumidor: str | None = None
+    local_rede: str | None = None
+    data_conclusao: str | None = None
+    encarregado: str | None = None
+    cidade_emissao: str | None = None
+    data_emissao: str | None = None
+    instalado: TrafoInstaladoTermino = Field(default_factory=TrafoInstaladoTermino)
+    saiu: TrafoSaiuTermino = Field(default_factory=TrafoSaiuTermino)
+
+
+class TerminoResponse(BaseModel):
+    obra_id: int
+    termo: dict | None = None
+
+
 class EquipeCreate(BaseModel):
     nome: str = Field(..., min_length=2)
     numero: str | None = Field(None, max_length=20, description="Número impresso no modelo de O.S (ex.: 12204)")
@@ -619,6 +666,62 @@ def relatorio_servicos_obra(
     except Exception:
         logger.exception("Erro ao gerar PDF de serviços da obra %s", obra_id)
         raise HTTPException(status_code=500, detail="Erro ao gerar PDF de serviços da obra.") from None
+
+
+# ---------------------------------------------------------------------------
+# Carta de término (conclusão) da obra
+# ---------------------------------------------------------------------------
+
+
+@router.get("/obras/{obra_id}/termino", response_model=TerminoResponse, dependencies=GESTOR_ONLY)
+def obter_termino_obra(obra_id: int, db=Depends(get_supabase)):
+    """Retorna o término salvo da obra (null quando nunca preenchido)."""
+    try:
+        obra = _obter_ou_404(db, "obras", obra_id, "Obra")
+        return {"obra_id": obra_id, "termo": obra.get("termino_dados") or None}
+    except HTTPException:
+        raise
+    except Exception:
+        logger.exception("Erro ao buscar término da obra %s", obra_id)
+        raise HTTPException(status_code=500, detail="Erro ao buscar término da obra.") from None
+
+
+@router.put("/obras/{obra_id}/termino", response_model=TerminoResponse, dependencies=GESTOR_ONLY)
+def salvar_termino_obra(obra_id: int, dados: TerminoDados, db=Depends(get_supabase)):
+    """Grava (ou substitui) o término da obra — atualiza só a coluna JSON."""
+    try:
+        _obter_ou_404(db, "obras", obra_id, "Obra")
+        payload = dados.model_dump()
+        resp = db.table("obras").update({"termino_dados": payload}).eq("id", obra_id).execute()
+        if not resp.data:
+            raise HTTPException(status_code=500, detail="Falha ao salvar o término da obra.")
+        return {"obra_id": obra_id, "termo": resp.data[0].get("termino_dados") or payload}
+    except HTTPException:
+        raise
+    except Exception:
+        logger.exception("Erro ao salvar término da obra %s", obra_id)
+        raise HTTPException(status_code=500, detail="Erro ao salvar o término da obra.") from None
+
+
+@router.post("/obras/{obra_id}/termino/pdf", dependencies=GESTOR_ONLY)
+def pdf_termino_obra(obra_id: int, dados: TerminoDados, db=Depends(get_supabase)):
+    """Gera o PDF da carta de término com os dados informados (não grava)."""
+    try:
+        from utils.pdf_termino import gerar_pdf_termino
+
+        obra = _obter_ou_404(db, "obras", obra_id, "Obra")
+        caminho = gerar_pdf_termino(obra=obra, termo=dados.model_dump())
+        return FileResponse(
+            caminho,
+            media_type="application/pdf",
+            filename=f"termino_obra_{obra_id}.pdf",
+            background=BackgroundTask(_remover_arquivo, caminho),
+        )
+    except HTTPException:
+        raise
+    except Exception:
+        logger.exception("Erro ao gerar PDF de término da obra %s", obra_id)
+        raise HTTPException(status_code=500, detail="Erro ao gerar o PDF de término da obra.") from None
 
 
 # ---------------------------------------------------------------------------

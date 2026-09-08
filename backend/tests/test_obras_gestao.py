@@ -350,3 +350,103 @@ class TestRelatoriosPdfObra:
         _seed_obra_com_os(db_fake)
         assert os_gestor_client.get("/api/os/obras/9999/relatorio").status_code == 404
         assert os_gestor_client.get("/api/os/obras/9999/servicos").status_code == 404
+
+
+TERMINO_PAYLOAD = {
+    "numero_projeto": "400800001",
+    "consumidor": "ARI SANDRIN",
+    "local_rede": "LN CACHIMBO- CONCORDIA-SC",
+    "data_conclusao": "2026-08-24",
+    "encarregado": "TADEU",
+    "cidade_emissao": "Concórdia",
+    "data_emissao": "2026-08-31",
+    "instalado": {
+        "marca": "SIGMA",
+        "numero": "2537261",
+        "potencia": "45",
+        "ano": "01/09/2025",
+        "impedancia": "3,57",
+        "massa": "344",
+        "volume": "110",
+        "tap_1": "13,800",
+        "tap": "12,600",
+        "n_taps": "03",
+        "placa": "",
+    },
+    "saiu": {"marca": "BALESTRO", "numero": "23078", "potencia": "30"},
+}
+
+
+class TestTerminoObra:
+    def _criar_obra_termino(self, db_fake, obra_id=506):
+        _inserir_obra(db_fake, obra_id, "Obra Término")
+
+    def test_obter_sem_termino_retorna_null(self, os_gestor_client, db_fake):
+        self._criar_obra_termino(db_fake)
+        resp = os_gestor_client.get("/api/os/obras/506/termino")
+        assert resp.status_code == 200, resp.text
+        assert resp.json() == {"obra_id": 506, "termo": None}
+
+    def test_salvar_e_relergir_termino(self, os_gestor_client, db_fake):
+        self._criar_obra_termino(db_fake)
+        resp = os_gestor_client.put("/api/os/obras/506/termino", json=TERMINO_PAYLOAD)
+        assert resp.status_code == 200, resp.text
+        assert resp.json()["obra_id"] == 506
+        assert resp.json()["termo"]["consumidor"] == "ARI SANDRIN"
+
+        # Sobrescreve (1 término por obra) e preserva os demais campos da obra.
+        atual = {**TERMINO_PAYLOAD, "consumidor": "OUTRO CONSUMIDOR"}
+        assert os_gestor_client.put("/api/os/obras/506/termino", json=atual).status_code == 200
+        dados_obra = next(o for o in db_fake._dados["obras"] if o["id"] == 506)
+        assert dados_obra["nome"] == "Obra Término"
+        assert dados_obra["termino_dados"]["consumidor"] == "OUTRO CONSUMIDOR"
+
+        releitura = os_gestor_client.get("/api/os/obras/506/termino").json()["termo"]
+        assert releitura["instalado"]["tap_1"] == "13,800"
+        assert releitura["saiu"]["marca"] == "BALESTRO"
+
+    def test_pdf_termino_contem_campos_preenchidos(self, os_gestor_client, db_fake):
+        self._criar_obra_termino(db_fake)
+        resp = os_gestor_client.post("/api/os/obras/506/termino/pdf", json=TERMINO_PAYLOAD)
+        assert resp.status_code == 200, resp.text
+        assert resp.headers["content-type"].startswith("application/pdf")
+        assert "termino_obra_506.pdf" in resp.headers.get("content-disposition", "")
+        import pymupdf
+
+        doc = pymupdf.open(stream=resp.content, filetype="pdf")
+        texto = "\n".join(page.get_text() for page in doc)
+        assert "CELESC DISTRIBUIÇÃO S.A" in texto
+        assert "Carta de conclusão de obra." in texto
+        assert "400800001" in texto
+        assert "ARI SANDRIN" in texto
+        assert "LN CACHIMBO- CONCORDIA-SC" in texto
+        assert "24/08/2026" in texto  # YYYY-MM-DD convertida para pt-BR
+        assert "SIGMA" in texto
+        assert "2537261" in texto
+        assert "SAIU" in texto
+        assert "BALESTRO" in texto
+        assert "Concórdia, 31 de Agosto de 2026." in texto
+        assert "Munaretto Eletrificações Eireli - ME" in texto
+
+    def test_pdf_termino_sem_dados_gera_normal(self, os_gestor_client, db_fake):
+        self._criar_obra_termino(db_fake)
+        resp = os_gestor_client.post("/api/os/obras/506/termino/pdf", json={})
+        assert resp.status_code == 200, resp.text
+        import pymupdf
+
+        doc = pymupdf.open(stream=resp.content, filetype="pdf")
+        texto = "\n".join(page.get_text() for page in doc)
+        assert "Carta de conclusão de obra." in texto
+        assert "TRANSFORMADORES INSTALADOS" in texto
+
+    def test_termino_obra_inexistente_404(self, os_gestor_client, db_fake):
+        self._criar_obra_termino(db_fake)
+        assert os_gestor_client.get("/api/os/obras/9999/termino").status_code == 404
+        assert os_gestor_client.put("/api/os/obras/9999/termino", json=TERMINO_PAYLOAD).status_code == 404
+        assert os_gestor_client.post("/api/os/obras/9999/termino/pdf", json=TERMINO_PAYLOAD).status_code == 404
+
+    def test_termino_negado_para_usuario_de_campo(self, os_campo_client, db_fake):
+        self._criar_obra_termino(db_fake)
+        assert os_campo_client.get("/api/os/obras/506/termino").status_code == 403
+        assert os_campo_client.put("/api/os/obras/506/termino", json=TERMINO_PAYLOAD).status_code == 403
+        assert os_campo_client.post("/api/os/obras/506/termino/pdf", json=TERMINO_PAYLOAD).status_code == 403

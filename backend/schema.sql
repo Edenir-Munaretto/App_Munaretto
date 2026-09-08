@@ -616,6 +616,10 @@ CREATE TABLE IF NOT EXISTS obras (
     created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
 );
 
+-- Carta de término (conclusão) da obra: dados preenchidos no PainelObra,
+-- usados para regenerar o PDF (1 término por obra — substituível).
+ALTER TABLE IF EXISTS obras ADD COLUMN IF NOT EXISTS termino_dados JSONB;
+
 -- TABELA: equipes (grupos de trabalho que executam as O.S)
 CREATE TABLE IF NOT EXISTS equipes (
     id SERIAL PRIMARY KEY,
