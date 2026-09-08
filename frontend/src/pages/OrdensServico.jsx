@@ -5,7 +5,7 @@ import {
   AlertTriangle, Check, Clock, CalendarClock, FileDown, LayoutGrid,
   FolderKanban, HardHat, Boxes, Trash2, Image as ImageIcon,
   Pencil, Building, Printer, ListChecks, RefreshCw, WifiOff, ChevronDown, Archive,
-  Upload, FileSpreadsheet, FolderOpen,
+  Upload, FileSpreadsheet,
 } from 'lucide-react';
 import { API_URL, apiFetch, erroDaResposta } from '../api';
 import ModalConfirmacao from '../components/ModalConfirmacao';
@@ -4179,12 +4179,18 @@ function PainelCadastros({ obras, equipes, produtos, recarregar, mostrarToast, o
                 <div className="col-span-full text-center text-xs text-slate-400 py-12">Nenhuma obra encontrada.</div>
               ) : (
                 obrasFiltradas.map(o => (
-                  <div key={o.id} className="group relative flex flex-col gap-1 text-xs bg-slate-50 hover:bg-slate-100/70 rounded-xl p-3 border border-slate-100 transition-all">
+                  <div
+                    key={o.id}
+                    onClick={() => setObraAberta(o)}
+                    title="Abrir a gestão da obra"
+                    className="group relative flex flex-col gap-1 text-xs bg-slate-50 hover:bg-slate-100/70 rounded-xl p-3 border border-slate-100 transition-all cursor-pointer select-none"
+                  >
                     <div className="flex items-start justify-between gap-2">
                       <span className="font-extrabold text-slate-800 break-words leading-tight">{o.nome}</span>
                       <div className="flex items-center gap-1 opacity-60 group-hover:opacity-100 transition-opacity">
                         <button
-                          onClick={() => {
+                          onClick={(e) => {
+                            e.stopPropagation();
                             setObraEmEdicao(o);
                             setObraCelesc(!!o.cliente_celesc && !o.cliente_id);
                             setNovaObra({
@@ -4201,7 +4207,10 @@ function PainelCadastros({ obras, equipes, produtos, recarregar, mostrarToast, o
                           <Pencil size={11} />
                         </button>
                         <button
-                          onClick={() => setExcluirObraAlvo(o)}
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            setExcluirObraAlvo(o);
+                          }}
                           className="text-slate-400 hover:text-rose-600 cursor-pointer p-1 rounded hover:bg-white border hover:border-slate-200"
                           title="Excluir obra"
                         >
@@ -4227,37 +4236,28 @@ function PainelCadastros({ obras, equipes, produtos, recarregar, mostrarToast, o
                     )}
 
                     {/* Resumo da gestão por obra: contagem de O.S e totais por contrato */}
-                    <div className="flex items-end justify-between gap-2 mt-1.5">
-                      <div className="flex flex-wrap items-center gap-1.5 min-w-0">
-                        {o.os_total > 0 && (
-                          <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-white border border-slate-200 text-[10px] font-extrabold text-slate-600 whitespace-nowrap">
-                            <ClipboardList size={10} className="text-primary-600" />
-                            {o.os_total} O.S
-                            {o.os_ativas > 0 && <span className="text-sky-600">· {o.os_ativas} em execução</span>}
-                            {o.os_encerradas > 0 && <span className="text-slate-400">· {o.os_encerradas} encerradas</span>}
-                          </span>
-                        )}
-                        {(o.totais_por_tipo || []).map(t => (
-                          <span
-                            key={t.tipo}
-                            className={`inline-flex items-center px-2 py-0.5 rounded-full border text-[10px] font-extrabold whitespace-nowrap ${
-                              t.unidade === 'USC'
-                                ? 'bg-amber-50 text-amber-700 border-amber-200'
-                                : 'bg-violet-50 text-violet-700 border-violet-200'
-                            }`}
-                            title={`Total aplicado em ${t.unidade} (O.S em execução e concluídas)`}
-                          >
-                            {Number(t.total || 0).toLocaleString('pt-BR', { maximumFractionDigits: 3 })} {t.unidade}
-                          </span>
-                        ))}
-                      </div>
-                      <button
-                        onClick={() => setObraAberta(o)}
-                        className="shrink-0 flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg bg-primary-600 text-white text-[10px] font-extrabold hover:bg-primary-700 transition-colors cursor-pointer shadow-sm"
-                        title="Abrir a gestão da obra"
-                      >
-                        <FolderOpen size={11} /> Abrir Obra
-                      </button>
+                    <div className="flex flex-wrap items-center gap-1.5 mt-1.5">
+                      {o.os_total > 0 && (
+                        <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-white border border-slate-200 text-[10px] font-extrabold text-slate-600 whitespace-nowrap">
+                          <ClipboardList size={10} className="text-primary-600" />
+                          {o.os_total} O.S
+                          {o.os_ativas > 0 && <span className="text-sky-600">· {o.os_ativas} em execução</span>}
+                          {o.os_encerradas > 0 && <span className="text-slate-400">· {o.os_encerradas} encerradas</span>}
+                        </span>
+                      )}
+                      {(o.totais_por_tipo || []).map(t => (
+                        <span
+                          key={t.tipo}
+                          className={`inline-flex items-center px-2 py-0.5 rounded-full border text-[10px] font-extrabold whitespace-nowrap ${
+                            t.unidade === 'USC'
+                              ? 'bg-amber-50 text-amber-700 border-amber-200'
+                              : 'bg-violet-50 text-violet-700 border-violet-200'
+                          }`}
+                          title={`Total aplicado em ${t.unidade} (O.S em execução e concluídas)`}
+                        >
+                          {Number(t.total || 0).toLocaleString('pt-BR', { maximumFractionDigits: 3 })} {t.unidade}
+                        </span>
+                      ))}
                     </div>
                   </div>
                 ))
