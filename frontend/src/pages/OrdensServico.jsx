@@ -1732,10 +1732,18 @@ function PainelExecucao({ osId, produtos, capturarGps, onFechar, recarregarLista
     }
   };
 
+  // Usuário de campo não vê o Histórico (timeline de status do gestor).
+  const abasDisponiveis = [
+    ['checklist', 'Checklist', ListChecks],
+    ['insumos', 'Serviços', Package],
+    ['evidencias', 'Evidências', Camera],
+    ...(ehGestor ? [['timeline', 'Histórico', Clock]] : []),
+  ];
+
   const corpoAbas = (
     <>
       <div className="flex gap-1 bg-slate-100 rounded-xl p-1 mb-4">
-        {[['checklist', 'Checklist', ListChecks], ['insumos', 'Serviços', Package], ['evidencias', 'Evidências', Camera], ['timeline', 'Histórico', Clock]].map(([key, label, Icon]) => (
+        {abasDisponiveis.map(([key, label, Icon]) => (
           <button
             key={key}
             onClick={() => setAba(key)}
@@ -1768,7 +1776,7 @@ function PainelExecucao({ osId, produtos, capturarGps, onFechar, recarregarLista
       {aba === 'evidencias' && (
         <TabEvidencias osDetalhe={detalhe} onAtualizado={carregar} mostrarToast={mostrarToast} podeEditar={podeEditar} podeExcluir={podeExcluir} />
       )}
-      {aba === 'timeline' && <TabTimeline historico={detalhe.historico} />}
+      {aba === 'timeline' && ehGestor && <TabTimeline historico={detalhe.historico} />}
     </>
   );
 
