@@ -52,3 +52,23 @@
 ::-webkit-scrollbar-thumb:hover {
   background: #94a3b8;
 }
+
+/* Legibilidade do módulo de O.S em CELULAR (< 640px): o app de campo roda em
+ * telefone — fontes pequenas demais para leitura/toque. Escopo limitado ao
+ * wrapper `.os-celular`; tablet/desktop seguem como antes. Regras SEM @layer
+ * para vencerem as utilities do Tailwind (mesma especificidade, cascata fora
+ * de camadas tem prioridade).
+ */
+@media (max-width: 639px) {
+  .os-celular [class~="text-[10px]"] { font-size: 12px; }
+  .os-celular [class~="text-[11px]"] { font-size: 13px; }
+  .os-celular [class~="text-xs"]     { font-size: 13px; }
+  .os-celular [class~="text-sm"]     { font-size: 15px; }
+  /* Fonte >= 16px evita o zoom automático do iOS ao focar campos. */
+  .os-celular input,
+  .os-celular select,
+  .os-celular textarea {
+    font-size: 16px;
+  }
+}
+

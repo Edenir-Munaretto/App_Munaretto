@@ -593,22 +593,22 @@ function TabChecklist({ osDetalhe, onAtualizado, mostrarToast, podeEditar }) {
                 onClick={() => setGrupoAberto(aberto ? null : grupo.grupo)}
                 aria-expanded={aberto}
                 title={`Grupo ${grupo.grupo} · ${grupo.nome}`}
-                className={`w-full flex items-center gap-3 px-4 py-3 text-left cursor-pointer transition-colors ${
+                className={`w-full flex items-center gap-3 px-4 py-3 text-left cursor-pointer transition-colors max-[639px]:px-4 max-[639px]:py-4 ${
                   aberto ? 'bg-primary-50' : 'bg-white hover:bg-slate-50'
                 }`}
               >
-                <span className={`w-9 h-9 shrink-0 rounded-full flex items-center justify-center text-xs font-black transition-colors ${
+                <span className={`w-9 h-9 shrink-0 rounded-full flex items-center justify-center text-xs font-black transition-colors max-[639px]:w-11 max-[639px]:h-11 max-[639px]:text-base ${
                   completo ? 'bg-emerald-100 text-emerald-700'
                     : aguardandoFoto ? 'bg-amber-100 text-amber-700'
                     : aberto ? 'bg-primary-600 text-white' : 'bg-slate-100 text-slate-500'
                 }`}>
-                  {completo ? <Check size={16} /> : aguardandoFoto ? <Camera size={15} /> : grupo.grupo}
+                  {completo ? <Check size={16} className="max-[639px]:w-5 max-[639px]:h-5" /> : aguardandoFoto ? <Camera size={15} className="max-[639px]:w-5 max-[639px]:h-5" /> : grupo.grupo}
                 </span>
                 <span className="min-w-0 flex-1">
                   <span className="flex items-center justify-between gap-2">
                     <span className="min-w-0 truncate">
-                      <span className="text-sm font-extrabold text-slate-700">Grupo {grupo.grupo}</span>
-                      <span className="text-xs font-semibold text-slate-400"> · {grupo.nome}</span>
+                      <span className="text-sm font-extrabold text-slate-700 max-[639px]:text-[17px]">Grupo {grupo.grupo}</span>
+                      <span className="text-xs font-semibold text-slate-400 max-[639px]:text-sm"> · {grupo.nome}</span>
                     </span>
                     <span className={`shrink-0 text-[10px] font-bold rounded-full px-2 py-0.5 ${
                       completo ? 'bg-emerald-100 text-emerald-700'
@@ -655,7 +655,7 @@ function TabChecklist({ osDetalhe, onAtualizado, mostrarToast, podeEditar }) {
                                     <button key={valor}
                                       disabled={salvandoItem === item.id}
                                       onClick={() => responder(item, valor)}
-                                      className={`px-3 py-1 rounded-lg border text-[11px] font-bold transition-all cursor-pointer disabled:opacity-40 ${marcar(resposta === valor)}`}>
+                                      className={`px-3 py-1 rounded-lg border text-[11px] font-bold transition-all cursor-pointer disabled:opacity-40 max-[639px]:text-[15px] max-[639px]:px-4 max-[639px]:py-2.5 max-[639px]:min-w-[3.5rem] ${marcar(resposta === valor)}`}>
                                       {rotulo}
                                     </button>
                                   ))}
@@ -679,9 +679,9 @@ function TabChecklist({ osDetalhe, onAtualizado, mostrarToast, podeEditar }) {
                                 <button
                                   onClick={() => setFotoAlvo(item)}
                                   disabled={enviandoFoto === item.id}
-                                  className="flex items-center gap-1 px-2.5 py-1 rounded-lg border border-primary-200 bg-primary-50 text-primary-700 text-[10px] font-bold hover:bg-primary-100 transition-all cursor-pointer disabled:opacity-40"
+                                  className="flex items-center gap-1 px-2.5 py-1 rounded-lg border border-primary-200 bg-primary-50 text-primary-700 text-[10px] font-bold hover:bg-primary-100 transition-all cursor-pointer disabled:opacity-40 max-[639px]:text-[13px] max-[639px]:px-3.5 max-[639px]:py-2"
                                 >
-                                  <Camera size={11} />
+                                  <Camera size={11} className="max-[639px]:w-4 max-[639px]:h-4" />
                                   {enviandoFoto === item.id ? 'Enviando...' : temFoto ? 'Trocar foto' : 'Foto'}
                                 </button>
                               )}
@@ -3536,7 +3536,7 @@ function OrdensServico({ usuarioAtual }) {
 
 
   return (
-    <div className="space-y-5 relative">
+    <div className={`space-y-5 relative ${!ehTelaLarga ? 'os-celular' : ''}`}>
       <Toast toast={toast} />
 
       {/* Header de ações */}
@@ -3555,7 +3555,7 @@ function OrdensServico({ usuarioAtual }) {
                 onClick={() => sincronizarAgora()}
                 disabled={preparandoPacote || sincronizando}
                 title="Enviar as pendências locais para o servidor (Wi-Fi)"
-                className="flex items-center gap-2 px-4 py-2.5 rounded-xl border border-primary-300 bg-primary-600 text-white font-bold text-xs hover:bg-primary-700 transition-all cursor-pointer disabled:opacity-50"
+                className="flex items-center gap-2 px-4 py-2.5 rounded-xl border border-primary-300 bg-primary-600 text-white font-bold text-xs hover:bg-primary-700 transition-all cursor-pointer disabled:opacity-50 max-[639px]:px-5 max-[639px]:py-3 max-[639px]:text-[15px]"
               >
                 <RefreshCw size={15} className={sincronizando ? 'animate-spin' : ''} />
                 {sincronizando
@@ -3568,7 +3568,7 @@ function OrdensServico({ usuarioAtual }) {
                 <button
                   onClick={() => setModalPendenciasAberto(true)}
                   title="Abrir pendências para revisar/descartar itens com erro"
-                  className="flex items-center gap-2 px-4 py-2.5 rounded-xl border border-amber-300 bg-amber-50 text-amber-700 font-bold text-xs hover:bg-amber-100 transition-all cursor-pointer"
+                  className="flex items-center gap-2 px-4 py-2.5 rounded-xl border border-amber-300 bg-amber-50 text-amber-700 font-bold text-xs hover:bg-amber-100 transition-all cursor-pointer max-[639px]:px-5 max-[639px]:py-3 max-[639px]:text-[15px]"
                 >
                   <AlertTriangle size={15} />
                   Pendências ({pendentes.revisao})
@@ -3580,7 +3580,7 @@ function OrdensServico({ usuarioAtual }) {
                 onClick={finalizarModoCampo}
                 disabled={preparandoPacote || sincronizando}
                 title="Sincronizar todas as pendências com a base e encerrar o Modo Campo (apaga os dados locais do dispositivo)"
-                className="flex items-center gap-2 px-4 py-2.5 rounded-xl border border-emerald-300 bg-emerald-600 text-white font-bold text-xs hover:bg-emerald-700 transition-all cursor-pointer disabled:opacity-50"
+                className="flex items-center gap-2 px-4 py-2.5 rounded-xl border border-emerald-300 bg-emerald-600 text-white font-bold text-xs hover:bg-emerald-700 transition-all cursor-pointer disabled:opacity-50 max-[639px]:px-5 max-[639px]:py-3 max-[639px]:text-[15px]"
               >
                 {sincronizando
                   ? <RefreshCw size={15} className="animate-spin" />
@@ -3598,7 +3598,7 @@ function OrdensServico({ usuarioAtual }) {
               onClick={alternarModoCampo}
               disabled={preparandoPacote || sincronizando}
               title="Baixar as O.S para o dispositivo e trabalhar sem internet"
-              className="flex items-center gap-2 px-4 py-2.5 rounded-xl border font-bold text-xs transition-all cursor-pointer disabled:opacity-50 border-primary-300 bg-primary-50 text-primary-700 hover:bg-primary-100"
+              className="flex items-center gap-2 px-4 py-2.5 rounded-xl border font-bold text-xs transition-all cursor-pointer disabled:opacity-50 border-primary-300 bg-primary-50 text-primary-700 hover:bg-primary-100 max-[639px]:px-5 max-[639px]:py-3 max-[639px]:text-[15px]"
             >
               <HardHat size={15} />
               {preparandoPacote ? 'Baixando O.S...' : 'Preparar Modo Campo'}
