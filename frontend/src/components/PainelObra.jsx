@@ -105,26 +105,27 @@ export default function PainelObra({ obra, onFechar, onAbrirOS, onNovaOS, refres
     carregarResumo(filtro);
   }, [filtro, carregarResumo, refreshResumoKey]);
 
-  const baixarPdf = async (recurso, arquivo) => {
+  // Abre o PDF numa nova aba (visualizar/imprimir/salvar pelo navegador) em
+  // vez de forçar download. O window.open vazio acontece no clique para não
+  // ser bloqueado como popup; a aba só é apontada quando o PDF chega.
+  const abrirPdf = async (recurso) => {
+    const janela = window.open('', '_blank');
     setGerando(true);
     try {
       const res = await apiFetch(`${API_URL}/os/obras/${obra.id}/${recurso}?status=${encodeURIComponent(filtro)}`);
       if (!res.ok) {
+        janela?.close();
         mostrarToast('Erro ao gerar o PDF.', 'error');
         return;
       }
       const blob = await res.blob();
       const url = window.URL.createObjectURL(blob);
-      const a = document.createElement('a');
-      a.href = url;
-      a.download = arquivo;
-      document.body.appendChild(a);
-      a.click();
-      document.body.removeChild(a);
-      // Revoga com atraso: em alguns navegadores (Safari/WebView) revogar logo
-      // após o clique cancela o download iniciado.
-      setTimeout(() => window.URL.revokeObjectURL(url), 60000);
+      janela?.location.replace(url);
+      // Libera a blob URL depois de a aba carregar (revogar antes pode
+      // cancelar a leitura do PDF).
+      setTimeout(() => window.URL.revokeObjectURL(url), 120000);
     } catch {
+      janela?.close();
       mostrarToast('Falha de conexão ao gerar o PDF.', 'error');
     } finally {
       setGerando(false);
@@ -192,7 +193,7 @@ export default function PainelObra({ obra, onFechar, onAbrirOS, onNovaOS, refres
           {/* Ações: relatórios PDF e carta de término */}
           <div className="grid grid-cols-3 gap-2">
             <button
-              onClick={() => baixarPdf('relatorio', `obra_${obra.id}_relatorio.pdf`)}
+              onClick={() => abrirPdf('relatorio')}
               disabled={gerando}
               title="Baixar o relatório da obra (PDF)"
               className="flex items-center justify-center gap-1.5 px-2 py-2 bg-primary-600 text-white rounded-xl text-[10px] font-extrabold hover:bg-primary-700 transition-all cursor-pointer disabled:opacity-50"
@@ -200,7 +201,7 @@ export default function PainelObra({ obra, onFechar, onAbrirOS, onNovaOS, refres
               <FileDown size={12} /> Relatório da Obra
             </button>
             <button
-              onClick={() => baixarPdf('servicos', `obra_${obra.id}_servicos.pdf`)}
+              onClick={() => abrirPdf('servicos')}
               disabled={gerando}
               title="Baixar os serviços por obra (PDF)"
               className="flex items-center justify-center gap-1.5 px-2 py-2 bg-amber-500 text-white rounded-xl text-[10px] font-extrabold hover:bg-amber-600 transition-all cursor-pointer disabled:opacity-50"

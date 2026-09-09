@@ -158,12 +158,16 @@ export default function TerminoObra({ obra, onFechar, mostrarToast }) {
     return true;
   }, [form, obra.id, mostrarToast]);
 
-  const baixarPdf = async () => {
+  const abrirPdf = async () => {
     if (processando) return; // duplo toque rápido
+    // Abre a aba vazia no clique (evita bloqueio de popup); o PDF é apontado
+    // nela quando chega — o usuário imprime/salva pelo visualizador.
+    const janela = window.open('', '_blank');
     setProcessando(true);
     try {
       const ok = await salvar(true);
       if (!ok) {
+        janela?.close();
         mostrarToast('Erro ao salvar antes de gerar o PDF.', 'error');
         return;
       }
@@ -173,21 +177,19 @@ export default function TerminoObra({ obra, onFechar, mostrarToast }) {
         body: JSON.stringify(paraEnvio(form)),
       });
       if (!res.ok) {
+        janela?.close();
         mostrarToast('Erro ao gerar o PDF do término.', 'error');
         return;
       }
       const blob = await res.blob();
       const url = window.URL.createObjectURL(blob);
-      const a = document.createElement('a');
-      a.href = url;
-      a.download = `termino_obra_${obra.id}.pdf`;
-      document.body.appendChild(a);
-      a.click();
-      document.body.removeChild(a);
-      // Revoga com atraso (Safari/WebView cancelam download se revogar na hora).
-      setTimeout(() => window.URL.revokeObjectURL(url), 60000);
-      mostrarToast('Carta de término baixada.');
+      janela?.location.replace(url);
+      // Libera a blob URL depois de a aba carregar (revogar antes pode
+      // cancelar a leitura do PDF).
+      setTimeout(() => window.URL.revokeObjectURL(url), 120000);
+      mostrarToast('Carta de término aberta.');
     } catch {
+      janela?.close();
       mostrarToast('Falha de conexão ao gerar o PDF.', 'error');
     } finally {
       setProcessando(false);
@@ -285,12 +287,12 @@ export default function TerminoObra({ obra, onFechar, mostrarToast }) {
             <Save size={13} /> Salvar
           </button>
           <button
-            onClick={baixarPdf}
+            onClick={abrirPdf}
             disabled={processando || carregando || !form}
             className="flex items-center gap-1.5 px-4 py-2.5 bg-primary-600 text-white rounded-xl text-xs font-extrabold hover:bg-primary-700 transition-colors cursor-pointer disabled:opacity-50"
           >
             {processando ? <Loader2 size={13} className="animate-spin" /> : <FileDown size={13} />}
-            Salvar e baixar PDF
+            Salvar e abrir PDF
           </button>
         </div>
       </div>
