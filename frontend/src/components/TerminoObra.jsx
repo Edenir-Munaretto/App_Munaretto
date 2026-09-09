@@ -39,10 +39,33 @@ const vazio = () => ({
   placa: '',
 });
 
-const hojeISO = () => {
+// Datas exibidas/editadas no formulário em formato brasileiro (dd/mm/aaaa);
+// ao salvar, são convertidas para AAAA-MM-DD (o PDF imprime por extenso).
+const hojeBR = () => {
   const d = new Date();
-  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+  return `${String(d.getDate()).padStart(2, '0')}/${String(d.getMonth() + 1).padStart(2, '0')}/${d.getFullYear()}`;
 };
+
+const isoParaBr = (valor) => {
+  const t = String(valor || '').trim();
+  if (t.length >= 10 && t[4] === '-' && t[7] === '-') {
+    return `${t.slice(8, 10)}/${t.slice(5, 7)}/${t.slice(0, 4)}`;
+  }
+  return t;
+};
+
+const brParaIso = (valor) => {
+  const t = String(valor || '').trim();
+  const m = /^(\d{2})\/(\d{2})\/(\d{4})$/.exec(t);
+  return m ? `${m[3]}-${m[2]}-${m[1]}` : t;
+};
+
+// Payload da API: datas sempre em AAAA-MM-DD (o PDF imprime por extenso).
+const paraEnvio = (form) => ({
+  ...form,
+  data_conclusao: brParaIso(form?.data_conclusao),
+  data_emissao: brParaIso(form?.data_emissao),
+});
 
 function Campo({ rotulo, valor, onChange, placeholder = '' }) {
   return (
@@ -88,12 +111,14 @@ export default function TerminoObra({ obra, onFechar, mostrarToast }) {
         if (dados.termo) {
           setForm({
             ...dados.termo,
+            data_conclusao: isoParaBr(dados.termo.data_conclusao),
+            data_emissao: isoParaBr(dados.termo.data_emissao),
             instalado: { ...vazio(), ...(dados.termo.instalado || {}) },
             saiu: { ...vazio(), ...(dados.termo.saiu || {}) },
           });
         } else {
           // Prefill automático a partir do cadastro da obra.
-          const hoje = hojeISO();
+          const hoje = hojeBR();
           const local = [obra.endereco, obra.cidade].filter(Boolean).join(' - ');
           setForm({
             numero_projeto: obra.nome || '',
@@ -122,7 +147,7 @@ export default function TerminoObra({ obra, onFechar, mostrarToast }) {
     const res = await apiFetch(`${API_URL}/os/obras/${obra.id}/termino`, {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(form),
+      body: JSON.stringify(paraEnvio(form)),
     });
     const data = await res.json().catch(() => null);
     if (!res.ok) {
@@ -145,7 +170,7 @@ export default function TerminoObra({ obra, onFechar, mostrarToast }) {
       const res = await apiFetch(`${API_URL}/os/obras/${obra.id}/termino/pdf`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(form),
+        body: JSON.stringify(paraEnvio(form)),
       });
       if (!res.ok) {
         mostrarToast('Erro ao gerar o PDF do término.', 'error');
