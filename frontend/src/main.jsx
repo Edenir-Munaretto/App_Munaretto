@@ -4,16 +4,6 @@ import App from './App.jsx'
 import './index.css'
 import './utils/polyfills.js'
 
-// Identificador do build em execução (para diagnóstico remoto — ex.: cache
-// antigo do PWA/sandbox servindo uma versão velha).
-try {
-  const scripts = Array.from(document.scripts || []);
-  const bundle = scripts.find(s => s.src && s.src.includes('/assets/') && s.src.endsWith('.js'));
-  window.__APP_BUILD__ = bundle ? bundle.src.split('/').pop() : 'dev';
-} catch {
-  window.__APP_BUILD__ = 'desconhecido';
-}
-
 // Overlay global de erros (também em produção): qualquer crash fora do
 // ErrorBoundary mostra a mensagem/stack na tela em vez de "tela branca".
 function exibirErroGlobal(mensagem, stack) {
@@ -35,7 +25,6 @@ window.addEventListener('unhandledrejection', (evento) => {
   const motivo = evento.reason;
   exibirErroGlobal(motivo?.message || String(motivo), motivo?.stack);
 });
-window.__mostrarErroGlobal = exibirErroGlobal;
 
 ReactDOM.createRoot(document.getElementById('root')).render(
   <React.StrictMode>

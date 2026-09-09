@@ -387,29 +387,24 @@ function App() {
   // contextos onde `reload()` é silenciosamente ignorado (WebViews/PWA) e
   // garante montagem 100% nova (nenhum estado da tela de login sobrevive).
   const irParaApp = () => {
-    window.location.replace(window.location.pathname);
-    // Fallback extra caso o replace não dispare em algum WebView.
-    setTimeout(() => {
-      window.location.assign(window.location.pathname);
-    }, 1200);
-  };
-
-  // Aplicar a sessão SEMPRE seguido de navegação forçada: se algo falhar ao
-  // salvar, não segura o usuário na tela de login — o replace tenta mesmo assim.
-  const aplicarSessaoENavegar = (user) => {
     try {
-      aplicarLogin(user);
-    } catch (err) {
-      console.error('Erro ao aplicar sessão (segue para navegar):', err);
-      try { window.__mostrarErroGlobal?.(String(err?.message || err), err?.stack); } catch { /* noop */ }
-    }
-    try {
-      irParaApp();
+      window.location.replace(window.location.pathname);
     } catch (err) {
       console.error('Erro ao navegar após login:', err);
       // Último recurso: recarregar a página inteira.
       try { window.location.href = window.location.pathname; } catch { /* noop */ }
     }
+  };
+
+  // Aplicar a sessão e navegar: mesmo se salvar falhar, não segura o usuário
+  // na tela de login.
+  const aplicarSessaoENavegar = (user) => {
+    try {
+      aplicarLogin(user);
+    } catch (err) {
+      console.error('Erro ao aplicar sessão (segue para navegar):', err);
+    }
+    irParaApp();
   };
 
   const confirmarLimpezaPendente = async () => {

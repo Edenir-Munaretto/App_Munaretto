@@ -7,12 +7,10 @@ function Login({ onLogin, mensagemExpirada = false }) {
   const [senha, setSenha] = useState('');
   const [loading, setLoading] = useState(false);
   const [erro, setErro] = useState('');
-  const [status, setStatus] = useState('');
 
   const handleSubmit = async (e) => {
     e.preventDefault();
     setErro('');
-    setStatus('');
 
     // Validações no cliente antes do envio
     const emailLimpo = email.trim();
@@ -41,16 +39,13 @@ function Login({ onLogin, mensagemExpirada = false }) {
 
     setLoading(true);
     try {
-      setStatus('Enviando credenciais...');
       const res = await apiFetch(`${API_URL}/usuarios/login`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ email: emailLimpo, senha })
       });
-      setStatus(`Resposta do servidor: HTTP ${res.status}`);
 
       if (res.ok) {
-        setStatus('Login aceito, abrindo o sistema...');
         const data = await res.json();
 
         // Garantia de sessão: persiste aqui (além do App) para que um
@@ -65,8 +60,8 @@ function Login({ onLogin, mensagemExpirada = false }) {
 
         onLogin(data);
 
-        // Última rede de segurança: se o App não navegar por qualquer motivo,
-        // força a navegação aqui (a sessão já está persistida acima).
+        // Rede de segurança: se o App não navegar por qualquer motivo, força a
+        // navegação aqui (a sessão já está persistida acima).
         setTimeout(() => {
           try { window.location.replace(window.location.pathname); } catch { /* noop */ }
         }, 2500);
@@ -157,15 +152,9 @@ function Login({ onLogin, mensagemExpirada = false }) {
               <LogIn size={16} />
               {loading ? 'Entrando...' : 'Entrar'}
             </button>
-            {status && (
-              <p className="text-[11px] font-semibold text-slate-400 text-center">{status}</p>
-            )}
           </form>
         </div>
         <p className="text-center text-xs text-slate-400 mt-4">Escritório Munaretto</p>
-        <p className="text-center text-[10px] text-slate-500/60 mt-1 break-all px-2">
-          API: {API_URL} · build: {window.__APP_BUILD__ || '?'}
-        </p>
       </div>
     </div>
   );
