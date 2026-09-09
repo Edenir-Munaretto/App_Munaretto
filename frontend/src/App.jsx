@@ -434,47 +434,15 @@ function App() {
   };
 
   const handleLogin = (user) => {
-    const concluirLogin = () => {
-      // Aplica sessão e navega de novo para o app — sem depender de
-      // promessas pendentes do IndexedDB (aparelho travado não segura login).
-      aplicarSessaoENavegar(user);
-    };
-
-    // Com Modo Campo ativo no aparelho: checa pendências APENAS com timeout
-    // curto (2s). Se o banco local não responder ou não houver pendências,
-    // segue o login limpando o estado local (usuário confirmou não haver
-    // trabalho importante não sincronizado neste aparelho).
+    // Aplica a sessão e navega imediatamente. Modo Campo ativo no aparelho é
+    // limpo sem esperar contagem de pendências (usuário confirmou não haver
+    // trabalho importante não sincronizado; a limpeza é best-effort e nunca
+    // segura o login).
     if (isModoCampo()) {
-      let decidiu = false;
-      const concluir = () => {
-        if (decidiu) return;
-        decidiu = true;
-        setModoCampo(false);
-        limparTudoLocal().catch(() => { /* segue */ });
-        concluirLogin();
-      };
-      Promise.race([
-        contarPendentes().catch(() => ({ total: 0 })),
-        new Promise((resolver) => setTimeout(() => resolver({ total: 0 }), 2000)),
-      ]).then((pend) => {
-        if (pend && pend.total > 0) {
-          if (decidiu) return;
-          decidiu = true;
-          // Pendências reais: exige confirmação explícita antes de limpar.
-          setLimpezaPendente({
-            acao: 'login',
-            user,
-            operacoes: pend.operacoes || 0,
-            fotos: pend.fotos || 0,
-          });
-          return;
-        }
-        concluir();
-      });
-      return;
+      try { setModoCampo(false); } catch { /* noop */ }
+      limparTudoLocal().catch(() => { /* segue */ });
     }
-
-    concluirLogin();
+    aplicarSessaoENavegar(user);
   };
 
   const handleLogout = () => {

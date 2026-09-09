@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { LogIn, Lock, Mail, AlertTriangle } from 'lucide-react';
-import { API_URL, apiFetch } from '../api';
+import { API_URL, apiFetch, setToken } from '../api';
 
 function Login({ onLogin, mensagemExpirada = false }) {
   const [email, setEmail] = useState('');
@@ -52,7 +52,24 @@ function Login({ onLogin, mensagemExpirada = false }) {
       if (res.ok) {
         setStatus('Login aceito, abrindo o sistema...');
         const data = await res.json();
+
+        // Garantia de sessão: persiste aqui (além do App) para que um
+        // eventual problema na transição interna nunca deixe o usuário preso.
+        try {
+          if (data.token) setToken(data.token);
+          const { token, ...dadosSemToken } = data;
+          localStorage.setItem('munaretto_usuario', JSON.stringify(dadosSemToken));
+        } catch (err) {
+          console.error('Falha ao persistir sessão no Login:', err);
+        }
+
         onLogin(data);
+
+        // Última rede de segurança: se o App não navegar por qualquer motivo,
+        // força a navegação aqui (a sessão já está persistida acima).
+        setTimeout(() => {
+          try { window.location.replace(window.location.pathname); } catch { /* noop */ }
+        }, 2500);
       } else if (res.status === 401) {
         setErro('E-mail ou senha incorretos.');
       } else if (res.status === 403) {
