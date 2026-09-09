@@ -383,6 +383,17 @@ function App() {
     return false;
   };
 
+  // Navegação forçada após aplicar a sessão: `location.replace` funciona em
+  // contextos onde `reload()` é silenciosamente ignorado (WebViews/PWA) e
+  // garante montagem 100% nova (nenhum estado da tela de login sobrevive).
+  const irParaApp = () => {
+    window.location.replace(window.location.pathname);
+    // Fallback extra caso o replace não dispare em algum WebView.
+    setTimeout(() => {
+      window.location.assign(window.location.pathname);
+    }, 1200);
+  };
+
   const confirmarLimpezaPendente = async () => {
     const alvo = limpezaPendente;
     if (!alvo) return;
@@ -398,7 +409,7 @@ function App() {
     if (alvo.acao === 'login') {
       aplicarLogin(alvo.user);
       setLimpezaPendente(null);
-      window.location.reload();
+      irParaApp();
       return;
     }
     aplicarLogout();
@@ -407,10 +418,10 @@ function App() {
 
   const handleLogin = (user) => {
     const concluirLogin = () => {
-      // Aplica sessão e recarrega — sem depender de promessas pendentes do
-      // IndexedDB, que em aparelho travado deixava o login "preso" na tela.
+      // Aplica sessão e navega de novo para o app — sem depender de
+      // promessas pendentes do IndexedDB (aparelho travado não segura login).
       aplicarLogin(user);
-      window.location.reload();
+      irParaApp();
     };
 
     // Com Modo Campo ativo no aparelho: checa pendências APENAS com timeout
