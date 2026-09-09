@@ -35,8 +35,8 @@ def _secret() -> str:
     return os.environ.get("JWT_SECRET") or ""
 
 
-def criar_token_acesso(user_id: int, email: str, validade_minutos: int = 480) -> str:
-    """Gera um token JWT assinado com o id e e-mail do usuário."""
+def criar_token_acesso(user_id: int, email: str, validade_minutos: int = 960) -> str:
+    """Gera um token JWT assinado com o id e e-mail do usuário (16 horas)."""
     secret = _secret()
     if not secret:
         raise RuntimeError("JWT_SECRET não configurado. Adicione a variável JWT_SECRET no arquivo .env")

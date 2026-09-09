@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback, useMemo } from 'react';
+import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import {
   LayoutDashboard,
   Users,
@@ -143,23 +143,18 @@ function App() {
   const [sessaoExpirada, setSessaoExpirada] = useState(false);
   const [segundosRestantes, setSegundosRestantes] = useState(null);
   const [renovando, setRenovando] = useState(false);
+  // Renovação automática falhou (rede/servidor): só exibe o banner manual
+  // como fallback perto do vencimento.
+  const [renovacaoFalhou, setRenovacaoFalhou] = useState(false);
+  const ultimaTentativaAuto = useRef(0);
   // Saída (login/logout) com pendências do Modo Campo ainda não sincronizadas.
   const [limpezaPendente, setLimpezaPendente] = useState(null);
 
-  // Monitora a expiração do token e avisa 10 minutos antes (item 3.3 do plano).
-  useEffect(() => {
-    if (!getToken()) return;
-    const atualizarTempo = () => {
-      const seg = segundosAteExpiracao();
-      if (seg <= 0) return; // expirou: o apiFetch já trata com 401
-      setSegundosRestantes(seg);
-    };
-    atualizarTempo();
-    const interval = setInterval(atualizarTempo, 15000); // a cada 15s
-    return () => clearInterval(interval);
-  }, [usuario]);
+  const JANELA_AUTO_SEG = 600;     // tenta renovar 10 min antes de expirar
+  const RETRY_AUTO_MS = 60000;     // no máximo 1 tentativa/minuto
+  const FALLBACK_BANNER_SEG = 90;  // banner manual só nos últimos 90s
 
-  const handleRenovarSessao = async () => {
+  const handleRenovarSessao = useCallback(async () => {
     if (renovando) return;
     setRenovando(true);
     try {
@@ -169,21 +164,53 @@ function App() {
         const { token, ...dadosUsuario } = dados;
         localStorage.setItem('munaretto_usuario', JSON.stringify(dadosUsuario));
         setUsuario(dadosUsuario);
+        setRenovacaoFalhou(false);
         setSegundosRestantes(segundosAteExpiracao());
       } else {
-        setSessaoExpirada(true);
-        setUsuario(null);
-        clearToken();
-        localStorage.removeItem('munaretto_usuario');
+        // Não desloga em falha de renovação: mantém a sessão atual e deixa o
+        // banner de fallback decidir (o 401 real continua tratando expiração).
+        setRenovacaoFalhou(true);
       }
     } catch (err) {
       console.error('Erro ao renovar sessão:', err);
+      setRenovacaoFalhou(true);
     } finally {
       setRenovando(false);
     }
-  };
+  }, [renovando]);
 
-  const avisoExpiracao = segundosRestantes != null && segundosRestantes > 0 && segundosRestantes <= 600;
+  // Monitora a expiração do token e RENOVA AUTOMATICAMENTE na janela de
+  // 10 min antes do vencimento (silencioso, 1x/min). O banner só aparece se
+  // a renovação automática falhar perto do fim (últimos 90s).
+  useEffect(() => {
+    if (!getToken()) return;
+    const atualizarTempo = () => {
+      const seg = segundosAteExpiracao();
+      if (seg <= 0) return; // expirou: o apiFetch já trata com 401
+      setSegundosRestantes(seg);
+      if (seg <= JANELA_AUTO_SEG) {
+        const agora = Date.now();
+        if (agora - ultimaTentativaAuto.current >= RETRY_AUTO_MS) {
+          ultimaTentativaAuto.current = agora;
+          handleRenovarSessao();
+        }
+      } else {
+        // Sessão saudável (ou acabou de renovar): limpa o estado de falha.
+        setRenovacaoFalhou(false);
+      }
+    };
+    atualizarTempo();
+    const interval = setInterval(atualizarTempo, 15000); // a cada 15s
+    return () => clearInterval(interval);
+  }, [usuario, handleRenovarSessao]);
+
+  // Banner manual apenas quando a renovação automática falhou e o token está
+  // perto de expirar (ou o aparelho está offline, onde não há como renovar).
+  const offlineAgora = typeof navigator !== 'undefined' && navigator.onLine === false;
+  const avisoExpiracao = segundosRestantes != null
+    && segundosRestantes > 0
+    && segundosRestantes <= FALLBACK_BANNER_SEG
+    && (renovacaoFalhou || offlineAgora);
 
   // Encerra a sessão automaticamente quando o token expira (401)
   useEffect(() => {
@@ -612,17 +639,17 @@ function App() {
       {/* MAIN CONTENT AREA */}
       <main className="flex-1 flex flex-col overflow-hidden">
 
-        {/* Aviso de sessão prestes a expirar */}
+        {/* Aviso de sessão prestes a expirar (fallback: renovação automática falhou) */}
         {avisoExpiracao && (
           <div className="bg-amber-50 border-b border-amber-200 px-4 md:px-6 py-2.5 flex items-center justify-between gap-3">
             <p className="text-xs font-semibold text-amber-800 flex items-center gap-2">
               <span>⏰</span>
-              Sua sessão expira em{' '}
+              Não foi possível renovar automaticamente. Sua sessão expira em{' '}
               <span className="font-bold">{Math.ceil(segundosRestantes / 60)} minuto(s)</span>.
-              Clique em &quot;Renovar sessão&quot; para continuar sem perder o que está fazendo.
+              Clique em &quot;Renovar sessão&quot; para tentar agora.
             </p>
             <button
-              onClick={handleRenovarSessao}
+              onClick={() => handleRenovarSessao()}
               disabled={renovando}
               className="px-3 py-1.5 min-h-11 bg-amber-600 hover:bg-amber-700 text-white text-xs font-bold rounded-lg transition-all cursor-pointer disabled:opacity-50 flex items-center gap-1.5 shrink-0"
             >
