@@ -357,7 +357,7 @@ function App() {
     };
     if (!isModoCampo()) {
       concluir();
-      return;
+      return true;
     }
     // IndexedDB pode estar travado/corrompido (ex.: crash anterior do Modo
     // Campo): timeout evita que login/logout fiquem "pendurados" para sempre.
@@ -372,7 +372,7 @@ function App() {
       setModoCampo(false);
       await comTimeout(limparTudoLocal(), 4000);
       concluir();
-      return;
+      return true;
     }
     setLimpezaPendente({
       acao,
@@ -380,6 +380,7 @@ function App() {
       operacoes: pend.operacoes || 0,
       fotos: pend.fotos || 0,
     });
+    return false;
   };
 
   const confirmarLimpezaPendente = async () => {
@@ -394,13 +395,22 @@ function App() {
         .catch(() => {})
         .finally(() => { clearTimeout(timer); resolve(); });
     });
-    if (alvo.acao === 'login') aplicarLogin(alvo.user);
-    else aplicarLogout();
+    if (alvo.acao === 'login') {
+      aplicarLogin(alvo.user);
+      setLimpezaPendente(null);
+      window.location.reload();
+      return;
+    }
+    aplicarLogout();
     setLimpezaPendente(null);
   };
 
-  const handleLogin = (user) => {
-    executarSaida('login', user);
+  const handleLogin = async (user) => {
+    const concluido = await executarSaida('login', user);
+    // Login aceito e aplicado (token/usuário persistidos): recarrega a página
+    // para montagem limpa — evita transição presa por estado interno do
+    // aparelho (ex.: IndexedDB corrompido deixado pelo crash do Modo Campo).
+    if (concluido) window.location.reload();
   };
 
   const handleLogout = () => {
