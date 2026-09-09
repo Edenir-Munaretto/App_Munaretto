@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo, useCallback } from 'react';
+import React, { useState, useEffect, useMemo, useCallback, useRef } from 'react';
 import { Search, Plus, Edit2, Trash2, Check, AlertTriangle, Printer, FileCheck2, FileX2, Undo2, Wallet, ChevronLeft, ChevronRight } from 'lucide-react';
 import { API_URL, apiFetch, erroDaResposta } from '../api';
 import ModalConfirmacao from '../components/ModalConfirmacao';
@@ -17,6 +17,8 @@ function Recebimentos() {
   const [loading, setLoading] = useState(true);
   const [toast, setToast] = useState(null);
   const lista = useFetchState();
+  // Timer do retry de 500 (cold start) — limpo ao desmontar a página.
+  const retryTimer = useRef(null);
 
   // Modal State
   const [showModal, setShowModal] = useState(false);
@@ -65,6 +67,8 @@ function Recebimentos() {
   useEffect(() => {
     fetchRecebimentos();
     fetchClientes();
+    // Limpa o retry agendado ao trocar de aba/desmontar (A8).
+    return () => { if (retryTimer.current) clearTimeout(retryTimer.current); };
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
@@ -74,7 +78,8 @@ function Recebimentos() {
     setTimeout(() => setToast(null), 4000);
   };
 
-  const fetchRecebimentos = useCallback(async (de = '', ate = '', campo = 'data_inicio') => {
+  const fetchRecebimentos = useCallback(async (de = '', ate = '', campo = 'data_inicio', tentativa = 0) => {
+    let finalizada = false;
     try {
       setLoading(true);
       lista.iniciar();
@@ -88,14 +93,26 @@ function Recebimentos() {
         const data = await res.json();
         setRecebimentos(data);
         lista.sucesso();
+        finalizada = true;
+      } else if (res.status >= 500 && tentativa === 0) {
+        // 500 costuma ser transitório (cold start do servidor/banco): tenta
+        // uma segunda vez antes de exibir o erro (mesmo padrão da O.S).
+        console.error('Recebimentos: erro', res.status, '— nova tentativa em 1,5s.');
+        retryTimer.current = setTimeout(() => fetchRecebimentos(de, ate, campo, 1), 1500);
       } else {
+        if (tentativa > 0 || res.status < 500) {
+          console.error('Recebimentos: resposta', res.status);
+        }
         lista.falhar(erroDaResposta(await res.json().catch(() => null), 'Erro ao buscar recebimentos.'));
+        finalizada = true;
       }
     } catch (err) {
       console.error(err);
       lista.falhar('Erro de conexão ao buscar recebimentos.');
+      finalizada = true;
     } finally {
-      setLoading(false);
+      // O retry (tentativa 0) mantém o carregamento ativo até a 2ª tentativa.
+      if (finalizada) setLoading(false);
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
