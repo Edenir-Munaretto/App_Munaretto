@@ -33,6 +33,13 @@ function Login({ onLogin, mensagemExpirada = false }) {
 
     setLoading(true);
 
+    // Feedback imediato quando o navegador já sabe que está sem rede.
+    if (typeof navigator !== 'undefined' && navigator.onLine === false) {
+      setErro('Sem conexão com a internet. Conecte-se e tente novamente.');
+      setLoading(false);
+      return;
+    }
+
     try {
       const res = await apiFetch(`${API_URL}/usuarios/login`, {
         method: 'POST',
@@ -50,11 +57,16 @@ function Login({ onLogin, mensagemExpirada = false }) {
       } else if (res.status === 429) {
         setErro('Muitas tentativas de login. Aguarde um pouco e tente novamente.');
       } else {
-        setErro('Não foi possível entrar. Tente novamente mais tarde.');
+        setErro(`Não foi possível entrar (erro ${res.status}). Tente novamente mais tarde.`);
       }
     } catch (err) {
       console.error(err);
-      setErro('Erro de conexão. Verifique se o servidor está online.');
+      const semRede = err?.name === 'TimeoutError' || err?.name === 'AbortError';
+      setErro(
+        semRede
+          ? 'O servidor demorou para responder (tempo esgotado). Verifique a conexão e tente de novo.'
+          : 'Erro de conexão. Verifique se o servidor está online.',
+      );
     } finally {
       setLoading(false);
     }
