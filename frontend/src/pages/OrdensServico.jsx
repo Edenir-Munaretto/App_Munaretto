@@ -426,7 +426,6 @@ function TabChecklist({ osDetalhe, onAtualizado, mostrarToast, podeEditar }) {
         });
         await refletirRespostaLocal(item, resposta, gps);
         onAtualizado();
-        mostrarToast('Resposta salva no dispositivo (sincronize quando quiser).');
       } catch {
         mostrarToast('Falha ao salvar a resposta no dispositivo.', 'error');
       } finally {
@@ -471,8 +470,7 @@ function TabChecklist({ osDetalhe, onAtualizado, mostrarToast, podeEditar }) {
     const gps = await capturarGeolocalizacao();
 
     // Modo Campo (online ou offline): guarda a foto no dispositivo, enfileira
-    // o envio e mostra o PREVIEW imediato abaixo da pergunta; conectado, o
-    // sync automático envia em segundo plano.
+    // o envio e mostra o PREVIEW imediato abaixo da pergunta.
     if (isModoCampo() || usarLocal()) {
       try {
         const { entrada } = await registrarFotoItemLocal({
@@ -482,7 +480,6 @@ function TabChecklist({ osDetalhe, onAtualizado, mostrarToast, podeEditar }) {
           geolocalizacao: gps,
         });
         refletirFotoLocal(item.id, entrada);
-        mostrarToast('Foto salva no dispositivo (sincronize quando quiser).');
         carregar();
         onAtualizado();
       } catch {
@@ -504,7 +501,6 @@ function TabChecklist({ osDetalhe, onAtualizado, mostrarToast, podeEditar }) {
         signal: AbortSignal.timeout(90000),
       });
       if (res.ok) {
-        mostrarToast('Foto anexada ao item.');
         carregar();
         onAtualizado();
       } else {
@@ -992,7 +988,6 @@ function TabInsumos({ osDetalhe, produtos, onAtualizado, mostrarToast, podeEdita
           },
         });
         await refletirMaterialLocal(produto, totalUsc, op.id_local);
-        mostrarToast(`Serviço "${produto.nome}" lançado (${totalUsc} ${unidade}) — sincronize quando quiser.`);
         limparFormulario();
         carregarPendentesLocais();
         onAtualizado();
@@ -1006,7 +1001,6 @@ function TabInsumos({ osDetalhe, produtos, onAtualizado, mostrarToast, podeEdita
       const data = await res.json().catch(() => null);
       if (res.ok) {
         if (isModoCampo()) await refletirMaterialLocal(produto, totalUsc);
-        mostrarToast(`Serviço "${produto.nome}" lançado (${totalUsc} ${temUsc ? rotuloUsc(tipoUsc) : produto.unidade}).`);
         limparFormulario();
         onAtualizado();
       } else {
