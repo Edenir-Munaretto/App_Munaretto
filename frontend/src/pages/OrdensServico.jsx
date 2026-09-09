@@ -2511,7 +2511,7 @@ function OrdensServico({ usuarioAtual }) {
   const [produtos, setProdutos] = useState([]);
   const [loading, setLoading] = useState(true);
   const [toast, setToast] = useState(null);
-  const [visao, setVisao] = useState('quadro');       // quadro | arquivo | cadastros
+  const [visao, setVisao] = useState('quadro');       // quadro | obras | cadastros | arquivo
   const [osSelecionada, setOsSelecionada] = useState(null);
   const [modalNova, setModalNova] = useState(false);
   const [novaOSObraId, setNovaOSObraId] = useState(null); // obra travada ao criar O.S pelo PainelObra
@@ -3246,7 +3246,8 @@ function OrdensServico({ usuarioAtual }) {
   const seletorVisao = (
     <div className="flex bg-slate-100 rounded-xl p-1">
       {[
-        ['quadro', 'Quadro', LayoutGrid],
+        ['quadro', 'Quadro O.S', LayoutGrid],
+        ...(ehGestor ? [['obras', 'Obras', Building]] : []),
         ...(ehGestor ? [['cadastros', 'Cadastros', FolderKanban]] : []),
         ...(ehGestor ? [['arquivo', 'Encerradas', Archive]] : []),
       ].map(([key, label, Icon]) => (
@@ -3264,6 +3265,14 @@ function OrdensServico({ usuarioAtual }) {
     // Criação de O.S é contextual: abre o modal com a obra travada.
     setNovaOSObraId(obraId);
     setModalNova(true);
+  };
+
+  const abrirOSDoPainelObra = (os) => {
+    // Abre a O.S na visão certa (Quadro se em execução; Encerradas se
+    // concluída/cancelada) — o PainelObra sai da tela junto da aba.
+    const encerrada = os.status === 'concluida' || os.status === 'cancelada';
+    setVisao(encerrada ? 'arquivo' : 'quadro');
+    setOsSelecionada(os.id);
   };
 
   const filtros = (
@@ -3699,19 +3708,20 @@ function OrdensServico({ usuarioAtual }) {
         </>
       )}
 
-      {visao === 'cadastros' && ehGestor && (
-        <PainelCadastros
-          obras={obras} equipes={equipes} produtos={produtos}
+      {visao === 'obras' && ehGestor && (
+        <PainelObras
+          obras={obras}
           recarregar={recarregarLista} mostrarToast={mostrarToast}
           onNovaOS={abrirNovaOSDaObra}
           refreshResumoKey={versaoResumoObra}
-          onAbrirOS={(os) => {
-            // Abre a O.S na visão certa (Quadro se em execução; Encerradas se
-            // concluída/cancelada) — o PainelObra sai da tela junto da aba.
-            const encerrada = os.status === 'concluida' || os.status === 'cancelada';
-            setVisao(encerrada ? 'arquivo' : 'quadro');
-            setOsSelecionada(os.id);
-          }}
+          onAbrirOS={abrirOSDoPainelObra}
+        />
+      )}
+
+      {visao === 'cadastros' && ehGestor && (
+        <PainelCadastros
+          equipes={equipes} produtos={produtos}
+          recarregar={recarregarLista} mostrarToast={mostrarToast}
         />
       )}
 
@@ -3805,7 +3815,202 @@ function OrdensServico({ usuarioAtual }) {
 }
 
 // ---------------------------------------------------------------------------
-// Cadastros de apoio (Obras, Equipes, Produtos) — CRUD compacto
+// Obras (visão própria do Controle de O.S): cards com resumo da gestão por
+// obra + cadastro em modal + gestão consolidada (PainelObra) ao abrir o card.
+// ---------------------------------------------------------------------------
+
+const excluirRegistro = async (url, msgOk, mostrarToast, recarregar) => {
+  try {
+    const res = await apiFetch(url, { method: 'DELETE' });
+    const data = await res.json().catch(() => null);
+    if (res.ok) { mostrarToast(data?.message || msgOk); recarregar(); }
+    else mostrarToast(erroDaResposta(data, 'Erro ao excluir.'), 'error');
+  } catch {
+    mostrarToast('Erro de conexão.', 'error');
+  }
+};
+
+function PainelObras({ obras, recarregar, mostrarToast, onNovaOS, onAbrirOS, refreshResumoKey }) {
+  // Gestão consolidada por obra: painel lateral aberto a partir dos cards.
+  const [obraAberta, setObraAberta] = useState(null);
+
+  // Cadastro de obra em MODAL (padrão dos demais módulos): edicao preenche o modal.
+  const [obraModalAberto, setObraModalAberto] = useState(false);
+  const [obraModalEdicao, setObraModalEdicao] = useState(null); // obra em edição
+
+  const [filtroObraLista, setFiltroObraLista] = useState('');
+  const [excluirObraAlvo, setExcluirObraAlvo] = useState(null);
+
+  const obrasFiltradas = useMemo(() => {
+    if (!filtroObraLista) return obras;
+    const termo = filtroObraLista.toLowerCase();
+    return obras.filter(o =>
+      (o.nome || '').toLowerCase().includes(termo) ||
+      (o.clientes?.nome || o.cliente_celesc || '').toLowerCase().includes(termo) ||
+      (o.cidade || '').toLowerCase().includes(termo) ||
+      (o.endereco || '').toLowerCase().includes(termo)
+    );
+  }, [obras, filtroObraLista]);
+
+  return (
+    <div className="bg-white rounded-2xl border border-slate-100 shadow-sm p-6">
+      <div className="space-y-4">
+        <div className="flex flex-col sm:flex-row gap-3 sm:items-center justify-between">
+          <h3 className="font-extrabold text-slate-800 text-sm">Obras Cadastradas ({obrasFiltradas.length})</h3>
+          <div className="flex flex-col sm:flex-row gap-2 sm:items-center">
+            {/* Barra de Busca */}
+            <div className="relative w-full sm:max-w-sm">
+              <input
+                type="text"
+                placeholder="Buscar obra..."
+                value={filtroObraLista}
+                onChange={e => setFiltroObraLista(e.target.value)}
+                className="w-full pl-9 pr-8 py-2 border border-slate-300 rounded-xl text-sm focus:outline-none focus:border-primary-500 focus:ring-2 focus:ring-primary-500/15 bg-slate-50 focus:bg-white"
+              />
+              <Search size={14} className="absolute left-3 top-3 text-slate-400" />
+              {filtroObraLista && (
+                <button onClick={() => setFiltroObraLista('')} className="absolute right-3 top-3 text-slate-400 hover:text-slate-600">
+                  <X size={14} />
+                </button>
+              )}
+            </div>
+            <button
+              onClick={() => setObraModalAberto(true)}
+              className="flex items-center justify-center gap-1.5 px-4 py-2 bg-primary-600 text-white rounded-xl text-xs font-bold hover:bg-primary-700 transition-all cursor-pointer shadow-sm shrink-0"
+            >
+              <Plus size={14} /> Nova Obra
+            </button>
+          </div>
+        </div>
+
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-3 max-h-[450px] overflow-y-auto pr-1">
+          {obrasFiltradas.length === 0 ? (
+            <div className="col-span-full text-center text-xs text-slate-400 py-12">Nenhuma obra encontrada.</div>
+          ) : (
+            obrasFiltradas.map(o => (
+              <div
+                key={o.id}
+                onClick={() => setObraAberta(o)}
+                title="Abrir a gestão da obra"
+                className="group relative flex flex-col gap-1 text-xs bg-slate-50 hover:bg-slate-100/70 rounded-xl p-2.5 border border-slate-200 hover:border-primary-300 transition-all cursor-pointer select-none"
+              >
+                <div className="flex items-start justify-between gap-2">
+                  <span className="font-extrabold text-slate-800 break-words leading-tight">{o.nome}</span>
+                  <div className="flex items-center gap-1 opacity-60 group-hover:opacity-100 transition-opacity">
+                    <button
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        setObraModalEdicao(o);
+                        setObraModalAberto(true);
+                      }}
+                      className="text-slate-400 hover:text-primary-600 cursor-pointer p-1 rounded hover:bg-white border hover:border-slate-200"
+                      title="Editar obra"
+                    >
+                      <Pencil size={11} />
+                    </button>
+                    <button
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        setExcluirObraAlvo(o);
+                      }}
+                      className="text-slate-400 hover:text-rose-600 cursor-pointer p-1 rounded hover:bg-white border hover:border-slate-200"
+                      title="Excluir obra"
+                    >
+                      <Trash2 size={11} />
+                    </button>
+                  </div>
+                </div>
+
+                <div className="flex items-center gap-1.5 text-slate-500 font-semibold mt-0.5">
+                  <Building size={11} className="text-slate-400 flex-shrink-0" />
+                  <span className="truncate">{o.clientes?.nome || o.cliente_celesc || 'Sem cliente'}</span>
+                </div>
+
+                {(o.cidade || o.endereco) && (
+                  <div className="flex items-start gap-1.5 text-slate-400 text-[10px] leading-tight mt-0.5">
+                    <MapPin size={10} className="text-slate-400 mt-0.5 flex-shrink-0" />
+                    <span className="break-words">
+                      {o.endereco ? `${o.endereco}` : ''}
+                      {o.endereco && o.cidade ? ' · ' : ''}
+                      {o.cidade ? `${o.cidade}` : ''}
+                    </span>
+                  </div>
+                )}
+
+                {/* Resumo da gestão por obra: contagem de O.S e totais por contrato */}
+                <div className="flex flex-wrap items-center gap-1.5 mt-1">
+                  {o.os_total > 0 && (
+                    <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-white border border-slate-200 text-[10px] font-extrabold text-slate-600 whitespace-nowrap">
+                      <ClipboardList size={10} className="text-primary-600" />
+                      {o.os_total} O.S
+                      {o.os_ativas > 0 && <span className="text-sky-600">· {o.os_ativas} em execução</span>}
+                      {o.os_encerradas > 0 && <span className="text-slate-400">· {o.os_encerradas} encerradas</span>}
+                    </span>
+                  )}
+                  {(o.totais_por_tipo || []).map(t => (
+                    <span
+                      key={t.tipo}
+                      className={`inline-flex items-center px-2 py-0.5 rounded-full border text-[10px] font-extrabold whitespace-nowrap ${
+                        t.unidade === 'USC'
+                          ? 'bg-amber-50 text-amber-700 border-amber-200'
+                          : 'bg-violet-50 text-violet-700 border-violet-200'
+                      }`}
+                      title={`Total aplicado em ${t.unidade} (O.S em execução e concluídas)`}
+                    >
+                      {Number(t.total || 0).toLocaleString('pt-BR', { maximumFractionDigits: 3 })} {t.unidade}
+                    </span>
+                  ))}
+                </div>
+              </div>
+            ))
+          )}
+        </div>
+
+        {/* Formulário de obra em modal (padrão dos demais módulos) */}
+        {obraModalAberto && (
+          <ModalObraCadastro
+            edicao={obraModalEdicao}
+            recarregar={recarregar}
+            mostrarToast={mostrarToast}
+            onFechar={() => { setObraModalAberto(false); setObraModalEdicao(null); }}
+          />
+        )}
+      </div>
+
+      {/* Modal de Confirmação para Obras */}
+      <ModalConfirmacao
+        aberto={!!excluirObraAlvo}
+        titulo="Confirmar exclusão de obra"
+        mensagem={`Deseja realmente excluir ou inativar a obra "${excluirObraAlvo?.nome}"?`}
+        confirmarTexto="Excluir"
+        cancelarTexto="Cancelar"
+        perigo
+        onConfirmar={async () => {
+          if (excluirObraAlvo) {
+            await excluirRegistro(`${API_URL}/os/obras/${excluirObraAlvo.id}`, 'Obra excluída.', mostrarToast, recarregar);
+            setExcluirObraAlvo(null);
+          }
+        }}
+        onCancelar={() => setExcluirObraAlvo(null)}
+      />
+
+      {/* Painel de gestão consolidada da obra (drawer/full-screen) */}
+      {obraAberta && (
+        <PainelObra
+          obra={obraAberta}
+          onFechar={() => setObraAberta(null)}
+          onAbrirOS={onAbrirOS}
+          onNovaOS={onNovaOS}
+          refreshResumoKey={refreshResumoKey}
+          mostrarToast={mostrarToast}
+        />
+      )}
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Cadastros de apoio (Equipes, Produtos) — CRUD compacto
 // ---------------------------------------------------------------------------
 
 function CampoTexto({ label, ...props }) {
@@ -3818,23 +4023,14 @@ function CampoTexto({ label, ...props }) {
   );
 }
 
-function PainelCadastros({ obras, equipes, produtos, recarregar, mostrarToast, onAbrirOS, onNovaOS, refreshResumoKey }) {
-  const [abaAtiva, setAbaAtiva] = useState('obras');
-
-  // Gestão consolidada por obra: painel lateral aberto a partir dos cards.
-  const [obraAberta, setObraAberta] = useState(null);
+function PainelCadastros({ equipes, produtos, recarregar, mostrarToast }) {
+  const [abaAtiva, setAbaAtiva] = useState('equipes');
 
   // Cadastros em MODAL (padrão dos demais módulos): edicao preenche o modal.
-  const [obraModalAberto, setObraModalAberto] = useState(false);
-  const [obraModalEdicao, setObraModalEdicao] = useState(null); // obra em edição
   const [equipeModalAberto, setEquipeModalAberto] = useState(false);
   const [equipeModalEdicao, setEquipeModalEdicao] = useState(null); // equipe em edição
   const [produtoModalAberto, setProdutoModalAberto] = useState(false);
   const [produtoModalEdicao, setProdutoModalEdicao] = useState(null); // serviço em edição
-
-  // Obras
-  const [filtroObraLista, setFiltroObraLista] = useState('');
-  const [excluirObraAlvo, setExcluirObraAlvo] = useState(null);
 
   // Equipes
   const [filtroEquipeLista, setFiltroEquipeLista] = useState('');
@@ -3852,28 +4048,6 @@ function PainelCadastros({ obras, equipes, produtos, recarregar, mostrarToast, o
   const [impResumo, setImpResumo] = useState(null);   // {resumo, contrato} da simulação
   const [impProcessando, setImpProcessando] = useState(false);
   const inputImportRef = useRef(null);
-
-  const inativar = async (url, msgOk) => {
-    try {
-      const res = await apiFetch(url, { method: 'DELETE' });
-      const data = await res.json().catch(() => null);
-      if (res.ok) { mostrarToast(data?.message || msgOk); recarregar(); }
-      else mostrarToast(erroDaResposta(data, 'Erro ao excluir.'), 'error');
-    } catch {
-      mostrarToast('Erro de conexão.', 'error');
-    }
-  };
-
-  const obrasFiltradas = useMemo(() => {
-    if (!filtroObraLista) return obras;
-    const termo = filtroObraLista.toLowerCase();
-    return obras.filter(o =>
-      (o.nome || '').toLowerCase().includes(termo) ||
-      (o.clientes?.nome || o.cliente_celesc || '').toLowerCase().includes(termo) ||
-      (o.cidade || '').toLowerCase().includes(termo) ||
-      (o.endereco || '').toLowerCase().includes(termo)
-    );
-  }, [obras, filtroObraLista]);
 
   const equipesFiltradas = useMemo(() => {
     if (!filtroEquipeLista) return equipes;
@@ -3998,7 +4172,6 @@ function PainelCadastros({ obras, equipes, produtos, recarregar, mostrarToast, o
   };
 
   const ABAS = [
-    { id: 'obras', label: 'Obras', icone: FolderKanban },
     { id: 'equipes', label: 'Equipes', icone: HardHat },
     { id: 'produtos', label: 'Serviços', icone: Boxes }
   ];
@@ -4026,132 +4199,6 @@ function PainelCadastros({ obras, equipes, produtos, recarregar, mostrarToast, o
           );
         })}
       </div>
-
-      {/* Conteúdo Aba OBRAS */}
-      {abaAtiva === 'obras' && (
-        <div className="space-y-4">
-          <div className="flex flex-col sm:flex-row gap-3 sm:items-center justify-between">
-            <h3 className="font-extrabold text-slate-800 text-sm">Obras Cadastradas ({obrasFiltradas.length})</h3>
-            <div className="flex flex-col sm:flex-row gap-2 sm:items-center">
-              {/* Barra de Busca */}
-              <div className="relative w-full sm:max-w-sm">
-                <input
-                  type="text"
-                  placeholder="Buscar obra..."
-                  value={filtroObraLista}
-                  onChange={e => setFiltroObraLista(e.target.value)}
-                  className="w-full pl-9 pr-8 py-2 border border-slate-300 rounded-xl text-sm focus:outline-none focus:border-primary-500 focus:ring-2 focus:ring-primary-500/15 bg-slate-50 focus:bg-white"
-                />
-                <Search size={14} className="absolute left-3 top-3 text-slate-400" />
-                {filtroObraLista && (
-                  <button onClick={() => setFiltroObraLista('')} className="absolute right-3 top-3 text-slate-400 hover:text-slate-600">
-                    <X size={14} />
-                  </button>
-                )}
-              </div>
-              <button
-                onClick={() => setObraModalAberto(true)}
-                className="flex items-center justify-center gap-1.5 px-4 py-2 bg-primary-600 text-white rounded-xl text-xs font-bold hover:bg-primary-700 transition-all cursor-pointer shadow-sm shrink-0"
-              >
-                <Plus size={14} /> Nova Obra
-              </button>
-            </div>
-          </div>
-
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-3 max-h-[450px] overflow-y-auto pr-1">
-              {obrasFiltradas.length === 0 ? (
-                <div className="col-span-full text-center text-xs text-slate-400 py-12">Nenhuma obra encontrada.</div>
-              ) : (
-                obrasFiltradas.map(o => (
-                  <div
-                    key={o.id}
-                    onClick={() => setObraAberta(o)}
-                    title="Abrir a gestão da obra"
-                    className="group relative flex flex-col gap-1 text-xs bg-slate-50 hover:bg-slate-100/70 rounded-xl p-2.5 border border-slate-200 hover:border-primary-300 transition-all cursor-pointer select-none"
-                  >
-                    <div className="flex items-start justify-between gap-2">
-                      <span className="font-extrabold text-slate-800 break-words leading-tight">{o.nome}</span>
-                      <div className="flex items-center gap-1 opacity-60 group-hover:opacity-100 transition-opacity">
-                        <button
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            setObraModalEdicao(o);
-                            setObraModalAberto(true);
-                          }}
-                          className="text-slate-400 hover:text-primary-600 cursor-pointer p-1 rounded hover:bg-white border hover:border-slate-200"
-                          title="Editar obra"
-                        >
-                          <Pencil size={11} />
-                        </button>
-                        <button
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            setExcluirObraAlvo(o);
-                          }}
-                          className="text-slate-400 hover:text-rose-600 cursor-pointer p-1 rounded hover:bg-white border hover:border-slate-200"
-                          title="Excluir obra"
-                        >
-                          <Trash2 size={11} />
-                        </button>
-                      </div>
-                    </div>
-                    
-                    <div className="flex items-center gap-1.5 text-slate-500 font-semibold mt-0.5">
-                      <Building size={11} className="text-slate-400 flex-shrink-0" />
-                      <span className="truncate">{o.clientes?.nome || o.cliente_celesc || 'Sem cliente'}</span>
-                    </div>
-
-                    {(o.cidade || o.endereco) && (
-                      <div className="flex items-start gap-1.5 text-slate-400 text-[10px] leading-tight mt-0.5">
-                        <MapPin size={10} className="text-slate-400 mt-0.5 flex-shrink-0" />
-                        <span className="break-words">
-                          {o.endereco ? `${o.endereco}` : ''}
-                          {o.endereco && o.cidade ? ' · ' : ''}
-                          {o.cidade ? `${o.cidade}` : ''}
-                        </span>
-                      </div>
-                    )}
-
-                    {/* Resumo da gestão por obra: contagem de O.S e totais por contrato */}
-                    <div className="flex flex-wrap items-center gap-1.5 mt-1">
-                      {o.os_total > 0 && (
-                        <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-white border border-slate-200 text-[10px] font-extrabold text-slate-600 whitespace-nowrap">
-                          <ClipboardList size={10} className="text-primary-600" />
-                          {o.os_total} O.S
-                          {o.os_ativas > 0 && <span className="text-sky-600">· {o.os_ativas} em execução</span>}
-                          {o.os_encerradas > 0 && <span className="text-slate-400">· {o.os_encerradas} encerradas</span>}
-                        </span>
-                      )}
-                      {(o.totais_por_tipo || []).map(t => (
-                        <span
-                          key={t.tipo}
-                          className={`inline-flex items-center px-2 py-0.5 rounded-full border text-[10px] font-extrabold whitespace-nowrap ${
-                            t.unidade === 'USC'
-                              ? 'bg-amber-50 text-amber-700 border-amber-200'
-                              : 'bg-violet-50 text-violet-700 border-violet-200'
-                          }`}
-                          title={`Total aplicado em ${t.unidade} (O.S em execução e concluídas)`}
-                        >
-                          {Number(t.total || 0).toLocaleString('pt-BR', { maximumFractionDigits: 3 })} {t.unidade}
-                        </span>
-                      ))}
-                    </div>
-                  </div>
-                ))
-              )}
-            </div>
-
-            {/* Formulário de obra em modal (padrão dos demais módulos) */}
-            {obraModalAberto && (
-              <ModalObraCadastro
-                edicao={obraModalEdicao}
-                recarregar={recarregar}
-                mostrarToast={mostrarToast}
-                onFechar={() => { setObraModalAberto(false); setObraModalEdicao(null); }}
-              />
-            )}
-          </div>
-      )}
 
       {/* Conteúdo Aba EQUIPES */}
       {abaAtiva === 'equipes' && (
@@ -4398,23 +4445,6 @@ function PainelCadastros({ obras, equipes, produtos, recarregar, mostrarToast, o
           </div>
       )}
 
-      {/* Modal de Confirmação para Obras */}
-      <ModalConfirmacao
-        aberto={!!excluirObraAlvo}
-        titulo="Confirmar exclusão de obra"
-        mensagem={`Deseja realmente excluir ou inativar a obra "${excluirObraAlvo?.nome}"?`}
-        confirmarTexto="Excluir"
-        cancelarTexto="Cancelar"
-        perigo
-        onConfirmar={async () => {
-          if (excluirObraAlvo) {
-            await inativar(`${API_URL}/os/obras/${excluirObraAlvo.id}`, 'Obra excluída.');
-            setExcluirObraAlvo(null);
-          }
-        }}
-        onCancelar={() => setExcluirObraAlvo(null)}
-      />
-
       {/* Modal de Confirmação para Equipes */}
       <ModalConfirmacao
         aberto={!!excluirEquipeAlvo}
@@ -4425,7 +4455,7 @@ function PainelCadastros({ obras, equipes, produtos, recarregar, mostrarToast, o
         perigo
         onConfirmar={async () => {
           if (excluirEquipeAlvo) {
-            await inativar(`${API_URL}/os/equipes/${excluirEquipeAlvo.id}`, 'Equipe excluída.');
+            await excluirRegistro(`${API_URL}/os/equipes/${excluirEquipeAlvo.id}`, 'Equipe excluída.', mostrarToast, recarregar);
             setExcluirEquipeAlvo(null);
           }
         }}
@@ -4442,7 +4472,7 @@ function PainelCadastros({ obras, equipes, produtos, recarregar, mostrarToast, o
         perigo
         onConfirmar={async () => {
           if (excluirProdutoAlvo) {
-            await inativar(`${API_URL}/os/produtos/${excluirProdutoAlvo.id}`, 'Serviço excluído.');
+            await excluirRegistro(`${API_URL}/os/produtos/${excluirProdutoAlvo.id}`, 'Serviço excluído.', mostrarToast, recarregar);
             setExcluirProdutoAlvo(null);
           }
         }}
@@ -4574,18 +4604,6 @@ function PainelCadastros({ obras, equipes, produtos, recarregar, mostrarToast, o
             </div>
           </div>
         </div>
-      )}
-
-      {/* Painel de gestão consolidada da obra (drawer/full-screen) */}
-      {obraAberta && (
-        <PainelObra
-          obra={obraAberta}
-          onFechar={() => setObraAberta(null)}
-          onAbrirOS={onAbrirOS}
-          onNovaOS={onNovaOS}
-          refreshResumoKey={refreshResumoKey}
-          mostrarToast={mostrarToast}
-        />
       )}
     </div>
   );
