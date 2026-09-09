@@ -7,10 +7,12 @@ function Login({ onLogin, mensagemExpirada = false }) {
   const [senha, setSenha] = useState('');
   const [loading, setLoading] = useState(false);
   const [erro, setErro] = useState('');
+  const [status, setStatus] = useState('');
 
   const handleSubmit = async (e) => {
     e.preventDefault();
     setErro('');
+    setStatus('');
 
     // Validações no cliente antes do envio
     const emailLimpo = email.trim();
@@ -31,23 +33,24 @@ function Login({ onLogin, mensagemExpirada = false }) {
       return;
     }
 
-    setLoading(true);
-
     // Feedback imediato quando o navegador já sabe que está sem rede.
     if (typeof navigator !== 'undefined' && navigator.onLine === false) {
       setErro('Sem conexão com a internet. Conecte-se e tente novamente.');
-      setLoading(false);
       return;
     }
 
+    setLoading(true);
     try {
+      setStatus('Enviando credenciais...');
       const res = await apiFetch(`${API_URL}/usuarios/login`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ email: emailLimpo, senha })
       });
+      setStatus(`Resposta do servidor: HTTP ${res.status}`);
 
       if (res.ok) {
+        setStatus('Login aceito, abrindo o sistema...');
         const data = await res.json();
         onLogin(data);
       } else if (res.status === 401) {
@@ -65,7 +68,7 @@ function Login({ onLogin, mensagemExpirada = false }) {
       setErro(
         semRede
           ? 'O servidor demorou para responder (tempo esgotado). Verifique a conexão e tente de novo.'
-          : 'Erro de conexão. Verifique se o servidor está online.',
+          : `Erro de conexão (${err?.name || err?.message || 'desconhecido'}). Verifique se o servidor está online.`,
       );
     } finally {
       setLoading(false);
@@ -137,6 +140,9 @@ function Login({ onLogin, mensagemExpirada = false }) {
               <LogIn size={16} />
               {loading ? 'Entrando...' : 'Entrar'}
             </button>
+            {status && (
+              <p className="text-[11px] font-semibold text-slate-400 text-center">{status}</p>
+            )}
           </form>
         </div>
         <p className="text-center text-xs text-slate-400 mt-4">Escritório Munaretto</p>
