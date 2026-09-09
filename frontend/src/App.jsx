@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import {
   LayoutDashboard,
   Users,
@@ -109,8 +109,21 @@ class ErrorBoundary extends React.Component {
   }
 }
 
+const CHAVE_ABA_ATIVA = 'munaretto_aba_ativa';
+
+const IDS_MODULOS = new Set([...MODULOS.map(m => m.id), 'dashboard']);
+
+function abaAtivaInicial() {
+  try {
+    const salva = sessionStorage.getItem(CHAVE_ABA_ATIVA);
+    return salva && IDS_MODULOS.has(salva) ? salva : 'dashboard';
+  } catch {
+    return 'dashboard';
+  }
+}
+
 function App() {
-  const [activeTab, setActiveTab] = useState('dashboard');
+  const [activeTab, setActiveTab] = useState(abaAtivaInicial);
   const [sidebarOpen, setSidebarOpen] = useState(true);
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const [alerts, setAlerts] = useState([]);
@@ -428,10 +441,9 @@ function App() {
   // Configurações. Quem tiver a permissão "dashboard" tem acesso total aos
   // dados agregados (funcionários, férias, ASOs e cursos).
   const permissoes = usuario?.permissoes || [];
-  const podeDashboard = permissoes.includes('dashboard');
 
-  const tabs = [
-    ...(podeDashboard ? [{ id: 'dashboard', label: 'Dashboard', icon: LayoutDashboard, component: Dashboard }] : []),
+  const tabs = useMemo(() => [
+    ...(permissoes.includes('dashboard') ? [{ id: 'dashboard', label: 'Dashboard', icon: LayoutDashboard, component: Dashboard }] : []),
     ...MODULOS
       // "os_campo" não gera aba própria: quem tem essa permissão vê a MESMA
       // aba "Controle de O.S" (com a UI restrita às ações de campo).
@@ -442,7 +454,27 @@ function App() {
         icon: ICONES[m.id] || FileText,
         component: COMPONENTES[m.id] || Dashboard
       }))
-  ];
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  ], [usuario?.permissoes]);
+
+  // Persiste o módulo ativo (F5 mantém a tela atual; sessionStorage é limpo
+  // ao fechar a aba — tablet compartilhado volta ao Dashboard).
+  useEffect(() => {
+    try {
+      sessionStorage.setItem(CHAVE_ABA_ATIVA, activeTab);
+    } catch { /* armazenamento indisponível: segue sem persistir */ }
+  }, [activeTab]);
+
+  // Aba salva sem permissão (ou usuário diferente): volta para a primeira
+  // aba liberada, mantendo conteúdo e destaque da sidebar consistentes.
+  useEffect(() => {
+    if (tabs.length === 0) return;
+    if (!tabs.some(t => t.id === activeTab)) {
+      setActiveTab(tabs[0].id);
+    }
+  }, [tabs, activeTab]);
+
+  const ActiveComponent = tabs.find(t => t.id === activeTab)?.component || tabs[0].component;
 
   if (!usuario || !getToken()) {
     return <Login onLogin={handleLogin} mensagemExpirada={sessaoExpirada} />;
@@ -466,8 +498,6 @@ function App() {
       </div>
     );
   }
-
-  const ActiveComponent = tabs.find(t => t.id === activeTab)?.component || tabs[0].component;
 
   return (
     <ErrorBoundary>
