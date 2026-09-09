@@ -301,7 +301,7 @@ function CardOS({ os, onClick, draggableProps = {} }) {
   );
 }
 
-function TabChecklist({ osDetalhe, onAtualizado, mostrarToast, podeEditar, onPendenciaLocal }) {
+function TabChecklist({ osDetalhe, onAtualizado, mostrarToast, podeEditar }) {
   const [dados, setDados] = useState(null); // {itens, resumo}
   const [carregando, setCarregando] = useState(false);
   const [salvandoItem, setSalvandoItem] = useState(null); // item sendo respondido
@@ -316,9 +316,9 @@ function TabChecklist({ osDetalhe, onAtualizado, mostrarToast, podeEditar, onPen
       const modoCampo = isModoCampo();
 
       // 1) Modo Campo: a cópia do dispositivo é SEMPRE a fonte primária de
-      //    exibição (online ou não — respostas/fotos ficam na fila local e o
-      //    sync automático roda em segundo plano). Evita o 422 do servidor
-      //    quando a resposta é dada antes da foto e mantém a UX do offline.
+      //    exibição (bolha local — as ações ficam na fila até o sync manual,
+      //    mesmo conectado). Evita o 422 do servidor quando a resposta é dada
+      //    antes da foto e mantém a UX do offline.
       let localAchado = false;
       if (modoCampo) {
         let local = await getChecklistLocal(osDetalhe.id);
@@ -327,7 +327,7 @@ function TabChecklist({ osDetalhe, onAtualizado, mostrarToast, podeEditar, onPen
           // Reconstrói os previews de fotos ainda não sincronizadas.
           local = await hidratarFotosPendentes(local);
           setDados({ itens: local.itens || [], resumo: local.resumo });
-        } else if (!usarLocal()) {
+        } else if (!isOffline()) {
           // Sem cópia local (O.S com conexão): o GET remoto serve de "seed"
           // inicial do pacote; a partir daí as ações passam a ser locais.
           try {
@@ -426,12 +426,7 @@ function TabChecklist({ osDetalhe, onAtualizado, mostrarToast, podeEditar, onPen
         });
         await refletirRespostaLocal(item, resposta, gps);
         onAtualizado();
-        mostrarToast(
-          isOffline()
-            ? 'Resposta salva no dispositivo (será sincronizada).'
-            : 'Resposta salva (sincronização automática).',
-        );
-        onPendenciaLocal?.();
+        mostrarToast('Resposta salva no dispositivo (sincronize quando quiser).');
       } catch {
         mostrarToast('Falha ao salvar a resposta no dispositivo.', 'error');
       } finally {
@@ -487,14 +482,9 @@ function TabChecklist({ osDetalhe, onAtualizado, mostrarToast, podeEditar, onPen
           geolocalizacao: gps,
         });
         refletirFotoLocal(item.id, entrada);
-        mostrarToast(
-          isOffline()
-            ? 'Foto salva no dispositivo (será sincronizada).'
-            : 'Foto salva (sincronização automática).',
-        );
+        mostrarToast('Foto salva no dispositivo (sincronize quando quiser).');
         carregar();
         onAtualizado();
-        onPendenciaLocal?.();
       } catch {
         mostrarToast('Falha ao salvar a foto no dispositivo.', 'error');
       } finally {
@@ -786,7 +776,7 @@ function TabChecklist({ osDetalhe, onAtualizado, mostrarToast, podeEditar, onPen
 // Abas compartilhadas entre o drawer do gestor e a tela de campo (mobile)
 // ---------------------------------------------------------------------------
 
-function TabInsumos({ osDetalhe, produtos, onAtualizado, mostrarToast, podeEditar, podeEstornar, onPendenciaLocal }) {
+function TabInsumos({ osDetalhe, produtos, onAtualizado, mostrarToast, podeEditar, podeEstornar }) {
   const [buscaProduto, setBuscaProduto] = useState('');
   const [qtd, setQtd] = useState(1);
   const [tipoUsc, setTipoUsc] = useState('normal');
@@ -1002,15 +992,10 @@ function TabInsumos({ osDetalhe, produtos, onAtualizado, mostrarToast, podeEdita
           },
         });
         await refletirMaterialLocal(produto, totalUsc, op.id_local);
-        mostrarToast(
-          `Serviço "${produto.nome}" lançado (${totalUsc} ${unidade}) — ${
-            isOffline() ? 'será sincronizado ao reconectar.' : 'sincronização automática.'
-          }`,
-        );
+        mostrarToast(`Serviço "${produto.nome}" lançado (${totalUsc} ${unidade}) — sincronize quando quiser.`);
         limparFormulario();
         carregarPendentesLocais();
         onAtualizado();
-        onPendenciaLocal?.();
         return;
       }
       const res = await apiFetch(`${API_URL}/os/${osDetalhe.id}/materiais`, {
@@ -1651,7 +1636,7 @@ function AcoesStatus({ detalhe, podeEditar, mudarStatus, aoAplicado, ehGestor, t
   );
 }
 
-function PainelExecucao({ osId, produtos, onFechar, recarregarLista, mostrarToast, ehMobile, mudarStatus, ehGestor, onEditar, onExcluir, transicoes, onPedirImpedimento, onReabrir, onPendenciaLocal }) {
+function PainelExecucao({ osId, produtos, onFechar, recarregarLista, mostrarToast, ehMobile, mudarStatus, ehGestor, onEditar, onExcluir, transicoes, onPedirImpedimento, onReabrir, versaoPainel }) {
   const [detalhe, setDetalhe] = useState(null);
   const [erro, setErro] = useState('');
   const [aba, setAba] = useState('insumos');
@@ -1721,9 +1706,10 @@ function PainelExecucao({ osId, produtos, onFechar, recarregarLista, mostrarToas
   useEffect(() => {
     setErro('');
     carregar();
-    // Limpa o retry pendente ao trocar de O.S ou desmontar (A8).
+    // Limpa o retry pendente ao trocar de O.S, desmontar ou após o refresh
+    // do pacote pós-sync manual (versaoPainel) (A8).
     return () => clearTimeout(timerRetry.current);
-  }, [carregar]);
+  }, [carregar, versaoPainel]);
 
   if (erro) {
     return (
@@ -1821,7 +1807,6 @@ function PainelExecucao({ osId, produtos, onFechar, recarregarLista, mostrarToas
           onAtualizado={() => { carregar(); recarregarLista(); }}
           mostrarToast={mostrarToast}
           podeEditar={podeEditar}
-          onPendenciaLocal={onPendenciaLocal}
         />
       )}
       {aba === 'insumos' && (
@@ -1832,7 +1817,6 @@ function PainelExecucao({ osId, produtos, onFechar, recarregarLista, mostrarToas
           mostrarToast={mostrarToast}
           podeEditar={podeLancarServico}
           podeEstornar={podeEstornar}
-          onPendenciaLocal={onPendenciaLocal}
         />
       )}
       {aba === 'evidencias' && (
@@ -2663,6 +2647,7 @@ function OrdensServico({ usuarioAtual }) {
   const [toast, setToast] = useState(null);
   const [visao, setVisao] = useState('quadro');       // quadro | obras | cadastros | arquivo
   const [osSelecionada, setOsSelecionada] = useState(null);
+  const [versaoPainel, setVersaoPainel] = useState(0); // força re-leitura do painel após sync manual
   const [modalNova, setModalNova] = useState(false);
   const [novaOSObraId, setNovaOSObraId] = useState(null); // obra travada ao criar O.S pelo PainelObra
   const [versaoResumoObra, setVersaoResumoObra] = useState(0); // refresh do resumo do PainelObra após criar O.S
@@ -2742,16 +2727,63 @@ function OrdensServico({ usuarioAtual }) {
       });
       setUltimoResumo(resumo);
       if (usuarioAtual?.nome) salvarResponsavelLocal(usuarioAtual.nome);
-      if (!silencioso || resumo.fotosEnviadas || resumo.operacoesEnviadas || resumo.falhas.length) {
-        if (resumo.falhas.length) {
-          const resumosErros = [...new Set(resumo.falhas.slice(0, 3).map(f => f.erro))].join('\n');
-          mostrarToast(
-            `${resumo.fotosEnviadas + resumo.operacoesEnviadas} sincronizado(s), ${resumo.falhas.length} com erro.\n${resumosErros}`,
-            'error',
-            { label: 'Ver pendências', onClick: () => setModalPendenciasAberto(true) },
-          );
-        } else {
-          mostrarToast(`${resumo.fotosEnviadas + resumo.operacoesEnviadas} item(ns) sincronizado(s).`);
+
+      // Auto-limpeza parcial (Modo Campo): respostas de checklist e transições
+      // que o servidor recusou por O.S encerrada/imutável nunca serão
+      // aplicadas — saem da fila com aviso (materiais e fotos seguem para
+      // revisão manual no descarte).
+      let removidas = 0;
+      const removidasIds = new Set();
+      if (isModoCampo()) {
+        for (const f of resumo.falhas || []) {
+          if (f.tipo !== 'operacao' || removidasIds.has(f.id_local)) continue;
+          if (!['checklist_resposta', 'status'].includes(f.opTipo)) continue;
+          if (!/O\.S encerrad|est[áa] encerrad|não pode ser alterad/i.test(String(f.erro || ''))) continue;
+          try {
+            await descartarPendente('operacao', f.id_local);
+            removidasIds.add(f.id_local);
+            removidas += 1;
+          } catch { /* segue para o próximo */ }
+        }
+        if (removidas > 0) {
+          resumo.falhas = resumo.falhas.filter(f => !removidasIds.has(f.id_local));
+          resumo.conflitos = (resumo.conflitos || []).filter(f => !removidasIds.has(f.id_local));
+        }
+      }
+
+      const enviadas = resumo.fotosEnviadas + resumo.operacoesEnviadas;
+      const restamFalhas = resumo.falhas.length > 0;
+      const partes = [];
+      if (enviadas > 0) partes.push(`${enviadas} sincronizado(s)`);
+      if (removidas > 0) partes.push(`${removidas} removida(s) de O.S encerrada`);
+      if (restamFalhas) {
+        const resumosErros = [...new Set(resumo.falhas.slice(0, 3).map(f => f.erro))].join('\n');
+        mostrarToast(
+          `${partes.length ? `${partes.join(', ')}; ` : ''}${resumo.falhas.length} com erro.\n${resumosErros}`,
+          'error',
+          { label: 'Ver pendências', onClick: () => setModalPendenciasAberto(true) },
+        );
+      } else if (partes.length) {
+        mostrarToast(partes.join('; ') + '.');
+      }
+
+      // Após o sync manual com a fila zerada, o pacote local é re-sincronizado
+      // com o servidor (download) para a tela não carregar resíduos locais
+      // (previews "não sincronizado", respostas já aplicadas). Com pendências
+      // restantes (falhas/conflitos) a cópia local é preservada para revisão.
+      const restantes = await contarPendentes();
+      if (restantes.total === 0 && isModoCampo()) {
+        try { await completarPacoteCampo(); } catch { /* best-effort */ }
+        if (osSelecionada != null) {
+          try {
+            const [d, c] = await Promise.all([
+              apiFetch(`${API_URL}/os/${osSelecionada}`).then(r => (r.ok ? r.json() : null)),
+              apiFetch(`${API_URL}/os/${osSelecionada}/checklist`).then(r => (r.ok ? r.json() : null)),
+            ]);
+            if (d) await salvarDetalheLocal(d);
+            if (c) await salvarChecklistLocal(osSelecionada, c);
+            setVersaoPainel(v => v + 1);
+          } catch { /* best-effort: próxima abertura recarrega */ }
         }
       }
       carregarDados();
@@ -2766,31 +2798,13 @@ function OrdensServico({ usuarioAtual }) {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [sincronizando, mostrarToast, usuarioAtual?.nome]);
 
-  // Sincronização automática após uma ação local em Modo Campo CONECTADO:
-  // resposta/foto/serviço gravam primeiro na fila (mesma UX do offline) e o
-  // envio acontece em segundo plano, com debounce e apenas no Wi-Fi.
-  const timerSyncLocal = useRef(null);
-  const agendarSyncLocal = useCallback(() => {
-    if (!modoCampo || isOffline() || !estaEmWifi() || sincronizando) return;
-    if (timerSyncLocal.current) return;
-    timerSyncLocal.current = setTimeout(() => {
-      timerSyncLocal.current = null;
-      sincronizarAgora(true);
-    }, 2500);
-  }, [modoCampo, sincronizando, sincronizarAgora]);
-  useEffect(() => () => {
-    if (timerSyncLocal.current) clearTimeout(timerSyncLocal.current);
-  }, []);
-
   // Monitora a conexão de verdade (sonda HTTP a cada 10s — o navigator.onLine
-  // engana em WiFi sem internet, comum no campo). A sincronização AUTOMÁTICA
-  // só dispara na TRANSIÇÃO offline -> online, em Wi-Fi e com cooldown — não
-  // fica tentando a cada 10s (nem em dados móveis) durante o trabalho.
+  // engana em WiFi sem internet, comum no campo). No Modo Campo a sincronização
+  // é SOMENTE manual (botão Pendências / Finalizar) — a sonda só atualiza o
+  // badge de conectividade e a contagem de pendências.
   useEffect(() => {
     let sondaEmAndamento = false;
     const estadoOffline = { atual: isOffline() };
-    const ultimaAuto = { em: 0 };
-    const COOLDOWN_AUTO_MS = 45000;
     const atualizar = async (daSonda = false) => {
       if (!sondaEmAndamento && daSonda) {
         sondaEmAndamento = true;
@@ -2802,17 +2816,9 @@ function OrdensServico({ usuarioAtual }) {
       }
       const offlineAtual = isOffline();
       setOffline(offlineAtual);
-
-      const reconectou = estadoOffline.atual === true && offlineAtual === false;
       estadoOffline.atual = offlineAtual;
       if (offlineAtual === false) {
-        contarPendentes().then(p => {
-          setPendentes(p);
-          if (reconectou && p.total > 0 && estaEmWifi() && Date.now() - ultimaAuto.em >= COOLDOWN_AUTO_MS) {
-            ultimaAuto.em = Date.now();
-            sincronizarAgora(true);
-          }
-        });
+        contarPendentes().then(setPendentes).catch(() => {});
       }
     };
     const noEvento = () => atualizar(false);
@@ -3171,8 +3177,8 @@ function OrdensServico({ usuarioAtual }) {
       // Localização real no momento da ação (não reutiliza check-in antigo).
       const gps = await capturarGps();
 
-      // Modo Campo (online ou offline): registra na fila do dispositivo e
-      // reflete localmente; conectado, o sync automático envia em 2º plano.
+      // Modo Campo (100% local, online ou não): registra na fila do
+      // dispositivo e reflete localmente — sync apenas manual.
       if (isModoCampo() || usarLocal()) {
         try {
           await enfileirarOperacao({
@@ -3187,14 +3193,9 @@ function OrdensServico({ usuarioAtual }) {
           });
           await atualizarStatusLocal(os.id, novoStatus);
           setListaOs(prev => prev.map(o => (Number(o.id) === Number(os.id) ? { ...o, status: novoStatus } : o)));
-          mostrarToast(
-            `${os.codigo} movida para "${LABEL_STATUS[novoStatus]}" — ${
-              isOffline() ? 'será sincronizada ao reconectar.' : 'sincronização automática.'
-            }`,
-          );
+          mostrarToast(`${os.codigo} movida para "${LABEL_STATUS[novoStatus]}" (sincronize quando quiser).`);
           const p = await contarPendentes();
           setPendentes(p);
-          agendarSyncLocal();
           return true;
         } catch {
           mostrarToast('Falha ao registrar a transição no dispositivo.', 'error');
@@ -3239,7 +3240,7 @@ function OrdensServico({ usuarioAtual }) {
       statusEmAndamento.current = false;
       setProcessando(false);
     }
-  }, [capturarGps, mostrarToast, recarregarLista, agendarSyncLocal]);
+  }, [capturarGps, mostrarToast, recarregarLista]);
 
   // Exclusão definitiva de O.S (gestor; rascunho/encerradas) — chama a rota
   // e atualiza a visão atual.
@@ -3727,6 +3728,7 @@ function OrdensServico({ usuarioAtual }) {
           {osSelecionada != null && (
             <PainelExecucao
               osId={osSelecionada}
+              versaoPainel={versaoPainel}
               obras={obras}
               produtos={produtos}
               onFechar={() => setOsSelecionada(null)}
@@ -3740,7 +3742,6 @@ function OrdensServico({ usuarioAtual }) {
               onPedirImpedimento={(detalhe) => setModalImpedimento({ os: detalhe })}
               onReabrir={(detalhe) => setModalReabrir(detalhe)}
               transicoes={transicoes}
-              onPendenciaLocal={agendarSyncLocal}
             />
           )}
 
@@ -3863,6 +3864,7 @@ function OrdensServico({ usuarioAtual }) {
           {osSelecionada != null && (
             <PainelExecucao
               osId={osSelecionada}
+              versaoPainel={versaoPainel}
               obras={obras}
               produtos={produtos}
               onFechar={() => setOsSelecionada(null)}
@@ -3876,7 +3878,6 @@ function OrdensServico({ usuarioAtual }) {
               onPedirImpedimento={(detalhe) => setModalImpedimento({ os: detalhe })}
               onReabrir={(detalhe) => setModalReabrir(detalhe)}
               transicoes={transicoes}
-              onPendenciaLocal={agendarSyncLocal}
             />
           )}
         </>

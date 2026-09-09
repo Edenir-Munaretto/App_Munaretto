@@ -86,13 +86,13 @@ export function estaEmWifi() {
 
 /**
  * Deve-se operar com os dados locais.
- * - Modo Campo: sempre que houver indicação de falta de internet — sonda HTTP
- *   falhou (WiFi sem internet) OU navegador detectou queda de rede;
+ * - Modo Campo: SEMPRE (bolha local — leitura e escrita 100% no pacote até a
+ *   sincronização manual; conectividade só habilita o sync/botões);
  * - Fora do Modo Campo: apenas quando o navegador confirma a queda (sem
  *   pacote local, o usuário deve ver erros de conexão, não dados vazios).
  */
 export function usarLocal() {
-  if (isModoCampo()) return isOffline();
+  if (isModoCampo()) return true;
   return typeof navigator !== 'undefined' && navigator.onLine === false;
 }
 

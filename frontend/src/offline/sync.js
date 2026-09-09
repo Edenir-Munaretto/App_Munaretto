@@ -119,7 +119,7 @@ async function enviarOperacoes(ops, mapaFotos, resumo, onProgress) {
         // perdê-los e encerra os lotes seguintes desta execução.
         const erro = erroDaResposta(dados, 'Falha ao sincronizar operações.');
         for (const op of fatia) {
-          resumo.falhas.push({ id_local: op.id_local, tipo: 'operacao', erro });
+          resumo.falhas.push({ id_local: op.id_local, tipo: 'operacao', opTipo: op.tipo, erro });
           await dbPut('fila', { ...op, status: 'erro', erro, tentativas: (op.tentativas || 0) + 1 });
         }
         return false;
@@ -130,10 +130,10 @@ async function enviarOperacoes(ops, mapaFotos, resumo, onProgress) {
           await dbDel('fila', r.id_local);
         } else {
           const erro = r.erro || 'Erro ao aplicar operação.';
-          const falha = { id_local: r.id_local, tipo: 'operacao', erro };
+          const opOriginal = ops.find(op => op.id_local === r.id_local);
+          const falha = { id_local: r.id_local, tipo: 'operacao', opTipo: opOriginal?.tipo, erro };
           resumo.falhas.push(falha);
           if (ehConflito(r.status)) resumo.conflitos.push(falha);
-          const opOriginal = ops.find(op => op.id_local === r.id_local);
           await dbPut('fila', {
             ...opOriginal,
             status: 'erro',
