@@ -35,6 +35,7 @@ window.addEventListener('unhandledrejection', (evento) => {
   const motivo = evento.reason;
   exibirErroGlobal(motivo?.message || String(motivo), motivo?.stack);
 });
+window.__mostrarErroGlobal = exibirErroGlobal;
 
 ReactDOM.createRoot(document.getElementById('root')).render(
   <React.StrictMode>

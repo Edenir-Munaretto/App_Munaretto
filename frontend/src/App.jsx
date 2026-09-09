@@ -394,6 +394,24 @@ function App() {
     }, 1200);
   };
 
+  // Aplicar a sessão SEMPRE seguido de navegação forçada: se algo falhar ao
+  // salvar, não segura o usuário na tela de login — o replace tenta mesmo assim.
+  const aplicarSessaoENavegar = (user) => {
+    try {
+      aplicarLogin(user);
+    } catch (err) {
+      console.error('Erro ao aplicar sessão (segue para navegar):', err);
+      try { window.__mostrarErroGlobal?.(String(err?.message || err), err?.stack); } catch { /* noop */ }
+    }
+    try {
+      irParaApp();
+    } catch (err) {
+      console.error('Erro ao navegar após login:', err);
+      // Último recurso: recarregar a página inteira.
+      try { window.location.href = window.location.pathname; } catch { /* noop */ }
+    }
+  };
+
   const confirmarLimpezaPendente = async () => {
     const alvo = limpezaPendente;
     if (!alvo) return;
@@ -407,9 +425,8 @@ function App() {
         .finally(() => { clearTimeout(timer); resolve(); });
     });
     if (alvo.acao === 'login') {
-      aplicarLogin(alvo.user);
       setLimpezaPendente(null);
-      irParaApp();
+      aplicarSessaoENavegar(alvo.user);
       return;
     }
     aplicarLogout();
@@ -420,8 +437,7 @@ function App() {
     const concluirLogin = () => {
       // Aplica sessão e navega de novo para o app — sem depender de
       // promessas pendentes do IndexedDB (aparelho travado não segura login).
-      aplicarLogin(user);
-      irParaApp();
+      aplicarSessaoENavegar(user);
     };
 
     // Com Modo Campo ativo no aparelho: checa pendências APENAS com timeout
