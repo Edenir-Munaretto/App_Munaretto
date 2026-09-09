@@ -15,7 +15,7 @@ import { comprimirImagem } from '../utils/imagem';
 import { rotuloFator, unidadeContrato } from '../utils/contratos';
 import {
   isModoCampo, setModoCampo, isOffline, usarLocal,
-  prepararPacoteCampo, completarPacoteCampo, limparPacote, infoPacote,
+  prepararPacoteCampo, completarPacoteCampo, limparPacote,
   getOSLocal, getChecklistLocal, getListaLocal, getProdutosLocal, salvarDetalheLocal, salvarChecklistLocal,
   atualizarStatusLocal, atualizarRespostaLocal, recalcularResumo, atualizarListaLocal,
   enfileirarOperacao, enfileirarFoto, contarPendentes, descartarPendente,
@@ -2680,7 +2680,6 @@ function OrdensServico({ usuarioAtual }) {
   const [sincronizando, setSincronizando] = useState(false);
   const [progressoSync, setProgressoSync] = useState(null); // {enviadas, total} p/ feedback
   const [preparandoPacote, setPreparandoPacote] = useState(false);
-  const [infoPacoteLocal, setInfoPacoteLocal] = useState(null);
   const [modalPendenciasAberto, setModalPendenciasAberto] = useState(false);
   const [ultimoResumo, setUltimoResumo] = useState(null);
 
@@ -2850,11 +2849,6 @@ function OrdensServico({ usuarioAtual }) {
     };
   }, [sincronizarAgora, modoCampo]);
 
-  useEffect(() => {
-    if (modoCampo) infoPacote().then(setInfoPacoteLocal).catch(() => setInfoPacoteLocal(null));
-    else setInfoPacoteLocal(null);
-  }, [modoCampo]);
-
   const alternarModoCampo = async () => {
     if (offline) {
       mostrarToast('Conecte-se à internet para preparar o Modo Campo.', 'error');
@@ -2868,14 +2862,12 @@ function OrdensServico({ usuarioAtual }) {
       // completar eventuais faltantes é etapa complementar (nunca derruba).
       setModoCampo(true);
       setModoCampoState(true);
-      setInfoPacoteLocal({ quantidade, preparado_em: new Date().toISOString() });
 
       let restantes = faltantes.length;
       if (restantes > 0 && !isOffline()) {
         try {
           const r = await completarPacoteCampo();
           restantes = r.restantes;
-          if (r.completadas > 0) infoPacote().then(setInfoPacoteLocal).catch(() => {});
         } catch {
           /* mantém o aviso abaixo com as que faltaram */
         }
@@ -2950,7 +2942,6 @@ function OrdensServico({ usuarioAtual }) {
       await limparPacote();
       setModoCampo(false);
       setModoCampoState(false);
-      setInfoPacoteLocal(null);
       setPendentes({ operacoes: 0, fotos: 0, total: 0, revisao: 0 });
       setUltimoResumo(null);
       carregarDados();
@@ -3146,7 +3137,6 @@ function OrdensServico({ usuarioAtual }) {
       try {
         const r = await completarPacoteCampo();
         if (!cancelado && r.completadas > 0) {
-          infoPacote().then(setInfoPacoteLocal).catch(() => {});
           carregarDados();
         }
       } catch {
@@ -3598,17 +3588,6 @@ function OrdensServico({ usuarioAtual }) {
                 {sincronizando
                   ? (progressoSync ? `Finalizando (${progressoSync.enviadas}${progressoSync.total ? `/${progressoSync.total}` : ''})...` : 'Finalizando...')
                   : 'Finalizar Modo Campo'}
-              </button>
-
-              {/* Modo Campo: ativo vira indicador sem ação (a saída é feita
-                  pelo "Finalizar Modo Campo") */}
-              <button
-                disabled
-                title='Modo Campo ativo — para encerrar, use o botão "Finalizar Modo Campo"'
-                className="flex items-center gap-2 px-4 py-2.5 rounded-xl border font-bold text-xs transition-all border-primary-300 bg-primary-600 text-white cursor-default opacity-100"
-              >
-                <HardHat size={15} />
-                {preparandoPacote ? 'Baixando O.S...' : `Modo Campo ${infoPacoteLocal ? `(${infoPacoteLocal.quantidade} O.S)` : ''}`}
               </button>
             </>
           )}
