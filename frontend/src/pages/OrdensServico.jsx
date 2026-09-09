@@ -119,6 +119,16 @@ const fmtData = (iso) => {
   }
 };
 
+// Evento de impedimento mais recente do histórico (com justificativa) — usado
+// no destaque do PainelExecucao e na aba Evidências para dar contexto ao gestor.
+const impedimentoAtual = (historico) => {
+  if (!Array.isArray(historico)) return null;
+  const evento = [...historico]
+    .reverse()
+    .find(h => h.status_novo === 'impedida' && (h.justificativa || h.criado_em));
+  return evento || null;
+};
+
 // Captura a geolocalização do dispositivo (sem bloqueio por raio).
 // Com cache curto (60s) e timeout reduzido: no campo, agir (responder, foto)
 // não pode ficar esperando o GPS — usa a última posição válida se necessário.
@@ -1314,6 +1324,28 @@ function TabEvidencias({ osDetalhe, onAtualizado, mostrarToast, podeEditar, pode
 
   return (
     <div className="space-y-4">
+      {/* Contexto do impedimento: o motivo acompanha as fotos de evidência */}
+      {(() => {
+        const impedimento = impedimentoAtual(osDetalhe.historico);
+        if (!impedimento) return null;
+        return (
+          <div className="rounded-xl border border-orange-200 bg-orange-50 px-3 py-2.5">
+            <p className="flex items-center gap-1.5 text-[10px] font-extrabold uppercase tracking-wide text-orange-700">
+              <AlertTriangle size={12} /> Motivo do impedimento
+            </p>
+            {impedimento.justificativa && (
+              <p className="text-xs text-orange-900/90 mt-1 italic leading-relaxed">
+                &ldquo;{impedimento.justificativa}&rdquo;
+              </p>
+            )}
+            <p className="text-[10px] text-orange-700/80 font-semibold mt-1">
+              {fmtData(impedimento.criado_em)}
+              {impedimento.usuario_alteracao ? ` · ${impedimento.usuario_alteracao}` : ''}
+            </p>
+          </div>
+        );
+      })()}
+
       {/* Captura de evidência: câmera direta OU galeria (seletores separados) */}
       <div className="grid grid-cols-2 gap-2">
         <button
@@ -1746,6 +1778,29 @@ function PainelExecucao({ osId, produtos, onFechar, recarregarLista, mostrarToas
           <b className="text-slate-600">Escopo:</b> {detalhe.descricao_escopo}
         </p>
       )}
+
+      {/* Destaque do impedimento: motivo + quem + quando (fonte: histórico) */}
+      {(() => {
+        const impedimento = impedimentoAtual(detalhe.historico);
+        if (!impedimento) return null;
+        return (
+          <div className="mt-3 rounded-xl border-2 border-orange-300 bg-orange-50 p-3">
+            <div className="flex items-center gap-2 text-orange-700">
+              <AlertTriangle size={16} className="shrink-0" />
+              <p className="text-xs font-extrabold uppercase tracking-wide">Impedimento</p>
+            </div>
+            {impedimento.justificativa && (
+              <p className="text-xs text-orange-900/90 mt-1.5 italic leading-relaxed">
+                &ldquo;{impedimento.justificativa}&rdquo;
+              </p>
+            )}
+            <p className="text-[10px] text-orange-700/80 font-semibold mt-1.5">
+              {fmtData(impedimento.criado_em)}
+              {impedimento.usuario_alteracao ? ` · ${impedimento.usuario_alteracao}` : ''}
+            </p>
+          </div>
+        );
+      })()}
 
       {/* Checklist de início pendente: bloqueia a liberação da execução */}
       {detalhe.status === 'aberta' && detalhe.checklist && !detalhe.checklist.inicio_liberado && (
