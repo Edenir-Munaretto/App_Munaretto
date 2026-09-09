@@ -147,7 +147,7 @@ function Login({ onLogin, mensagemExpirada = false }) {
         </div>
         <p className="text-center text-xs text-slate-400 mt-4">Escritório Munaretto</p>
         <p className="text-center text-[10px] text-slate-500/60 mt-1 break-all px-2">
-          API: {API_URL}
+          API: {API_URL} · build: {window.__APP_BUILD__ || '?'}
         </p>
       </div>
     </div>
