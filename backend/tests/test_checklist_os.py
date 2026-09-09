@@ -621,7 +621,7 @@ def test_relatorio_pdf_naos_sem_justificativa(os_gestor_client, db_fake):
 # ---------------------------------------------------------------------------
 
 
-def test_item_exige_foto_bloqueia_resposta_sem_evidencia(os_gestor_client, db_fake):
+def test_item_exige_foto_aceita_resposta_sem_evidencia(os_gestor_client, db_fake):
     from tests.test_os import _criar_os, _seed_cenario
 
     _seed_cenario(db_fake)
@@ -629,20 +629,14 @@ def test_item_exige_foto_bloqueia_resposta_sem_evidencia(os_gestor_client, db_fa
     os_id = _criar_os(os_gestor_client).json()["id"]
     item = next(i for i in _itens(os_gestor_client, os_id) if i.get("exige_foto"))
 
-    # 'sim' sem foto -> 422; 'na' dispensa evidência.
-    resp = _responder(os_gestor_client, os_id, item, "sim")
-    assert resp.status_code == 422
-    assert "foto de evidência" in resp.json()["detail"]
+    # 'sim'/'nao' SEM foto são aceitos — a evidência pode ser anexada depois
+    # (a exigência vale no gate de conclusão da O.S, ver teste abaixo).
+    for resposta in ("sim", "nao"):
+        resp = _responder(os_gestor_client, os_id, item, resposta)
+        assert resp.status_code == 200, resp.text
 
+    # 'na' dispensa evidência e também é aceito.
     resp = _responder(os_gestor_client, os_id, item, "na")
-    assert resp.status_code == 200, resp.text
-
-    # Voltar para 'sim' continua bloqueado até anexar a evidência.
-    resp = _responder(os_gestor_client, os_id, item, "sim")
-    assert resp.status_code == 422
-
-    _anexar_foto_item_via_banco(db_fake, os_id, item["id"])
-    resp = _responder(os_gestor_client, os_id, item, "sim")
     assert resp.status_code == 200, resp.text
 
 

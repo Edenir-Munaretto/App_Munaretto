@@ -522,6 +522,14 @@ export async function listarPendentes() {
   };
 }
 
+/** Operações de lançamento de serviço (material) ainda na fila de uma O.S —
+ * apoio à visão local-first do Modo Campo conectado (merge sobre o servidor). */
+export async function lancamentosPendentesDaFila(osId) {
+  osId = Number(osId);
+  const ops = await dbGetAll('fila');
+  return ops.filter(op => op && typeof op === 'object' && op.os_id === osId && op.tipo === 'material');
+}
+
 /** Remove do dispositivo um item pendente (foto ou operação) sem enviar. */
 export async function descartarPendente(tipo, idLocal) {
   if (idLocal == null) return false;

@@ -1207,7 +1207,7 @@ def _itens_exige_foto_sem_evidencia(db, os_id: int) -> list[dict]:
     """Itens respondidos 'sim'/'nao' cujo modelo exige foto e não têm nenhuma.
 
     Respostas 'na' (não se aplica) não exigem evidência. Usado no gate de
-    resposta e no gate de conclusão da O.S.
+    CONCLUSÃO da O.S (a resposta em si é aceita sem foto, anexada depois).
     """
     faltantes = []
     for item in itens_com_respostas(db, os_id):
@@ -1270,26 +1270,10 @@ def responder_checklist(
             raise HTTPException(status_code=400, detail="Resposta inválida. Use 'sim', 'nao' ou 'na'.")
         justificativa = (payload.justificativa or "").strip() or None
 
-        # Evidência fotográfica obrigatória: itens com `exige_foto` respondidos
-        # 'sim'/'nao' precisam de pelo menos uma foto anexada ao item.
-        if resposta in ("sim", "nao") and item.get("exige_foto"):
-            tem_foto = (
-                db.table("os_fotos")
-                .select("id")
-                .eq("checklist_item_id", item["id"])
-                .limit(1)
-                .execute()
-                .data
-            )
-            if not tem_foto:
-                raise HTTPException(
-                    status_code=422,
-                    detail=(
-                        "Este item exige uma foto de evidência. Anexe a foto ao item "
-                        "antes de registrar a resposta."
-                    ),
-                )
-
+        # Evidência fotográfica dos itens `exige_foto`: a resposta é aceita
+        # SEM foto — o usuário pode anexá-la depois (inclusive offline, com
+        # upload na sincronização). A exigência é garantida no gate de
+        # CONCLUSÃO da O.S (itens 'sim'/'nao' sem evidência bloqueiam).
         db.table("os_checklist_respostas").upsert(
             {
                 "item_id": item["id"],

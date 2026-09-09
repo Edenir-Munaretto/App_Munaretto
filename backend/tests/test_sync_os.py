@@ -673,7 +673,7 @@ def test_sync_apontamento_fim_antes_do_inicio_rejeitado(os_gestor_client, os_cam
 # ---------------------------------------------------------------------------
 
 
-def test_sync_resposta_exige_foto_sem_evidencia_rejeitada(os_gestor_client, os_campo_client, db_fake):
+def test_sync_resposta_exige_foto_sem_evidencia_aceita(os_gestor_client, os_campo_client, db_fake):
     from tests.test_os import _criar_os, _seed_cenario
 
     _seed_cenario(db_fake)
@@ -682,7 +682,9 @@ def test_sync_resposta_exige_foto_sem_evidencia_rejeitada(os_gestor_client, os_c
     assert os_campo_client.put(f"/api/os/{os_id}/status", json={"novo_status": "aberta"}).status_code == 200
     exige = next(i for i in _itens(os_campo_client, os_id) if i.get("exige_foto"))
 
-    # 'sim' sem evidência -> 422 (a foto teria que ter sido enviada antes).
+    # 'sim' sem evidência é aceito — a foto pode ser anexada depois (offline,
+    # a fase 1 do tablet envia as fotos antes do lote). A exigência de
+    # evidência permanece apenas no gate de conclusão (A4).
     resp = os_campo_client.post(
         "/api/os/sincronizar",
         json={"operacoes": [_op("r1", "checklist_resposta", os_id,
@@ -690,9 +692,7 @@ def test_sync_resposta_exige_foto_sem_evidencia_rejeitada(os_gestor_client, os_c
               "dispositivo": "tablet-campo-1"},
     )
     resultado = resp.json()["resultados"][0]
-    assert resultado["ok"] is False
-    assert resultado["status"] == 422
-    assert "foto de evidência" in resultado["erro"]
+    assert resultado["ok"] is True, resultado
 
     # 'na' dispensa evidência.
     resp = os_campo_client.post(
@@ -703,7 +703,7 @@ def test_sync_resposta_exige_foto_sem_evidencia_rejeitada(os_gestor_client, os_c
     )
     assert resp.json()["resultados"][0]["ok"] is True
 
-    # Com a foto anexada (fase 1 do tablet), 'sim' passa.
+    # Com a foto anexada (fase 1 do tablet), 'sim' também passa.
     _anexar_foto_item_via_banco(db_fake, os_id, exige["id"])
     resp = os_campo_client.post(
         "/api/os/sincronizar",
