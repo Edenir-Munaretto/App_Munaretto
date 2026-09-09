@@ -505,8 +505,13 @@ export async function hidratarFotosPendentes(dados) {
 export async function contarPendentes() {
   const [ops, fotos] = await Promise.all([dbGetAll('fila'), dbGetAll('fotos')]);
   const valido = r => r && typeof r === 'object' && r.id_local != null;
-  const fotosPendentes = fotos.filter(f => valido(f) && f.status !== 'enviada').length;
-  return { operacoes: ops.filter(valido).length, fotos: fotosPendentes, total: ops.filter(valido).length + fotosPendentes };
+  const operacoes = ops.filter(valido);
+  const fotosPendentes = fotos.filter(f => valido(f) && f.status !== 'enviada');
+  // Itens com erro/conflito (o servidor recusou) — não se resolvem no sync;
+  // exigem revisão/descarte na tela de pendências.
+  const revisao = operacoes.filter(op => op.status === 'erro').length
+    + fotosPendentes.filter(f => f.status === 'erro').length;
+  return { operacoes: operacoes.length, fotos: fotosPendentes.length, total: operacoes.length + fotosPendentes.length, revisao };
 }
 
 export async function listarPendentes() {

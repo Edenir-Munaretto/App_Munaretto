@@ -2682,7 +2682,7 @@ function OrdensServico({ usuarioAtual }) {
   // ---- Modo Campo (offline) ----
   const [modoCampo, setModoCampoState] = useState(isModoCampo());
   const [offline, setOffline] = useState(isOffline());
-  const [pendentes, setPendentes] = useState({ operacoes: 0, fotos: 0, total: 0 });
+  const [pendentes, setPendentes] = useState({ operacoes: 0, fotos: 0, total: 0, revisao: 0 });
   const [sincronizando, setSincronizando] = useState(false);
   const [progressoSync, setProgressoSync] = useState(null); // {enviadas, total} p/ feedback
   const [preparandoPacote, setPreparandoPacote] = useState(false);
@@ -2719,6 +2719,10 @@ function OrdensServico({ usuarioAtual }) {
     setProgressoSync(null);
     try {
       const totalInicial = (await contarPendentes()).total;
+      if (totalInicial === 0) {
+        if (!silencioso) mostrarToast('Nada pendente para sincronizar.');
+        return;
+      }
       const resumo = await sincronizar((p) => {
         setProgressoSync({
           enviadas: p.fotosEnviadas + p.operacoesEnviadas + (p.descartados || 0),
@@ -2953,7 +2957,7 @@ function OrdensServico({ usuarioAtual }) {
       setModoCampo(false);
       setModoCampoState(false);
       setInfoPacoteLocal(null);
-      setPendentes({ operacoes: 0, fotos: 0, total: 0 });
+      setPendentes({ operacoes: 0, fotos: 0, total: 0, revisao: 0 });
       setUltimoResumo(null);
       carregarDados();
       mostrarToast('Modo Campo finalizado: pendências sincronizadas e dados locais apagados.');
@@ -3562,6 +3566,31 @@ function OrdensServico({ usuarioAtual }) {
               não usa download offline/finalização de pacote local */}
           {!ehGestor && modoCampo && (
             <>
+              {/* Sincronizar agora: envio manual e único (sem auto-sync) */}
+              <button
+                onClick={() => sincronizarAgora()}
+                disabled={preparandoPacote || sincronizando}
+                title="Enviar as pendências locais para o servidor (Wi-Fi)"
+                className="flex items-center gap-2 px-4 py-2.5 rounded-xl border border-primary-300 bg-primary-600 text-white font-bold text-xs hover:bg-primary-700 transition-all cursor-pointer disabled:opacity-50"
+              >
+                <RefreshCw size={15} className={sincronizando ? 'animate-spin' : ''} />
+                {sincronizando
+                  ? (progressoSync ? `Sincronizando (${progressoSync.enviadas}${progressoSync.total ? `/${progressoSync.total}` : ''})...` : 'Sincronizando...')
+                  : 'Sincronizar agora'}
+              </button>
+
+              {/* Pendências com erro/conflito: precisam de revisão/descarte */}
+              {pendentes.revisao > 0 && (
+                <button
+                  onClick={() => setModalPendenciasAberto(true)}
+                  title="Abrir pendências para revisar/descartar itens com erro"
+                  className="flex items-center gap-2 px-4 py-2.5 rounded-xl border border-amber-300 bg-amber-50 text-amber-700 font-bold text-xs hover:bg-amber-100 transition-all cursor-pointer"
+                >
+                  <AlertTriangle size={15} />
+                  Pendências ({pendentes.revisao})
+                </button>
+              )}
+
               {/* Finalizar Modo Campo: único fluxo de saída (sincroniza e encerra) */}
               <button
                 onClick={finalizarModoCampo}
@@ -3602,20 +3631,6 @@ function OrdensServico({ usuarioAtual }) {
               {preparandoPacote ? 'Baixando O.S...' : 'Preparar Modo Campo'}
             </button>
           )}
-
-          {/* Pendências + sincronizar (visível quando há fila offline) */}
-              {pendentes.total > 0 && (
-                <button
-                  onClick={() => setModalPendenciasAberto(true)}
-                  title="Abrir pendências de sincronização"
-                  className="flex items-center gap-2 px-4 py-2.5 rounded-xl border border-amber-300 bg-amber-50 text-amber-700 font-bold text-xs hover:bg-amber-100 transition-all cursor-pointer"
-                >
-                  <RefreshCw size={15} className={sincronizando ? 'animate-spin' : ''} />
-                  {sincronizando
-                    ? (progressoSync ? `Sincronizando (${progressoSync.enviadas}${progressoSync.total ? `/${progressoSync.total}` : ''})...` : 'Sincronizando...')
-                    : `Pendências (${pendentes.total})`}
-                </button>
-              )}
             </div>
           </div>
 
