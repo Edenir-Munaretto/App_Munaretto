@@ -54,7 +54,7 @@ function FotoThumb({ foto }) {
 
 /** Conflito definitivo: o servidor recusou a operação/foto com 4xx. */
 function ehConflito(item) {
-  return item.classificacao === 'conflito';
+  return !!item && item.classificacao === 'conflito';
 }
 
 function BadgeEstado({ item }) {
@@ -97,6 +97,7 @@ function ModalPendenciasSync({
   const [responsavel, setResponsavel] = useState(null);
   const [resumoLocal, setResumoLocal] = useState(null);
   const [avisoRede, setAvisoRede] = useState(null);
+  const [erroAcao, setErroAcao] = useState(null);
   // Descarte exige confirmação — fotos podem ser a única evidência e operações
   // descartadas nunca chegam ao servidor.
   const [confirmarDescarte, setConfirmarDescarte] = useState(null);
@@ -131,6 +132,7 @@ function ModalPendenciasSync({
       return;
     }
     setAvisoRede(null);
+    setErroAcao(null);
     setReenviando(prev => [...prev, idLocal]);
     try {
       const seletor = tipo === 'foto' ? { fotos: [idLocal] } : { operacoes: [idLocal] };
@@ -138,6 +140,8 @@ function ModalPendenciasSync({
       setResumoLocal(resultado);
       await carregar();
       onItemSincronizado?.(resultado);
+    } catch {
+      setErroAcao('Não foi possível reenviar este item. Tente novamente.');
     } finally {
       setReenviando(prev => prev.filter(i => i !== idLocal));
     }
@@ -150,17 +154,30 @@ function ModalPendenciasSync({
   const confirmarDescarteItem = async () => {
     const { tipo, item } = confirmarDescarte || {};
     setConfirmarDescarte(null);
-    if (!tipo) return;
-    await descartarPendente(tipo, item.id_local);
+    setErroAcao(null);
+    if (!tipo || !item?.id_local) return;
+    try {
+      await descartarPendente(tipo, item.id_local);
+    } catch {
+      setErroAcao('Falha ao descartar o item. Tente novamente.');
+    }
     await carregar();
     onItemSincronizado?.();
   };
 
   const descartarTodosOsConflitos = async () => {
     setConfirmarDescarte(null);
+    setErroAcao(null);
+    let falhas = 0;
     for (const { tipo, item } of conflitos) {
-      await descartarPendente(tipo, item.id_local);
+      if (!item?.id_local) { falhas += 1; continue; }
+      try {
+        await descartarPendente(tipo, item.id_local);
+      } catch {
+        falhas += 1;
+      }
     }
+    if (falhas > 0) setErroAcao(`${falhas} item(ns) não puderam ser descartados. Tente novamente.`);
     await carregar();
     onItemSincronizado?.();
   };
@@ -169,13 +186,13 @@ function ModalPendenciasSync({
   const totalFalhas = (resumo?.falhas?.length || 0) + (resumo?.conflitos?.length || 0);
   const temConflitos = conflitos.length > 0;
 
-  const mensagemDescarte = confirmarDescarte
-    ? confirmarDescarte.tipo === 'foto'
-      ? 'Esta foto é a evidência do serviço e ainda não foi sincronizada. Descartar remove do dispositivo SEM enviar ao servidor — se ela for a única cópia, a evidência será perdida.'
-      : ehConflito(confirmarDescarte.item)
+  const mensagemDescarte = confirmarDescarte?.tipo === 'foto'
+    ? 'Esta foto é a evidência do serviço e ainda não foi sincronizada. Descartar remove do dispositivo SEM enviar ao servidor — se ela for a única cópia, a evidência será perdida.'
+    : confirmarDescarte?.tipo === 'operacao'
+      ? ehConflito(confirmarDescarte.item)
         ? 'O servidor recusou esta operação (conflito permanente, ex.: O.S já concluída por outra pessoa). Descartar a remove do dispositivo e a alteração NÃO será aplicada.'
         : 'Esta operação ainda não foi sincronizada. Descartar a remove do dispositivo SEM enviar ao servidor — a alteração não será aplicada.'
-    : '';
+      : '';
 
   return (
     <div className="fixed inset-0 bg-slate-900/40 backdrop-blur-sm flex items-center justify-center z-[60] p-4">
@@ -202,6 +219,12 @@ function ModalPendenciasSync({
             <div className="rounded-xl border border-amber-200 bg-amber-50 px-3 py-2.5 text-[11px] font-bold text-amber-700 flex items-center gap-2">
               <AlertTriangle size={14} className="shrink-0" />
               {avisoRede}
+            </div>
+          )}
+          {erroAcao && (
+            <div className="rounded-xl border border-rose-200 bg-rose-50 px-3 py-2.5 text-[11px] font-bold text-rose-700 flex items-center gap-2">
+              <AlertTriangle size={14} className="shrink-0" />
+              {erroAcao}
             </div>
           )}
           {temConflitos && (

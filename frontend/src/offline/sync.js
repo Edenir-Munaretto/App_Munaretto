@@ -183,7 +183,13 @@ export async function sincronizar(onProgress, seletor = null) {
   // vice-versa.
   const somenteSeletor = !!(seletor && (seletor.fotos?.length || seletor.operacoes?.length));
 
-  let fotos = await dbGetAll('fotos');
+  // Registros corrompidos (sem objeto/chave ou foto sem arquivo) são pulados:
+  // não podem ser enviados e derrubariam o lote inteiro.
+  const valido = r => r && typeof r === 'object' && r.id_local != null;
+  const fotoEnviavel = f =>
+    valido(f) && (f.status === 'enviada' ? !!f.id_servidor : !!f.arquivo?.blob);
+
+  let fotos = (await dbGetAll('fotos')).filter(fotoEnviavel);
   if (seletor?.fotos?.length) {
     fotos = fotos.filter(f => seletor.fotos.includes(f.id_local));
   } else if (somenteSeletor) {
@@ -192,7 +198,7 @@ export async function sincronizar(onProgress, seletor = null) {
   const fotosOk = await enviarFotos(fotos, resumo, mapaFotos, onProgress);
   if (!fotosOk) return resumo;
 
-  let ops = await dbGetAll('fila');
+  let ops = (await dbGetAll('fila')).filter(valido);
   if (seletor?.operacoes?.length) {
     ops = ops.filter(op => seletor.operacoes.includes(op.id_local));
   } else if (somenteSeletor) {

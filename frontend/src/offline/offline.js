@@ -504,19 +504,27 @@ export async function hidratarFotosPendentes(dados) {
 
 export async function contarPendentes() {
   const [ops, fotos] = await Promise.all([dbGetAll('fila'), dbGetAll('fotos')]);
-  const fotosPendentes = fotos.filter(f => f.status !== 'enviada').length;
-  return { operacoes: ops.length, fotos: fotosPendentes, total: ops.length + fotosPendentes };
+  const valido = r => r && typeof r === 'object' && r.id_local != null;
+  const fotosPendentes = fotos.filter(f => valido(f) && f.status !== 'enviada').length;
+  return { operacoes: ops.filter(valido).length, fotos: fotosPendentes, total: ops.filter(valido).length + fotosPendentes };
 }
 
 export async function listarPendentes() {
   const [ops, fotos] = await Promise.all([dbGetAll('fila'), dbGetAll('fotos')]);
+  // Registros inválidos (sem objeto/chave) não são pendências: filtrá-los
+  // evita crash na tela e envios corrompidos (mantidos no disco, porém).
+  const valido = r => r && typeof r === 'object' && r.id_local != null;
   // Fotos já enviadas (id_servidor persistido) não são pendências: ficam
   // apenas como apoio do mapa id_local -> id até a operação sair da fila.
-  return { operacoes: ops, fotos: fotos.filter(f => f.status !== 'enviada') };
+  return {
+    operacoes: ops.filter(valido),
+    fotos: fotos.filter(f => valido(f) && f.status !== 'enviada'),
+  };
 }
 
 /** Remove do dispositivo um item pendente (foto ou operação) sem enviar. */
 export async function descartarPendente(tipo, idLocal) {
+  if (idLocal == null) return false;
   if (tipo === 'foto') {
     const foto = await dbGet('fotos', idLocal);
     _revogarUrlFotoPendente(foto || { checklist_item_id: null, id_local: idLocal });
