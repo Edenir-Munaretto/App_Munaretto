@@ -405,12 +405,49 @@ function App() {
     setLimpezaPendente(null);
   };
 
-  const handleLogin = async (user) => {
-    const concluido = await executarSaida('login', user);
-    // Login aceito e aplicado (token/usuário persistidos): recarrega a página
-    // para montagem limpa — evita transição presa por estado interno do
-    // aparelho (ex.: IndexedDB corrompido deixado pelo crash do Modo Campo).
-    if (concluido) window.location.reload();
+  const handleLogin = (user) => {
+    const concluirLogin = () => {
+      // Aplica sessão e recarrega — sem depender de promessas pendentes do
+      // IndexedDB, que em aparelho travado deixava o login "preso" na tela.
+      aplicarLogin(user);
+      window.location.reload();
+    };
+
+    // Com Modo Campo ativo no aparelho: checa pendências APENAS com timeout
+    // curto (2s). Se o banco local não responder ou não houver pendências,
+    // segue o login limpando o estado local (usuário confirmou não haver
+    // trabalho importante não sincronizado neste aparelho).
+    if (isModoCampo()) {
+      let decidiu = false;
+      const concluir = () => {
+        if (decidiu) return;
+        decidiu = true;
+        setModoCampo(false);
+        limparTudoLocal().catch(() => { /* segue */ });
+        concluirLogin();
+      };
+      Promise.race([
+        contarPendentes().catch(() => ({ total: 0 })),
+        new Promise((resolver) => setTimeout(() => resolver({ total: 0 }), 2000)),
+      ]).then((pend) => {
+        if (pend && pend.total > 0) {
+          if (decidiu) return;
+          decidiu = true;
+          // Pendências reais: exige confirmação explícita antes de limpar.
+          setLimpezaPendente({
+            acao: 'login',
+            user,
+            operacoes: pend.operacoes || 0,
+            fotos: pend.fotos || 0,
+          });
+          return;
+        }
+        concluir();
+      });
+      return;
+    }
+
+    concluirLogin();
   };
 
   const handleLogout = () => {
