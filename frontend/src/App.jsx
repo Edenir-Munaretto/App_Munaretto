@@ -474,8 +474,6 @@ function App() {
     }
   }, [tabs, activeTab]);
 
-  const ActiveComponent = tabs.find(t => t.id === activeTab)?.component || tabs[0].component;
-
   if (!usuario || !getToken()) {
     return <Login onLogin={handleLogin} mensagemExpirada={sessaoExpirada} />;
   }
@@ -498,6 +496,9 @@ function App() {
       </div>
     );
   }
+
+  // Aqui `tabs` não está vazio (guard acima) — find é seguro.
+  const ActiveComponent = tabs.find(t => t.id === activeTab)?.component || tabs[0].component;
 
   return (
     <ErrorBoundary>
