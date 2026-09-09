@@ -2682,6 +2682,9 @@ function OrdensServico({ usuarioAtual }) {
   const [preparandoPacote, setPreparandoPacote] = useState(false);
   const [modalPendenciasAberto, setModalPendenciasAberto] = useState(false);
   const [ultimoResumo, setUltimoResumo] = useState(null);
+  // Pacote local ilegível/corrompido no Modo Campo: mostra cartão de
+  // recuperação (em vez de tela branca) com saída para o servidor.
+  const [erroLeituraLocal, setErroLeituraLocal] = useState(false);
 
   const toastTimerRef = useRef(null);
   const mostrarToast = useCallback((message, type = 'success', acao = null) => {
@@ -3000,24 +3003,32 @@ function OrdensServico({ usuarioAtual }) {
     // Resposta antiga não pode sobrescrever o estado atual (corrida A7).
     const desatualizada = () => requisicao !== geracaoListagem.current;
     try {
-      // Offline: usa o pacote de campo baixado na base — filtros, busca e
-      // paginação aplicados em memória (o servidor não está disponível).
+      // Modo Campo (100% local): usa o pacote de campo baixado na base —
+      // filtros, busca e paginação aplicados em memória.
       if (usarLocal()) {
-        const lista = await getListaLocal();
-        if (desatualizada()) return;
-        const filtrados = filtrarListaLocal(lista, {
-          busca: buscaAplicada, obra_id: filtroObra, equipe_id: filtroEquipe,
-          prioridade: filtroPrioridade, status: filtroStatus,
-        });
-        const pagina = filtrados.slice(offset, offset + LIMITE_PAGINA);
-        // Catálogo local de serviços: sem ele o campo não encontra serviços
-        // por código/nome ao lançar (o servidor está indisponível).
-        const catalogo = await getProdutosLocal();
-        if (desatualizada()) return;
-        if (catalogo.length) setProdutos(catalogo);
-        setTotalOs(filtrados.length);
-        setListaOs(prev => (reset ? pagina : [...prev, ...pagina]));
-        setLoading(false);
+        try {
+          const lista = await getListaLocal();
+          if (desatualizada()) return;
+          const filtrados = filtrarListaLocal(lista, {
+            busca: buscaAplicada, obra_id: filtroObra, equipe_id: filtroEquipe,
+            prioridade: filtroPrioridade, status: filtroStatus,
+          });
+          const pagina = filtrados.slice(offset, offset + LIMITE_PAGINA);
+          // Catálogo local de serviços: sem ele o campo não encontra serviços
+          // por código/nome ao lançar (o servidor está indisponível).
+          const catalogo = await getProdutosLocal();
+          if (desatualizada()) return;
+          if (catalogo.length) setProdutos(catalogo);
+          setTotalOs(filtrados.length);
+          setListaOs(prev => (reset ? pagina : [...prev, ...pagina]));
+          setLoading(false);
+        } catch (erroLocal) {
+          // Pacote local ilegível/corrompido: mostra recuperação em vez de
+          // tela branca (Fase 1 — anti-tela-branca do Modo Campo).
+          console.error('Falha ao ler o pacote local do Modo Campo:', erroLocal);
+          setErroLeituraLocal(true);
+          setLoading(false);
+        }
         return;
       }
       const params = new URLSearchParams();
@@ -3060,17 +3071,23 @@ function OrdensServico({ usuarioAtual }) {
       // Sem internet real (WiFi sem dados): usa o pacote local no Modo Campo.
       registrarFalhaDeRede();
       if (usarLocal()) {
-        const lista = await getListaLocal();
-        if (desatualizada()) return;
-        const filtrados = filtrarListaLocal(lista, {
-          busca: buscaAplicada, obra_id: filtroObra, equipe_id: filtroEquipe,
-          prioridade: filtroPrioridade, status: filtroStatus,
-        });
-        const pagina = filtrados.slice(offset, offset + LIMITE_PAGINA);
-        setTotalOs(filtrados.length);
-        setListaOs(prev => (reset ? pagina : [...prev, ...pagina]));
-        const catalogo = await getProdutosLocal();
-        if (!desatualizada() && catalogo.length) setProdutos(catalogo);
+        try {
+          const lista = await getListaLocal();
+          if (desatualizada()) return;
+          const filtrados = filtrarListaLocal(lista, {
+            busca: buscaAplicada, obra_id: filtroObra, equipe_id: filtroEquipe,
+            prioridade: filtroPrioridade, status: filtroStatus,
+          });
+          const pagina = filtrados.slice(offset, offset + LIMITE_PAGINA);
+          setTotalOs(filtrados.length);
+          setListaOs(prev => (reset ? pagina : [...prev, ...pagina]));
+          const catalogo = await getProdutosLocal();
+          if (!desatualizada() && catalogo.length) setProdutos(catalogo);
+        } catch (erroLocal) {
+          console.error('Falha ao ler o pacote local do Modo Campo:', erroLocal);
+          setErroLeituraLocal(true);
+          setLoading(false);
+        }
       } else if (!desatualizada()) {
         mostrarToast('Erro de conexão ao carregar o módulo de O.S.', 'error');
       }
@@ -3534,6 +3551,70 @@ function OrdensServico({ usuarioAtual }) {
     </div>
   ) : null;
 
+
+  // --- Recuperação de Modo Campo com pacote local ilegível ----------------
+  const tentarLerLocalNovamente = () => {
+    setErroLeituraLocal(false);
+    carregarDados();
+  };
+
+  const sairModoCampoUsarServidor = async () => {
+    setModoCampo(false);
+    setModoCampoState(false);
+    setErroLeituraLocal(false);
+    carregarDados();
+    mostrarToast('Modo Campo desativado — usando o servidor.');
+  };
+
+  const limparDadosLocaisDoCampo = async () => {
+    const ok = window.confirm(
+      'Limpar os dados locais do Modo Campo deste aparelho?\n\n'
+      + 'Pendências ainda não sincronizadas (respostas, serviços e fotos) SERÃO PERDIDAS.',
+    );
+    if (!ok) return;
+    try {
+      await limparPacote();
+    } catch { /* segue mesmo se a limpeza falhar parcialmente */ }
+    setModoCampo(false);
+    setModoCampoState(false);
+    setErroLeituraLocal(false);
+    carregarDados();
+    mostrarToast('Dados locais do Modo Campo limpos.');
+  };
+
+  if (erroLeituraLocal && modoCampo) {
+    return (
+      <div className="rounded-2xl border-2 border-rose-200 bg-white p-6 max-w-lg mx-auto mt-10 text-center space-y-4">
+        <AlertTriangle size={36} className="text-rose-500 mx-auto" />
+        <div>
+          <h3 className="text-base font-extrabold text-slate-800">Falha ao ler os dados locais do Modo Campo</h3>
+          <p className="text-sm text-slate-500 mt-1.5">
+            O pacote salvo neste aparelho está ilegível ou incompleto. Escolha como continuar:
+          </p>
+        </div>
+        <div className="flex flex-col gap-2">
+          <button
+            onClick={tentarLerLocalNovamente}
+            className="px-4 py-3 rounded-xl bg-slate-900 text-white text-sm font-bold hover:bg-slate-800 cursor-pointer"
+          >
+            Tentar novamente
+          </button>
+          <button
+            onClick={sairModoCampoUsarServidor}
+            className="px-4 py-3 rounded-xl border border-primary-300 bg-primary-50 text-primary-700 text-sm font-bold hover:bg-primary-100 cursor-pointer"
+          >
+            Sair do Modo Campo e usar o servidor
+          </button>
+          <button
+            onClick={limparDadosLocaisDoCampo}
+            className="px-4 py-3 rounded-xl border border-rose-200 bg-rose-50 text-rose-600 text-sm font-bold hover:bg-rose-100 cursor-pointer"
+          >
+            Limpar dados locais deste aparelho
+          </button>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className={`space-y-5 relative ${!ehTelaLarga ? 'os-celular' : ''}`}>

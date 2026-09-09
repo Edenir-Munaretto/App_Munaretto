@@ -3,7 +3,7 @@
 // VERSÃO DO CACHE: incremente `CACHE` (ex.: munaretto-v2, v3...) a cada deploy
 // do frontend — o activate remove as versões antigas automaticamente.
 
-const CACHE = 'munaretto-v2';
+const CACHE = 'munaretto-v3';
 const APP_SHELL = ['/', '/index.html', '/manifest.webmanifest', '/logo-munaretto.png', '/boneco-munaretto.png', '/favicon.ico', '/pwa-192.png', '/pwa-512.png'];
 
 self.addEventListener('install', (event) => {

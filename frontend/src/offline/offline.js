@@ -283,7 +283,12 @@ export async function salvarChecklistLocal(osId, dados) {
 
 export async function getListaLocal() {
   const lista = await dbGetAll('os_lista');
-  return lista.sort((a, b) => String(b.created_at || '').localeCompare(String(a.created_at || '')));
+  // Defensivo: registros corrompidos/parciais não podem derrubar a tela do
+  // Modo Campo (os dados locais já passaram por várias versões do app).
+  const validos = lista.filter(os =>
+    os && typeof os === 'object' && os.id != null && (os.codigo || os.obras?.nome),
+  );
+  return validos.sort((a, b) => String(b.created_at || '').localeCompare(String(a.created_at || '')));
 }
 
 /** Atualiza o quadro local com uma página vinda do servidor (Modo Campo
