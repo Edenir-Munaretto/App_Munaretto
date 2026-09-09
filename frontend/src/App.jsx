@@ -359,15 +359,18 @@ function App() {
       concluir();
       return;
     }
-    let pend = { total: 0 };
-    try {
-      pend = await contarPendentes();
-    } catch {
-      /* sem IndexedDB legível: segue para a confirmação segura */
-    }
-    if (pend.total === 0) {
+    // IndexedDB pode estar travado/corrompido (ex.: crash anterior do Modo
+    // Campo): timeout evita que login/logout fiquem "pendurados" para sempre.
+    const comTimeout = (promise, ms) => new Promise((resolve) => {
+      const timer = setTimeout(() => resolve(null), ms);
+      promise
+        .then((valor) => { clearTimeout(timer); resolve(valor); })
+        .catch(() => { clearTimeout(timer); resolve(null); });
+    });
+    const pend = await comTimeout(contarPendentes(), 4000);
+    if (!pend || pend.total === 0) {
       setModoCampo(false);
-      await limparTudoLocal().catch(() => { /* segue */ });
+      await comTimeout(limparTudoLocal(), 4000);
       concluir();
       return;
     }
@@ -384,7 +387,13 @@ function App() {
     if (!alvo) return;
     setLimpezaPendente({ ...alvo, limpando: true });
     setModoCampo(false);
-    await limparTudoLocal().catch(() => { /* segue */ });
+    // Timeout de segurança: banco local travado não pode segurar login/logout.
+    await new Promise((resolve) => {
+      const timer = setTimeout(resolve, 4000);
+      limparTudoLocal()
+        .catch(() => {})
+        .finally(() => { clearTimeout(timer); resolve(); });
+    });
     if (alvo.acao === 'login') aplicarLogin(alvo.user);
     else aplicarLogout();
     setLimpezaPendente(null);
