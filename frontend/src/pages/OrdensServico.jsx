@@ -21,7 +21,7 @@ import {
   enfileirarOperacao, enfileirarFoto, contarPendentes, descartarPendente,
   registrarFotoItemLocal, hidratarFotosPendentes, lancamentosPendentesDaFila,
   salvarResponsavelLocal,
-  registrarFalhaDeRede, testarConexao, estaEmWifi,
+  registrarFalhaDeRede, testarConexao, estaEmWifi, armazenamentoOfflineDisponivel,
 } from '../offline/offline';
 import { sincronizar } from '../offline/sync';
 
@@ -2792,8 +2792,14 @@ function OrdensServico({ usuarioAtual }) {
     } finally {
       setSincronizando(false);
       setProgressoSync(null);
-      const p = await contarPendentes();
-      setPendentes(p);
+      // IndexedDB pode estar bloqueado/corrompido: nunca deixa o finally
+      // derrubar a tela (rejeição não tratada cairia no overlay vermelho).
+      try {
+        const p = await contarPendentes();
+        setPendentes(p);
+      } catch {
+        /* mantém a contagem anterior */
+      }
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [sincronizando, mostrarToast, usuarioAtual?.nome]);
@@ -2855,6 +2861,15 @@ function OrdensServico({ usuarioAtual }) {
   const alternarModoCampo = async () => {
     if (offline) {
       mostrarToast('Conecte-se à internet para preparar o Modo Campo.', 'error');
+      return;
+    }
+    // Sem armazenamento local (cookies/dados do site bloqueados) o pacote
+    // offline nem é gravado — bloqueia com orientação em vez de falhar no meio.
+    if (!armazenamentoOfflineDisponivel()) {
+      mostrarToast(
+        'Este navegador está bloqueando o armazenamento local. Libere cookies/dados do site para este endereço e recarregue para usar o Modo Campo.',
+        'error',
+      );
       return;
     }
     setPreparandoPacote(true);

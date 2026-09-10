@@ -9,6 +9,7 @@
 //      o lote de operações; o servidor revalida cada uma.
 
 import { API_URL, apiFetch, erroDaResposta } from '../api';
+import { gravarLocal, lerLocal, removerLocal, storageDisponivel } from '../utils/storage';
 import { dbClearStore, dbDel, dbGet, dbGetAll, dbPut } from './db';
 
 const CHAVE_MODO_CAMPO = 'modo_campo';
@@ -18,12 +19,25 @@ const CHAVE_MODO_CAMPO = 'modo_campo';
 // ---------------------------------------------------------------------------
 
 export function isModoCampo() {
-  return localStorage.getItem(CHAVE_MODO_CAMPO) === '1';
+  return lerLocal(CHAVE_MODO_CAMPO) === '1';
 }
 
 export function setModoCampo(ativo) {
-  if (ativo) localStorage.setItem(CHAVE_MODO_CAMPO, '1');
-  else localStorage.removeItem(CHAVE_MODO_CAMPO);
+  if (ativo) gravarLocal(CHAVE_MODO_CAMPO, '1');
+  else removerLocal(CHAVE_MODO_CAMPO);
+}
+
+/**
+ * O aparelho consegue guardar dados offline (localStorage + IndexedDB)?
+ * Navegador com cookies/dados do site bloqueados nega os dois — sem isso o
+ * Modo Campo não funciona e a sessão nem é mantida ao recarregar.
+ */
+export function armazenamentoOfflineDisponivel() {
+  try {
+    return storageDisponivel() && typeof indexedDB !== 'undefined' && indexedDB !== null;
+  } catch {
+    return false;
+  }
 }
 
 // ---------------------------------------------------------------------------

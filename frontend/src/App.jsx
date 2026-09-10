@@ -39,6 +39,7 @@ import { API_URL, apiFetch, getToken, setToken, clearToken, segundosAteExpiracao
 import ModalConfirmacao from './components/ModalConfirmacao';
 import { isModoCampo, setModoCampo, contarPendentes } from './offline/offline';
 import { limparTudoLocal } from './offline/db';
+import { gravarLocal, gravarSessao, lerLocal, lerSessao, removerLocal, storageDisponivel } from './utils/storage';
 
 const ICONES = {
   dashboard: LayoutDashboard,
@@ -111,11 +112,29 @@ class ErrorBoundary extends React.Component {
 
 const CHAVE_ABA_ATIVA = 'munaretto_aba_ativa';
 
+// Aviso exibido quando o navegador bloqueia cookies/dados do site: sem
+// armazenamento a sessão não persiste ao recarregar e o Modo Campo offline
+// não funciona. Sem este aviso o usuário só descobriria pelo erro na tela.
+function AvisoArmazenamento() {
+  return (
+    <div className="bg-amber-50 border-b border-amber-200 px-4 md:px-6 py-2.5">
+      <p className="text-xs font-semibold text-amber-800 flex items-start gap-2">
+        <span>⚠️</span>
+        <span>
+          Este navegador está bloqueando o armazenamento local (cookies e dados do site).
+          A sessão não será mantida ao recarregar e o Modo Campo offline não funciona.
+          Libere cookies/dados do site para este endereço e recarregue.
+        </span>
+      </p>
+    </div>
+  );
+}
+
 const IDS_MODULOS = new Set([...MODULOS.map(m => m.id), 'dashboard']);
 
 function abaAtivaInicial() {
   try {
-    const salva = sessionStorage.getItem(CHAVE_ABA_ATIVA);
+    const salva = lerSessao(CHAVE_ABA_ATIVA);
     return salva && IDS_MODULOS.has(salva) ? salva : 'dashboard';
   } catch {
     return 'dashboard';
@@ -135,7 +154,7 @@ function App() {
   const [excluindoNotif, setExcluindoNotif] = useState(false);
   const [usuario, setUsuario] = useState(() => {
     try {
-      return JSON.parse(localStorage.getItem('munaretto_usuario') || 'null');
+      return JSON.parse(lerLocal('munaretto_usuario') || 'null');
     } catch {
       return null;
     }
@@ -162,7 +181,7 @@ function App() {
       if (resultado.ok) {
         const dados = resultado.data;
         const { token, ...dadosUsuario } = dados;
-        localStorage.setItem('munaretto_usuario', JSON.stringify(dadosUsuario));
+        gravarLocal('munaretto_usuario', JSON.stringify(dadosUsuario));
         setUsuario(dadosUsuario);
         setRenovacaoFalhou(false);
         setSegundosRestantes(segundosAteExpiracao());
@@ -364,7 +383,7 @@ function App() {
   const aplicarLogin = (user) => {
     if (user?.token) setToken(user.token);
     const { token, ...dadosUsuario } = user || {};
-    localStorage.setItem('munaretto_usuario', JSON.stringify(dadosUsuario));
+    gravarLocal('munaretto_usuario', JSON.stringify(dadosUsuario));
     setUsuario(dadosUsuario);
     setSessaoExpirada(false);
     setActiveTab('dashboard');
@@ -372,7 +391,7 @@ function App() {
 
   const aplicarLogout = () => {
     clearToken();
-    localStorage.removeItem('munaretto_usuario');
+    removerLocal('munaretto_usuario');
     setUsuario(null);
     setActiveTab('dashboard');
   };
@@ -483,7 +502,7 @@ function App() {
         // api.js (uma 2ª cópia no localStorage fugiria da limpeza do 401).
         const { token, ...dadosSemToken } = dados;
         setUsuario(dadosSemToken);
-        localStorage.setItem('munaretto_usuario', JSON.stringify(dadosSemToken));
+        gravarLocal('munaretto_usuario', JSON.stringify(dadosSemToken));
       }
     } catch (err) {
       console.error('Erro ao atualizar dados do usuário:', err);
@@ -515,6 +534,9 @@ function App() {
   // dados agregados (funcionários, férias, ASOs e cursos).
   const permissoes = usuario?.permissoes || [];
 
+  // Resultado cacheado: o navegador permite persistir cookies/dados do site?
+  const storageOk = storageDisponivel();
+
   const tabs = useMemo(() => [
     ...(permissoes.includes('dashboard') ? [{ id: 'dashboard', label: 'Dashboard', icon: LayoutDashboard, component: Dashboard }] : []),
     ...MODULOS
@@ -534,7 +556,7 @@ function App() {
   // ao fechar a aba — tablet compartilhado volta ao Dashboard).
   useEffect(() => {
     try {
-      sessionStorage.setItem(CHAVE_ABA_ATIVA, activeTab);
+      gravarSessao(CHAVE_ABA_ATIVA, activeTab);
     } catch { /* armazenamento indisponível: segue sem persistir */ }
   }, [activeTab]);
 
@@ -548,7 +570,16 @@ function App() {
   }, [tabs, activeTab]);
 
   if (!usuario || !getToken()) {
-    return <Login onLogin={handleLogin} mensagemExpirada={sessaoExpirada} />;
+    return (
+      <>
+        {!storageOk && (
+          <div className="fixed top-0 inset-x-0 z-[70]">
+            <AvisoArmazenamento />
+          </div>
+        )}
+        <Login onLogin={handleLogin} mensagemExpirada={sessaoExpirada} />
+      </>
+    );
   }
 
   if (tabs.length === 0) {
@@ -664,6 +695,9 @@ function App() {
             </button>
           </div>
         )}
+
+        {/* Armazenamento bloqueado: sessão não persiste e Modo Campo não funciona */}
+        {!storageOk && <AvisoArmazenamento />}
 
         {/* HEADER */}
         <header className="h-16 bg-white border-b border-slate-200 flex items-center justify-between px-4 md:px-6 z-10">

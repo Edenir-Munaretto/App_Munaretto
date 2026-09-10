@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { LogIn, Lock, Mail, AlertTriangle } from 'lucide-react';
 import { API_URL, apiFetch, setToken } from '../api';
+import { gravarLocal } from '../utils/storage';
 
 function Login({ onLogin, mensagemExpirada = false }) {
   const [email, setEmail] = useState('');
@@ -53,7 +54,7 @@ function Login({ onLogin, mensagemExpirada = false }) {
         try {
           if (data.token) setToken(data.token);
           const { token, ...dadosSemToken } = data;
-          localStorage.setItem('munaretto_usuario', JSON.stringify(dadosSemToken));
+          gravarLocal('munaretto_usuario', JSON.stringify(dadosSemToken));
         } catch (err) {
           console.error('Falha ao persistir sessão no Login:', err);
         }

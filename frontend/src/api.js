@@ -1,17 +1,19 @@
+import { gravarLocal, lerLocal, removerLocal } from './utils/storage';
+
 export const API_URL = import.meta.env.VITE_API_URL || 'https://app-munaretto-1.onrender.com/api';
 
 const TOKEN_KEY = 'munaretto_token';
 
 export function getToken() {
-  return localStorage.getItem(TOKEN_KEY);
+  return lerLocal(TOKEN_KEY);
 }
 
 export function setToken(token) {
-  localStorage.setItem(TOKEN_KEY, token);
+  gravarLocal(TOKEN_KEY, token);
 }
 
 export function clearToken() {
-  localStorage.removeItem(TOKEN_KEY);
+  removerLocal(TOKEN_KEY);
 }
 
 // Decodifica o payload de um JWT sem validar a assinatura (apenas para leitura do `exp`).
@@ -101,7 +103,7 @@ export async function apiFetch(url, options = {}) {
   // 401 com token presente = sessão expirada/inválida. Desloga e avisa o app.
   if (res.status === 401 && token) {
     clearToken();
-    localStorage.removeItem('munaretto_usuario');
+    removerLocal('munaretto_usuario');
     window.dispatchEvent(new CustomEvent('auth:unauthorized'));
   }
 
