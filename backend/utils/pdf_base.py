@@ -66,7 +66,7 @@ def desenhar_logo(pdf: FPDF, x: float, y: float, altura: float) -> float:
 
 
 def desenhar_cabecalho(pdf: FPDF, titulo: str, subtitulo: str = "") -> float:
-    """Faixa branca (logo + dados da empresa) + faixa escura (título).
+    """Cabeçalho (logo + dados da empresa), linha fina e título do documento.
 
     Desenha em coordenadas absolutas a partir do topo da página e posiciona o
     cursor abaixo do cabeçalho. Retorna o Y final.
@@ -92,21 +92,24 @@ def desenhar_cabecalho(pdf: FPDF, titulo: str, subtitulo: str = "") -> float:
     pdf.set_xy(x_dados, 17.1)
     pdf.cell(largura_dados, 4.2, f"{CIDADE_UF} - CEP: {CEP}", align="R")
 
-    # Faixa escura com o título do documento.
-    altura_faixa = 22.0
-    y_faixa = 22.0
-    pdf.set_fill_color(15, 23, 42)
-    pdf.rect(0, y_faixa, largura_pagina, altura_faixa, "F")
-    pdf.set_text_color(255, 255, 255)
+    # Linha fina que separa o cabeçalho do restante da página.
+    y_linha = 22.5
+    pdf.set_draw_color(15, 23, 42)
+    pdf.set_line_width(0.35)
+    pdf.line(margem, y_linha, largura_pagina - margem, y_linha)
+
+    # Título do documento logo abaixo da linha (texto escuro sobre branco).
+    pdf.set_text_color(15, 23, 42)
     pdf.set_font("Arial", "B", 14)
-    pdf.set_xy(0, y_faixa + 1.5)
-    pdf.cell(largura_pagina, 9, titulo, align="C")
+    pdf.set_xy(0, y_linha + 2.5)
+    pdf.cell(largura_pagina, 8, titulo, align="C")
     if subtitulo:
         pdf.set_font("Arial", "", 9)
-        pdf.set_xy(0, y_faixa + 11)
-        pdf.cell(largura_pagina, 6, subtitulo, align="C")
+        pdf.set_text_color(71, 85, 105)
+        pdf.set_xy(0, y_linha + 11)
+        pdf.cell(largura_pagina, 5, subtitulo, align="C")
 
-    y_final = y_faixa + altura_faixa + 4
+    y_final = y_linha + 17
     pdf.set_y(y_final)
     pdf.set_text_color(15, 23, 42)
     return y_final

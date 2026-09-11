@@ -92,8 +92,8 @@ class _PdfChecklist(FPDF):
         self.set_text_color(100, 116, 139)
         self.set_xy(0, 6.5)
         self.cell(0, 5, "CHECKLIST DE EXECUÇÃO - ORDEM DE SERVIÇO", align="C")
-        self.set_draw_color(203, 213, 225)
-        self.set_line_width(0.3)
+        self.set_draw_color(15, 23, 42)
+        self.set_line_width(0.35)
         self.line(self.l_margin, 15, self.w - self.r_margin, 15)
         self.set_y(self.t_margin)
 
