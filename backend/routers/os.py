@@ -51,7 +51,7 @@ logger = logging.getLogger(__name__)
 # Constantes de negócio
 # ---------------------------------------------------------------------------
 
-STATUS_VALIDOS = {"rascunho", "aberta", "em_andamento", "impedida", "concluida", "cancelada"}
+STATUS_VALIDOS = {"rascunho", "aberta", "em_andamento", "concluida", "cancelada"}
 PRIORIDADES = {"baixa", "media", "alta", "critica"}
 # Tipo da O.S (fonte única em utils/tipos_os): define o modelo de impressão
 # (CONSTRUÇÃO e MANUTENÇÃO usam o mesmo layout; LINHA VIVA tem modelo próprio).
@@ -88,14 +88,13 @@ def _validar_servico_do_contrato(db, produto_id: int, tipo_os: str) -> dict:
 # justificativa registrada no histórico (decisão de negócio nº 2).
 TRANSICOES_STATUS = {
     "rascunho": {"aberta", "cancelada"},
-    "aberta": {"em_andamento", "impedida", "cancelada"},
-    "em_andamento": {"impedida", "concluida", "cancelada"},
-    "impedida": {"em_andamento"},
+    "aberta": {"em_andamento", "cancelada"},
+    "em_andamento": {"concluida", "cancelada"},
     "concluida": {"aberta"},
     "cancelada": {"aberta"},
 }
 
-MIN_JUSTIFICATIVA_IMPEDIDA = 20
+MIN_JUSTIFICATIVA_CANCELADA = 20
 MIN_REABERTURA_CARACTERES = 10
 MIMES_FOTO_PERMITIDOS = {"image/jpeg": ".jpg", "image/png": ".png", "image/webp": ".webp"}
 TAMANHO_MAXIMO_FOTO_BYTES = 15 * 1024 * 1024
@@ -184,7 +183,7 @@ class OSUpdate(BaseModel):
 class StatusUpdate(BaseModel):
     novo_status: str
     justificativa: str | None = None
-    # IDs de fotos já enviadas à O.S usadas como evidência do impedimento.
+    # IDs de fotos já enviadas à O.S usadas como evidência do cancelamento.
     fotos_ids: list[int] = Field(default_factory=list)
     geolocalizacao: str | None = Field(None, max_length=100, description="'lat,lng' do dispositivo")
 
@@ -383,12 +382,11 @@ def _gravar_historico(
 
 
 def _notificar_criador(db, os_data: dict, novo_status: str, ator_email: str | None) -> None:
-    """Avisa o criador da O.S sobre eventos relevantes (impedimento/conclusão)."""
+    """Avisa o criador da O.S sobre eventos relevantes (conclusão/cancelamento)."""
     destino = os_data.get("criado_por")
     if not destino or (ator_email and destino.lower() == (ator_email or "").lower()):
         return
     mensagens = {
-        "impedida": f"A O.S {os_data['codigo']} foi IMPEDIDA.",
         "concluida": f"A O.S {os_data['codigo']} foi CONCLUÍDA.",
         "cancelada": f"A O.S {os_data['codigo']} foi CANCELADA.",
     }
@@ -434,32 +432,29 @@ def _encerrar_apontamentos_abertos(db, os_id: int) -> None:
         ).eq("id", apt["id"]).execute()
 
 
-def _validar_transicao_impedida(db, os_data: dict, payload: StatusUpdate) -> str:
-    """Regra crítica: 'Impedida' exige justificativa descritiva + evidências.
+def _validar_transicao_cancelada(db, os_data: dict, payload: StatusUpdate) -> str:
+    """Cancelamento exige justificativa descritiva (>= 20 caracteres).
 
+    A foto de evidência é opcional; quando informada, precisa pertencer à O.S.
     Retorna a justificativa validada ou levanta HTTP 422 explicando o motivo.
     """
     justificativa = (payload.justificativa or "").strip()
-    if len(justificativa) < MIN_JUSTIFICATIVA_IMPEDIDA:
+    if len(justificativa) < MIN_JUSTIFICATIVA_CANCELADA:
         raise HTTPException(
             status_code=422,
             detail=(
-                "Para marcar a O.S como IMPEDIDA é obrigatória uma justificativa "
-                f"descritiva com no mínimo {MIN_JUSTIFICATIVA_IMPEDIDA} caracteres."
+                "Para cancelar a O.S é obrigatória uma justificativa descritiva "
+                f"com no mínimo {MIN_JUSTIFICATIVA_CANCELADA} caracteres."
             ),
         )
     fotos_ids = list(dict.fromkeys(payload.fotos_ids))
-    if not fotos_ids:
-        raise HTTPException(
-            status_code=422,
-            detail="Para marcar a O.S como IMPEDIDA é obrigatório anexar ao menos uma foto de evidência.",
-        )
-    evidencias = db.table("os_fotos").select("id").eq("os_id", os_data["id"]).in_("id", fotos_ids).execute()
-    if len(evidencias.data or []) != len(fotos_ids):
-        raise HTTPException(
-            status_code=422,
-            detail="Uma ou mais fotos informadas não pertencem a esta O.S.",
-        )
+    if fotos_ids:
+        evidencias = db.table("os_fotos").select("id").eq("os_id", os_data["id"]).in_("id", fotos_ids).execute()
+        if len(evidencias.data or []) != len(fotos_ids):
+            raise HTTPException(
+                status_code=422,
+                detail="Uma ou mais fotos informadas não pertencem a esta O.S.",
+            )
     return justificativa
 
 
@@ -669,9 +664,9 @@ def listar_os(
                 if not equipes_usuario:
                     return None
                 q = q.in_("equipe_id", equipes_usuario)
-                # O campo vê apenas as O.S em execução (abertas/em andamento)
-                # e as impedidas (para retomar quando desbloquear).
-                q = q.in_("status", ("aberta", "em_andamento", "impedida"))
+                # O campo vê apenas as O.S em execução (abertas/em andamento):
+                # concluídas/canceladas saem da tela (arquivo fica com o gestor).
+                q = q.in_("status", ("aberta", "em_andamento"))
             if status:
                 # Aceita uma lista separada por vírgula (ex.: "concluida,cancelada"
                 # na visão Encerradas) além do valor único usado no quadro.
@@ -1076,10 +1071,6 @@ def alterar_status(
                 detail=f"Transição inválida: '{atual}' -> '{novo}'. Destinos permitidos: {', '.join(destinos)}.",
             )
 
-        # Cancelamento é decisão de gestão: restrito a quem tem a permissão 'os'.
-        if novo == "cancelada":
-            _exigir_gestor(usuario)
-
         # Reabertura (concluida/cancelada -> aberta) é decisão de gestão com
         # justificativa registrada no histórico (auditoria) — decisão nº 2.
         reabertura = novo == "aberta" and atual in ("concluida", "cancelada")
@@ -1095,10 +1086,12 @@ def alterar_status(
                     ),
                 )
 
-        # Regra 2 (crítica): 'Impedida' exige justificativa >= 20 caracteres + fotos.
+        # Regra 2 (crítica): cancelamento exige justificativa >= 20 caracteres
+        # (foto de evidência é opcional). Campo e gestor podem cancelar O.S
+        # acessíveis ao usuário (o campo apenas as das próprias equipes).
         justificativa = None
-        if novo == "impedida":
-            justificativa = _validar_transicao_impedida(db, os_data, payload)
+        if novo == "cancelada":
+            justificativa = _validar_transicao_cancelada(db, os_data, payload)
 
         # Regra 3: checklist de execução — liberação matinal e conclusão.
         if atual == "aberta" and novo == "em_andamento":
@@ -1502,7 +1495,7 @@ def sincronizar(
 
     As operações são aplicadas EM ORDEM CRONOLÓGICA (por O.S) reutilizando as
     mesmas validações dos endpoints normais: máquina de estados, gates do
-    checklist, travas de impedimento, permissão por equipe. Uma operação que
+    checklist, travas de cancelamento, permissão por equipe. Uma operação que
     falha NÃO aborta o restante do lote — cada resultado é reportado com o
     id_local para o dispositivo marcar como pendente/revisão.
 
@@ -1846,18 +1839,18 @@ def lancar_material(
     try:
         os_data = _os_ou_404(db, os_id)
         _garantir_acesso_os(db, usuario, os_data)
-        # O campo lança em O.S em execução ou impedida (materiais já aplicados
-        # antes do impedimento); o gestor também em O.S encerrada (ajustes
-        # pós-conclusão). Rascunho permanece bloqueado para todos.
+        # O campo lança em O.S em execução (aberta/em andamento); o gestor
+        # também em O.S encerrada (ajustes pós-conclusão). Rascunho permanece
+        # bloqueado para todos.
         if os_data["status"] == "rascunho":
             raise HTTPException(
                 status_code=400,
                 detail="Materiais não podem ser lançados em uma O.S em rascunho.",
             )
-        if not _e_gestor_os(usuario) and os_data["status"] not in ("aberta", "em_andamento", "impedida"):
+        if not _e_gestor_os(usuario) and os_data["status"] not in ("aberta", "em_andamento"):
             raise HTTPException(
                 status_code=400,
-                detail="Materiais só podem ser lançados em O.S abertas, em andamento ou impedidas.",
+                detail="Materiais só podem ser lançados em O.S abertas ou em andamento.",
             )
         produto = _validar_servico_do_contrato(db, payload.produto_id, os_data["tipo"])
 
@@ -1935,18 +1928,18 @@ def estornar_material(
     """Estorna (remove) um lançamento de serviço aplicado na O.S.
 
     O usuário de CAMPO pode corrigir lançamentos errados em O.S em execução
-    (aberta/em_andamento/impedida) das próprias equipes; ajustes em O.S
+    (aberta/em andamento) das próprias equipes; ajustes em O.S
     encerradas (pós-conclusão) seguem restritos ao gestor.
     """
     try:
         os_data = _os_ou_404(db, os_id)
         _garantir_acesso_os(db, usuario, os_data)
-        if not _e_gestor_os(usuario) and os_data["status"] not in ("aberta", "em_andamento", "impedida"):
+        if not _e_gestor_os(usuario) and os_data["status"] not in ("aberta", "em_andamento"):
             raise HTTPException(
                 status_code=400,
                 detail=(
                     "O usuário de campo só pode estornar serviços em O.S em execução "
-                    "(aberta, em andamento ou impedida). Ajustes em O.S encerradas são do gestor."
+                    "(aberta ou em andamento). Ajustes em O.S encerradas são do gestor."
                 ),
             )
         registro = db.table("os_materiais").select("id").eq("id", lancamento_id).eq("os_id", os_id).execute()
@@ -2068,7 +2061,7 @@ def _apontar_hora(
                 "Configurações → Usuários.",
             )
 
-        if os_data["status"] in ("rascunho", "concluida", "cancelada", "impedida"):
+        if os_data["status"] in ("rascunho", "concluida", "cancelada"):
             raise HTTPException(
                 status_code=400,
                 detail=f"Não é possível apontar horas em uma O.S {os_data['status']}.",

@@ -198,5 +198,3 @@ Para problemas ou sugestões, abra uma issue no repositório.
 Este projeto é de código aberto e está disponível sob a licença MIT.
 
 ---
-
-

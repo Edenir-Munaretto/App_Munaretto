@@ -33,15 +33,16 @@ const COLUNAS = [
   { id: 'rascunho', label: 'Rascunho' },
   { id: 'aberta', label: 'Aberta' },
   { id: 'em_andamento', label: 'Em Andamento' },
-  { id: 'impedida', label: 'Impedida' },
   { id: 'concluida', label: 'Concluída' },
   { id: 'cancelada', label: 'Cancelada' },
 ];
 
 // Etapas do "funil ativo" do quadro (exclui o arquivo de encerradas).
-const STATUS_PIPELINE = ['rascunho', 'aberta', 'em_andamento', 'impedida'];
+const STATUS_PIPELINE = ['rascunho', 'aberta', 'em_andamento'];
 
-const LABEL_STATUS = Object.fromEntries(COLUNAS.map(c => [c.id, c.label]));
+// Rótulos de status. 'impedida' é legado (status descontinuado): mantido
+// apenas para exibir a linha do tempo de O.S antigas.
+const LABEL_STATUS = { ...Object.fromEntries(COLUNAS.map(c => [c.id, c.label])), impedida: 'Impedida' };
 
 // Contratos/tipos de O.S — fonte única dos literais espalhados pela página.
 const TIPOS_SERVICO_OPCOES = [
@@ -76,11 +77,10 @@ function filtrarListaLocal(lista, { busca, obra_id, equipe_id, prioridade, statu
 // endpoint /os/transicoes (fonte única) não é carregado.
 const TRANSICOES_STATUS = {
   rascunho:    new Set(['aberta', 'cancelada']),
-  aberta:      new Set(['em_andamento', 'impedida', 'cancelada']),
-  em_andamento: new Set(['impedida', 'concluida', 'cancelada']),
-  impedida:    new Set(['em_andamento']),
-  concluida:   new Set(),
-  cancelada:   new Set(),
+  aberta:      new Set(['em_andamento', 'cancelada']),
+  em_andamento: new Set(['concluida', 'cancelada']),
+  concluida:   new Set(['aberta']),
+  cancelada:   new Set(['aberta']),
 };
 
 const LIMITE_PAGINA = 100;
@@ -119,13 +119,14 @@ const fmtData = (iso) => {
   }
 };
 
-// Evento de impedimento mais recente do histórico (com justificativa) — usado
-// no destaque do PainelExecucao e na aba Evidências para dar contexto ao gestor.
-const impedimentoAtual = (historico) => {
+// Evento de cancelamento mais recente do histórico (com justificativa) — usado
+// no destaque do PainelExecucao e na aba Evidências para dar contexto.
+// 'impedida' é legado (status descontinuado): mantido só para O.S antigas.
+const cancelamentoAtual = (historico) => {
   if (!Array.isArray(historico)) return null;
   const evento = [...historico]
     .reverse()
-    .find(h => h.status_novo === 'impedida' && (h.justificativa || h.criado_em));
+    .find(h => ['cancelada', 'impedida'].includes(h.status_novo) && (h.justificativa || h.criado_em));
   return evento || null;
 };
 
@@ -209,7 +210,6 @@ function BadgeStatus({ status }) {
     rascunho: 'bg-slate-100 text-slate-600',
     aberta: 'bg-sky-100 text-sky-700',
     em_andamento: 'bg-primary-100 text-primary-700',
-    impedida: 'bg-orange-100 text-orange-700',
     concluida: 'bg-emerald-100 text-emerald-700',
     cancelada: 'bg-rose-100 text-rose-700',
   };
@@ -1386,23 +1386,23 @@ function TabEvidencias({ osDetalhe, onAtualizado, mostrarToast, podeEditar, pode
 
   return (
     <div className="space-y-4">
-      {/* Contexto do impedimento: o motivo acompanha as fotos de evidência */}
+      {/* Contexto do cancelamento: o motivo acompanha as fotos de evidência */}
       {(() => {
-        const impedimento = impedimentoAtual(osDetalhe.historico);
-        if (!impedimento) return null;
+        const cancelamento = cancelamentoAtual(osDetalhe.historico);
+        if (!cancelamento) return null;
         return (
-          <div className="rounded-xl border border-orange-200 bg-orange-50 px-3 py-2.5">
-            <p className="flex items-center gap-1.5 text-[10px] font-extrabold uppercase tracking-wide text-orange-700">
-              <AlertTriangle size={12} /> Motivo do impedimento
+          <div className="rounded-xl border border-rose-200 bg-rose-50 px-3 py-2.5">
+            <p className="flex items-center gap-1.5 text-[10px] font-extrabold uppercase tracking-wide text-rose-700">
+              <AlertTriangle size={12} /> Motivo do cancelamento
             </p>
-            {impedimento.justificativa && (
-              <p className="text-xs text-orange-900/90 mt-1 italic leading-relaxed">
-                &ldquo;{impedimento.justificativa}&rdquo;
+            {cancelamento.justificativa && (
+              <p className="text-xs text-rose-900/90 mt-1 italic leading-relaxed">
+                &ldquo;{cancelamento.justificativa}&rdquo;
               </p>
             )}
-            <p className="text-[10px] text-orange-700/80 font-semibold mt-1">
-              {fmtData(impedimento.criado_em)}
-              {impedimento.usuario_alteracao ? ` · ${impedimento.usuario_alteracao}` : ''}
+            <p className="text-[10px] text-rose-700/80 font-semibold mt-1">
+              {fmtData(cancelamento.criado_em)}
+              {cancelamento.usuario_alteracao ? ` · ${cancelamento.usuario_alteracao}` : ''}
             </p>
           </div>
         );
@@ -1464,8 +1464,8 @@ function TabEvidencias({ osDetalhe, onAtualizado, mostrarToast, podeEditar, pode
         aberto={fotoParaExcluir != null}
         titulo="Excluir evidência"
         mensagem={
-          osDetalhe.status === 'impedida'
-            ? 'Esta O.S está IMPEDIDA — a foto pode ser a única evidência do impedimento. Excluir mesmo assim?'
+          osDetalhe.status === 'cancelada'
+            ? 'Esta O.S está CANCELADA — a foto pode ser a única evidência do cancelamento. Excluir mesmo assim?'
             : 'Excluir esta foto? Esta ação não pode ser desfeita.'
         }
         onConfirmar={() => excluirFoto(fotoParaExcluir)}
@@ -1484,9 +1484,8 @@ function TabTimeline({ historico }) {
       {[...historico].reverse().map(h => (
         <div key={h.id} className="relative">
           <span className={`absolute -left-5 top-1 w-3.5 h-3.5 rounded-full border-2 border-white ${
-            h.status_novo === 'impedida' ? 'bg-orange-500'
+            ['cancelada', 'impedida'].includes(h.status_novo) ? 'bg-rose-500'
               : ['concluida'].includes(h.status_novo) ? 'bg-emerald-500'
-              : ['cancelada'].includes(h.status_novo) ? 'bg-rose-500'
               : 'bg-primary-500'
           }`} />
           <p className="text-sm font-bold text-slate-700">
@@ -1513,19 +1512,17 @@ function TabTimeline({ historico }) {
 // Botões de transição de status direto no painel — essencial no modo campo,
 // onde não há drag-and-drop. Transições irreversíveis pedem confirmação.
 // O checklist de execução bloqueia o início (grupo 1) e a conclusão.
-function AcoesStatus({ detalhe, podeEditar, mudarStatus, aoAplicado, ehGestor, transicoesMap, onAbrirChecklist, onImpedir, mostrarToast }) {
+// 'Cancelar O.S' abre o modal dedicado (justificativa obrigatória) para
+// gestor e campo.
+function AcoesStatus({ detalhe, podeEditar, mudarStatus, aoAplicado, transicoesMap, onAbrirChecklist, onPedirCancelamento, mostrarToast }) {
   const [destinoConfirmar, setDestinoConfirmar] = useState(null);
   const [processando, setProcessando] = useState(false);
 
   if (!podeEditar) return null;
   const alvos = transicoesMap[detalhe.status] || new Set();
-  // 'impedida' exige justificativa + fotos: abre o modal dedicado (mesmo
-  // fluxo do drag do Kanban, agora também disponível no painel/mobile).
-  const podeImpedir = alvos.has('impedida');
   const principal = detalhe.status === 'rascunho' && alvos.has('aberta') ? 'aberta' : null;
-  const retomar = detalhe.status === 'impedida' && alvos.has('em_andamento');
   const iniciar = detalhe.status === 'aberta' && alvos.has('em_andamento');
-  const podeCancelar = alvos.has('cancelada') && ehGestor;
+  const podeCancelar = alvos.has('cancelada');
   const concluir = alvos.has('concluida');
 
   const checklist = detalhe.checklist;
@@ -1569,26 +1566,17 @@ function AcoesStatus({ detalhe, podeEditar, mudarStatus, aoAplicado, ehGestor, t
     if (ok) aoAplicado();
   };
 
-  if (!principal && !retomar && !iniciar && !concluir && !podeCancelar && !podeImpedir) return null;
+  if (!principal && !iniciar && !concluir && !podeCancelar) return null;
 
   return (
     <div className="space-y-2">
-      {(principal || iniciar || retomar) && (
+      {(principal || iniciar) && (
         <button
           onClick={principal ? ativarOs : liberarInicio}
           disabled={processando}
           className="w-full h-16 rounded-2xl bg-primary-600 hover:bg-primary-700 text-white text-base font-extrabold shadow-lg shadow-primary-900/10 flex items-center justify-center gap-3 cursor-pointer transition-all disabled:opacity-40 disabled:cursor-not-allowed"
         >
-          <Play size={24} /> {principal ? 'Ativar O.S' : retomar ? 'Retomar Execução' : 'Iniciar Execução'}
-        </button>
-      )}
-      {podeImpedir && (
-        <button
-          onClick={() => onImpedir?.(detalhe)}
-          disabled={processando}
-          className="w-full h-11 rounded-xl border border-orange-200 bg-orange-50 hover:bg-orange-100 text-orange-700 text-sm font-bold flex items-center justify-center gap-2 cursor-pointer transition-all disabled:opacity-40"
-        >
-          <AlertTriangle size={16} /> Impedir O.S
+          <Play size={24} /> {principal ? 'Ativar O.S' : 'Iniciar Execução'}
         </button>
       )}
       <div className={`grid ${concluir && podeCancelar ? 'grid-cols-2' : 'grid-cols-1'} gap-2`}>
@@ -1603,7 +1591,7 @@ function AcoesStatus({ detalhe, podeEditar, mudarStatus, aoAplicado, ehGestor, t
         )}
         {podeCancelar && (
           <button
-            onClick={() => setDestinoConfirmar('cancelada')}
+            onClick={() => onPedirCancelamento?.(detalhe)}
             className="h-11 rounded-xl border border-rose-200 bg-rose-50 hover:bg-rose-100 text-rose-600 text-xs font-bold flex items-center justify-center gap-1.5 cursor-pointer transition-all disabled:opacity-40"
             disabled={processando}
           >
@@ -1614,14 +1602,10 @@ function AcoesStatus({ detalhe, podeEditar, mudarStatus, aoAplicado, ehGestor, t
 
       <ModalConfirmacao
         aberto={!!destinoConfirmar}
-        titulo={destinoConfirmar === 'concluida' ? 'Concluir O.S' : 'Cancelar O.S'}
-        mensagem={
-          destinoConfirmar === 'concluida'
-            ? `Confirmar a conclusão da O.S ${detalhe.codigo}? Esta ação não pode ser desfeita.`
-            : `Confirmar o cancelamento da O.S ${detalhe.codigo}? Esta ação não pode ser desfeita.`
-        }
-        confirmarTexto={destinoConfirmar === 'concluida' ? 'Confirmar' : 'Cancelar O.S'}
-        perigo={destinoConfirmar !== 'concluida'}
+        titulo="Concluir O.S"
+        mensagem={`Confirmar a conclusão da O.S ${detalhe.codigo}? Esta ação não pode ser desfeita.`}
+        confirmarTexto="Confirmar"
+        perigo={false}
         loading={processando}
         onConfirmar={aplicar}
         onCancelar={() => setDestinoConfirmar(null)}
@@ -1630,7 +1614,7 @@ function AcoesStatus({ detalhe, podeEditar, mudarStatus, aoAplicado, ehGestor, t
   );
 }
 
-function PainelExecucao({ osId, produtos, onFechar, recarregarLista, mostrarToast, ehMobile, mudarStatus, ehGestor, onEditar, onExcluir, transicoes, onPedirImpedimento, onReabrir, versaoPainel }) {
+function PainelExecucao({ osId, produtos, onFechar, recarregarLista, mostrarToast, ehMobile, mudarStatus, ehGestor, onEditar, onExcluir, transicoes, onPedirCancelamento, onReabrir, versaoPainel }) {
   const [detalhe, setDetalhe] = useState(null);
   const [erro, setErro] = useState('');
   const [aba, setAba] = useState('insumos');
@@ -1851,24 +1835,24 @@ function PainelExecucao({ osId, produtos, onFechar, recarregarLista, mostrarToas
         </p>
       )}
 
-      {/* Destaque do impedimento: motivo + quem + quando (fonte: histórico) */}
+      {/* Destaque do cancelamento: motivo + quem + quando (fonte: histórico) */}
       {(() => {
-        const impedimento = impedimentoAtual(detalhe.historico);
-        if (!impedimento) return null;
+        const cancelamento = cancelamentoAtual(detalhe.historico);
+        if (!cancelamento) return null;
         return (
-          <div className="mt-3 rounded-xl border-2 border-orange-300 bg-orange-50 p-3">
-            <div className="flex items-center gap-2 text-orange-700">
+          <div className="mt-3 rounded-xl border-2 border-rose-300 bg-rose-50 p-3">
+            <div className="flex items-center gap-2 text-rose-700">
               <AlertTriangle size={16} className="shrink-0" />
-              <p className="text-xs font-extrabold uppercase tracking-wide">Impedimento</p>
+              <p className="text-xs font-extrabold uppercase tracking-wide">Cancelamento</p>
             </div>
-            {impedimento.justificativa && (
-              <p className="text-xs text-orange-900/90 mt-1.5 italic leading-relaxed">
-                &ldquo;{impedimento.justificativa}&rdquo;
+            {cancelamento.justificativa && (
+              <p className="text-xs text-rose-900/90 mt-1.5 italic leading-relaxed">
+                &ldquo;{cancelamento.justificativa}&rdquo;
               </p>
             )}
-            <p className="text-[10px] text-orange-700/80 font-semibold mt-1.5">
-              {fmtData(impedimento.criado_em)}
-              {impedimento.usuario_alteracao ? ` · ${impedimento.usuario_alteracao}` : ''}
+            <p className="text-[10px] text-rose-700/80 font-semibold mt-1.5">
+              {fmtData(cancelamento.criado_em)}
+              {cancelamento.usuario_alteracao ? ` · ${cancelamento.usuario_alteracao}` : ''}
             </p>
           </div>
         );
@@ -1914,10 +1898,9 @@ function PainelExecucao({ osId, produtos, onFechar, recarregarLista, mostrarToas
           podeEditar={podeEditar}
           mudarStatus={mudarStatus}
           aoAplicado={() => { carregar(); recarregarLista(); }}
-          ehGestor={ehGestor}
           transicoesMap={transicoes}
           onAbrirChecklist={() => setAba('checklist')}
-          onImpedir={onPedirImpedimento}
+          onPedirCancelamento={onPedirCancelamento}
           mostrarToast={mostrarToast}
         />        {ehGestor && (
           <div className="grid gap-2 grid-cols-2">
@@ -1983,7 +1966,7 @@ function PainelExecucao({ osId, produtos, onFechar, recarregarLista, mostrarToas
 }
 
 // ---------------------------------------------------------------------------
-// Modais: nova O.S, impedimento
+// Modais: nova O.S, cancelamento
 // ---------------------------------------------------------------------------
 
 const FORM_OS_INICIAL = {
@@ -2459,7 +2442,7 @@ function ModalNovaOS({ aberto, obras, equipes, onFechar, onCriada, mostrarToast,
   );
 }
 
-function ModalImpedimento({ aberto, osAlvo, onConfirmar, onCancelar, processando }) {
+function ModalCancelamento({ aberto, osAlvo, onConfirmar, onCancelar, processando }) {
   const [justificativa, setJustificativa] = useState('');
   const [fotos, setFotos] = useState([]);
   const [enviandoFoto, setEnviandoFoto] = useState(false);
@@ -2480,7 +2463,7 @@ function ModalImpedimento({ aberto, osAlvo, onConfirmar, onCancelar, processando
       const arquivo = await comprimirImagem(original);
 
       // Modo Campo (online ou offline): guarda a foto no dispositivo; o id
-      // local vira a referência da evidência no status de impedimento
+      // local vira a referência da evidência no status de cancelamento
       // (mapeado na sincronização).
       if (isModoCampo() || usarLocal()) {
         try {
@@ -2506,7 +2489,7 @@ function ModalImpedimento({ aberto, osAlvo, onConfirmar, onCancelar, processando
         }
       } catch {
         // Sem internet real no campo: a evidência vira foto local (id local
-        // referenciado no status de impedimento e mapeado na sincronização).
+        // referenciado no status de cancelamento e mapeado na sincronização).
         if (isModoCampo()) {
           registrarFalhaDeRede();
           try {
@@ -2521,39 +2504,41 @@ function ModalImpedimento({ aberto, osAlvo, onConfirmar, onCancelar, processando
     setEnviandoFoto(false);
   };
 
-  const valido = justificativa.trim().length >= 20 && fotos.length > 0;
+  // Cancelamento exige apenas a justificativa (>= 20 caracteres); a foto de
+  // evidência é opcional.
+  const valido = justificativa.trim().length >= 20;
 
   return (
     <div className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center z-50 p-4">
       <div className="bg-white rounded-2xl shadow-2xl max-w-md w-full overflow-hidden animate-in fade-in zoom-in duration-200">
-        <div className="bg-orange-500 text-white px-6 py-4 flex items-center gap-2">
+        <div className="bg-rose-600 text-white px-6 py-4 flex items-center gap-2">
           <AlertTriangle size={22} />
-          <h3 className="font-bold text-lg">Marcar O.S {osAlvo?.codigo} como IMPEDIDA</h3>
+          <h3 className="font-bold text-lg">Cancelar O.S {osAlvo?.codigo}</h3>
         </div>
         <div className="p-6 space-y-4">
-          {/* Passo 1: Motivo */}
+          {/* Passo 1: Motivo (obrigatório) */}
           <div>
             <p className="text-xs font-bold text-slate-600 mb-1.5 flex items-center gap-1">
-              <span className="w-4 h-4 rounded-full bg-orange-500 text-white text-[9px] font-black flex items-center justify-center">1</span>
-              Descreva o motivo do impedimento
+              <span className="w-4 h-4 rounded-full bg-rose-600 text-white text-[9px] font-black flex items-center justify-center">1</span>
+              Descreva o motivo do cancelamento
             </p>
             <textarea
               rows={4}
               value={justificativa}
               onChange={(e) => setJustificativa(e.target.value)}
-              placeholder="Ex: Chuva intensa inviabilizou a concretagem na área externa; aguardando melhoria do tempo."
-              className="w-full px-3.5 py-2.5 border border-slate-200 rounded-xl text-sm focus:outline-none focus:border-orange-400"
+              placeholder="Ex: Cliente desistiu do serviço; obra suspensa pela concessionária."
+              className="w-full px-3.5 py-2.5 border border-slate-200 rounded-xl text-sm focus:outline-none focus:border-rose-400"
             />
             <span className={`text-xs font-semibold ${justificativa.trim().length >= 20 ? 'text-emerald-600' : 'text-slate-400'}`}>
               {justificativa.trim().length}/20 caracteres mínimos
             </span>
           </div>
 
-          {/* Passo 2: Evidência fotográfica — upload direto aqui no modal */}
+          {/* Passo 2: Evidência fotográfica (opcional) — upload direto aqui no modal */}
           <div>
             <p className="text-xs font-bold text-slate-600 mb-1.5 flex items-center gap-1">
-              <span className="w-4 h-4 rounded-full bg-orange-500 text-white text-[9px] font-black flex items-center justify-center">2</span>
-              Anexar foto de evidência
+              <span className="w-4 h-4 rounded-full bg-rose-600 text-white text-[9px] font-black flex items-center justify-center">2</span>
+              Anexar foto de evidência <span className="font-semibold text-slate-400">(opcional)</span>
             </p>
             <div className="grid grid-cols-2 gap-2">
               <button
@@ -2566,7 +2551,7 @@ function ModalImpedimento({ aberto, osAlvo, onConfirmar, onCancelar, processando
                 className={`h-20 rounded-xl border-2 border-dashed font-bold flex flex-col items-center justify-center gap-1.5 transition-all cursor-pointer text-sm disabled:opacity-50 ${
                   fotos.length > 0
                     ? 'border-emerald-400 bg-emerald-50 text-emerald-700'
-                    : 'border-orange-300 bg-orange-50 text-orange-700'
+                    : 'border-rose-300 bg-rose-50 text-rose-700'
                 }`}
               >
                 <Camera size={22} />
@@ -2607,19 +2592,19 @@ function ModalImpedimento({ aberto, osAlvo, onConfirmar, onCancelar, processando
               <Check size={12} />{justificativa.trim().length >= 20 ? 'Motivo ok' : 'Motivo incompleto'}
             </span>
             <span className={`flex items-center gap-1 font-semibold ${fotos.length > 0 ? 'text-emerald-600' : 'text-slate-400'}`}>
-              <Camera size={12} />{fotos.length > 0 ? `${fotos.length} evidência(s)` : 'Sem evidência'}
+              <Camera size={12} />{fotos.length > 0 ? `${fotos.length} evidência(s)` : 'Sem evidência (opcional)'}
             </span>
           </div>
         </div>
         <div className="px-6 py-4 border-t border-slate-100 flex justify-end gap-3">
           <button onClick={onCancelar}
-            className="px-4 py-2 border border-slate-200 text-slate-600 rounded-xl text-sm font-semibold hover:bg-slate-50 cursor-pointer">Cancelar</button>
+            className="px-4 py-2 border border-slate-200 text-slate-600 rounded-xl text-sm font-semibold hover:bg-slate-50 cursor-pointer">Voltar</button>
           <button
             onClick={() => onConfirmar(justificativa.trim(), fotos)}
             disabled={!valido || processando || enviandoFoto}
-            className="px-5 py-2 bg-orange-500 text-white rounded-xl text-sm font-semibold hover:bg-orange-600 disabled:opacity-40 cursor-pointer"
+            className="px-5 py-2 bg-rose-600 text-white rounded-xl text-sm font-semibold hover:bg-rose-700 disabled:opacity-40 cursor-pointer"
           >
-            {processando ? 'Registrando...' : 'Confirmar impedimento'}
+            {processando ? 'Registrando...' : 'Confirmar cancelamento'}
           </button>
         </div>
       </div>
@@ -2646,7 +2631,7 @@ function OrdensServico({ usuarioAtual }) {
   const [novaOSObraId, setNovaOSObraId] = useState(null); // obra travada ao criar O.S pelo PainelObra
   const [versaoResumoObra, setVersaoResumoObra] = useState(0); // refresh do resumo do PainelObra após criar O.S
   const [modalEdicao, setModalEdicao] = useState(null); // detalhe da O.S em edição
-  const [modalImpedimento, setModalImpedimento] = useState(null); // {os, destinoColuna}
+  const [modalCancelamento, setModalCancelamento] = useState(null); // {os, destinoColuna}
   const [modalReabrir, setModalReabrir] = useState(null); // {os} — reabertura de encerrada (gestor)
   const [confirmacaoEncerrar, setConfirmacaoEncerrar] = useState(null); // {os, destino}
   const [confirmacaoExcluir, setConfirmacaoExcluir] = useState(null); // {os} — exclusão definitiva
@@ -3024,7 +3009,10 @@ function OrdensServico({ usuarioAtual }) {
         try {
           const lista = await getListaLocal();
           if (desatualizada()) return;
-          const filtrados = filtrarListaLocal(lista, {
+          // Fora do arquivo do gestor, O.S encerradas não aparecem (espelha o
+          // filtro do servidor para o usuário de campo).
+          const visivel = ehGestor ? lista : lista.filter(o => ['aberta', 'em_andamento'].includes(o.status));
+          const filtrados = filtrarListaLocal(visivel, {
             busca: buscaAplicada, obra_id: filtroObra, equipe_id: filtroEquipe,
             prioridade: filtroPrioridade, status: filtroStatus,
           });
@@ -3089,7 +3077,10 @@ function OrdensServico({ usuarioAtual }) {
         try {
           const lista = await getListaLocal();
           if (desatualizada()) return;
-          const filtrados = filtrarListaLocal(lista, {
+          // Fora do arquivo do gestor, O.S encerradas não aparecem (espelha o
+          // filtro do servidor para o usuário de campo).
+          const visivel = ehGestor ? lista : lista.filter(o => ['aberta', 'em_andamento'].includes(o.status));
+          const filtrados = filtrarListaLocal(visivel, {
             busca: buscaAplicada, obra_id: filtroObra, equipe_id: filtroEquipe,
             prioridade: filtroPrioridade, status: filtroStatus,
           });
@@ -3327,12 +3318,6 @@ function OrdensServico({ usuarioAtual }) {
       return;
     }
 
-    // Cancelamento é decisão de gestão: só quem tem "os" pode cancelar.
-    if (destino === 'cancelada' && !ehGestor) {
-      mostrarToast('O cancelamento da O.S é restrito ao gestor.', 'error');
-      return;
-    }
-
     // Os MESMOS gates do checklist que os botões do painel aplicam (A10):
     // drag não pode burlar "início liberado" nem concluir com checklist atrasado.
     if (destino === 'em_andamento') {
@@ -3351,24 +3336,25 @@ function OrdensServico({ usuarioAtual }) {
       }
     }
 
-    // Regra crítica: impedir exige justificativa + fotos (modal dedicado).
-    if (destino === 'impedida') {
-      setModalImpedimento({ os });
+    // Cancelamento exige justificativa (modal dedicado) — gestor e campo.
+    if (destino === 'cancelada') {
+      setModalCancelamento({ os });
       return;
     }
-    // Encerramentos são irreversíveis: pedem confirmação explícita.
-    if (['concluida', 'cancelada'].includes(destino)) {
+    // Conclusão é irreversível: pede confirmação explícita.
+    if (destino === 'concluida') {
       setConfirmacaoEncerrar({ os, destino });
       return;
     }
     mudarStatus(os, destino);
   };
 
-  const confirmarImpedimento = async (justificativa, fotosIds = []) => {
-    const { os } = modalImpedimento;
-    // As fotos já foram enviadas pelo modal — só passamos os IDs para o backend validar.
-    const ok = await mudarStatus(os, 'impedida', { justificativa, fotos_ids: fotosIds });
-    if (ok) setModalImpedimento(null);
+  const confirmarCancelamento = async (justificativa, fotosIds = []) => {
+    const { os } = modalCancelamento;
+    // As fotos (opcionais) já foram enviadas pelo modal — só passamos os IDs
+    // para o backend validar a que O.S pertencem.
+    const ok = await mudarStatus(os, 'cancelada', { justificativa, fotos_ids: fotosIds });
+    if (ok) setModalCancelamento(null);
   };
 
   // Reabertura de O.S encerrada (gestor): justificativa registrada no histórico.
@@ -3391,9 +3377,9 @@ function OrdensServico({ usuarioAtual }) {
 
   // --- Agrupamento do Kanban ---------------------------------------------------
 
-  // Colunas visíveis: gestor vê todas; o campo vê as em execução + impedidas.
+  // Colunas visíveis: gestor vê todas; o campo vê as em execução.
   const colunasVisiveis = useMemo(
-    () => COLUNAS.filter(c => ehGestor || ['aberta', 'em_andamento', 'impedida'].includes(c.id)),
+    () => COLUNAS.filter(c => ehGestor || ['aberta', 'em_andamento'].includes(c.id)),
     [ehGestor],
   );
 
@@ -3518,7 +3504,6 @@ function OrdensServico({ usuarioAtual }) {
     rascunho: { sel: 'bg-slate-600 text-white border-slate-600', off: 'bg-slate-50 text-slate-600 border-slate-200 hover:border-slate-300' },
     aberta: { sel: 'bg-sky-600 text-white border-sky-600', off: 'bg-sky-50 text-sky-700 border-sky-200 hover:border-sky-300' },
     em_andamento: { sel: 'bg-primary-600 text-white border-primary-600', off: 'bg-primary-50 text-primary-700 border-primary-200 hover:border-primary-300' },
-    impedida: { sel: 'bg-orange-600 text-white border-orange-600', off: 'bg-orange-50 text-orange-700 border-orange-200 hover:border-orange-300' },
   };
 
   // Barra de resumo do pipeline (gestor): chips por status + card Encerradas.
@@ -3557,7 +3542,7 @@ function OrdensServico({ usuarioAtual }) {
           {pipelineCols.map(col => (
             porColuna[col.id].length > 0 && (
               <span key={col.id} title={`${col.label}: ${porColuna[col.id].length}`}
-                className={`h-full ${col.id === 'impedida' ? 'bg-orange-400' : col.id === 'aberta' ? 'bg-sky-400' : col.id === 'em_andamento' ? 'bg-primary-500' : 'bg-slate-400'}`}
+                className={`h-full ${col.id === 'aberta' ? 'bg-sky-400' : col.id === 'em_andamento' ? 'bg-primary-500' : 'bg-slate-400'}`}
                 style={{ width: `${(porColuna[col.id].length / totalOs) * 100}%` }} />
             )
           ))}
@@ -3765,7 +3750,7 @@ function OrdensServico({ usuarioAtual }) {
                   >
                     <div className="px-3 pt-3 pb-2 flex items-center justify-between">
                       <span className={`text-xs font-extrabold uppercase tracking-wide ${
-                        col.id === 'impedida' ? 'text-orange-600' : col.id === 'concluida' ? 'text-emerald-600' : col.id === 'cancelada' ? 'text-rose-500' : 'text-slate-500'
+                        col.id === 'concluida' ? 'text-emerald-600' : col.id === 'cancelada' ? 'text-rose-500' : 'text-slate-500'
                       }`}>{col.label}</span>
                       <span className="text-[10px] font-bold bg-slate-100 text-slate-500 rounded-full px-2 py-0.5">
                         {porColuna[col.id].length}
@@ -3823,7 +3808,7 @@ function OrdensServico({ usuarioAtual }) {
               ehGestor={ehGestor}
               onEditar={(detalhe) => setModalEdicao(detalhe)}
               onExcluir={(detalhe) => setConfirmacaoExcluir({ os: detalhe })}
-              onPedirImpedimento={(detalhe) => setModalImpedimento({ os: detalhe })}
+              onPedirCancelamento={(detalhe) => setModalCancelamento({ os: detalhe })}
               onReabrir={(detalhe) => setModalReabrir(detalhe)}
               transicoes={transicoes}
             />
@@ -3839,7 +3824,7 @@ function OrdensServico({ usuarioAtual }) {
               <div key={col.id} className="space-y-2">
                 <div className="flex items-center gap-2 pt-1">
                   <span className={`text-[10px] font-extrabold uppercase tracking-wider ${
-                    col.id === 'impedida' ? 'text-orange-600' : col.id === 'concluida' ? 'text-emerald-600' : col.id === 'cancelada' ? 'text-rose-500' : 'text-slate-500'
+                    col.id === 'concluida' ? 'text-emerald-600' : col.id === 'cancelada' ? 'text-rose-500' : 'text-slate-500'
                   }`}>{col.label}</span>
                   <span className="text-[10px] font-bold bg-slate-100 text-slate-500 rounded-full px-2 py-0.5">
                     {porColuna[col.id].length}
@@ -3959,7 +3944,7 @@ function OrdensServico({ usuarioAtual }) {
               ehGestor={ehGestor}
               onEditar={(detalhe) => setModalEdicao(detalhe)}
               onExcluir={(detalhe) => setConfirmacaoExcluir({ os: detalhe })}
-              onPedirImpedimento={(detalhe) => setModalImpedimento({ os: detalhe })}
+              onPedirCancelamento={(detalhe) => setModalCancelamento({ os: detalhe })}
               onReabrir={(detalhe) => setModalReabrir(detalhe)}
               transicoes={transicoes}
             />
@@ -4000,12 +3985,12 @@ function OrdensServico({ usuarioAtual }) {
         />
       )}
 
-      <ModalImpedimento
-        aberto={!!modalImpedimento}
-        osAlvo={modalImpedimento?.os}
+      <ModalCancelamento
+        aberto={!!modalCancelamento}
+        osAlvo={modalCancelamento?.os}
         processando={processando}
-        onConfirmar={confirmarImpedimento}
-        onCancelar={() => setModalImpedimento(null)}
+        onConfirmar={confirmarCancelamento}
+        onCancelar={() => setModalCancelamento(null)}
       />
 
       <ModalReabrirOS

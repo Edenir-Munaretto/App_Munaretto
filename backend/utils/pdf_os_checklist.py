@@ -44,7 +44,6 @@ ROTULOS_STATUS = {
     "rascunho": "Rascunho",
     "aberta": "Aberta",
     "em_andamento": "Em Andamento",
-    "impedida": "Impedida",
     "concluida": "Concluída",
     "cancelada": "Cancelada",
 }

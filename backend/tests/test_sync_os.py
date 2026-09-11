@@ -194,7 +194,7 @@ def test_sync_tipo_invalido(os_gestor_client, db_fake):
     assert resultado["status"] == 400
 
 
-def test_sync_status_impedida_com_foto_local_mapeada(os_gestor_client, os_campo_client, db_fake, monkeypatch):
+def test_sync_status_cancelada_com_foto_local_mapeada(os_gestor_client, os_campo_client, db_fake, monkeypatch):
     from tests.test_os import _criar_os, _seed_cenario
 
     _seed_cenario(db_fake)
@@ -217,10 +217,10 @@ def test_sync_status_impedida_com_foto_local_mapeada(os_gestor_client, os_campo_
         _op("r1", "checklist_resposta", os_id, {"item_id": g1[0]["id"], "resposta": "sim"}, "2026-08-28T06:50:00Z"),
         _op("r2", "checklist_resposta", os_id, {"item_id": g1[1]["id"], "resposta": "sim"}, "2026-08-28T06:51:00Z"),
         _op("s1", "status", os_id, {"novo_status": "em_andamento"}, "2026-08-28T08:05:00Z"),
-        # Impedimento com a evidência LOCAL mapeada pelo lote.
+        # Cancelamento com a evidência LOCAL mapeada pelo lote (foto opcional).
         _op("s2", "status", os_id,
-            {"novo_status": "impedida",
-             "justificativa": "Chuva forte inviabilizou o serviço na região hoje.",
+            {"novo_status": "cancelada",
+             "justificativa": "Cliente desistiu do serviço na região hoje.",
              "fotos_ids": ["foto-local-abc"]},
             "2026-08-28T09:00:00Z"),
     ]
@@ -233,7 +233,7 @@ def test_sync_status_impedida_com_foto_local_mapeada(os_gestor_client, os_campo_
     assert all(r["ok"] for r in resultados.values()), resultados
 
     detalhe = os_campo_client.get(f"/api/os/{os_id}").json()
-    assert detalhe["status"] == "impedida"
+    assert detalhe["status"] == "cancelada"
 
     # Foto local SEM mapeamento é recusada com mensagem clara.
     resp2 = os_campo_client.post(
@@ -342,7 +342,10 @@ def test_sync_conflito_gestor_cancela_os_offline(os_gestor_client, os_campo_clie
     os_id = _criar_os(os_gestor_client, equipe_id=100).json()["id"]
     os_campo_client.put(f"/api/os/{os_id}/status", json={"novo_status": "aberta"})
 
-    resp = os_gestor_client.put(f"/api/os/{os_id}/status", json={"novo_status": "cancelada"})
+    resp = os_gestor_client.put(
+        f"/api/os/{os_id}/status",
+        json={"novo_status": "cancelada", "justificativa": "Cliente desistiu do serviço nesta obra."},
+    )
     assert resp.status_code == 200, resp.text
 
     # Tablet ainda via a O.S 'aberta' e tenta liberar a execução.

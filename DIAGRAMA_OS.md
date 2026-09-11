@@ -59,14 +59,13 @@ flowchart LR
 stateDiagram-v2
     [*] --> Rascunho: criar (gestor)
     Rascunho --> Aberta: abrir
-    Rascunho --> Cancelada: cancelar (gestor)
+    Rascunho --> Cancelada: cancelar (justificativa)
     Aberta --> EmAndamento: Grupo 1 completo / play H.H.
-    Aberta --> Impedida: justificativa ≥20 + foto
-    Aberta --> Cancelada: cancelar (gestor)
-    EmAndamento --> Impedida: justificativa ≥20 + foto
+    Aberta --> Cancelada: cancelar (justificativa)
     EmAndamento --> Concluida: checklist 100%
-    EmAndamento --> Cancelada: cancelar (gestor)
-    Impedida --> EmAndamento: retomar
+    EmAndamento --> Cancelada: cancelar (justificativa)
+    Concluida --> Aberta: reabrir (gestor)
+    Cancelada --> Aberta: reabrir (gestor)
     Concluida --> [*]
     Cancelada --> [*]
 ```
@@ -80,7 +79,7 @@ stateDiagram-v2
          └────┬─────┘              │
               │ abrir              │
               ▼                    │
-         ┌─────────┐               │   cancelar (SÓ gestor)
+         ┌─────────┐               │   cancelar (justificativa ≥20)
          │  Aberta ├───────────────┼──────────────►┐
          └────┬────┘               │                │
               │                    │                │
@@ -88,20 +87,15 @@ stateDiagram-v2
               │ ② ou play do H.H.  │           ┌────────────┐
               ▼ (com gate ①)       │           │ Cancelada  │
          ┌──────────────┐          │           └────────────┘
-         │Em Andamento  │◄─────────┼──────────────┐
-         └──┬───────┬───┘          │              │
-            │       │              │              │
-            │       │ impedida:    │              │
-            │       │ justif. ≥20  │              │
-            │       │ + 1 foto     │              │
-            │       ▼              │              │
-            │  ┌──────────┐        │              │
-            │  │ Impedida │──retomar──────────────┘
-            │  └──────────┘        │
-            │  (fim 95)            │
-            │ checklist 100%       │
-            ▼ respondido           │
-         ┌────────────┐            │
+         │Em Andamento  │          │
+         └──────┬───────┘          │
+                │                  │
+                │ cancelar         │
+                │ (justificativa)  │
+                ├──────────────────┘
+                │ checklist 100%
+                ▼ respondido
+         ┌────────────┐
          │ Concluída  │ (encerra cronômetros abertos)
          └────────────┘
 ```
@@ -111,9 +105,9 @@ stateDiagram-v2
 | Transição | Regra |
 |---|---|
 | `aberta → em_andamento` | Checklist **Grupo 1 (Preparação)** 100% respondido |
-| `→ impedida` | Justificativa ≥ 20 caracteres + pelo menos 1 foto de evidência |
 | `→ concluida` | Checklist completo (todos os itens de todos os grupos) |
-| `→ cancelada` | Exige permissão de gestor (`os`) |
+| `→ cancelada` | Justificativa ≥ 20 caracteres (foto opcional); gestor e campo (campo só nas O.S das próprias equipes) |
+| `concluida/cancelada → aberta` | Reabertura: gestor + justificativa ≥ 10 caracteres |
 | qualquer outra | Rejeitada com 422 (destinos permitidos informados na mensagem) |
 
 ---
@@ -126,7 +120,7 @@ flowchart TD
     B["2. NA BASE (online)<br/>check-in (hora + GPS) e preenchimento do<br/>Grupo 1 'Preparação (base)'"] --> C
     C["3. LIBERAÇÃO: aberta → em_andamento<br/>botão de status (gate Grupo 1) ou play do H.H."] --> D
     D["4. NO CAMPO — Painel de Execução (abas)<br/>checklist (2–5) · cronômetro H.H. · serviços<br/>evidências (fotos) · timeline"] --> E
-    E["5. IMPEDIMENTO (se necessário)<br/>justificativa ≥20 + fotos → impedida<br/>retomar → em_andamento"] --> F
+    E["5. CANCELAMENTO (se necessário)<br/>justificativa ≥20 → cancelada<br/>sai da tela (arquivo do gestor)"] --> F
     F["6. CONCLUSÃO<br/>checklist 100% → concluída (encerra H.H.<br/>esquecidos, registra data_fim, notifica criador)"] --> G
     G["7. RELATÓRIOS<br/>PDF do checklist · PDF de execução<br/>capa oficial (imprimir) · materiais aplicados + custo M.O."]
 ```
@@ -148,14 +142,14 @@ flowchart TD
     · Checklist  ─► grupos 2–5; respostas sim/nao/na; "não" registra a seleção
                     (justificativa opcional); itens podem exigir foto
     · Cronômetro ─► PLAY abre bloco de H.H. (só 1 aberto por pessoa/O.S);
-                    PAUSE fecha e calcula minutos; impedida/concluída não aponta
+                    PAUSE fecha e calcula minutos; cancelada/concluída não aponta
     · Serviços   ─► lançar serviços com seletor USC normal/especial
                     (peças x fator do cadastro, ex.: 0.48/0.67); estorno só gestor
     · Evidências ─► fotos (câmera/galeria) no S3; excluir só gestor
     · Timeline   ─► histórico de transições (quem/quando/GPS)
 
- 5. IMPEDIMENTO (se necessário): justif. ≥20 + fotos → impedida;
-    retomar → em_andamento; gestor pode cancelar
+ 5. CANCELAMENTO (se necessário): justificativa ≥20 → cancelada (sai do
+    quadro do campo; fica na visão Encerradas do gestor, que pode reabrir)
 
  6. CONCLUSÃO: checklist 100% → concluída → encerra cronômetros esquecidos,
     registra data_fim e notifica o criador
@@ -174,7 +168,7 @@ flowchart LR
         P["Preparar pacote<br/>lista + detalhes + checklist → IndexedDB"]
     end
     subgraph Campo["CAMPO (offline)"]
-        F["Fila de operações (IndexedDB)<br/>checklist (1–5) · fotos (Blob)<br/>H.H. play/pause · status (impedida/…)<br/>+ reflexo otimista na lista/painel"]
+        F["Fila de operações (IndexedDB)<br/>checklist (1–5) · fotos (Blob)<br/>H.H. play/pause · status (cancelamento/…)<br/>+ reflexo otimista na lista/painel"]
     end
     subgraph Retorno["RETORNO (online)"]
         S["1. auto-sync (evento online)<br/>2. fotos primeiro: id local → id servidor<br/>3. lote /os/sincronizar (revalidado pelos gates)<br/>4. pendências: reenviar individual ou descartar"]
@@ -191,7 +185,7 @@ flowchart LR
 │ (lista+detalhes│   │ · checklist grupos 1-5 │   │ 2. fotos primeiro: id    │
 │ +checklist) →  │──►│ · fotos (Blob local)   │──►│    local → id servidor   │
 │ IndexedDB      │   │ · H.H. play/pause      │   │ 3. lote /os/sincronizar  │
-└────────────────┘   │ · status (impedida/…)  │   │    (revalidado p/ gates) │
+└────────────────┘   │ · status (cancelamento/…)  │   │    (revalidado p/ gates) │
                      │ · reflexo otimista na  │   │ 4. pendências: reenviar  │
                      │   lista/painel         │   │    individual ou descartar
                      └────────────────────────┘   └──────────────────────────┘

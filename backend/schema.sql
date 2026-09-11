@@ -585,13 +585,12 @@ CREATE POLICY "service_role_full_sst_documentos" ON sst_documentos
 --
 -- MÁQUINA DE ESTADOS (validada também no backend):
 --   rascunho     -> aberta | cancelada
---   aberta       -> em_andamento | impedida | cancelada
---   em_andamento -> impedida | concluida | cancelada
---   impedida     -> em_andamento
---   concluida    -> (terminal)
---   cancelada    -> (terminal)
--- Regra crítica: transição para 'impedida' EXIGE justificativa (>= 20
--- caracteres) e pelo menos uma foto de evidência já anexada à O.S.
+--   aberta       -> em_andamento | cancelada
+--   em_andamento -> concluida | cancelada
+--   concluida    -> (reabertura -> aberta, gestor)
+--   cancelada    -> (reabertura -> aberta, gestor)
+-- Regra crítica: transição para 'cancelada' EXIGE justificativa (>= 20
+-- caracteres); a foto de evidência é opcional.
 
 -- Valor/hora do funcionário para cálculo do Custo Real de Mão de Obra (H.H.)
 -- e e-mail institucional usado para vincular o login (usuarios.email) ao
@@ -698,7 +697,7 @@ CREATE TABLE IF NOT EXISTS ordens_servico (
     obra_id INTEGER NOT NULL REFERENCES obras(id),
     equipe_id INTEGER REFERENCES equipes(id),
     status VARCHAR(20) NOT NULL DEFAULT 'rascunho'
-        CHECK (status IN ('rascunho', 'aberta', 'em_andamento', 'impedida', 'concluida', 'cancelada')),
+        CHECK (status IN ('rascunho', 'aberta', 'em_andamento', 'concluida', 'cancelada')),
     prioridade VARCHAR(10) NOT NULL DEFAULT 'media'
         CHECK (prioridade IN ('baixa', 'media', 'alta', 'critica')),
     data_abertura TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
@@ -777,7 +776,7 @@ CREATE TABLE IF NOT EXISTS os_historico (
     os_id INTEGER NOT NULL REFERENCES ordens_servico(id) ON DELETE CASCADE,
     status_anterior VARCHAR(20),
     status_novo VARCHAR(20) NOT NULL,
-    justificativa TEXT,                 -- obrigatória quando status_novo = 'impedida'
+    justificativa TEXT,                 -- obrigatória quando status_novo = 'cancelada'
     usuario_alteracao VARCHAR(255),     -- e-mail de quem executou a transição
     geolocalizacao_log VARCHAR(100),    -- "lat,lng" capturada no dispositivo
     criado_em TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP

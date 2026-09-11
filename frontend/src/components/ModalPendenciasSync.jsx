@@ -281,7 +281,7 @@ function ModalPendenciasSync({
                     <FotoThumb foto={foto} />
                     <div className="min-w-0 flex-1">
                       <p className="text-xs font-bold text-slate-700 truncate">
-                        {foto.checklist_item_id ? `Evidência do checklist (item ${foto.checklist_item_id})` : 'Evidência de impedimento'}
+                        {foto.checklist_item_id ? `Evidência do checklist (item ${foto.checklist_item_id})` : 'Evidência do cancelamento'}
                         <span className="text-slate-400 font-semibold"> · O.S {foto.os_id}</span>
                       </p>
                       <div className="flex items-center gap-2 mt-1 flex-wrap">

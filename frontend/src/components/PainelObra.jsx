@@ -23,7 +23,6 @@ const ROTULOS_STATUS = {
   rascunho: 'Rascunho',
   aberta: 'Aberta',
   em_andamento: 'Em Andamento',
-  impedida: 'Impedida',
   concluida: 'Concluída',
   cancelada: 'Cancelada',
 };
@@ -32,7 +31,6 @@ const CORES_STATUS = {
   rascunho: 'bg-slate-100 text-slate-600 border-slate-200',
   aberta: 'bg-primary-100 text-primary-700 border-primary-200',
   em_andamento: 'bg-sky-100 text-sky-700 border-sky-200',
-  impedida: 'bg-orange-100 text-orange-700 border-orange-200',
   concluida: 'bg-emerald-100 text-emerald-700 border-emerald-200',
   cancelada: 'bg-rose-100 text-rose-600 border-rose-200',
 };

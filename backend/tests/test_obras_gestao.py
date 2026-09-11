@@ -292,7 +292,7 @@ class TestListarObrasEnriquecidas:
         assert obra["totais_por_tipo"] == []  # rascunho não soma
 
     def test_rotina_transicoes_intacta_apos_novos_constantes(self):
-        for origem in ("rascunho", "aberta", "em_andamento", "impedida", "concluida", "cancelada"):
+        for origem in ("rascunho", "aberta", "em_andamento", "concluida", "cancelada"):
             assert origem in TRANSICOES_STATUS
 
 

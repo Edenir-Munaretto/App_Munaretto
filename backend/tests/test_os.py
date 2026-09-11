@@ -107,7 +107,7 @@ def _anexar_foto_via_banco(db_fake, os_id, qtd=1):
 
 class TestMaquinaEstados:
     def test_transicoes_validas_cobrem_todos_os_status(self):
-        for origem in ("rascunho", "aberta", "em_andamento", "impedida", "concluida", "cancelada"):
+        for origem in ("rascunho", "aberta", "em_andamento", "concluida", "cancelada"):
             assert origem in TRANSICOES_STATUS
 
     def test_criar_os_gera_codigo_e_rascunho(self, os_gestor_client, db_fake):
@@ -148,22 +148,18 @@ class TestMaquinaEstados:
         assert ("em_andamento", "concluida") in transicoes
 
 
-class TestTravaImpedida:
-    """Regra crítica: 'Impedida' exige justificativa >= 20 caracteres + fotos."""
+class TestTravaCancelada:
+    """Cancelamento exige justificativa >= 20 caracteres (foto é opcional)."""
 
-    def test_sem_fotos_rejeita(self, os_gestor_client, db_fake):
+    def test_justificativa_curta_rejeita(self, os_gestor_client, db_fake):
         _seed_cenario(db_fake)
         os_id = _criar_os_aberta_em_andamento(os_gestor_client)
         resp = os_gestor_client.put(
             f"/api/os/{os_id}/status",
-            json={
-                "novo_status": "impedida",
-                "justificativa": "Chuva forte inviabilizou a concretagem hoje.",
-                "fotos_ids": [],
-            },
+            json={"novo_status": "cancelada", "justificativa": "curta"},
         )
         assert resp.status_code == 422
-        assert "foto" in resp.json()["detail"].lower()
+        assert "justificativa" in resp.json()["detail"].lower()
 
     def test_foto_de_outra_os_rejeita(self, os_gestor_client, db_fake):
         _seed_cenario(db_fake)
@@ -172,49 +168,44 @@ class TestTravaImpedida:
         resp = os_gestor_client.put(
             f"/api/os/{os_id}/status",
             json={
-                "novo_status": "impedida",
-                "justificativa": "Chuva forte inviabilizou a concretagem hoje.",
+                "novo_status": "cancelada",
+                "justificativa": "Cliente desistiu do serviço nesta obra.",
                 "fotos_ids": [foto_alheia],
             },
         )
         assert resp.status_code == 422
 
-    def test_impedida_valida_grava_justificativa_no_historico(self, os_gestor_client, db_fake):
+    def test_cancelada_valida_grava_justificativa_no_historico(self, os_gestor_client, db_fake):
+        _seed_cenario(db_fake)
+        os_id = _criar_os_aberta_em_andamento(os_gestor_client)
+        resp = os_gestor_client.put(
+            f"/api/os/{os_id}/status",
+            json={
+                "novo_status": "cancelada",
+                "justificativa": "Cliente desistiu do serviço nesta obra.",
+                "geolocalizacao": "-23.5505,-46.6333",
+            },
+        )
+        assert resp.status_code == 200
+        assert resp.json()["status"] == "cancelada"
+        evento = [h for h in db_fake._dados["os_historico"] if h["os_id"] == os_id and h["status_novo"] == "cancelada"]
+        assert evento and evento[0]["justificativa"].startswith("Cliente desistiu")
+        assert evento[0]["geolocalizacao_log"] == "-23.5505,-46.6333"
+
+    def test_foto_opcional_da_propria_os_e_aceita(self, os_gestor_client, db_fake):
         _seed_cenario(db_fake)
         os_id = _criar_os_aberta_em_andamento(os_gestor_client)
         fotos = _anexar_foto_via_banco(db_fake, os_id)
         resp = os_gestor_client.put(
             f"/api/os/{os_id}/status",
             json={
-                "novo_status": "impedida",
-                "justificativa": "Chuva forte inviabilizou a concretagem hoje.",
+                "novo_status": "cancelada",
+                "justificativa": "Cliente desistiu do serviço nesta obra.",
                 "fotos_ids": fotos,
-                "geolocalizacao": "-23.5505,-46.6333",
             },
         )
-        assert resp.status_code == 200
-        assert resp.json()["status"] == "impedida"
-        evento = [h for h in db_fake._dados["os_historico"] if h["os_id"] == os_id and h["status_novo"] == "impedida"]
-        assert evento and evento[0]["justificativa"].startswith("Chuva forte")
-        assert evento[0]["geolocalizacao_log"] == "-23.5505,-46.6333"
-
-    def test_impedida_volta_para_em_andamento(self, os_gestor_client, db_fake):
-        _seed_cenario(db_fake)
-        os_id = _criar_os_aberta_em_andamento(os_gestor_client)
-        fotos = _anexar_foto_via_banco(db_fake, os_id)
-        assert (
-            os_gestor_client.put(
-                f"/api/os/{os_id}/status",
-                json={
-                    "novo_status": "impedida",
-                    "justificativa": "Falta de material no estoque da região.",
-                    "fotos_ids": fotos,
-                },
-            ).status_code
-            == 200
-        )
-        resp = os_gestor_client.put(f"/api/os/{os_id}/status", json={"novo_status": "em_andamento"})
-        assert resp.status_code == 200
+        assert resp.status_code == 200, resp.text
+        assert resp.json()["status"] == "cancelada"
 
 
 class TestApontamentoHoras:
@@ -608,7 +599,13 @@ class TestMateriaisEPermissao:
         _seed_cenario(db_fake)
         os_id = _criar_os(os_gestor_client).json()["id"]
         assert os_gestor_client.put(f"/api/os/{os_id}/status", json={"novo_status": "aberta"}).status_code == 200
-        assert os_gestor_client.put(f"/api/os/{os_id}/status", json={"novo_status": "cancelada"}).status_code == 200
+        assert (
+            os_gestor_client.put(
+                f"/api/os/{os_id}/status",
+                json={"novo_status": "cancelada", "justificativa": "Cliente desistiu do serviço nesta obra."},
+            ).status_code
+            == 200
+        )
 
         resp = os_gestor_client.post(f"/api/os/{os_id}/materiais", json={"produto_id": 7, "quantidade_usada": 1})
         assert resp.status_code == 201, resp.text
@@ -623,21 +620,21 @@ class TestMateriaisEPermissao:
         resp = os_campo_client.post(f"/api/os/{os_id}/materiais", json={"produto_id": 7, "quantidade_usada": 1})
         assert resp.status_code == 400
 
-    def test_campo_lanca_material_em_os_impedida(self, os_gestor_client, os_campo_client, db_fake):
+    def test_campo_nao_lanca_material_em_os_cancelada(self, os_gestor_client, os_campo_client, db_fake):
         _seed_cenario(db_fake)
         os_id = _criar_os(os_gestor_client, equipe_id=100).json()["id"]
         assert os_gestor_client.put(f"/api/os/{os_id}/status", json={"novo_status": "aberta"}).status_code == 200
         assert os_gestor_client.put(f"/api/os/{os_id}/status", json={"novo_status": "em_andamento"}).status_code == 200
-        _anexar_foto_via_banco(db_fake, os_id)
-        resp = os_gestor_client.put(
-            f"/api/os/{os_id}/status",
-            json={"novo_status": "impedida", "justificativa": "Chuva forte inviabilizou o serviço hoje.", "fotos_ids": [900]},
+        assert (
+            os_gestor_client.put(
+                f"/api/os/{os_id}/status",
+                json={"novo_status": "cancelada", "justificativa": "Cliente desistiu do serviço nesta obra."},
+            ).status_code
+            == 200
         )
-        assert resp.status_code == 200, resp.text
 
-        lanc = os_campo_client.post(f"/api/os/{os_id}/materiais", json={"produto_id": 7, "quantidade_usada": 2})
-        assert lanc.status_code == 201, lanc.text
-        assert lanc.json()["quantidade_usada"] == 80.0  # 2 x 40
+        resp = os_campo_client.post(f"/api/os/{os_id}/materiais", json={"produto_id": 7, "quantidade_usada": 2})
+        assert resp.status_code == 400
 
     def test_campo_nao_acessa_os_de_outra_equipe(self, os_gestor_client, os_campo_client, db_fake):
         _seed_cenario(db_fake)
@@ -666,7 +663,6 @@ class TestMateriaisEPermissao:
     def test_campo_ignora_os_encerradas_e_rascunho(self, os_gestor_client, os_campo_client, db_fake):
         _seed_cenario(db_fake)
         em_andamento = _criar_os(os_gestor_client, equipe_id=100).json()["id"]
-        impedida = _criar_os(os_gestor_client, equipe_id=100).json()["id"]
         concluida = _criar_os(os_gestor_client, equipe_id=100).json()["id"]
         cancelada = _criar_os(os_gestor_client, equipe_id=100).json()["id"]
         rascunho = _criar_os(os_gestor_client, equipe_id=100).json()["id"]
@@ -674,26 +670,17 @@ class TestMateriaisEPermissao:
         os_gestor_client.put(f"/api/os/{em_andamento}/status", json={"novo_status": "aberta"})
         os_campo_client.post(f"/api/os/{em_andamento}/apontamentos", json={"acao": "play"})  # -> em_andamento
 
-        # Impedida continua visível ao campo (para retomar).
-        os_gestor_client.put(f"/api/os/{impedida}/status", json={"novo_status": "aberta"})
-        os_campo_client.post(f"/api/os/{impedida}/apontamentos", json={"acao": "play"})
-        db_fake._dados["os_fotos"].append(
-            {"id": 700, "os_id": impedida, "nome_original": "x.jpg", "tamanho_bytes": 1,
-             "mime_type": "image/jpeg", "bucket_key": "k"}
-        )
-        os_campo_client.put(
-            f"/api/os/{impedida}/status",
-            json={"novo_status": "impedida", "justificativa": "Chuva forte inviabilizou o serviço hoje.", "fotos_ids": [700]},
-        )
-
         os_gestor_client.put(f"/api/os/{concluida}/status", json={"novo_status": "aberta"})
         os_campo_client.post(f"/api/os/{concluida}/apontamentos", json={"acao": "play"})
         os_gestor_client.put(f"/api/os/{concluida}/status", json={"novo_status": "concluida"})
-        os_gestor_client.put(f"/api/os/{cancelada}/status", json={"novo_status": "cancelada"})
+        # Cancelada sai da tela do campo (como as concluídas).
+        os_gestor_client.put(
+            f"/api/os/{cancelada}/status",
+            json={"novo_status": "cancelada", "justificativa": "Cliente desistiu do serviço nesta obra."},
+        )
 
         ids = [os["id"] for os in os_campo_client.get("/api/os/").json()]
         assert em_andamento in ids
-        assert impedida in ids
         assert concluida not in ids
         assert cancelada not in ids
         assert rascunho not in ids
@@ -703,16 +690,22 @@ class TestMateriaisEPermissao:
         resp = _criar_os(os_campo_client, equipe_id=100)
         assert resp.status_code == 403
 
-    def test_campo_nao_cancela_os(self, os_gestor_client, os_campo_client, db_fake):
+    def test_campo_cancela_os_com_justificativa(self, os_gestor_client, os_campo_client, db_fake):
         _seed_cenario(db_fake)
         os_id = _criar_os(os_gestor_client, equipe_id=100).json()["id"]
         # Campo avança a O.S até em_andamento (execução).
+        assert os_campo_client.put(f"/api/os/{os_id}/status", json={"novo_status": "aberta"}).status_code == 200
         os_campo_client.post(f"/api/os/{os_id}/apontamentos", json={"acao": "play"})
-        # Cancelamento é restrito ao gestor.
+        # Sem justificativa o cancelamento é recusado.
         resp = os_campo_client.put(f"/api/os/{os_id}/status", json={"novo_status": "cancelada"})
-        assert resp.status_code == 403
-        # Gestor consegue cancelar.
-        assert os_gestor_client.put(f"/api/os/{os_id}/status", json={"novo_status": "cancelada"}).status_code == 200
+        assert resp.status_code == 422
+        # Com justificativa o campo cancela a O.S da própria equipe.
+        resp = os_campo_client.put(
+            f"/api/os/{os_id}/status",
+            json={"novo_status": "cancelada", "justificativa": "Cliente desistiu do serviço nesta obra."},
+        )
+        assert resp.status_code == 200, resp.text
+        assert resp.json()["status"] == "cancelada"
 
     def test_gestor_apenas_os_ve_todas_as_equipes(self, client, db_fake):
         """Um usuário com somente a permissão 'os' é gestor do módulo."""
@@ -774,10 +767,12 @@ class TestMateriaisEPermissao:
         assert resp.status_code == 200, resp.text
         corpo = resp.json()
         assert corpo["transicoes"]["rascunho"] == ["aberta", "cancelada"]
+        assert corpo["transicoes"]["em_andamento"] == ["cancelada", "concluida"]
         # Reabertura pelo gestor: encerradas podem voltar para 'aberta'.
         assert corpo["transicoes"]["concluida"] == ["aberta"]
         assert corpo["transicoes"]["cancelada"] == ["aberta"]
         assert "em_andamento" in corpo["status_validos"]
+        assert "impedida" not in corpo["status_validos"]
         assert "linha_viva" in corpo["tipos"]
 
     def test_listagem_paginada_traz_total_no_header(self, os_gestor_client, db_fake):
@@ -1350,7 +1345,9 @@ def test_listagem_status_multiplo_encerradas(os_gestor_client, db_fake):
         os_id = _criar_os(os_gestor_client).json()["id"]
         assert os_gestor_client.put(f"/api/os/{os_id}/status", json={"novo_status": "aberta"}).status_code == 200
         assert os_gestor_client.put(f"/api/os/{os_id}/status", json={"novo_status": "em_andamento"}).status_code == 200
-        assert os_gestor_client.put(f"/api/os/{os_id}/status", json={"novo_status": destino}).status_code == 200
+        extra = {"justificativa": "Cliente desistiu do serviço nesta obra."} if destino == "cancelada" else {}
+        payload = {"novo_status": destino, **extra}
+        assert os_gestor_client.put(f"/api/os/{os_id}/status", json=payload).status_code == 200
 
     resp = os_gestor_client.get("/api/os/?status=concluida,cancelada&limit=100")
     assert resp.status_code == 200, resp.text
@@ -1398,7 +1395,11 @@ def test_excluir_os_concluida_e_cancelada(os_gestor_client, db_fake, monkeypatch
         if destino == "concluida":
             assert os_gestor_client.put(f"/api/os/{os_id}/status", json={"novo_status": "aberta"}).status_code == 200
             assert os_gestor_client.put(f"/api/os/{os_id}/status", json={"novo_status": "em_andamento"}).status_code == 200
-        assert os_gestor_client.put(f"/api/os/{os_id}/status", json={"novo_status": destino}).status_code == 200
+            extra = {}
+        else:
+            extra = {"justificativa": "Cliente desistiu do serviço nesta obra."}
+        payload = {"novo_status": destino, **extra}
+        assert os_gestor_client.put(f"/api/os/{os_id}/status", json=payload).status_code == 200
         resp = os_gestor_client.delete(f"/api/os/{os_id}")
         assert resp.status_code == 200, resp.text
 
@@ -1772,7 +1773,13 @@ class TestReaberturaOs:
     def test_reabrir_cancelada_tambem_volta_ao_funil(self, os_gestor_client, db_fake):
         _seed_cenario(db_fake)
         os_id = _criar_os(os_gestor_client).json()["id"]
-        assert os_gestor_client.put(f"/api/os/{os_id}/status", json={"novo_status": "cancelada"}).status_code == 200
+        assert (
+            os_gestor_client.put(
+                f"/api/os/{os_id}/status",
+                json={"novo_status": "cancelada", "justificativa": "Cliente desistiu do serviço nesta obra."},
+            ).status_code
+            == 200
+        )
         resp = os_gestor_client.put(
             f"/api/os/{os_id}/status",
             json={"novo_status": "aberta", "justificativa": "Cancelamento indevido; O.S volta para análise."},
@@ -1783,7 +1790,13 @@ class TestReaberturaOs:
     def test_reabertura_exige_gestor(self, os_gestor_client, os_campo_client, db_fake):
         _seed_cenario(db_fake)
         os_id = _criar_os(os_gestor_client, equipe_id=100).json()["id"]
-        assert os_gestor_client.put(f"/api/os/{os_id}/status", json={"novo_status": "cancelada"}).status_code == 200
+        assert (
+            os_gestor_client.put(
+                f"/api/os/{os_id}/status",
+                json={"novo_status": "cancelada", "justificativa": "Cliente desistiu do serviço nesta obra."},
+            ).status_code
+            == 200
+        )
         resp = os_campo_client.put(
             f"/api/os/{os_id}/status",
             json={"novo_status": "aberta", "justificativa": "Campo tentando reabrir a O.S."},
@@ -1960,7 +1973,13 @@ class TestCorrecoesLote1:
     def test_foto_negada_em_os_cancelada(self, os_gestor_client, db_fake):
         _seed_cenario(db_fake)
         os_id = _criar_os(os_gestor_client).json()["id"]
-        assert os_gestor_client.put(f"/api/os/{os_id}/status", json={"novo_status": "cancelada"}).status_code == 200
+        assert (
+            os_gestor_client.put(
+                f"/api/os/{os_id}/status",
+                json={"novo_status": "cancelada", "justificativa": "Cliente desistiu do serviço nesta obra."},
+            ).status_code
+            == 200
+        )
 
         resp = os_gestor_client.post(
             f"/api/os/{os_id}/fotos",
@@ -2210,7 +2229,7 @@ class TestCorrecoesLote5:
         casos = [
             ("aberta", "rascunho"),
             ("em_andamento", "aberta"),
-            ("impedida", "cancelada"),
+            ("concluida", "cancelada"),
             ("concluida", "cancelada"),
             ("cancelada", "concluida"),
             ("rascunho", "concluida"),

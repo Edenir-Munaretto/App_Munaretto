@@ -3,7 +3,7 @@
 // Ordem de envio:
 //   1. FOTOS pendentes (uma a uma, via endpoint de foto do checklist);
 //      cada upload devolve o id no servidor. Fotos de item do checklist saem
-//      da fila assim que sobem; fotos de IMPEDIMENTO (que operações de status
+//      da fila assim que sobem; fotos de CANCELAMENTO (que operações de status
 //      referenciam em fotos_ids) são mantidas com `id_servidor` até as
 //      operações que as usam saírem da fila — o lote nunca chega sem o mapa.
 //   2. OPERAÇÕES pendentes em LOTE de até TAMANHO_LOTE por requisição
@@ -41,7 +41,7 @@ async function enviarFotos(fotos, resumo, mapaFotos, onProgress) {
       fd.append('arquivo', foto.arquivo.blob, foto.arquivo.nome);
       const qs = foto.geolocalizacao ? `?geolocalizacao=${encodeURIComponent(foto.geolocalizacao)}` : '';
       // Evidências de item do checklist usam o endpoint do item; as do
-      // impedimento (sem item) usam o endpoint genérico de fotos da O.S.
+      // cancelamento (sem item) usam o endpoint genérico de fotos da O.S.
       const url = foto.checklist_item_id
         ? `${API_URL}/os/${foto.os_id}/checklist/${foto.checklist_item_id}/foto${qs}`
         : `${API_URL}/os/${foto.os_id}/fotos${qs}`;
@@ -51,7 +51,7 @@ async function enviarFotos(fotos, resumo, mapaFotos, onProgress) {
         mapaFotos[foto.id_local] = data.id;
         resumo.fotosEnviadas += 1;
         if (foto.checklist_item_id == null) {
-          // Impedimento: mantém o registro com o id do servidor até a(s)
+          // Cancelamento: mantém o registro com o id do servidor até a(s)
           // operação(ões) que referenciam esta evidência serem confirmadas.
           await dbPut('fotos', { ...foto, status: 'enviada', id_servidor: data.id, erro: null, tentativas: 0 });
         } else {
@@ -152,7 +152,7 @@ async function enviarOperacoes(ops, mapaFotos, resumo, onProgress) {
   return true;
 }
 
-// Remove fotos de impedimento já enviadas cuja operação saiu da fila
+// Remove fotos de cancelamento já enviadas cuja operação saiu da fila
 // (confirmada ou descartada) — não podem ficar guardadas para sempre.
 async function limparFotosSemUso() {
   const [fotos, ops] = await Promise.all([dbGetAll('fotos'), dbGetAll('fila')]);

@@ -18,7 +18,7 @@ from collections import defaultdict
 from utils.tipos_os import ORDEM_CONTRATOS, unidade_contrato
 
 # Grupos de status da gestão por obra (espelham a semântica do módulo O.S).
-STATUS_EM_EXECUCAO = ("aberta", "em_andamento", "impedida")
+STATUS_EM_EXECUCAO = ("aberta", "em_andamento")
 STATUS_ENCERRADAS = ("concluida", "cancelada")
 
 # Status que entram no total aplicado exibido nos cards/painel da obra.
