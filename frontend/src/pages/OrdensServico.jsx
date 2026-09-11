@@ -330,7 +330,21 @@ function TabChecklist({ osDetalhe, onAtualizado, mostrarToast, podeEditar }) {
           localAchado = true;
           // Reconstrói os previews de fotos ainda não sincronizadas.
           local = await hidratarFotosPendentes(local);
-          setDados({ itens: local.itens || [], resumo: local.resumo });
+          // Sana o resumo salvo se estiver defasado dos itens (respostas
+          // locais vs. refresh do pacote): mantém gates/contagens coerentes.
+          const itens = local.itens || [];
+          const resumoCorrigido = recalcularResumo(itens, local.resumo);
+          if (JSON.stringify(resumoCorrigido) !== JSON.stringify(local.resumo)) {
+            try {
+              await salvarChecklistLocal(osDetalhe.id, { itens, resumo: resumoCorrigido });
+              const detalheLocal = await getOSLocal(osDetalhe.id);
+              if (detalheLocal) {
+                detalheLocal.checklist = resumoCorrigido;
+                await salvarDetalheLocal(detalheLocal);
+              }
+            } catch { /* best-effort: a tela usa o resumo recalculado */ }
+          }
+          setDados({ itens, resumo: resumoCorrigido });
         } else if (!isOffline()) {
           // Sem cópia local (O.S com conexão): o GET remoto serve de "seed"
           // inicial do pacote; a partir daí as ações passam a ser locais.
@@ -527,7 +541,10 @@ function TabChecklist({ osDetalhe, onAtualizado, mostrarToast, podeEditar }) {
   }
   if (!dados) return null;
 
-  const resumo = dados.resumo;
+  // O resumo salvo pode ficar defasado em relação aos itens (refresh do
+  // pacote vs. respostas locais): cor/contagem SEMPRE derivam dos itens
+  // exibidos — o verde só aparece com todos os itens visíveis respondidos.
+  const resumo = recalcularResumo(dados.itens, dados.resumo);
   const itensPorGrupo = {};
   for (const item of dados.itens) {
     (itensPorGrupo[item.grupo] = itensPorGrupo[item.grupo] || []).push(item);
@@ -3292,11 +3309,13 @@ function OrdensServico({ usuarioAtual }) {
   };
 
   // Resumo do checklist usado pelo drag (mesmos gates dos botões, A10): local
-  // no Modo Campo (online ou não); do servidor fora dele.
+  // no Modo Campo (online ou não); do servidor fora dele. O resumo local é
+  // SEMPRE recalculado dos itens (evita resumo defasado liberar o gate).
   const resumoChecklistParaDrag = async (os) => {
     if (isModoCampo() || usarLocal()) {
       const local = await getChecklistLocal(os.id);
-      return local?.resumo || null;
+      if (!local?.itens) return local?.resumo || null;
+      return recalcularResumo(local.itens, local.resumo);
     }
     try {
       const res = await apiFetch(`${API_URL}/os/${os.id}/checklist`);

@@ -131,8 +131,14 @@ async function _baixarChecklistOs(id) {
   }
 }
 
-/** Baixa detalhe (+ checklist) de uma O.S com 1 nova tentativa. */
-async function _baixarOsCompleta(id) {
+/** Baixa detalhe (+ checklist) de uma O.S com 1 nova tentativa.
+ *
+ * `pularSePendente` (refresh contínuo): se a O.S ganhar pendência local
+ * (fila/fotos) durante o download, NÃO sobrescreve detalhe/checklist — uma
+ * resposta recém-feita no dispositivo prevalece sobre a cópia do servidor.
+ */
+async function _baixarOsCompleta(id, { pularSePendente = false } = {}) {
+  if (pularSePendente && (await _idsComPendenciaLocal()).has(Number(id))) return false;
   let ok = false;
   for (let tentativa = 0; tentativa < 2 && !ok; tentativa += 1) {
     try {
@@ -141,6 +147,7 @@ async function _baixarOsCompleta(id) {
       ok = false;
     }
   }
+  if (pularSePendente && (await _idsComPendenciaLocal()).has(Number(id))) return ok;
   try {
     await _baixarChecklistOs(id);
   } catch {
@@ -150,14 +157,14 @@ async function _baixarOsCompleta(id) {
 }
 
 /** Baixa várias O.S com concorrência limitada (não sobrecarrega o servidor). */
-async function _baixarEmParalelo(ids, limite = 5) {
+async function _baixarEmParalelo(ids, limite = 5, opcoes = {}) {
   let indice = 0;
   const trabalhadores = Array.from({ length: limite }, async () => {
     while (indice < ids.length) {
       const id = ids[indice];
       indice += 1;
       try {
-        await _baixarOsCompleta(id);
+        await _baixarOsCompleta(id, opcoes);
       } catch {
         /* segue para a próxima */
       }
@@ -337,7 +344,7 @@ export async function atualizarPacoteCampo({ completo = false } = {}) {
   for (const id of faltantesAntigos) {
     if (idsServidor.has(Number(id))) baixar.add(Number(id));
   }
-  if (baixar.size) await _baixarEmParalelo([...baixar]);
+  if (baixar.size) await _baixarEmParalelo([...baixar], 5, { pularSePendente: true });
 
   // 3) Poda: O.S que saíram da lista ativa e não têm pendência local.
   //    Só quando a lista veio completa — o teto de LIMITE_LISTA_CAMPO pode
@@ -480,9 +487,13 @@ export function recalcularResumo(itens, resumoAnterior = null) {
     new Set([...itens.map(i => i.grupo), ...Object.keys(nomePorGrupo).map(Number)]),
   ).sort((a, b) => a - b);
 
+  // Só conta como respondido o que a UI mostra como marcado (sim/nao/na):
+  // um objeto de resposta vazio/inválido não pode "completar" grupo/checklist.
+  const temResposta = (i) => ['sim', 'nao', 'na'].includes(i?.resposta?.resposta);
+
   const grupos = numeros.map(g => {
     const doGrupo = itens.filter(i => i.grupo === g);
-    const resp = doGrupo.filter(i => i.resposta);
+    const resp = doGrupo.filter(temResposta);
     return {
       grupo: g,
       nome: nomePorGrupo[g] || `Grupo ${g}`,
@@ -492,7 +503,7 @@ export function recalcularResumo(itens, resumoAnterior = null) {
     };
   });
   const total = itens.length;
-  const respondidos = itens.filter(i => i.resposta).length;
+  const respondidos = itens.filter(temResposta).length;
   const inicio = grupos.find(g => g.grupo === 1);
   return {
     total,
