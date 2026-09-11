@@ -5,7 +5,7 @@ import {
   AlertTriangle, Check, Clock, CalendarClock, FileDown, LayoutGrid,
   FolderKanban, HardHat, Boxes, Trash2, Image as ImageIcon,
   Pencil, Building, Printer, ListChecks, RefreshCw, WifiOff, ChevronDown, Archive,
-  Upload, FileSpreadsheet,
+  Upload, FileSpreadsheet, Download,
 } from 'lucide-react';
 import { API_URL, apiFetch, erroDaResposta } from '../api';
 import ModalConfirmacao from '../components/ModalConfirmacao';
@@ -15,7 +15,7 @@ import { comprimirImagem } from '../utils/imagem';
 import { rotuloFator, unidadeContrato } from '../utils/contratos';
 import {
   isModoCampo, setModoCampo, isOffline, usarLocal,
-  prepararPacoteCampo, completarPacoteCampo, limparPacote,
+  prepararPacoteCampo, completarPacoteCampo, atualizarPacoteCampo, limparPacote,
   getOSLocal, getChecklistLocal, getListaLocal, getProdutosLocal, salvarDetalheLocal, salvarChecklistLocal,
   atualizarStatusLocal, atualizarRespostaLocal, recalcularResumo, atualizarListaLocal,
   enfileirarOperacao, enfileirarFoto, contarPendentes, descartarPendente,
@@ -2665,6 +2665,7 @@ function OrdensServico({ usuarioAtual }) {
   const [sincronizando, setSincronizando] = useState(false);
   const [progressoSync, setProgressoSync] = useState(null); // {enviadas, total} p/ feedback
   const [preparandoPacote, setPreparandoPacote] = useState(false);
+  const [baixandoNovas, setBaixandoNovas] = useState(false);
   const [modalPendenciasAberto, setModalPendenciasAberto] = useState(false);
   const [ultimoResumo, setUltimoResumo] = useState(null);
   // Pacote local ilegível/corrompido no Modo Campo: mostra cartão de
@@ -2754,11 +2755,12 @@ function OrdensServico({ usuarioAtual }) {
 
       // Após o sync manual com a fila zerada, o pacote local é re-sincronizado
       // com o servidor (download) para a tela não carregar resíduos locais
-      // (previews "não sincronizado", respostas já aplicadas). Com pendências
-      // restantes (falhas/conflitos) a cópia local é preservada para revisão.
+      // (previews "não sincronizado", respostas já aplicadas) e para pegar
+      // O.S novas atribuídas à equipe. Com pendências restantes
+      // (falhas/conflitos) a cópia local é preservada para revisão.
       const restantes = await contarPendentes();
       if (restantes.total === 0 && isModoCampo()) {
-        try { await completarPacoteCampo(); } catch { /* best-effort */ }
+        try { await atualizarPacoteCampo(); } catch { /* best-effort */ }
         if (osSelecionada != null) {
           try {
             const [d, c] = await Promise.all([
@@ -3150,16 +3152,45 @@ function OrdensServico({ usuarioAtual }) {
   // Recarrega o painel após operações no painel de execução.
   const recarregarLista = useCallback(() => { carregarDados(); }, [carregarDados]);
 
-  // Completa automaticamente O.S que faltaram no pacote assim que houver
-  // conexão (mantendo o Modo Campo ativo) — evita "não disponível offline"
-  // por pacote incompleto.
+  // Baixa O.S NOVAS atribuídas à equipe sem sair do Modo Campo (botão manual).
+  // Só adiciona ao pacote — nunca remove/sobrescreve O.S já baixadas.
+  const baixarNovasOs = useCallback(async () => {
+    if (isOffline()) {
+      mostrarToast('Sem conexão — conecte-se para baixar novas O.S.', 'error');
+      return;
+    }
+    if (baixandoNovas || sincronizando || preparandoPacote) return;
+    setBaixandoNovas(true);
+    try {
+      const { novas, faltantes } = await atualizarPacoteCampo();
+      if (novas > 0) {
+        carregarDados();
+        mostrarToast(
+          faltantes.length
+            ? `${novas} nova(s) O.S baixada(s) (${faltantes.length} incompleta(s) — complete ao reconectar).`
+            : `${novas} nova(s) O.S baixada(s) para o dispositivo.`,
+          faltantes.length ? 'error' : 'success',
+        );
+      } else {
+        mostrarToast('Nenhuma O.S nova para baixar.');
+      }
+    } catch {
+      mostrarToast('Falha ao baixar novas O.S. Tente novamente.', 'error');
+    } finally {
+      setBaixandoNovas(false);
+    }
+  }, [baixandoNovas, sincronizando, preparandoPacote, mostrarToast, carregarDados]);
+
+  // Baixa automaticamente O.S novas (e completa as que faltaram) assim que
+  // houver conexão, mantendo o Modo Campo ativo — evita "não disponível
+  // offline" por O.S atribuída depois da preparação ou pacote incompleto.
   useEffect(() => {
     if (!modoCampo || isOffline() || sincronizando || preparandoPacote) return;
     let cancelado = false;
     (async () => {
       try {
-        const r = await completarPacoteCampo();
-        if (!cancelado && r.completadas > 0) {
+        const r = await atualizarPacoteCampo();
+        if (!cancelado && r.novas > 0) {
           carregarDados();
         }
       } catch {
@@ -3642,6 +3673,18 @@ function OrdensServico({ usuarioAtual }) {
                 {sincronizando
                   ? (progressoSync ? `Sincronizando (${progressoSync.enviadas}${progressoSync.total ? `/${progressoSync.total}` : ''})...` : 'Sincronizando...')
                   : 'Sincronizar agora'}
+              </button>
+
+              {/* Baixar novas O.S: adiciona ao pacote O.S atribuídas após a
+                  preparação (não apaga nem sobrescreve o que já está baixado) */}
+              <button
+                onClick={baixarNovasOs}
+                disabled={preparandoPacote || sincronizando || baixandoNovas}
+                title="Baixar O.S novas atribuídas à equipe (mantém o que já está no dispositivo)"
+                className="flex items-center gap-2 px-4 py-2.5 rounded-xl border border-sky-300 bg-sky-50 text-sky-700 font-bold text-xs hover:bg-sky-100 transition-all cursor-pointer disabled:opacity-50 max-[639px]:px-5 max-[639px]:py-3 max-[639px]:text-[15px]"
+              >
+                <Download size={15} className={baixandoNovas ? 'animate-bounce' : ''} />
+                {baixandoNovas ? 'Baixando...' : 'Baixar novas O.S'}
               </button>
 
               {/* Pendências com erro/conflito: precisam de revisão/descarte */}

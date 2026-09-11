@@ -260,6 +260,50 @@ export async function infoPacote() {
   return dbGet('meta', 'pacote');
 }
 
+/**
+ * Baixa O.S NOVAS atribuídas à equipe sem sair do Modo Campo.
+ *
+ * O pacote é uma "fotografia" da preparação: uma O.S criada depois não existe
+ * no dispositivo. Esta função busca a lista atual no servidor e adiciona
+ * apenas as que ainda não estão no pacote — NUNCA remove nem sobrescreve O.S
+ * já baixadas (protege lançamentos/respostas pendentes do estado otimista).
+ */
+export async function atualizarPacoteCampo() {
+  const metaAnterior = await infoPacote();
+  const faltantesAntigos = (metaAnterior?.faltantes || []).filter(Boolean);
+
+  const lista = await _buscarListaOs();
+  const locais = await getListaLocal();
+  const idsLocais = new Set(locais.map(os => Number(os.id)));
+  const novas = (lista || []).filter(os => os?.id != null && !idsLocais.has(Number(os.id)));
+
+  // Lista primeiro: as novas aparecem no quadro mesmo se o detalhe falhar
+  // (a O.S fica marcada como incompleta e é completada depois).
+  for (const os of novas) await dbPut('os_lista', { ...os, os_id: Number(os.id) });
+
+  // Baixa as novas + re-tenta as que ficaram pendentes na preparação inicial
+  // (apenas as que ainda estão na lista do servidor).
+  const idsServidor = new Set((lista || []).map(os => Number(os.id)));
+  const baixar = [...new Set([
+    ...novas.map(os => Number(os.id)),
+    ...faltantesAntigos.filter(id => idsServidor.has(Number(id))),
+  ])];
+  if (baixar.length) await _baixarEmParalelo(baixar);
+
+  const faltantes = [];
+  for (const id of baixar) {
+    if (!(await dbGet('os', Number(id)))) faltantes.push(id);
+  }
+  await dbPut('meta', {
+    ...(metaAnterior || {}),
+    chave: 'pacote',
+    preparado_em: new Date().toISOString(),
+    quantidade: (await getListaLocal()).length,
+    faltantes,
+  });
+  return { novas: novas.length, faltantes };
+}
+
 export async function limparPacote() {
   await dbClearStore('os_lista');
   await dbClearStore('os');
