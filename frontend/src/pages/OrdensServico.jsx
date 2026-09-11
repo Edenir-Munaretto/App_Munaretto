@@ -15,11 +15,13 @@ import { comprimirImagem } from '../utils/imagem';
 import { rotuloFator, unidadeContrato } from '../utils/contratos';
 import {
   isModoCampo, setModoCampo, isOffline, usarLocal,
-  prepararPacoteCampo, atualizarPacoteCampo, limparPacote, salvarDonoPacote,
+  prepararPacoteCampo, atualizarPacoteCampo, limparPacote, salvarDonoPacote, infoPacote,
   getOSLocal, getChecklistLocal, getListaLocal, getProdutosLocal, salvarDetalheLocal, salvarChecklistLocal,
   atualizarStatusLocal, atualizarRespostaLocal, recalcularResumo, atualizarListaLocal,
   enfileirarOperacao, enfileirarFoto, contarPendentes, descartarPendente,
-  registrarFotoItemLocal, hidratarFotosPendentes, lancamentosPendentesDaFila,
+  registrarFotoItemLocal, hidratarFotosPendentes, hidratarFotosCache, getFotosCacheLocal,
+  cachearFotosChecklist,
+  lancamentosPendentesDaFila,
   salvarResponsavelLocal,
   registrarFalhaDeRede, testarConexao, estaEmWifi, armazenamentoOfflineDisponivel,
 } from '../offline/offline';
@@ -330,6 +332,8 @@ function TabChecklist({ osDetalhe, onAtualizado, mostrarToast, podeEditar }) {
           localAchado = true;
           // Reconstrói os previews de fotos ainda não sincronizadas.
           local = await hidratarFotosPendentes(local);
+          // Aplica as fotos do servidor já em cache (visualização offline).
+          local = await hidratarFotosCache(local);
           // Sana o resumo salvo se estiver defasado dos itens (respostas
           // locais vs. refresh do pacote): mantém gates/contagens coerentes.
           const itens = local.itens || [];
@@ -354,6 +358,8 @@ function TabChecklist({ osDetalhe, onAtualizado, mostrarToast, podeEditar }) {
               const dados = await res.json();
               setDados(dados);
               await salvarChecklistLocal(osDetalhe.id, dados);
+              // Cache das fotos do servidor (best-effort) para uso offline.
+              cachearFotosChecklist(osDetalhe.id, dados.itens || []).catch(() => {});
               localAchado = true;
             } else {
               mostrarToast(erroDaResposta(await res.json().catch(() => null), 'Erro ao carregar checklist.'), 'error');
@@ -1358,11 +1364,25 @@ function TabEvidencias({ osDetalhe, onAtualizado, mostrarToast, podeEditar, pode
   const [fotoParaExcluir, setFotoParaExcluir] = useState(null); // ID aguardando confirmação
 
   const carregarFotos = useCallback(async () => {
+    // Offline (Modo Campo): usa as fotos de evidência em cache no dispositivo.
+    if (isOffline()) {
+      try {
+        setFotos(await getFotosCacheLocal(osDetalhe.id));
+      } catch {
+        setFotos([]);
+      }
+      return;
+    }
     try {
       const res = await apiFetch(`${API_URL}/os/${osDetalhe.id}/fotos`);
       if (res.ok) setFotos(await res.json());
     } catch {
-      /* silencioso: aba apenas fica vazia */
+      // Sem conexão real: cai para o cache local (se houver).
+      try {
+        setFotos(await getFotosCacheLocal(osDetalhe.id));
+      } catch {
+        /* silencioso: aba apenas fica vazia */
+      }
     }
   }, [osDetalhe.id]);
 
@@ -2686,6 +2706,9 @@ function OrdensServico({ usuarioAtual }) {
   const [progressoSync, setProgressoSync] = useState(null); // {enviadas, total} p/ feedback
   const [preparandoPacote, setPreparandoPacote] = useState(false);
   const [baixandoNovas, setBaixandoNovas] = useState(false);
+  const [atualizandoAuto, setAtualizandoAuto] = useState(false);
+  const [ultimaAtualizacao, setUltimaAtualizacao] = useState(null);
+  const [agoraTick, setAgoraTick] = useState(() => Date.now());
   const [modalPendenciasAberto, setModalPendenciasAberto] = useState(false);
   const [ultimoResumo, setUltimoResumo] = useState(null);
   // Pacote local ilegível/corrompido no Modo Campo: mostra cartão de
@@ -3086,6 +3109,7 @@ function OrdensServico({ usuarioAtual }) {
       // Manual: refresh completo (re-baixa também os detalhes/checklists das
       // existentes sem pendência).
       const r = await atualizarPacoteCampo({ completo: true });
+      setUltimaAtualizacao(Date.now());
       const mudancas = r.novas + r.atualizadas + r.removidas;
       if (mudancas > 0) {
         carregarDados();
@@ -3125,6 +3149,7 @@ function OrdensServico({ usuarioAtual }) {
       setModoCampo(true);
       setModoCampoState(true);
       ultimoRefreshRef.current = Date.now();
+      setUltimaAtualizacao(Date.now());
       carregarDados();
       mostrarToast(
         faltantes.length
@@ -3148,14 +3173,18 @@ function OrdensServico({ usuarioAtual }) {
     const agora = Date.now();
     if (!forcar && agora - ultimoRefreshRef.current < REFRESH_MIN_MS) return null;
     ultimoRefreshRef.current = agora;
+    setAtualizandoAuto(true);
     try {
       const r = await atualizarPacoteCampo();
+      setUltimaAtualizacao(Date.now());
       // Só mexe na tela quando o quadro muda de composição (nova/removida);
       // atualizações silenciosas ficam no pacote e valem ao reabrir o painel.
       if (r.novas > 0 || r.removidas > 0) carregarDados();
       return r;
     } catch {
       return null;
+    } finally {
+      setAtualizandoAuto(false);
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [sincronizando, preparandoPacote, baixandoNovas, mostrarToast]);
@@ -3193,6 +3222,21 @@ function OrdensServico({ usuarioAtual }) {
       document.removeEventListener('visibilitychange', aoVoltar);
       clearInterval(timer);
     };
+  }, [modoCampo]);
+
+  // "Atualizado há X": usa o horário do último preparo/refresh do pacote e
+  // mantém o rótulo relativo atualizado a cada minuto.
+  useEffect(() => {
+    if (!modoCampo) return;
+    let cancelado = false;
+    infoPacote()
+      .then((meta) => {
+        const ts = meta?.preparado_em ? new Date(meta.preparado_em).getTime() : NaN;
+        if (!cancelado && !Number.isNaN(ts)) setUltimaAtualizacao(ts);
+      })
+      .catch(() => {});
+    const timer = setInterval(() => setAgoraTick(Date.now()), 60000);
+    return () => { cancelado = true; clearInterval(timer); };
   }, [modoCampo]);
 
   // --- Transição de status --------------------------------------------------
@@ -3438,6 +3482,15 @@ function OrdensServico({ usuarioAtual }) {
 
   const quadroVazio = ehGestor && !arrastando && colunasQuadro.length === 0;
 
+  // Rótulo relativo do último refresh do pacote (Modo Campo).
+  const labelAtualizacao = useMemo(() => {
+    if (!ultimaAtualizacao) return null;
+    const min = Math.max(0, Math.floor((agoraTick - ultimaAtualizacao) / 60000));
+    if (min < 1) return 'Atualizado agora';
+    if (min < 60) return `Atualizado há ${min} min`;
+    return `Atualizado há ${Math.floor(min / 60)} h`;
+  }, [ultimaAtualizacao, agoraTick]);
+
   if (loading) {
     return (
       <div className="flex items-center justify-center py-24">
@@ -3643,6 +3696,32 @@ function OrdensServico({ usuarioAtual }) {
     );
   }
 
+  // Usuário de campo offline sem pacote baixado: orienta a conectar (o
+  // auto-preparo baixa as O.S assim que houver internet).
+  if (!ehGestor && !modoCampo && offline && !preparandoPacote) {
+    return (
+      <div className="space-y-3">
+        <Toast toast={toast} />
+        <div className="rounded-2xl border-2 border-amber-200 bg-white p-6 max-w-lg mx-auto mt-10 text-center space-y-4">
+          <WifiOff size={36} className="text-amber-500 mx-auto" />
+          <div>
+            <h3 className="text-base font-extrabold text-slate-800">Modo Campo ainda não preparado</h3>
+            <p className="text-sm text-slate-500 mt-1.5">
+              Conecte-se à internet para baixar as O.S da sua equipe para este aparelho.
+              O download é automático assim que houver conexão.
+            </p>
+          </div>
+          <button
+            onClick={() => prepararModoCampoAutomatico()}
+            className="px-4 py-3 rounded-xl bg-amber-600 text-white text-sm font-bold hover:bg-amber-700 cursor-pointer"
+          >
+            Tentar baixar agora
+          </button>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className={`space-y-5 relative ${!ehTelaLarga ? 'os-celular' : ''}`}>
       <Toast toast={toast} />
@@ -3682,6 +3761,16 @@ function OrdensServico({ usuarioAtual }) {
                 <Download size={15} className={baixandoNovas ? 'animate-bounce' : ''} />
                 {baixandoNovas ? 'Atualizando...' : 'Atualizar O.S'}
               </button>
+
+              {/* Feedback do refresh contínuo + horário do último pacote */}
+              <span className="flex items-center gap-1 text-[10px] font-semibold text-slate-400 max-[639px]:hidden">
+                {atualizandoAuto ? (
+                  <>
+                    <RefreshCw size={11} className="animate-spin" />
+                    Atualizando…
+                  </>
+                ) : (labelAtualizacao || '')}
+              </span>
 
               {/* Pendências com erro/conflito: precisam de revisão/descarte */}
               {pendentes.revisao > 0 && (

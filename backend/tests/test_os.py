@@ -2004,13 +2004,46 @@ class TestCorrecoesLote1:
 
 
 class _S3Presigned:
-    """Stub do S3 para testes de listagem (presigned + delete)."""
+    """Stub do S3 para testes de listagem/download (presigned + get + delete)."""
 
     def delete_object(self, **kwargs):
         return {}
 
     def generate_presigned_url(self, *args, **kwargs):
         return "https://presigned.teste/url"
+
+    def get_object(self, Bucket=None, Key=None):
+        class _Corpo:
+            def read(self):
+                return b"conteudo-da-foto"
+
+        return {"Body": _Corpo()}
+
+
+def test_baixar_arquivo_foto_proxy(os_gestor_client, db_fake, monkeypatch):
+    """Proxy autenticado da evidência (Modo Campo cacheia as fotos offline)."""
+    _seed_cenario(db_fake)
+    monkeypatch.setattr("routers.os.get_s3_client", lambda: _S3Presigned())
+    monkeypatch.setattr("routers.os.bucket", lambda: "bucket-teste")
+    os_id = _criar_os(os_gestor_client).json()["id"]
+    db_fake._dados["os_fotos"].append(
+        {
+            "id": 77,
+            "os_id": os_id,
+            "nome_original": "evidencia.jpg",
+            "tamanho_bytes": 10,
+            "mime_type": "image/jpeg",
+            "bucket_key": "os_fotos/x.jpg",
+        }
+    )
+
+    resp = os_gestor_client.get(f"/api/os/{os_id}/fotos/77/arquivo")
+    assert resp.status_code == 200, resp.text
+    assert resp.headers["content-type"].startswith("image/jpeg")
+    assert resp.content == b"conteudo-da-foto"
+
+    # Foto de outra O.S / inexistente não vaza.
+    assert os_gestor_client.get(f"/api/os/{os_id}/fotos/999/arquivo").status_code == 404
 
 
 def test_upload_foto_com_magia_invalida_400(os_gestor_client, db_fake):

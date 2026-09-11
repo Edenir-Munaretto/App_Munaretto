@@ -121,17 +121,18 @@ online-only) · gestor edita raramente (conflitos raros).
 
 1. Suba backend e frontend localmente (frontend dev na porta 5199 com CORS
    liberado) ou use o deploy.
-2. Online: clique **"Preparar Modo Campo"** (deve baixar as O.S).
+2. Online: abra o módulo de O.S com um usuário `os_campo` — o **Modo Campo é
+   preparado automaticamente** (banner "Preparando Modo Campo...").
 3. DevTools → Network → **Offline**.
 4. Abra uma O.S aberta, preencha o checklist, tire fotos, play/pause, conclua.
-5. DevTools → Online: o sync roda sozinho; confirme no backend/site.
+5. DevTools → Online: use **"Sincronizar agora"** (Wi-Fi) e confirme no
+   backend/site. O pacote se mantém fresco sozinho (refresh contínuo).
 
 ---
 
 # Plano — Modo Campo contínuo (auto-preparo, refresh e limpeza)
 
-> **Status:** Fase 1 e parte da Fase 2 **implementadas** (11/09/2026);
-> Fase 3 pendente.
+> **Status:** Fases 1, 2 e 3 **implementadas** (11/09/2026).
 > **Decisões do usuário:** celulares **pessoais** (não compartilhados) ·
 > upload manual no Wi-Fi · refresh automático em qualquer conexão ·
 > logout **não** limpa os dados locais · troca de usuário no mesmo aparelho
@@ -223,16 +224,21 @@ online-only) · gestor edita raramente (conflitos raros).
 
 ---
 
-## Fase 3 — Refinamentos (opcionais, após 1 e 2)
+## Fase 3 — Refinamentos (IMPLEMENTADA)
 
 - **3.1 Cache das fotos já enviadas** no pacote (visualizar evidências
-  offline) — pendência já registrada neste documento (linha 115).
+  offline) — IMPLEMENTADO: store `fotos_cache` (IndexedDB v4), download das
+  fotos de item via proxy autenticado `GET /api/os/{id}/fotos/{foto_id}/arquivo`
+  (não depende de CORS do bucket), hidratação no checklist e fallback na aba
+  Evidências offline; poda/limpeza acompanham o pacote.
 - **3.2 Indicador "Atualizado há X min"** + feedback visual do refresh
-  automático.
-- **3.3 Estado "sem pacote offline"** com orientação para conectar (quando o
-  auto-preparo nunca completou).
-- **3.4 Documentação**: atualizar `PLANO_MODO_CAMPO.md` e `DIAGRAMA_OS.md`
-  para o modelo contínuo (o auto-upload fica **excluído** por decisão).
+  automático — IMPLEMENTADO no cabeçalho do Modo Campo (spinner durante o
+  refresh e rótulo relativo baseado em `meta.pacote.preparado_em`).
+- **3.3 Estado "sem pacote offline"** com orientação para conectar — IMPLEMENTADO
+  (card "Modo Campo ainda não preparado" com botão "Tentar baixar agora").
+- **3.4 Documentação** — IMPLEMENTADO: `DIAGRAMA_OS.md` e este documento
+  atualizados para o modelo contínuo (o auto-upload fica **excluído** por
+  decisão).
 
 ---
 

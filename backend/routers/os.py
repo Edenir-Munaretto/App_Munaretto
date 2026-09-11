@@ -2287,6 +2287,39 @@ def listar_fotos(os_id: int, usuario: UsuarioAutenticado = Depends(get_current_u
         raise HTTPException(status_code=500, detail="Erro ao listar fotos.") from None
 
 
+@router.get("/{os_id}/fotos/{foto_id}/arquivo", summary="Baixa o arquivo de uma evidência (proxy autenticado)")
+def baixar_foto_arquivo(
+    os_id: int, foto_id: int, usuario: UsuarioAutenticado = Depends(get_current_user), db=Depends(get_supabase)
+):
+    """Streaming da evidência pelo backend (mesma origem do app).
+
+    Usado pelo Modo Campo para cachear as fotos no dispositivo (visualização
+    offline) sem depender de CORS do bucket.
+    """
+    try:
+        os_data = _os_ou_404(db, os_id)
+        _garantir_acesso_os(db, usuario, os_data)
+        meta = db.table("os_fotos").select("*").eq("id", foto_id).eq("os_id", os_id).execute()
+        if not meta.data:
+            raise HTTPException(status_code=404, detail="Foto não encontrada nesta O.S.")
+        s3 = get_s3_client()
+        try:
+            corpo = s3.get_object(Bucket=bucket(), Key=meta.data[0]["bucket_key"])["Body"].read()
+        except Exception:
+            logger.exception("Erro ao baixar objeto %s do B2", meta.data[0]["bucket_key"])
+            raise HTTPException(status_code=502, detail="Não foi possível obter a foto no armazenamento.") from None
+        return Response(
+            content=corpo,
+            media_type=meta.data[0].get("mime_type") or "application/octet-stream",
+            headers={"Cache-Control": "private, max-age=86400"},
+        )
+    except HTTPException:
+        raise
+    except Exception:
+        logger.exception("Erro ao baixar foto %s da O.S %s", foto_id, os_id)
+        raise HTTPException(status_code=500, detail="Erro ao baixar foto.") from None
+
+
 @router.delete("/{os_id}/fotos/{foto_id}", summary="Exclui uma evidência fotográfica")
 def excluir_foto(
     os_id: int, foto_id: int, usuario: UsuarioAutenticado = Depends(get_current_user), db=Depends(get_supabase)

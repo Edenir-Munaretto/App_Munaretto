@@ -165,29 +165,30 @@ flowchart TD
 ```mermaid
 flowchart LR
     subgraph Base["BASE (online)"]
-        P["Preparar pacote<br/>lista + detalhes + checklist → IndexedDB"]
+        P["Auto-preparo + refresh contínuo<br/>novas O.S · atualizações · poda<br/>checklist + fotos em cache → IndexedDB"]
     end
     subgraph Campo["CAMPO (offline)"]
         F["Fila de operações (IndexedDB)<br/>checklist (1–5) · fotos (Blob)<br/>H.H. play/pause · status (cancelamento/…)<br/>+ reflexo otimista na lista/painel"]
     end
-    subgraph Retorno["RETORNO (online)"]
-        S["1. auto-sync (evento online)<br/>2. fotos primeiro: id local → id servidor<br/>3. lote /os/sincronizar (revalidado pelos gates)<br/>4. pendências: reenviar individual ou descartar"]
+    subgraph Retorno["RETORNO (online, Wi-Fi)"]
+        S["1. sync manual (Sincronizar agora)<br/>2. fotos primeiro: id local → id servidor<br/>3. lote /os/sincronizar (revalidado pelos gates)<br/>4. pendências: reenviar individual ou descartar"]
     end
 
-    Base -->|"baixa o pacote"| Campo
-    Campo -->|"volta à internet"| Retorno
+    Base -->|"pacote contínuo"| Campo
+    Campo -->|"volta ao Wi-Fi"| Retorno
+    Retorno -.->|"refresh do pacote"| Base
 ```
 
 ```
- BASE (online)            CAMPO (offline)                 RETORNO (online)
+ BASE (online)            CAMPO (offline)                 RETORNO (online/Wi-Fi)
 ┌────────────────┐   ┌────────────────────────┐   ┌──────────────────────────┐
-│ Preparar pcte  │   │ Ações → fila IndexedDB │   │ 1. auto-sync (online)    │
-│ (lista+detalhes│   │ · checklist grupos 1-5 │   │ 2. fotos primeiro: id    │
-│ +checklist) →  │──►│ · fotos (Blob local)   │──►│    local → id servidor   │
-│ IndexedDB      │   │ · H.H. play/pause      │   │ 3. lote /os/sincronizar  │
-└────────────────┘   │ · status (cancelamento/…)  │   │    (revalidado p/ gates) │
-                     │ · reflexo otimista na  │   │ 4. pendências: reenviar  │
-                     │   lista/painel         │   │    individual ou descartar
+│ Auto-preparo   │   │ Ações → fila IndexedDB │   │ 1. sync manual (Wi-Fi)   │
+│ + refresh      │   │ · checklist grupos 1-5 │   │ 2. fotos primeiro: id    │
+│ contínuo       │──►│ · fotos (Blob local)   │──►│    local → id servidor   │
+│ (novas, atual.,│   │ · H.H. play/pause      │   │ 3. lote /os/sincronizar  │
+│ poda, fotos)   │   │ · status (cancelamento/…)  │    (revalidado p/ gates) │
+│ → IndexedDB    │   │ · reflexo otimista na  │   │ 4. pendências: reenviar  │
+└────────────────┘   │   lista/painel         │   │    individual ou descartar
                      └────────────────────────┘   └──────────────────────────┘
 ```
 

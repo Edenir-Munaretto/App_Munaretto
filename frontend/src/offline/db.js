@@ -7,12 +7,13 @@
 //   - produtos    : catálogo de serviços (lançamento)  (keyPath: id)
 //   - fila        : operações aguardando sincronização (keyPath: id_local)
 //   - fotos       : evidências tiradas offline (Blob)  (keyPath: id_local)
+//   - fotos_cache : fotos do servidor em cache (Blob)  (keyPath: id)
 //   - meta        : metadados (pacote de campo etc.)   (keyPath: chave)
 
 const DB_NAME = 'munaretto-campo';
 // Incrementar em CADA mudança de schema (stores/índices). Migrações são por
 // bloco no onupgradeneeded (crie o bloco correspondente ao subir a versão).
-const DB_VERSION = 3;
+const DB_VERSION = 4;
 
 const STORES = {
   os: 'os_id',
@@ -21,6 +22,7 @@ const STORES = {
   produtos: 'id',
   fila: 'id_local',
   fotos: 'id_local',
+  fotos_cache: 'id',
   meta: 'chave',
 };
 

@@ -124,10 +124,51 @@ async function _baixarDetalheOs(id) {
 async function _baixarChecklistOs(id) {
   try {
     const cRes = await apiFetch(`${API_URL}/os/${id}/checklist`, { signal: AbortSignal.timeout(30000) });
-    if (cRes.ok) await salvarChecklistLocal(id, await cRes.json()); // store usa keyPath os_id
-    return cRes.ok;
+    if (!cRes.ok) return false;
+    const dados = await cRes.json();
+    await salvarChecklistLocal(id, dados);
+    // Cache das fotos de evidência (best-effort): permite visualizá-las offline.
+    await cachearFotosChecklist(id, dados.itens || []);
+    return true;
   } catch {
     return false;
+  }
+}
+
+/** Teto de fotos cacheadas por O.S (evita pacote gigante no celular). */
+const MAX_FOTOS_CACHE_POR_OS = 60;
+
+/** Baixa e guarda no dispositivo as fotos de evidência dos itens do checklist
+ * (via proxy autenticado do backend — não depende de CORS do bucket). */
+export async function cachearFotosChecklist(osId, itens) {
+  let restantes = MAX_FOTOS_CACHE_POR_OS;
+  for (const item of itens) {
+    for (const foto of item.fotos || []) {
+      if (restantes <= 0) return;
+      if (foto?.id == null) continue;
+      try {
+        if (await dbGet('fotos_cache', foto.id)) continue; // já em cache
+      } catch {
+        continue;
+      }
+      restantes -= 1;
+      try {
+        const res = await apiFetch(`${API_URL}/os/${osId}/fotos/${foto.id}/arquivo`, {
+          signal: AbortSignal.timeout(20000),
+        });
+        if (!res.ok) continue;
+        const blob = await res.blob();
+        await dbPut('fotos_cache', {
+          id: foto.id,
+          os_id: Number(osId),
+          blob,
+          mime_type: foto.mime_type || blob.type || 'image/jpeg',
+          nome_original: foto.nome_original || 'foto',
+        });
+      } catch {
+        /* best-effort: a foto segue disponível online */
+      }
+    }
   }
 }
 
@@ -357,6 +398,7 @@ export async function atualizarPacoteCampo({ completo = false } = {}) {
       await dbDel('os_lista', id);
       await dbDel('os', id);
       await dbDel('checklist', id);
+      await _removerFotosCacheDoOs(id);
       removidas += 1;
     }
   }
@@ -383,6 +425,7 @@ export async function limparPacote() {
   await dbClearStore('os');
   await dbClearStore('checklist');
   await dbClearStore('produtos');
+  await dbClearStore('fotos_cache');
   // Limpeza total (card de recuperação/troca de usuário): a fila e as fotos
   // pendentes saem junto para não vazarem para o próximo usuário do aparelho.
   await dbClearStore('fila');
@@ -642,6 +685,76 @@ export async function hidratarFotosPendentes(dados) {
     return { ...item, fotos: [...reais, ...locais] };
   });
   return { ...dados, itens };
+}
+
+// ---------------------------------------------------------------------------
+// Cache das fotos do servidor (visualização offline)
+// ---------------------------------------------------------------------------
+
+const _urlsFotosCache = new Map();
+
+function _urlFotoCache(foto) {
+  let url = _urlsFotosCache.get(foto.id);
+  if (!url && foto.blob) {
+    url = URL.createObjectURL(foto.blob);
+    _urlsFotosCache.set(foto.id, url);
+  }
+  return url || '';
+}
+
+/** Aplica as fotos do servidor em cache (URL de objeto) nos itens do
+ * checklist local — as fotos de item capturadas offline já vêm via
+ * `hidratarFotosPendentes`. */
+export async function hidratarFotosCache(dados) {
+  if (!dados?.itens?.length) return dados;
+  let cache = [];
+  try {
+    cache = await dbGetAll('fotos_cache');
+  } catch {
+    return dados;
+  }
+  if (!cache.length) return dados;
+  const porId = new Map(cache.map(f => [f.id, f]));
+  const itens = dados.itens.map(item => {
+    const fotos = item.fotos || [];
+    if (!fotos.length) return item;
+    const atualizadas = fotos.map(f => {
+      if (f?.pendente) return f;
+      const cached = porId.get(f.id);
+      if (!cached) return f;
+      const url = _urlFotoCache(cached);
+      return url ? { ...f, url_temporaria: url } : f;
+    });
+    return { ...item, fotos: atualizadas };
+  });
+  return { ...dados, itens };
+}
+
+/** Fotos do servidor em cache no dispositivo (com URL de objeto) — usado pela
+ * aba Evidências no Modo Campo. */
+export async function getFotosCacheLocal(osId) {
+  const todas = await dbGetAll('fotos_cache');
+  return todas
+    .filter(f => Number(f.os_id) === Number(osId))
+    .sort((a, b) => Number(a.id) - Number(b.id))
+    .map(f => ({
+      id: f.id,
+      nome_original: f.nome_original,
+      mime_type: f.mime_type,
+      url_temporaria: _urlFotoCache(f),
+    }));
+}
+
+/** Remove do cache as fotos de uma O.S (poda/troca de pacote). */
+async function _removerFotosCacheDoOs(osId) {
+  try {
+    const todas = await dbGetAll('fotos_cache');
+    for (const f of todas) {
+      if (Number(f.os_id) === Number(osId)) await dbDel('fotos_cache', f.id);
+    }
+  } catch {
+    /* best-effort */
+  }
 }
 
 export async function contarPendentes() {
