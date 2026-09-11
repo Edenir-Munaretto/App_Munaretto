@@ -3744,17 +3744,39 @@ function OrdensServico({ usuarioAtual }) {
               e refresh do pacote são automáticos */}
           {!ehGestor && modoCampo && (
             <>
-              {/* Sincronizar agora: envio manual das pendências (Wi-Fi) */}
+              {/* Sincronizar agora: envio manual das pendências (Wi-Fi). Fica
+                  destacado (badge + pulso) enquanto houver algo para enviar. */}
               <button
                 onClick={() => sincronizarAgora()}
                 disabled={preparandoPacote || sincronizando || baixandoNovas}
-                title="Enviar as pendências locais para o servidor (Wi-Fi)"
-                className="flex items-center gap-2 px-4 py-2.5 rounded-xl border border-primary-300 bg-primary-600 text-white font-bold text-xs hover:bg-primary-700 transition-all cursor-pointer disabled:opacity-50 max-[639px]:px-5 max-[639px]:py-3 max-[639px]:text-[15px]"
+                title={pendentes.total > 0
+                  ? `Enviar ${pendentes.total} pendência(s) para o servidor (Wi-Fi)`
+                  : 'Enviar as pendências locais para o servidor (Wi-Fi)'}
+                className={`flex items-center gap-2 px-4 py-2.5 rounded-xl border font-bold text-xs text-white transition-all cursor-pointer disabled:opacity-50 max-[639px]:px-5 max-[639px]:py-3 max-[639px]:text-[15px] ${
+                  pendentes.total > 0
+                    ? 'border-primary-300 bg-primary-600 hover:bg-primary-700 ring-2 ring-primary-300 ring-offset-1 shadow-lg shadow-primary-500/40'
+                    : 'border-primary-300 bg-primary-600 hover:bg-primary-700'
+                }`}
               >
                 <RefreshCw size={15} className={sincronizando ? 'animate-spin' : ''} />
                 {sincronizando
                   ? (progressoSync ? `Sincronizando (${progressoSync.enviadas}${progressoSync.total ? `/${progressoSync.total}` : ''})...` : 'Sincronizando...')
                   : 'Sincronizar agora'}
+                {pendentes.total > 0 && !sincronizando && (
+                  <span className={`relative ml-0.5 inline-flex items-center justify-center min-w-[18px] h-[18px] px-1 rounded-full text-[10px] font-black ${
+                    pendentes.revisao === pendentes.total
+                      ? 'bg-amber-400 text-amber-950'
+                      : 'bg-white text-primary-700'
+                  }`}>
+                    <span
+                      aria-hidden="true"
+                      className={`absolute inset-0 rounded-full animate-ping motion-reduce:animate-none opacity-60 ${
+                        pendentes.revisao === pendentes.total ? 'bg-amber-400' : 'bg-white'
+                      }`}
+                    />
+                    <span className="relative">{pendentes.total}</span>
+                  </span>
+                )}
               </button>
 
               {/* Atualizar O.S: refresh manual do pacote (o automático roda ao
