@@ -47,6 +47,12 @@ async function enviarFotos(fotos, resumo, mapaFotos, onProgress) {
         : `${API_URL}/os/${foto.os_id}/fotos${qs}`;
       const res = await apiFetch(url, { method: 'POST', body: fd, signal: AbortSignal.timeout(60000) });
       const data = await res.json().catch(() => null);
+      if (res.status === 401) {
+        // Sessão expirada (apiFetch já desloga): mantém a foto pendente para
+        // reenviar após novo login — não é erro do item.
+        onProgress?.(resumo);
+        return false;
+      }
       if (res.ok && data?.id) {
         mapaFotos[foto.id_local] = data.id;
         resumo.fotosEnviadas += 1;
@@ -114,6 +120,11 @@ async function enviarOperacoes(ops, mapaFotos, resumo, onProgress) {
         }),
       });
       const dados = await res.json().catch(() => null);
+      if (res.status === 401) {
+        // Sessão expirada (apiFetch já desloga): mantém as operações pendentes
+        // para reenviar após novo login — não são erros definitivos.
+        return false;
+      }
       if (!res.ok || !dados?.resultados) {
         // Lote inteiro recusado (validação/erro): marca os itens para não
         // perdê-los e encerra os lotes seguintes desta execução.

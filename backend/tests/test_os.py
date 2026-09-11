@@ -725,6 +725,33 @@ class TestMateriaisEPermissao:
         lista = gestor_os.get("/api/os/").json()
         assert len(lista) == 1
 
+    def test_campo_com_permissao_de_gestao_nao_ve_os_de_outra_equipe(self, client, os_gestor_client, db_fake):
+        """Permissão extra (dashboard/configuracoes) NÃO amplia o acesso do
+        usuário de campo às O.S de outras equipes."""
+        from tests.conftest import _criar_e_logar
+
+        _seed_cenario(db_fake)
+        # Mesmo funcionário 10 (equipe 100), mas com permissão extra de gestão.
+        campo = _criar_e_logar(
+            client,
+            db_fake,
+            96,
+            "Campo com Dashboard",
+            "campo.dash@munaretto.com",
+            "senhaDash123",
+            ["os_campo", "dashboard"],
+            funcionario_id=10,
+        )
+        propria = _criar_os(os_gestor_client, equipe_id=100).json()["id"]
+        alheia = _criar_os(os_gestor_client, equipe_id=200).json()["id"]
+        assert os_gestor_client.put(f"/api/os/{propria}/status", json={"novo_status": "aberta"}).status_code == 200
+        assert os_gestor_client.put(f"/api/os/{alheia}/status", json={"novo_status": "aberta"}).status_code == 200
+
+        lista = campo.get("/api/os/").json()
+        assert [o["id"] for o in lista] == [propria]
+        assert campo.get(f"/api/os/{alheia}").status_code == 403
+        assert campo.put(f"/api/os/{alheia}/status", json={"novo_status": "em_andamento"}).status_code == 403
+
     def test_campo_nao_acessa_cadastros_de_apoio(self, os_campo_client, db_fake):
         _seed_cenario(db_fake)
         # O catálogo de serviços é necessário ao campo (lançamento na O.S);

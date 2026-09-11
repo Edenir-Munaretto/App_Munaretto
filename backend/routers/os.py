@@ -21,7 +21,7 @@ import uuid
 from datetime import UTC, datetime, timedelta
 
 from fastapi import APIRouter, Depends, File, HTTPException, Query, Response, UploadFile
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, StreamingResponse
 from pydantic import BaseModel, Field, ValidationError, field_validator
 from starlette.background import BackgroundTask
 
@@ -104,8 +104,6 @@ VALIDADE_PRESIGNED_SEGUNDOS = 15 * 60
 # de duração para horários 'inicio'/'fim' carregados pelo sync.
 TOLERANCIA_RELOGIO_SEGUNDOS = 5 * 60
 MAX_DURACAO_BLOCO_HH = timedelta(hours=24)
-
-PERMISSOES_GESTOR = {"configuracoes", "dashboard", "os"}
 
 # ---------------------------------------------------------------------------
 # Schemas Pydantic
@@ -271,11 +269,6 @@ def _termo_busca_seguro(termo: str | None) -> str:
     return re.sub(r"[(),.%:;\"\\\[\]]", "", termo).strip()
 
 
-def _e_gestor(usuario: UsuarioAutenticado) -> bool:
-    """Gestores têm visão completa; usuários de campo veem apenas suas equipes."""
-    return any(p in PERMISSOES_GESTOR for p in (usuario.permissoes or []))
-
-
 def _e_gestor_os(usuario: UsuarioAutenticado) -> bool:
     """Gestor do módulo O.S: quem possui a permissão 'os'."""
     return "os" in (usuario.permissoes or [])
@@ -308,7 +301,7 @@ def _equipes_do_usuario(db, usuario: UsuarioAutenticado) -> list[int]:
 
 def _garantir_acesso_os(db, usuario: UsuarioAutenticado, os_data: dict) -> None:
     """Usuário de campo só pode acessar O.S da própria equipe."""
-    if _e_gestor(usuario):
+    if _e_gestor_os(usuario):
         return
     equipes_usuario = _equipes_do_usuario(db, usuario)
     if not equipes_usuario or os_data.get("equipe_id") not in equipes_usuario:
@@ -659,7 +652,7 @@ def listar_os(
 
         def _aplicar_filtros(q):
             # Permissão granular: usuário de campo só enxerga O.S das suas equipes.
-            if not _e_gestor(usuario):
+            if not _e_gestor_os(usuario):
                 equipes_usuario = _equipes_do_usuario(db, usuario)
                 if not equipes_usuario:
                     return None
@@ -2304,15 +2297,20 @@ def baixar_foto_arquivo(
             raise HTTPException(status_code=404, detail="Foto não encontrada nesta O.S.")
         s3 = get_s3_client()
         try:
-            corpo = s3.get_object(Bucket=bucket(), Key=meta.data[0]["bucket_key"])["Body"].read()
+            objeto = s3.get_object(Bucket=bucket(), Key=meta.data[0]["bucket_key"])
         except Exception:
             logger.exception("Erro ao baixar objeto %s do B2", meta.data[0]["bucket_key"])
             raise HTTPException(status_code=502, detail="Não foi possível obter a foto no armazenamento.") from None
-        return Response(
-            content=corpo,
-            media_type=meta.data[0].get("mime_type") or "application/octet-stream",
-            headers={"Cache-Control": "private, max-age=86400"},
-        )
+        corpo = objeto["Body"]
+        headers = {"Cache-Control": "private, max-age=86400"}
+        if objeto.get("ContentLength"):
+            headers["Content-Length"] = str(objeto["ContentLength"])
+        media_type = meta.data[0].get("mime_type") or "application/octet-stream"
+        # Streaming quando o corpo suporta (produção): evita carregar o arquivo
+        # inteiro na memória. Stubs de teste usam `read()` como fallback.
+        if hasattr(corpo, "iter_chunks"):
+            return StreamingResponse(corpo.iter_chunks(chunk_size=64 * 1024), media_type=media_type, headers=headers)
+        return Response(content=corpo.read(), media_type=media_type, headers=headers)
     except HTTPException:
         raise
     except Exception:

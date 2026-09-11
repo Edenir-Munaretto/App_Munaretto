@@ -4,7 +4,7 @@ import {
   Check, Clock, WifiOff, UserCheck, ShieldAlert,
 } from 'lucide-react';
 import {
-  listarPendentes, descartarPendente, responsavelLocal, estaEmWifi,
+  listarPendentes, descartarPendente, responsavelLocal, estaEmWifi, ultimoSync,
 } from '../offline/offline';
 import { sincronizar } from '../offline/sync';
 import ModalConfirmacao from './ModalConfirmacao';
@@ -96,6 +96,7 @@ function ModalPendenciasSync({
   const [reenviando, setReenviando] = useState([]);
   const [responsavel, setResponsavel] = useState(null);
   const [resumoLocal, setResumoLocal] = useState(null);
+  const [resumoSalvo, setResumoSalvo] = useState(null);
   const [avisoRede, setAvisoRede] = useState(null);
   const [erroAcao, setErroAcao] = useState(null);
   // Descarte exige confirmação — fotos podem ser a única evidência e operações
@@ -108,6 +109,7 @@ function ModalPendenciasSync({
     setFotos(p.fotos.sort(porData));
     setOperacoes(p.operacoes.sort(porData));
     setResponsavel(await responsavelLocal());
+    setResumoSalvo(await ultimoSync());
   };
 
   useEffect(() => {
@@ -119,7 +121,7 @@ function ModalPendenciasSync({
 
   if (!aberto) return null;
 
-  const resumo = resumoLocal || ultimoResumo || null;
+  const resumo = resumoLocal || ultimoResumo || resumoSalvo?.resumo || null;
   const conflitos = [
     ...fotos.filter(ehConflito).map(f => ({ tipo: 'foto', item: f })),
     ...operacoes.filter(ehConflito).map(op => ({ tipo: 'operacao', item: op })),
@@ -233,7 +235,7 @@ function ModalPendenciasSync({
               <span>
                 <b>{conflitos.length} conflito(s) permanente(s):</b> o servidor recusou estas operações
                 (ex.: a O.S foi concluída/cancelada por outra pessoa enquanto o tablet estava offline).
-                Elas nunca serão aplicadas — revise e descarte para liberar o Finalizar.
+                Elas nunca serão aplicadas — revise e descarte para liberar a sincronização.
               </span>
             </div>
           )}

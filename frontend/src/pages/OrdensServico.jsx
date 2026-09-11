@@ -17,10 +17,10 @@ import {
   isModoCampo, setModoCampo, isOffline, usarLocal,
   prepararPacoteCampo, atualizarPacoteCampo, limparPacote, salvarDonoPacote, infoPacote,
   getOSLocal, getChecklistLocal, getListaLocal, getProdutosLocal, salvarDetalheLocal, salvarChecklistLocal,
-  atualizarStatusLocal, atualizarRespostaLocal, recalcularResumo, atualizarListaLocal,
+  atualizarStatusLocal, atualizarRespostaLocal, recalcularResumo,
   enfileirarOperacao, enfileirarFoto, contarPendentes, descartarPendente,
   registrarFotoItemLocal, hidratarFotosPendentes, hidratarFotosCache, getFotosCacheLocal,
-  cachearFotosChecklist,
+  cachearFotosChecklist, salvarUltimoSync,
   lancamentosPendentesDaFila,
   salvarResponsavelLocal,
   registrarFalhaDeRede, testarConexao, estaEmWifi, armazenamentoOfflineDisponivel,
@@ -2708,6 +2708,7 @@ function OrdensServico({ usuarioAtual }) {
   const [baixandoNovas, setBaixandoNovas] = useState(false);
   const [atualizandoAuto, setAtualizandoAuto] = useState(false);
   const [ultimaAtualizacao, setUltimaAtualizacao] = useState(null);
+  const [erroRefresh, setErroRefresh] = useState(null);
   const [agoraTick, setAgoraTick] = useState(() => Date.now());
   const [modalPendenciasAberto, setModalPendenciasAberto] = useState(false);
   const [ultimoResumo, setUltimoResumo] = useState(null);
@@ -2717,6 +2718,8 @@ function OrdensServico({ usuarioAtual }) {
   // Auto-preparo (uma tentativa por sessão) e throttle do refresh contínuo.
   const autoPreparoRef = useRef(false);
   const ultimoRefreshRef = useRef(0);
+  // Evita refresh automático e manual rodando juntos (downloads concorrentes).
+  const pacoteEmAndamento = useRef(false);
 
   const toastTimerRef = useRef(null);
   const mostrarToast = useCallback((message, type = 'success', acao = null) => {
@@ -2758,6 +2761,7 @@ function OrdensServico({ usuarioAtual }) {
         });
       });
       setUltimoResumo(resumo);
+      salvarUltimoSync(resumo).catch(() => { /* diagnóstico best-effort */ });
       if (usuarioAtual?.nome) salvarResponsavelLocal(usuarioAtual.nome);
 
       // Auto-limpeza parcial (Modo Campo): respostas de checklist e transições
@@ -2998,9 +3002,6 @@ function OrdensServico({ usuarioAtual }) {
         if (desatualizada()) return;
         setTotalOs(total);
         setListaOs(prev => (reset ? pagina : [...prev, ...pagina]));
-        // Em Modo Campo mantém o quadro local espelhado: se a rede cair logo
-        // em seguida, a lista mostra o último estado visto online (A5).
-        if (isModoCampo()) atualizarListaLocal(pagina).catch(() => { /* best-effort */ });
       } else if (!desatualizada()) {
         mostrarToast('Erro ao carregar O.S.', 'error');
       }
@@ -3103,13 +3104,15 @@ function OrdensServico({ usuarioAtual }) {
       mostrarToast('Sem conexão — conecte-se para atualizar as O.S.', 'error');
       return;
     }
-    if (baixandoNovas || sincronizando || preparandoPacote) return;
+    if (baixandoNovas || sincronizando || preparandoPacote || pacoteEmAndamento.current) return;
     setBaixandoNovas(true);
+    pacoteEmAndamento.current = true;
     try {
       // Manual: refresh completo (re-baixa também os detalhes/checklists das
       // existentes sem pendência).
       const r = await atualizarPacoteCampo({ completo: true });
       setUltimaAtualizacao(Date.now());
+      setErroRefresh(null);
       const mudancas = r.novas + r.atualizadas + r.removidas;
       if (mudancas > 0) {
         carregarDados();
@@ -3125,6 +3128,7 @@ function OrdensServico({ usuarioAtual }) {
     } catch {
       mostrarToast('Falha ao atualizar as O.S. Tente novamente.', 'error');
     } finally {
+      pacoteEmAndamento.current = false;
       setBaixandoNovas(false);
     }
   }, [baixandoNovas, sincronizando, preparandoPacote, osSelecionada, mostrarToast, carregarDados]);
@@ -3170,20 +3174,25 @@ function OrdensServico({ usuarioAtual }) {
   // servidor + poda das encerradas sem pendência, com throttle.
   const refreshPacote = useCallback(async ({ forcar = false } = {}) => {
     if (!isModoCampo() || isOffline() || sincronizando || preparandoPacote || baixandoNovas) return null;
+    if (pacoteEmAndamento.current) return null;
     const agora = Date.now();
     if (!forcar && agora - ultimoRefreshRef.current < REFRESH_MIN_MS) return null;
     ultimoRefreshRef.current = agora;
+    pacoteEmAndamento.current = true;
     setAtualizandoAuto(true);
     try {
       const r = await atualizarPacoteCampo();
       setUltimaAtualizacao(Date.now());
+      setErroRefresh(null);
       // Só mexe na tela quando o quadro muda de composição (nova/removida);
       // atualizações silenciosas ficam no pacote e valem ao reabrir o painel.
       if (r.novas > 0 || r.removidas > 0) carregarDados();
       return r;
     } catch {
+      setErroRefresh('Falha ao atualizar o pacote — tentaremos novamente.');
       return null;
     } finally {
+      pacoteEmAndamento.current = false;
       setAtualizandoAuto(false);
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -3711,12 +3720,10 @@ function OrdensServico({ usuarioAtual }) {
               O download é automático assim que houver conexão.
             </p>
           </div>
-          <button
-            onClick={() => prepararModoCampoAutomatico()}
-            className="px-4 py-3 rounded-xl bg-amber-600 text-white text-sm font-bold hover:bg-amber-700 cursor-pointer"
-          >
-            Tentar baixar agora
-          </button>
+          <p className="flex items-center justify-center gap-1.5 text-xs font-bold text-amber-600">
+            <WifiOff size={13} />
+            Aguardando conexão…
+          </p>
         </div>
       </div>
     );
@@ -3769,6 +3776,11 @@ function OrdensServico({ usuarioAtual }) {
                     <RefreshCw size={11} className="animate-spin" />
                     Atualizando…
                   </>
+                ) : erroRefresh ? (
+                  <span className="flex items-center gap-1 text-amber-600" title={erroRefresh}>
+                    <AlertTriangle size={11} />
+                    {labelAtualizacao || 'Falha ao atualizar'}
+                  </span>
                 ) : (labelAtualizacao || '')}
               </span>
 

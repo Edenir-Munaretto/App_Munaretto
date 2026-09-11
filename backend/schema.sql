@@ -1022,6 +1022,8 @@ ALTER TABLE IF EXISTS ordens_servico
 -- com o mesmo (dispositivo, id_local); o backend devolve a resposta já gravada
 -- em vez de aplicar de novo (evita duplicar material, blocos de H.H. etc.).
 -- `dispositivo` é um uuid persistido no IndexedDB de cada tablet.
+-- Retenção: `scripts/limpar_sync_ops.py` remove registros com mais de N dias
+-- (padrão 30) — a tabela só é consultada na janela de reenvio do dia.
 -- ============================================================================
 CREATE TABLE IF NOT EXISTS sync_ops (
     id BIGSERIAL PRIMARY KEY,

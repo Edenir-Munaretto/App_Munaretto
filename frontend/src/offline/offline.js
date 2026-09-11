@@ -135,12 +135,42 @@ async function _baixarChecklistOs(id) {
   }
 }
 
-/** Teto de fotos cacheadas por O.S (evita pacote gigante no celular). */
+/** Teto de fotos cacheadas por O.S e no total (evita pacote gigante). */
 const MAX_FOTOS_CACHE_POR_OS = 60;
+const MAX_FOTOS_CACHE_TOTAL = 300;
+const TTL_FOTOS_CACHE_MS = 14 * 24 * 60 * 60 * 1000; // 14 dias
+
+/** Poda o cache global: remove expiradas (TTL) e o excedente mais antigo. */
+async function _podarFotosCache() {
+  try {
+    const todas = await dbGetAll('fotos_cache');
+    if (!todas.length) return;
+    const agora = Date.now();
+    const validas = [];
+    for (const f of todas) {
+      const em = Number(f.em) || 0;
+      if (em && agora - em > TTL_FOTOS_CACHE_MS) {
+        _revogarUrlFotoCache(f.id);
+        await dbDel('fotos_cache', f.id);
+      } else {
+        validas.push(f);
+      }
+    }
+    if (validas.length <= MAX_FOTOS_CACHE_TOTAL) return;
+    validas.sort((a, b) => (Number(a.em) || 0) - (Number(b.em) || 0));
+    for (const f of validas.slice(0, validas.length - MAX_FOTOS_CACHE_TOTAL)) {
+      _revogarUrlFotoCache(f.id);
+      await dbDel('fotos_cache', f.id);
+    }
+  } catch {
+    /* best-effort: poda nunca derruba o pacote */
+  }
+}
 
 /** Baixa e guarda no dispositivo as fotos de evidência dos itens do checklist
  * (via proxy autenticado do backend — não depende de CORS do bucket). */
 export async function cachearFotosChecklist(osId, itens) {
+  await _podarFotosCache();
   let restantes = MAX_FOTOS_CACHE_POR_OS;
   for (const item of itens) {
     for (const foto of item.fotos || []) {
@@ -164,6 +194,7 @@ export async function cachearFotosChecklist(osId, itens) {
           blob,
           mime_type: foto.mime_type || blob.type || 'image/jpeg',
           nome_original: foto.nome_original || 'foto',
+          em: Date.now(),
         });
       } catch {
         /* best-effort: a foto segue disponível online */
@@ -426,6 +457,7 @@ export async function limparPacote() {
   await dbClearStore('checklist');
   await dbClearStore('produtos');
   await dbClearStore('fotos_cache');
+  _revogarTodasUrlsCache();
   // Limpeza total (card de recuperação/troca de usuário): a fila e as fotos
   // pendentes saem junto para não vazarem para o próximo usuário do aparelho.
   await dbClearStore('fila');
@@ -465,15 +497,6 @@ export async function getListaLocal() {
     os && typeof os === 'object' && os.id != null && (os.codigo || os.obras?.nome),
   );
   return validos.sort((a, b) => String(b.created_at || '').localeCompare(String(a.created_at || '')));
-}
-
-/** Atualiza o quadro local com uma página vinda do servidor (Modo Campo
- * online → offline): merge por chave, nunca reduz o pacote baixado. */
-export async function atualizarListaLocal(pagina) {
-  for (const os of pagina || []) {
-    if (!os?.id) continue;
-    await dbPut('os_lista', { ...os, os_id: Number(os.id) });
-  }
 }
 
 /** Catálogo de serviços baixado no pacote de campo (lançamento offline). */
@@ -702,6 +725,23 @@ function _urlFotoCache(foto) {
   return url || '';
 }
 
+function _revogarUrlFotoCache(id) {
+  const url = _urlsFotosCache.get(id);
+  if (url) {
+    _urlsFotosCache.delete(id);
+    try { URL.revokeObjectURL(url); } catch { /* noop */ }
+  }
+}
+
+/** Revoga todas as URLs de objeto do cache (fotos do servidor e pendentes). */
+function _revogarTodasUrlsCache() {
+  for (const id of [..._urlsFotosCache.keys()]) _revogarUrlFotoCache(id);
+  for (const [chave, url] of [..._urlsFotosPendentes.entries()]) {
+    _urlsFotosPendentes.delete(chave);
+    try { URL.revokeObjectURL(url); } catch { /* noop */ }
+  }
+}
+
 /** Aplica as fotos do servidor em cache (URL de objeto) nos itens do
  * checklist local — as fotos de item capturadas offline já vêm via
  * `hidratarFotosPendentes`. */
@@ -750,7 +790,10 @@ async function _removerFotosCacheDoOs(osId) {
   try {
     const todas = await dbGetAll('fotos_cache');
     for (const f of todas) {
-      if (Number(f.os_id) === Number(osId)) await dbDel('fotos_cache', f.id);
+      if (Number(f.os_id) === Number(osId)) {
+        _revogarUrlFotoCache(f.id);
+        await dbDel('fotos_cache', f.id);
+      }
     }
   } catch {
     /* best-effort */
@@ -802,7 +845,7 @@ export async function descartarPendente(tipo, idLocal) {
 }
 
 // ---------------------------------------------------------------------------
-// Responsável local (quem preparou/sincronizou — tablet compartilhado)
+// Responsável local (quem preparou/sincronizou no aparelho)
 // ---------------------------------------------------------------------------
 
 export async function salvarResponsavelLocal(nome) {
@@ -811,6 +854,15 @@ export async function salvarResponsavelLocal(nome) {
 
 export async function responsavelLocal() {
   return dbGet('meta', 'responsavel');
+}
+
+/** Guarda o resumo da última sincronização (diagnóstico no aparelho). */
+export async function salvarUltimoSync(resumo) {
+  await dbPut('meta', { chave: 'ultimo_sync', em: new Date().toISOString(), resumo });
+}
+
+export async function ultimoSync() {
+  return dbGet('meta', 'ultimo_sync');
 }
 
 // ---------------------------------------------------------------------------
