@@ -336,6 +336,74 @@ class TestRelatoriosPdfObra:
         assert "DEM-1" not in texto  # cancelada não entra no filtro "ativas"
         assert "USC unit." in texto
 
+    def test_servicos_com_descricao_longa_mantem_grade_alinhada(self, os_gestor_client, db_fake):
+        """Descrição longa quebra na célula sem criar contorno isolado na linha."""
+        _seed_obra_com_os(db_fake)
+        nome_longo = (
+            "Execução de abertura de cava em rocha com uso controlado de explosivo "
+            "em terreno de alta dureza nas proximidades da rede primária energizada"
+        )
+        _inserir_produto(db_fake, 705, nome_longo, unidade="serv", codigo="LONGO-1")
+        _inserir_material(db_fake, 102, 705, 3, 2, 1.5, codigo="LONGO-1")
+
+        resp = os_gestor_client.get("/api/os/obras/501/servicos")
+        texto = self._texto_pdf(resp)
+        assert "explosivo" in texto
+        assert "energizada" in texto
+
+        import pymupdf
+
+        page = pymupdf.open(stream=resp.content, filetype="pdf")[0]
+        desenhos = page.get_drawings()
+
+        # Cada linha da grade é um retângulo com a largura total da tabela.
+        linhas_grade = [
+            d
+            for d in desenhos
+            if d.get("color") is not None and any(item[0] == "re" for item in d["items"]) and d["rect"].width > 300
+        ]
+        assert linhas_grade, "nenhuma linha da grade foi desenhada"
+        largura_tabela = linhas_grade[0]["rect"].width
+        assert all(abs(d["rect"].width - largura_tabela) < 1 for d in linhas_grade)
+        altura_max = max(d["rect"].height for d in linhas_grade)
+        assert altura_max > 14  # a descrição longa quebrou em mais de uma linha
+
+        # Não há segmento horizontal solto/curto (o antigo contorno isolado ao
+        # redor da descrição longa): as horizontais vêm dos retângulos de linha.
+        horizontais_soltos = [
+            abs(item[2].x - item[1].x)
+            for desenho in desenhos
+            if desenho.get("color") is not None
+            for item in desenho["items"]
+            if item[0] == "l" and abs(item[1].y - item[2].y) < 0.5 and abs(item[2].x - item[1].x) > 1
+        ]
+        assert all(abs(w - largura_tabela) < 1 for w in horizontais_soltos)
+
+        # Os separadores verticais cobrem a altura total da linha mais alta.
+        verticais = [
+            abs(item[2].y - item[1].y)
+            for desenho in desenhos
+            if desenho.get("color") is not None
+            for item in desenho["items"]
+            if item[0] == "l" and abs(item[1].x - item[2].x) < 0.5
+        ]
+        assert verticais
+        assert max(verticais) >= altura_max - 0.5
+
+    def test_relatorios_incluem_logo_e_dados_da_empresa(self, os_gestor_client, db_fake):
+        """Cabeçalho dos dois PDFs da obra leva a logo e os dados da empresa."""
+        _seed_obra_com_os(db_fake)
+        import pymupdf
+
+        for rota in ("relatorio", "servicos"):
+            resp = os_gestor_client.get(f"/api/os/obras/501/{rota}")
+            assert resp.status_code == 200, resp.text
+            doc = pymupdf.open(stream=resp.content, filetype="pdf")
+            texto = "\n".join(page.get_text() for page in doc)
+            assert "Munaretto Eletrificações Eireli - ME" in texto
+            assert "27.662.805/0001-57" in texto
+            assert any(page.get_images(full=True) for page in doc)
+
     def test_pdfs_da_obra_sem_os_geram_com_aviso(self, os_gestor_client, db_fake):
         _inserir_obra(db_fake, 502, "Obra Vazia")
         texto_rel = self._texto_pdf(os_gestor_client.get("/api/os/obras/502/relatorio"))

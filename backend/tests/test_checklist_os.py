@@ -355,6 +355,30 @@ def test_relatorio_pdf(os_gestor_client, db_fake):
     assert resp.content.startswith(b"%PDF")
 
 
+def test_relatorio_pdf_inclui_logo_e_dados_da_empresa(os_gestor_client, db_fake):
+    """Capa e páginas internas levam a logo; a capa mostra os dados da empresa."""
+    import pymupdf
+
+    from tests.test_os import _criar_os, _seed_cenario
+
+    _seed_cenario(db_fake)
+    _seed_modelos(db_fake)
+    os_id = _criar_os(os_gestor_client, equipe_id=100).json()["id"]
+    itens = _itens(os_gestor_client, os_id)
+    _responder_grupo(os_gestor_client, db_fake, os_id, itens, 1)
+    _responder_grupo(os_gestor_client, db_fake, os_id, itens, 2, resposta="na")
+
+    resp = os_gestor_client.get(f"/api/os/{os_id}/checklist/report")
+    assert resp.status_code == 200, resp.text
+
+    doc = pymupdf.open(stream=resp.content, filetype="pdf")
+    texto = "\n".join(page.get_text() for page in doc)
+    assert "Munaretto Eletrificações Eireli - ME" in texto
+    assert "27.662.805/0001-57" in texto
+    for page in doc:
+        assert page.get_images(full=True), f"logo ausente na página {page.number + 1}"
+
+
 def test_relatorio_pdf_fotos_em_grade_4_por_pagina(os_gestor_client, db_fake, monkeypatch):
     """8 fotos devem ocupar no máximo 2 páginas, alinhadas em grade 2x2,
     sem foto solta no rodapé (regressão do layout irregular anterior)."""
@@ -393,7 +417,8 @@ def test_relatorio_pdf_fotos_em_grade_4_por_pagina(os_gestor_client, db_fake, mo
     doc = pymupdf.open(stream=resp.content, filetype="pdf")
     fotos_por_pagina = []
     for pagina in doc:
-        imgs = [i["bbox"] for i in pagina.get_image_info()]
+        # Ignora a logo do cabeçalho (imagem estreita): só as fotos interessam.
+        imgs = [i["bbox"] for i in pagina.get_image_info() if i["bbox"][2] - i["bbox"][0] > 100]
         if imgs:
             fotos_por_pagina.append((pagina.number + 1, imgs))
 

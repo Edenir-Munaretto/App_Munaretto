@@ -11,26 +11,21 @@ import os
 
 from fpdf import FPDF
 
-from utils.pdf_base import _novo_caminho_temp
-
-# ---------------------------------------------------------------------------
-# Dados fixos da empresa (mesmos do modelo usado hoje).
-# ---------------------------------------------------------------------------
-
-RAZAO_SOCIAL = "Munaretto Eletrificações Eireli - ME"
-CNPJ = "27.662.805/0001-57"
-IE = "258.319.135"
-ENDERECO = "Rua Magdalena Savoldi, nº 1831 - São José"
-CIDADE_UF = "Concórdia/SC"
-CEP = "89.713-075"
-
-# Logo da empresa (mesmo ativo usado no modelo de O.S impresso).
-CAMINHO_LOGO = os.path.join(
-    os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
-    "templates",
-    "artes_construcao",
-    "logo.png",
+from utils.pdf_base import (
+    CAMINHO_LOGO,
+    CEP,
+    CIDADE_UF,
+    CNPJ,
+    ENDERECO,
+    IE,
+    RAZAO_SOCIAL,
+    _novo_caminho_temp,
 )
+
+# ---------------------------------------------------------------------------
+# Dados fixos da empresa: definidos em `pdf_base` (compartilhados com os
+# demais relatórios) e importados acima.
+# ---------------------------------------------------------------------------
 
 MESES = [
     "Janeiro", "Fevereiro", "Março", "Abril", "Maio", "Junho",

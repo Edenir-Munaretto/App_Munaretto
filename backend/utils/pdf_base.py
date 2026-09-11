@@ -4,6 +4,10 @@ Extraída da antiga `_RelatorioOS` (pdf_os.py) para que os novos relatórios
 (obra e serviços por obra) usem o mesmo padrão visual — header/rodapé
 slate-900, títulos de seção, quebra de texto e tabelas com zebra — sem
 duplicação. A `_RelatorioOS` passa a herdar desta base SEM mudança visual.
+
+O cabeçalho (faixa branca com a logo + dados da empresa e faixa escura com o
+título) é compartilhado com o checklist e a Carta de Término via
+`desenhar_cabecalho`/`desenhar_logo`.
 """
 
 import os
@@ -13,6 +17,25 @@ from fpdf import FPDF
 
 from utils.date_helpers import agora_fuso_brasil
 
+# ---------------------------------------------------------------------------
+# Dados fixos da empresa (mesmos usados na Carta de Término e no modelo de O.S)
+# ---------------------------------------------------------------------------
+
+RAZAO_SOCIAL = "Munaretto Eletrificações Eireli - ME"
+CNPJ = "27.662.805/0001-57"
+IE = "258.319.135"
+ENDERECO = "Rua Magdalena Savoldi, nº 1831 - São José"
+CIDADE_UF = "Concórdia/SC"
+CEP = "89.713-075"
+
+# Logo da empresa (mesmo ativo usado no modelo de O.S impresso).
+CAMINHO_LOGO = os.path.join(
+    os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
+    "templates",
+    "artes_construcao",
+    "logo.png",
+)
+
 
 def _novo_caminho_temp(prefixo: str, sufixo: str = ".pdf") -> str:
     """Caminho temporário ÚNICO (evita colisão entre requisições concorrentes
@@ -20,6 +43,73 @@ def _novo_caminho_temp(prefixo: str, sufixo: str = ".pdf") -> str:
     fd, caminho = tempfile.mkstemp(prefix=prefixo, suffix=sufixo)
     os.close(fd)
     return caminho
+
+
+def desenhar_logo(pdf: FPDF, x: float, y: float, altura: float) -> float:
+    """Desenha a logo da empresa mantendo a proporção do PNG.
+
+    Retorna a largura usada (0 quando o arquivo não existe).
+    """
+    largura = round(altura * 159 / 105, 1)  # proporção original do ativo
+    if not os.path.exists(CAMINHO_LOGO):
+        return 0
+    try:
+        import pymupdf
+
+        pix = pymupdf.Pixmap(CAMINHO_LOGO)
+        if pix.width > 0 and pix.height > 0:
+            largura = round(altura * pix.width / pix.height, 1)
+    except Exception:
+        pass  # sem PyMuPDF: usa a proporção padrão do ativo
+    pdf.image(CAMINHO_LOGO, x=x, y=y, w=largura, h=altura)
+    return largura
+
+
+def desenhar_cabecalho(pdf: FPDF, titulo: str, subtitulo: str = "") -> float:
+    """Faixa branca (logo + dados da empresa) + faixa escura (título).
+
+    Desenha em coordenadas absolutas a partir do topo da página e posiciona o
+    cursor abaixo do cabeçalho. Retorna o Y final.
+    """
+    largura_pagina = pdf.w
+    margem = pdf.l_margin
+    altura_logo = 14.0
+    largura_logo = desenhar_logo(pdf, margem, 3.5, altura_logo)
+
+    # Dados da empresa à direita da logo.
+    x_dados = margem + largura_logo + 6
+    largura_dados = largura_pagina - margem - x_dados
+    pdf.set_text_color(15, 23, 42)
+    pdf.set_font("Arial", "B", 8)
+    pdf.set_xy(x_dados, 4.5)
+    pdf.cell(largura_dados, 4.2, RAZAO_SOCIAL, align="R")
+    pdf.set_font("Arial", "", 7.5)
+    pdf.set_text_color(60, 60, 60)
+    pdf.set_xy(x_dados, 8.7)
+    pdf.cell(largura_dados, 4.2, f"CNPJ: {CNPJ}   |   IE: {IE}", align="R")
+    pdf.set_xy(x_dados, 12.9)
+    pdf.cell(largura_dados, 4.2, ENDERECO, align="R")
+    pdf.set_xy(x_dados, 17.1)
+    pdf.cell(largura_dados, 4.2, f"{CIDADE_UF} - CEP: {CEP}", align="R")
+
+    # Faixa escura com o título do documento.
+    altura_faixa = 22.0
+    y_faixa = 22.0
+    pdf.set_fill_color(15, 23, 42)
+    pdf.rect(0, y_faixa, largura_pagina, altura_faixa, "F")
+    pdf.set_text_color(255, 255, 255)
+    pdf.set_font("Arial", "B", 14)
+    pdf.set_xy(0, y_faixa + 1.5)
+    pdf.cell(largura_pagina, 9, titulo, align="C")
+    if subtitulo:
+        pdf.set_font("Arial", "", 9)
+        pdf.set_xy(0, y_faixa + 11)
+        pdf.cell(largura_pagina, 6, subtitulo, align="C")
+
+    y_final = y_faixa + altura_faixa + 4
+    pdf.set_y(y_final)
+    pdf.set_text_color(15, 23, 42)
+    return y_final
 
 
 class RelatorioBase(FPDF):
@@ -33,14 +123,7 @@ class RelatorioBase(FPDF):
     subtitulo_documento: str = "Munaretto & Co. - Controle de O.S"
 
     def header(self):
-        self.set_fill_color(15, 23, 42)  # slate-900, padrão visual do app
-        self.rect(0, 0, 210, 26, "F")
-        self.set_font("Arial", "B", 15)
-        self.set_text_color(255, 255, 255)
-        self.cell(0, 12, self.titulo_documento, ln=True, align="C")
-        self.set_font("Arial", "", 9)
-        self.cell(0, 6, self.subtitulo_documento, ln=True, align="C")
-        self.ln(6)
+        desenhar_cabecalho(self, self.titulo_documento, self.subtitulo_documento)
 
     def footer(self):
         self.set_y(-15)
@@ -150,24 +233,34 @@ class RelatorioBase(FPDF):
                 self._desenhar_cabecalho(nomes, larguras)
                 self.set_font("Arial", "", 8.5)
 
+            y_topo = self.get_y()
+            x_inicio = self.l_margin
+            largura_total = sum(larguras)
             preencher = i % 2 == 0
+
+            # Fundo zebra da linha inteira.
             if preencher:
                 self.set_fill_color(241, 245, 249)
-            y_topo = self.get_y()
-            x_atual = self.l_margin
+                self.rect(x_inicio, y_topo, largura_total, altura, "F")
+
+            # Grade em altura total: contorno da linha + separadores verticais.
+            # Assim a descrição longa quebra dentro da célula sem criar um
+            # contorno isolado e todas as colunas alinham na mesma altura.
+            self.rect(x_inicio, y_topo, largura_total, altura, "D")
+            x_sep = x_inicio
+            for w in larguras[:-1]:
+                x_sep += w
+                self.line(x_sep, y_topo, x_sep, y_topo + altura)
+
+            # Textos sem borda (a grade já foi desenhada), centralizados
+            # verticalmente quando a célula ocupa menos linhas que a mais alta.
+            x_col = x_inicio
             for partes, w in celulas:
-                x_col = x_atual
-                x_atual += w
-                if not partes:
-                    partes = [""]
-                total_partes = len(partes)
+                partes = partes or [""]
+                deslocamento = (altura - len(partes) * altura_linha) / 2
                 for j, parte in enumerate(partes):
-                    if total_partes == 1:
-                        borda = "1"
-                    elif j == total_partes - 1:
-                        borda = "LRB"
-                    else:
-                        borda = "LR"
-                    self.set_xy(x_col, y_topo + j * altura_linha)
-                    self.cell(w, altura_linha, f" {parte}", border=borda, fill=preencher)
+                    self.set_xy(x_col, y_topo + deslocamento + j * altura_linha)
+                    self.cell(w, altura_linha, f" {parte}")
+                x_col += w
+
             self.set_y(y_topo + altura)

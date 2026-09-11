@@ -17,6 +17,7 @@ import tempfile
 from fpdf import FPDF
 
 from utils.date_helpers import agora_fuso_brasil, em_fuso_brasil
+from utils.pdf_base import desenhar_cabecalho, desenhar_logo
 
 
 def _novo_caminho_temp(prefixo: str, sufixo: str = ".pdf") -> str:
@@ -85,10 +86,16 @@ class _PdfChecklist(FPDF):
     def header(self):
         if self.page_no() == 1:
             return
+        # Cabeçalho compacto das páginas internas: logo pequena + título.
+        desenhar_logo(self, self.l_margin, 4, 9.0)
         self.set_font("Arial", "B", 8)
         self.set_text_color(100, 116, 139)
-        self.cell(0, 6, "CHECKLIST DE EXECUÇÃO - ORDEM DE SERVIÇO", ln=True, align="C")
-        self.ln(2)
+        self.set_xy(0, 6.5)
+        self.cell(0, 5, "CHECKLIST DE EXECUÇÃO - ORDEM DE SERVIÇO", align="C")
+        self.set_draw_color(203, 213, 225)
+        self.set_line_width(0.3)
+        self.line(self.l_margin, 15, self.w - self.r_margin, 15)
+        self.set_y(self.t_margin)
 
     def footer(self):
         self.set_y(-15)
@@ -117,15 +124,9 @@ def _ext_foto(mime_type) -> str:
 def _capa(pdf: _PdfChecklist, os_data: dict, obra: dict, equipe_nome: str, equipe_numero: str, encarregado: str, membros: list):
     """Página 1: dados da O.S + membros da equipe."""
     pdf.add_page()
-    # Cabeçalho
-    pdf.set_fill_color(15, 23, 42)
-    pdf.rect(0, 0, LARGURA_PAGINA, 24, "F")
-    pdf.set_text_color(255, 255, 255)
-    pdf.set_font("Arial", "B", 15)
-    pdf.cell(0, 10, "ORDEM DE SERVIÇO", ln=True, align="C")
-    pdf.set_font("Arial", "", 9)
-    pdf.cell(0, 6, "CHECKLIST DE EXECUÇÃO", ln=True, align="C")
-    pdf.ln(8)
+    # Cabeçalho completo (logo + dados da empresa + título).
+    desenhar_cabecalho(pdf, "ORDEM DE SERVIÇO", "CHECKLIST DE EXECUÇÃO")
+    pdf.ln(1)
 
     cliente = (obra.get("clientes") or {}).get("nome") if isinstance(obra.get("clientes"), dict) else obra.get("clientes")
     cliente = cliente or obra.get("cliente_celesc") or ""

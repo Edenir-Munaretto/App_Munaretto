@@ -1873,6 +1873,22 @@ def test_relatorio_os_layout_sem_historico_e_mao_de_obra(os_gestor_client, db_fa
     assert "Evidências fotográficas" not in texto  # contagem de fotos removida
 
 
+def test_relatorio_os_inclui_logo_e_dados_da_empresa(os_gestor_client, db_fake):
+    """Cabeçalho do relatório de O.S leva a logo e os dados da empresa."""
+    import pymupdf
+
+    _seed_cenario(db_fake)
+    os_id = _criar_os(os_gestor_client).json()["id"]
+    resp = os_gestor_client.get(f"/api/os/{os_id}/pdf")
+    assert resp.status_code == 200, resp.text
+
+    doc = pymupdf.open(stream=resp.content, filetype="pdf")
+    texto = "\n".join(page.get_text() for page in doc)
+    assert "Munaretto Eletrificações Eireli - ME" in texto
+    assert "27.662.805/0001-57" in texto
+    assert any(page.get_images(full=True) for page in doc)
+
+
 def test_relatorio_os_unidade_ulv_para_linha_viva(os_gestor_client, db_fake):
     """Relatório de O.S do tipo linha viva usa a unidade ULV (não USC)."""
     import pymupdf
