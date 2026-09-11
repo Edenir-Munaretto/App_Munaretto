@@ -2742,6 +2742,11 @@ function OrdensServico({ usuarioAtual }) {
       const partes = [];
       if (enviadas > 0) partes.push(`${enviadas} sincronizado(s)`);
       if (removidas > 0) partes.push(`${removidas} removida(s) de O.S encerrada`);
+
+      // Fila zerada após o envio? (base para o atalho de finalizar e para o
+      // refresh do pacote logo abaixo).
+      const restantes = await contarPendentes();
+
       if (restamFalhas) {
         const resumosErros = [...new Set(resumo.falhas.slice(0, 3).map(f => f.erro))].join('\n');
         mostrarToast(
@@ -2750,7 +2755,15 @@ function OrdensServico({ usuarioAtual }) {
           { label: 'Ver pendências', onClick: () => setModalPendenciasAberto(true) },
         );
       } else if (partes.length) {
-        mostrarToast(partes.join('; ') + '.');
+        // Tudo enviado no Modo Campo: oferece a saída (sem finalizar sozinho).
+        if (isModoCampo() && restantes.total === 0) {
+          mostrarToast('Tudo sincronizado.', 'success', {
+            label: 'Finalizar Modo Campo',
+            onClick: () => setConfirmacaoFinalizarModoCampo(true),
+          });
+        } else {
+          mostrarToast(partes.join('; ') + '.');
+        }
       }
 
       // Após o sync manual com a fila zerada, o pacote local é re-sincronizado
@@ -2758,7 +2771,6 @@ function OrdensServico({ usuarioAtual }) {
       // (previews "não sincronizado", respostas já aplicadas) e para pegar
       // O.S novas atribuídas à equipe. Com pendências restantes
       // (falhas/conflitos) a cópia local é preservada para revisão.
-      const restantes = await contarPendentes();
       if (restantes.total === 0 && isModoCampo()) {
         try { await atualizarPacoteCampo(); } catch { /* best-effort */ }
         if (osSelecionada != null) {
@@ -2927,21 +2939,25 @@ function OrdensServico({ usuarioAtual }) {
     setProgressoSync(null);
     try {
       const totalInicial = (await contarPendentes()).total;
-      const resumo = await sincronizar((p) => {
-        setProgressoSync({
-          enviadas: p.fotosEnviadas + p.operacoesEnviadas,
-          total: totalInicial,
+      // Sem pendências: não roda o motor de sync de novo (nada a enviar) —
+      // vai direto para a limpeza e saída do Modo Campo.
+      if (totalInicial > 0) {
+        const resumo = await sincronizar((p) => {
+          setProgressoSync({
+            enviadas: p.fotosEnviadas + p.operacoesEnviadas,
+            total: totalInicial,
+          });
         });
-      });
-      setUltimoResumo(resumo);
-      if (resumo.falhas.length) {
-        setPendentes(await contarPendentes());
-        mostrarToast(
-          `Não foi possível finalizar: ${resumo.falhas.length} item(ns) com erro. Revise as pendências e tente novamente.`,
-          'error',
-          { label: 'Ver pendências', onClick: () => setModalPendenciasAberto(true) },
-        );
-        return;
+        setUltimoResumo(resumo);
+        if (resumo.falhas.length) {
+          setPendentes(await contarPendentes());
+          mostrarToast(
+            `Não foi possível finalizar: ${resumo.falhas.length} item(ns) com erro. Revise as pendências e tente novamente.`,
+            'error',
+            { label: 'Ver pendências', onClick: () => setModalPendenciasAberto(true) },
+          );
+          return;
+        }
       }
       if (usuarioAtual?.nome) salvarResponsavelLocal(usuarioAtual.nome);
       await limparPacote();
@@ -3662,17 +3678,28 @@ function OrdensServico({ usuarioAtual }) {
               não usa download offline/finalização de pacote local */}
           {!ehGestor && modoCampo && (
             <>
-              {/* Sincronizar agora: envio manual e único (sem auto-sync) */}
+              {/* Botão único do Modo Campo: com pendências sincroniza (e
+                  permanece); sem pendências vira a saída (finalizar e limpar). */}
               <button
-                onClick={() => sincronizarAgora()}
-                disabled={preparandoPacote || sincronizando}
-                title="Enviar as pendências locais para o servidor (Wi-Fi)"
-                className="flex items-center gap-2 px-4 py-2.5 rounded-xl border border-primary-300 bg-primary-600 text-white font-bold text-xs hover:bg-primary-700 transition-all cursor-pointer disabled:opacity-50 max-[639px]:px-5 max-[639px]:py-3 max-[639px]:text-[15px]"
+                onClick={pendentes.total > 0 ? () => sincronizarAgora() : finalizarModoCampo}
+                disabled={preparandoPacote || sincronizando || baixandoNovas}
+                title={pendentes.total > 0
+                  ? 'Enviar as pendências locais para o servidor (Wi-Fi)'
+                  : 'Encerrar o Modo Campo e apagar os dados locais do dispositivo'}
+                className={`flex items-center gap-2 px-4 py-2.5 rounded-xl border font-bold text-xs text-white transition-all cursor-pointer disabled:opacity-50 max-[639px]:px-5 max-[639px]:py-3 max-[639px]:text-[15px] ${
+                  pendentes.total > 0
+                    ? 'border-primary-300 bg-primary-600 hover:bg-primary-700'
+                    : 'border-emerald-300 bg-emerald-600 hover:bg-emerald-700'
+                }`}
               >
-                <RefreshCw size={15} className={sincronizando ? 'animate-spin' : ''} />
                 {sincronizando
-                  ? (progressoSync ? `Sincronizando (${progressoSync.enviadas}${progressoSync.total ? `/${progressoSync.total}` : ''})...` : 'Sincronizando...')
-                  : 'Sincronizar agora'}
+                  ? <RefreshCw size={15} className="animate-spin" />
+                  : pendentes.total > 0 ? <RefreshCw size={15} /> : <Check size={15} />}
+                {sincronizando
+                  ? (progressoSync
+                      ? `${pendentes.total > 0 ? 'Sincronizando' : 'Finalizando'} (${progressoSync.enviadas}${progressoSync.total ? `/${progressoSync.total}` : ''})...`
+                      : `${pendentes.total > 0 ? 'Sincronizando' : 'Finalizando'}...`)
+                  : pendentes.total > 0 ? 'Sincronizar agora' : 'Finalizar Modo Campo'}
               </button>
 
               {/* Baixar novas O.S: adiciona ao pacote O.S atribuídas após a
@@ -3698,21 +3725,6 @@ function OrdensServico({ usuarioAtual }) {
                   Pendências ({pendentes.revisao})
                 </button>
               )}
-
-              {/* Finalizar Modo Campo: único fluxo de saída (sincroniza e encerra) */}
-              <button
-                onClick={finalizarModoCampo}
-                disabled={preparandoPacote || sincronizando}
-                title="Sincronizar todas as pendências com a base e encerrar o Modo Campo (apaga os dados locais do dispositivo)"
-                className="flex items-center gap-2 px-4 py-2.5 rounded-xl border border-emerald-300 bg-emerald-600 text-white font-bold text-xs hover:bg-emerald-700 transition-all cursor-pointer disabled:opacity-50 max-[639px]:px-5 max-[639px]:py-3 max-[639px]:text-[15px]"
-              >
-                {sincronizando
-                  ? <RefreshCw size={15} className="animate-spin" />
-                  : <Check size={15} />}
-                {sincronizando
-                  ? (progressoSync ? `Finalizando (${progressoSync.enviadas}${progressoSync.total ? `/${progressoSync.total}` : ''})...` : 'Finalizando...')
-                  : 'Finalizar Modo Campo'}
-              </button>
             </>
           )}
 
@@ -4077,8 +4089,12 @@ function OrdensServico({ usuarioAtual }) {
       <ModalConfirmacao
         aberto={confirmacaoFinalizarModoCampo}
         titulo="Finalizar Modo Campo"
-        mensagem="Sincronizar todas as pendências com a base e encerrar o Modo Campo, apagando os dados locais deste dispositivo? (O tablet é da equipe.) Se houver itens com erro na sincronização, você poderá revisá-los antes de finalizar."
-        confirmarTexto="Sincronizar e finalizar"
+        mensagem={
+          pendentes.total === 0
+            ? 'Nada pendente. Encerrar o Modo Campo e apagar os dados locais deste dispositivo? (O tablet é da equipe.)'
+            : 'Sincronizar todas as pendências com a base e encerrar o Modo Campo, apagando os dados locais deste dispositivo? (O tablet é da equipe.) Se houver itens com erro na sincronização, você poderá revisá-los antes de finalizar.'
+        }
+        confirmarTexto={pendentes.total === 0 ? 'Finalizar e limpar' : 'Sincronizar e finalizar'}
         perigo
         loading={sincronizando}
         onConfirmar={confirmarFinalizarModoCampo}
