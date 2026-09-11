@@ -21,12 +21,12 @@ from utils.date_helpers import agora_fuso_brasil
 # Dados fixos da empresa (mesmos usados na Carta de Término e no modelo de O.S)
 # ---------------------------------------------------------------------------
 
-RAZAO_SOCIAL = "Munaretto Eletrificações Eireli - ME"
+RAZAO_SOCIAL = "MUNARETTO ELETRIFICAÇÕES LTDA"
 CNPJ = "27.662.805/0001-57"
 IE = "258.319.135"
-ENDERECO = "Rua Magdalena Savoldi, nº 1831 - São José"
-CIDADE_UF = "Concórdia/SC"
-CEP = "89.713-075"
+ENDERECO = "Rua Comandante Caleffi, 55"
+CIDADE_UF = "Santa Cruz - Concórdia/SC"
+CEP = "89.703-172"
 
 # Logo da empresa (mesmo ativo usado no modelo de O.S impresso).
 CAMINHO_LOGO = os.path.join(

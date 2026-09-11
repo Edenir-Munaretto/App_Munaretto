@@ -373,7 +373,7 @@ def test_relatorio_pdf_inclui_logo_e_dados_da_empresa(os_gestor_client, db_fake)
 
     doc = pymupdf.open(stream=resp.content, filetype="pdf")
     texto = "\n".join(page.get_text() for page in doc)
-    assert "Munaretto Eletrificações Eireli - ME" in texto
+    assert "MUNARETTO ELETRIFICAÇÕES LTDA" in texto
     assert "27.662.805/0001-57" in texto
     for page in doc:
         assert page.get_images(full=True), f"logo ausente na página {page.number + 1}"

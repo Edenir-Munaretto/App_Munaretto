@@ -400,7 +400,7 @@ class TestRelatoriosPdfObra:
             assert resp.status_code == 200, resp.text
             doc = pymupdf.open(stream=resp.content, filetype="pdf")
             texto = "\n".join(page.get_text() for page in doc)
-            assert "Munaretto Eletrificações Eireli - ME" in texto
+            assert "MUNARETTO ELETRIFICAÇÕES LTDA" in texto
             assert "27.662.805/0001-57" in texto
             assert any(page.get_images(full=True) for page in doc)
 
@@ -508,7 +508,7 @@ class TestTerminoObra:
         assert "SAIU" in texto
         assert "BALESTRO" in texto
         assert "Concórdia, 31 de Agosto de 2026." in texto
-        assert "Munaretto Eletrificações Eireli - ME" in texto
+        assert "MUNARETTO ELETRIFICAÇÕES LTDA" in texto
 
     def test_pdf_termino_sem_dados_gera_normal(self, os_gestor_client, db_fake):
         self._criar_obra_termino(db_fake)
