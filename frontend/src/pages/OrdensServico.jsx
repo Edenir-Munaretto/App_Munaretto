@@ -15,7 +15,7 @@ import { comprimirImagem } from '../utils/imagem';
 import { rotuloFator, unidadeContrato } from '../utils/contratos';
 import {
   isModoCampo, setModoCampo, isOffline, usarLocal,
-  prepararPacoteCampo, completarPacoteCampo, atualizarPacoteCampo, limparPacote,
+  prepararPacoteCampo, atualizarPacoteCampo, limparPacote, salvarDonoPacote,
   getOSLocal, getChecklistLocal, getListaLocal, getProdutosLocal, salvarDetalheLocal, salvarChecklistLocal,
   atualizarStatusLocal, atualizarRespostaLocal, recalcularResumo, atualizarListaLocal,
   enfileirarOperacao, enfileirarFoto, contarPendentes, descartarPendente,
@@ -84,6 +84,10 @@ const TRANSICOES_STATUS = {
 };
 
 const LIMITE_PAGINA = 100;
+// Modo Campo contínuo: throttle entre refreshes automáticos e intervalo do
+// refresh periódico (novas O.S + atualizações + poda das encerradas).
+const REFRESH_MIN_MS = 60 * 1000;
+const REFRESH_INTERVALO_MS = 4 * 60 * 1000;
 
 // Contratos INDEPENDENTES: cada contrato tem o SEU catálogo. Um serviço só
 // pertence ao catálogo do próprio tipo; legados (sem tipo) valem para todos.
@@ -2635,7 +2639,6 @@ function OrdensServico({ usuarioAtual }) {
   const [modalReabrir, setModalReabrir] = useState(null); // {os} — reabertura de encerrada (gestor)
   const [confirmacaoEncerrar, setConfirmacaoEncerrar] = useState(null); // {os, destino}
   const [confirmacaoExcluir, setConfirmacaoExcluir] = useState(null); // {os} — exclusão definitiva
-  const [confirmacaoFinalizarModoCampo, setConfirmacaoFinalizarModoCampo] = useState(false); // confirmação do Finalizar Modo Campo
   const [processando, setProcessando] = useState(false);
   const [draggingOsStatus, setDraggingOsStatus] = useState(null); // status do card sendo arrastado
 
@@ -2671,6 +2674,9 @@ function OrdensServico({ usuarioAtual }) {
   // Pacote local ilegível/corrompido no Modo Campo: mostra cartão de
   // recuperação (em vez de tela branca) com saída para o servidor.
   const [erroLeituraLocal, setErroLeituraLocal] = useState(false);
+  // Auto-preparo (uma tentativa por sessão) e throttle do refresh contínuo.
+  const autoPreparoRef = useRef(false);
+  const ultimoRefreshRef = useRef(0);
 
   const toastTimerRef = useRef(null);
   const mostrarToast = useCallback((message, type = 'success', acao = null) => {
@@ -2755,15 +2761,9 @@ function OrdensServico({ usuarioAtual }) {
           { label: 'Ver pendências', onClick: () => setModalPendenciasAberto(true) },
         );
       } else if (partes.length) {
-        // Tudo enviado no Modo Campo: oferece a saída (sem finalizar sozinho).
-        if (isModoCampo() && restantes.total === 0) {
-          mostrarToast('Tudo sincronizado.', 'success', {
-            label: 'Finalizar Modo Campo',
-            onClick: () => setConfirmacaoFinalizarModoCampo(true),
-          });
-        } else {
-          mostrarToast(partes.join('; ') + '.');
-        }
+        mostrarToast(
+          isModoCampo() && restantes.total === 0 ? 'Tudo sincronizado.' : partes.join('; ') + '.',
+        );
       }
 
       // Após o sync manual com a fila zerada, o pacote local é re-sincronizado
@@ -2857,123 +2857,11 @@ function OrdensServico({ usuarioAtual }) {
     };
   }, [sincronizarAgora, modoCampo]);
 
-  const alternarModoCampo = async () => {
-    if (offline) {
-      mostrarToast('Conecte-se à internet para preparar o Modo Campo.', 'error');
-      return;
-    }
-    // Sem armazenamento local (cookies/dados do site bloqueados) o pacote
-    // offline nem é gravado — bloqueia com orientação em vez de falhar no meio.
-    if (!armazenamentoOfflineDisponivel()) {
-      mostrarToast(
-        'Este navegador está bloqueando o armazenamento local. Libere cookies/dados do site para este endereço e recarregue para usar o Modo Campo.',
-        'error',
-      );
-      return;
-    }
-    setPreparandoPacote(true);
-    try {
-      const { quantidade, faltantes } = await prepararPacoteCampo();
-      if (usuarioAtual?.nome) await salvarResponsavelLocal(usuarioAtual.nome);
-      // Ativa o Modo Campo assim que o pacote principal está no dispositivo;
-      // completar eventuais faltantes é etapa complementar (nunca derruba).
-      setModoCampo(true);
-      setModoCampoState(true);
+  // (Preparação do Modo Campo agora é automática — ver auto-preparo/refresh
+  // mais abaixo, após `carregarDados`.)
 
-      let restantes = faltantes.length;
-      if (restantes > 0 && !isOffline()) {
-        try {
-          const r = await completarPacoteCampo();
-          restantes = r.restantes;
-        } catch {
-          /* mantém o aviso abaixo com as que faltaram */
-        }
-      }
-      mostrarToast(
-        restantes > 0
-          ? `Modo Campo pronto: ${quantidade} O.S (${restantes} incompletas — completam ao reconectar).`
-          : `Modo Campo pronto: ${quantidade} O.S baixadas para o dispositivo.`,
-        restantes > 0 ? 'error' : 'success',
-      );
-    } catch (e) {
-      const causa = (e && (e.message || e.detail)) || '';
-      mostrarToast(
-        causa ? `Falha ao preparar o Modo Campo: ${causa}` : 'Falha ao preparar o Modo Campo. Tente novamente.',
-        'error',
-      );
-    } finally {
-      setPreparandoPacote(false);
-    }
-  };
-
-  // Finalizar Modo Campo (único fluxo de saída): abre a confirmação; ao
-  // confirmar, sincroniza TODAS as pendências e encerra o Modo Campo,
-  // apagando os dados locais do dispositivo.
-  const finalizarModoCampo = async () => {
-    if (!modoCampo) return;
-    if (isOffline()) {
-      mostrarToast('Sem conexão — conecte-se à internet para finalizar o Modo Campo.', 'error');
-      return;
-    }
-    if (!estaEmWifi()) {
-      mostrarToast('Conecte-se ao Wi-Fi para finalizar o Modo Campo (evita travamentos em dados móveis).', 'error');
-      return;
-    }
-    if (sincronizando || preparandoPacote) return;
-    setConfirmacaoFinalizarModoCampo(true);
-  };
-
-  const confirmarFinalizarModoCampo = async () => {
-    setConfirmacaoFinalizarModoCampo(false);
-    if (!modoCampo) return;
-    if (isOffline()) {
-      mostrarToast('Sem conexão — conecte-se à internet para finalizar o Modo Campo.', 'error');
-      return;
-    }
-    if (!estaEmWifi()) {
-      mostrarToast('Conecte-se ao Wi-Fi para finalizar o Modo Campo (evita travamentos em dados móveis).', 'error');
-      return;
-    }
-    if (sincronizando || preparandoPacote) return;
-    setSincronizando(true);
-    setProgressoSync(null);
-    try {
-      const totalInicial = (await contarPendentes()).total;
-      // Sem pendências: não roda o motor de sync de novo (nada a enviar) —
-      // vai direto para a limpeza e saída do Modo Campo.
-      if (totalInicial > 0) {
-        const resumo = await sincronizar((p) => {
-          setProgressoSync({
-            enviadas: p.fotosEnviadas + p.operacoesEnviadas,
-            total: totalInicial,
-          });
-        });
-        setUltimoResumo(resumo);
-        if (resumo.falhas.length) {
-          setPendentes(await contarPendentes());
-          mostrarToast(
-            `Não foi possível finalizar: ${resumo.falhas.length} item(ns) com erro. Revise as pendências e tente novamente.`,
-            'error',
-            { label: 'Ver pendências', onClick: () => setModalPendenciasAberto(true) },
-          );
-          return;
-        }
-      }
-      if (usuarioAtual?.nome) salvarResponsavelLocal(usuarioAtual.nome);
-      await limparPacote();
-      setModoCampo(false);
-      setModoCampoState(false);
-      setPendentes({ operacoes: 0, fotos: 0, total: 0, revisao: 0 });
-      setUltimoResumo(null);
-      carregarDados();
-      mostrarToast('Modo Campo finalizado: pendências sincronizadas e dados locais apagados.');
-    } catch {
-      mostrarToast('Falha ao finalizar o Modo Campo. Tente novamente.', 'error');
-    } finally {
-      setSincronizando(false);
-      setProgressoSync(null);
-    }
-  };
+  // (Limpeza total agora só no card de recuperação: "Limpar dados locais
+  // deste aparelho" — o Modo Campo é contínuo.)
 
   // Debounce da busca: só consulta o servidor após 350ms sem digitar.
   const [buscaAplicada, setBuscaAplicada] = useState('');
@@ -3168,54 +3056,127 @@ function OrdensServico({ usuarioAtual }) {
   // Recarrega o painel após operações no painel de execução.
   const recarregarLista = useCallback(() => { carregarDados(); }, [carregarDados]);
 
-  // Baixa O.S NOVAS atribuídas à equipe sem sair do Modo Campo (botão manual).
-  // Só adiciona ao pacote — nunca remove/sobrescreve O.S já baixadas.
-  const baixarNovasOs = useCallback(async () => {
+  // Atualização manual do pacote (botão "Atualizar O.S"): novas O.S,
+  // atualizações do servidor e poda das encerradas sem pendência.
+  const atualizarOs = useCallback(async () => {
     if (isOffline()) {
-      mostrarToast('Sem conexão — conecte-se para baixar novas O.S.', 'error');
+      mostrarToast('Sem conexão — conecte-se para atualizar as O.S.', 'error');
       return;
     }
     if (baixandoNovas || sincronizando || preparandoPacote) return;
     setBaixandoNovas(true);
     try {
-      const { novas, faltantes } = await atualizarPacoteCampo();
-      if (novas > 0) {
+      // Manual: refresh completo (re-baixa também os detalhes/checklists das
+      // existentes sem pendência).
+      const r = await atualizarPacoteCampo({ completo: true });
+      const mudancas = r.novas + r.atualizadas + r.removidas;
+      if (mudancas > 0) {
         carregarDados();
-        mostrarToast(
-          faltantes.length
-            ? `${novas} nova(s) O.S baixada(s) (${faltantes.length} incompleta(s) — complete ao reconectar).`
-            : `${novas} nova(s) O.S baixada(s) para o dispositivo.`,
-          faltantes.length ? 'error' : 'success',
-        );
+        if (osSelecionada != null) setVersaoPainel(v => v + 1);
+        const partes = [];
+        if (r.novas) partes.push(`${r.novas} nova(s)`);
+        if (r.atualizadas) partes.push(`${r.atualizadas} atualizada(s)`);
+        if (r.removidas) partes.push(`${r.removidas} removida(s)`);
+        mostrarToast(`O.S atualizadas: ${partes.join(', ')}.`, r.faltantes.length ? 'error' : 'success');
       } else {
-        mostrarToast('Nenhuma O.S nova para baixar.');
+        mostrarToast('Tudo atualizado.');
       }
     } catch {
-      mostrarToast('Falha ao baixar novas O.S. Tente novamente.', 'error');
+      mostrarToast('Falha ao atualizar as O.S. Tente novamente.', 'error');
     } finally {
       setBaixandoNovas(false);
     }
-  }, [baixandoNovas, sincronizando, preparandoPacote, mostrarToast, carregarDados]);
+  }, [baixandoNovas, sincronizando, preparandoPacote, osSelecionada, mostrarToast, carregarDados]);
 
-  // Baixa automaticamente O.S novas (e completa as que faltaram) assim que
-  // houver conexão, mantendo o Modo Campo ativo — evita "não disponível
-  // offline" por O.S atribuída depois da preparação ou pacote incompleto.
-  useEffect(() => {
-    if (!modoCampo || isOffline() || sincronizando || preparandoPacote) return;
-    let cancelado = false;
-    (async () => {
-      try {
-        const r = await atualizarPacoteCampo();
-        if (!cancelado && r.novas > 0) {
-          carregarDados();
-        }
-      } catch {
-        /* silencioso: tentará novamente na próxima detecção de conexão */
-      }
-    })();
-    return () => { cancelado = true; };
+  // Auto-preparo do Modo Campo (usuário de campo): baixa o pacote assim que
+  // entra no módulo com internet — sem botão "Preparar". Uma tentativa por
+  // sessão; se falhar, o efeito abaixo libera nova tentativa ao reconectar.
+  const prepararModoCampoAutomatico = useCallback(async () => {
+    if (isModoCampo() || isOffline() || sincronizando || preparandoPacote) return false;
+    if (!armazenamentoOfflineDisponivel()) {
+      mostrarToast(
+        'Este navegador está bloqueando o armazenamento local. Libere cookies/dados do site para este endereço e recarregue para usar o Modo Campo.',
+        'error',
+      );
+      return false;
+    }
+    setPreparandoPacote(true);
+    try {
+      const { quantidade, faltantes } = await prepararPacoteCampo();
+      if (usuarioAtual?.nome) await salvarResponsavelLocal(usuarioAtual.nome);
+      await salvarDonoPacote(usuarioAtual);
+      setModoCampo(true);
+      setModoCampoState(true);
+      ultimoRefreshRef.current = Date.now();
+      carregarDados();
+      mostrarToast(
+        faltantes.length
+          ? `Modo Campo pronto: ${quantidade} O.S (${faltantes.length} incompletas — completam ao reconectar).`
+          : `Modo Campo pronto: ${quantidade} O.S no dispositivo.`,
+        faltantes.length ? 'error' : 'success',
+      );
+      return true;
+    } catch {
+      return false; // tenta novamente na próxima conexão
+    } finally {
+      setPreparandoPacote(false);
+    }
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [modoCampo, offline, sincronizando, preparandoPacote]);
+  }, [sincronizando, preparandoPacote, usuarioAtual?.id, usuarioAtual?.nome, mostrarToast]);
+
+  // Refresh contínuo do pacote (qualquer conexão): novas O.S + atualizações do
+  // servidor + poda das encerradas sem pendência, com throttle.
+  const refreshPacote = useCallback(async ({ forcar = false } = {}) => {
+    if (!isModoCampo() || isOffline() || sincronizando || preparandoPacote || baixandoNovas) return null;
+    const agora = Date.now();
+    if (!forcar && agora - ultimoRefreshRef.current < REFRESH_MIN_MS) return null;
+    ultimoRefreshRef.current = agora;
+    try {
+      const r = await atualizarPacoteCampo();
+      // Só mexe na tela quando o quadro muda de composição (nova/removida);
+      // atualizações silenciosas ficam no pacote e valem ao reabrir o painel.
+      if (r.novas > 0 || r.removidas > 0) carregarDados();
+      return r;
+    } catch {
+      return null;
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [sincronizando, preparandoPacote, baixandoNovas, mostrarToast]);
+
+  // Auto-preparo no primeiro acesso online do usuário de campo (uma vez por
+  // sessão; se falhar, libera o ref para tentar de novo no próximo gatilho).
+  // Sem `preparandoPacote` nas deps: evita retry imediato em falha persistente.
+  useEffect(() => {
+    if (ehGestor || isModoCampo() || isOffline() || preparandoPacote) return;
+    if (autoPreparoRef.current) return;
+    autoPreparoRef.current = true;
+    prepararModoCampoAutomatico().then((ok) => {
+      if (!ok && !isModoCampo()) autoPreparoRef.current = false;
+    });
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [ehGestor, offline, modoCampo]);
+
+  // Refresh contínuo: ao reconectar, ao voltar ao app e a cada 4 min.
+  const refreshPacoteRef = useRef(refreshPacote);
+  useEffect(() => { refreshPacoteRef.current = refreshPacote; }, [refreshPacote]);
+  useEffect(() => {
+    if (!modoCampo) return;
+    const aoVoltar = () => {
+      if (typeof document !== 'undefined' && document.visibilityState === 'hidden') return;
+      refreshPacoteRef.current();
+    };
+    window.addEventListener('focus', aoVoltar);
+    window.addEventListener('online', aoVoltar);
+    document.addEventListener('visibilitychange', aoVoltar);
+    const timer = setInterval(() => refreshPacoteRef.current(), REFRESH_INTERVALO_MS);
+    refreshPacoteRef.current();
+    return () => {
+      window.removeEventListener('focus', aoVoltar);
+      window.removeEventListener('online', aoVoltar);
+      document.removeEventListener('visibilitychange', aoVoltar);
+      clearInterval(timer);
+    };
+  }, [modoCampo]);
 
   // --- Transição de status --------------------------------------------------
 
@@ -3674,44 +3635,33 @@ function OrdensServico({ usuarioAtual }) {
           <span className="text-sm text-slate-400 font-semibold">{totalOs} O.S no total{listaOs.length < totalOs ? ` (${listaOs.length} carregadas)` : ''}</span>
         </div>
         <div className="flex items-center gap-2 flex-wrap">
-          {/* Modo Campo: exclusivo do usuário de campo (os_campo) — o gestor
-              não usa download offline/finalização de pacote local */}
+          {/* Modo Campo: exclusivo do usuário de campo (os_campo) — preparação
+              e refresh do pacote são automáticos */}
           {!ehGestor && modoCampo && (
             <>
-              {/* Botão único do Modo Campo: com pendências sincroniza (e
-                  permanece); sem pendências vira a saída (finalizar e limpar). */}
+              {/* Sincronizar agora: envio manual das pendências (Wi-Fi) */}
               <button
-                onClick={pendentes.total > 0 ? () => sincronizarAgora() : finalizarModoCampo}
+                onClick={() => sincronizarAgora()}
                 disabled={preparandoPacote || sincronizando || baixandoNovas}
-                title={pendentes.total > 0
-                  ? 'Enviar as pendências locais para o servidor (Wi-Fi)'
-                  : 'Encerrar o Modo Campo e apagar os dados locais do dispositivo'}
-                className={`flex items-center gap-2 px-4 py-2.5 rounded-xl border font-bold text-xs text-white transition-all cursor-pointer disabled:opacity-50 max-[639px]:px-5 max-[639px]:py-3 max-[639px]:text-[15px] ${
-                  pendentes.total > 0
-                    ? 'border-primary-300 bg-primary-600 hover:bg-primary-700'
-                    : 'border-emerald-300 bg-emerald-600 hover:bg-emerald-700'
-                }`}
+                title="Enviar as pendências locais para o servidor (Wi-Fi)"
+                className="flex items-center gap-2 px-4 py-2.5 rounded-xl border border-primary-300 bg-primary-600 text-white font-bold text-xs hover:bg-primary-700 transition-all cursor-pointer disabled:opacity-50 max-[639px]:px-5 max-[639px]:py-3 max-[639px]:text-[15px]"
               >
+                <RefreshCw size={15} className={sincronizando ? 'animate-spin' : ''} />
                 {sincronizando
-                  ? <RefreshCw size={15} className="animate-spin" />
-                  : pendentes.total > 0 ? <RefreshCw size={15} /> : <Check size={15} />}
-                {sincronizando
-                  ? (progressoSync
-                      ? `${pendentes.total > 0 ? 'Sincronizando' : 'Finalizando'} (${progressoSync.enviadas}${progressoSync.total ? `/${progressoSync.total}` : ''})...`
-                      : `${pendentes.total > 0 ? 'Sincronizando' : 'Finalizando'}...`)
-                  : pendentes.total > 0 ? 'Sincronizar agora' : 'Finalizar Modo Campo'}
+                  ? (progressoSync ? `Sincronizando (${progressoSync.enviadas}${progressoSync.total ? `/${progressoSync.total}` : ''})...` : 'Sincronizando...')
+                  : 'Sincronizar agora'}
               </button>
 
-              {/* Baixar novas O.S: adiciona ao pacote O.S atribuídas após a
-                  preparação (não apaga nem sobrescreve o que já está baixado) */}
+              {/* Atualizar O.S: refresh manual do pacote (o automático roda ao
+                  reconectar/voltar ao app e a cada 4 min) */}
               <button
-                onClick={baixarNovasOs}
+                onClick={atualizarOs}
                 disabled={preparandoPacote || sincronizando || baixandoNovas}
-                title="Baixar O.S novas atribuídas à equipe (mantém o que já está no dispositivo)"
+                title="Atualizar o pacote local (novas O.S, mudanças do servidor e remoção das encerradas)"
                 className="flex items-center gap-2 px-4 py-2.5 rounded-xl border border-sky-300 bg-sky-50 text-sky-700 font-bold text-xs hover:bg-sky-100 transition-all cursor-pointer disabled:opacity-50 max-[639px]:px-5 max-[639px]:py-3 max-[639px]:text-[15px]"
               >
                 <Download size={15} className={baixandoNovas ? 'animate-bounce' : ''} />
-                {baixandoNovas ? 'Baixando...' : 'Baixar novas O.S'}
+                {baixandoNovas ? 'Atualizando...' : 'Atualizar O.S'}
               </button>
 
               {/* Pendências com erro/conflito: precisam de revisão/descarte */}
@@ -3728,17 +3678,12 @@ function OrdensServico({ usuarioAtual }) {
             </>
           )}
 
-          {!ehGestor && !modoCampo && (
-            /* Preparar Modo Campo: baixa o pacote offline para o dispositivo */
-            <button
-              onClick={alternarModoCampo}
-              disabled={preparandoPacote || sincronizando}
-              title="Baixar as O.S para o dispositivo e trabalhar sem internet"
-              className="flex items-center gap-2 px-4 py-2.5 rounded-xl border font-bold text-xs transition-all cursor-pointer disabled:opacity-50 border-primary-300 bg-primary-50 text-primary-700 hover:bg-primary-100 max-[639px]:px-5 max-[639px]:py-3 max-[639px]:text-[15px]"
-            >
-              <HardHat size={15} />
-              {preparandoPacote ? 'Baixando O.S...' : 'Preparar Modo Campo'}
-            </button>
+          {!ehGestor && !modoCampo && preparandoPacote && (
+            /* Auto-preparo em andamento (primeiro acesso online do usuário) */
+            <span className="flex items-center gap-2 px-4 py-2.5 rounded-xl border border-primary-200 bg-primary-50 text-primary-700 font-bold text-xs">
+              <RefreshCw size={15} className="animate-spin" />
+              Preparando Modo Campo...
+            </span>
           )}
             </div>
           </div>
@@ -4084,21 +4029,6 @@ function OrdensServico({ usuarioAtual }) {
         loading={processando}
         onConfirmar={excluirOs}
         onCancelar={() => setConfirmacaoExcluir(null)}
-      />
-
-      <ModalConfirmacao
-        aberto={confirmacaoFinalizarModoCampo}
-        titulo="Finalizar Modo Campo"
-        mensagem={
-          pendentes.total === 0
-            ? 'Nada pendente. Encerrar o Modo Campo e apagar os dados locais deste dispositivo? (O tablet é da equipe.)'
-            : 'Sincronizar todas as pendências com a base e encerrar o Modo Campo, apagando os dados locais deste dispositivo? (O tablet é da equipe.) Se houver itens com erro na sincronização, você poderá revisá-los antes de finalizar.'
-        }
-        confirmarTexto={pendentes.total === 0 ? 'Finalizar e limpar' : 'Sincronizar e finalizar'}
-        perigo
-        loading={sincronizando}
-        onConfirmar={confirmarFinalizarModoCampo}
-        onCancelar={() => setConfirmacaoFinalizarModoCampo(false)}
       />
 
       <ModalPendenciasSync

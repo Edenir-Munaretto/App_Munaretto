@@ -166,12 +166,15 @@ async function _baixarEmParalelo(ids, limite = 5) {
   await Promise.all(trabalhadores);
 }
 
+/** Teto de O.S ativas baixadas por vez (o PostgREST também limita ~1000). */
+const LIMITE_LISTA_CAMPO = 500;
+
 /** Busca a lista de O.S com retry (falhas de rede/5xx são transitórias). */
 async function _buscarListaOs() {
   let ultimoErro = null;
   for (let tentativa = 0; tentativa < 3; tentativa += 1) {
     try {
-      const res = await apiFetch(`${API_URL}/os/?limit=500`, { signal: AbortSignal.timeout(45000) });
+      const res = await apiFetch(`${API_URL}/os/?limit=${LIMITE_LISTA_CAMPO}`, { signal: AbortSignal.timeout(45000) });
       if (res.ok) return await res.json();
       ultimoErro = erroDaResposta(await res.json().catch(() => null), 'Falha ao baixar a lista de O.S.');
     } catch (e) {
@@ -200,6 +203,34 @@ async function _atualizarMetaPacote(lista) {
   return faltantes;
 }
 
+/** Baixa o catálogo de serviços (lançamento de materiais offline). */
+async function _baixarCatalogo() {
+  try {
+    const resP = await apiFetch(`${API_URL}/os/produtos`, { signal: AbortSignal.timeout(30000) });
+    if (!resP.ok) return false;
+    await dbClearStore('produtos');
+    const catalogo = await resP.json();
+    for (const p of catalogo) await dbPut('produtos', p);
+    return true;
+  } catch {
+    return false; // falha no catálogo não impede o restante do pacote
+  }
+}
+
+/** O.S com pendência local (fila ou fotos não enviadas): não podem ser
+ * sobrescritas nem podadas — o estado otimista do dispositivo prevalece. */
+async function _idsComPendenciaLocal() {
+  const [ops, fotos] = await Promise.all([dbGetAll('fila'), dbGetAll('fotos')]);
+  const ids = new Set();
+  for (const op of ops) {
+    if (op && typeof op === 'object' && op.os_id != null) ids.add(Number(op.os_id));
+  }
+  for (const f of fotos) {
+    if (f && typeof f === 'object' && f.status !== 'enviada' && f.os_id != null) ids.add(Number(f.os_id));
+  }
+  return ids;
+}
+
 export async function prepararPacoteCampo() {
   const lista = await _buscarListaOs();
   await dbClearStore('os_lista');
@@ -207,16 +238,7 @@ export async function prepararPacoteCampo() {
   await dbClearStore('checklist');
 
   // Catálogo de serviços (lançamento de materiais) também vai para o tablet.
-  try {
-    const resP = await apiFetch(`${API_URL}/os/produtos`, { signal: AbortSignal.timeout(30000) });
-    if (resP.ok) {
-      await dbClearStore('produtos');
-      const catalogo = await resP.json();
-      for (const p of catalogo) await dbPut('produtos', p);
-    }
-  } catch {
-    /* falha no catálogo não impede o restante do pacote */
-  }
+  await _baixarCatalogo();
 
   // Lista vai primeiro (a O.S aparece mesmo que o detalhe precise de retry).
   // IMPORTANTE: a store `os_lista` usa keyPath `os_id` — o item cru da
@@ -236,59 +258,104 @@ export async function prepararPacoteCampo() {
   return { quantidade: lista.length, faltantes };
 }
 
-/** Completa as O.S que faltaram no pacote (chamado quando voltar a ter
- * conexão, mantendo o Modo Campo ativo). */
-export async function completarPacoteCampo() {
-  const meta = await infoPacote();
-  const faltantes = (meta?.faltantes || []).filter(Boolean);
-  if (!faltantes.length) return { completadas: 0, restantes: 0 };
-  const completadas = [];
-  const restantes = [];
-  for (const id of faltantes) {
-    try {
-      if (await _baixarOsCompleta(id)) completadas.push(id);
-      else restantes.push(id);
-    } catch {
-      restantes.push(id);
-    }
-  }
-  await dbPut('meta', { ...meta, faltantes: restantes });
-  return { completadas: completadas.length, restantes: restantes.length };
-}
-
 export async function infoPacote() {
   return dbGet('meta', 'pacote');
 }
 
+/** Dono do pacote local (usuário que preparou/usa o Modo Campo). */
+export async function salvarDonoPacote(usuario) {
+  if (!usuario) return;
+  await dbPut('meta', {
+    chave: 'dono',
+    usuario_id: usuario.id ?? null,
+    usuario_email: usuario.email || null,
+    usuario_nome: usuario.nome || null,
+  });
+}
+
+export async function donoPacote() {
+  return dbGet('meta', 'dono');
+}
+
 /**
- * Baixa O.S NOVAS atribuídas à equipe sem sair do Modo Campo.
+ * Atualiza o pacote do Modo Campo com a lista atual do servidor:
+ *  - adiciona O.S novas;
+ *  - atualiza lista/detalhe/checklist das existentes SEM pendência local;
+ *  - poda O.S que saíram da lista ativa (concluídas/canceladas em outro
+ *    aparelho) quando não têm pendência;
+ *  - atualiza o catálogo de serviços e re-tenta detalhes faltantes.
  *
- * O pacote é uma "fotografia" da preparação: uma O.S criada depois não existe
- * no dispositivo. Esta função busca a lista atual no servidor e adiciona
- * apenas as que ainda não estão no pacote — NUNCA remove nem sobrescreve O.S
- * já baixadas (protege lançamentos/respostas pendentes do estado otimista).
+ * Nunca sobrescreve nem remove O.S com pendência (fila/fotos) — protege o
+ * estado otimista do dispositivo.
+ *
+ * `completo = false` (refresh automático): baixa detalhe/checklist apenas das
+ * novas, das que mudaram no resumo e das faltantes — econômico em dados
+ * móveis. `completo = true` (botão "Atualizar O.S"): re-baixa também as
+ * existentes sem pendência (pega mudanças de checklist feitas em outro
+ * aparelho).
  */
-export async function atualizarPacoteCampo() {
+export async function atualizarPacoteCampo({ completo = false } = {}) {
   const metaAnterior = await infoPacote();
   const faltantesAntigos = (metaAnterior?.faltantes || []).filter(Boolean);
+  const comPendencia = await _idsComPendenciaLocal();
 
   const lista = await _buscarListaOs();
   const locais = await getListaLocal();
+  const locaisPorId = new Map(locais.map(os => [Number(os.id), os]));
   const idsLocais = new Set(locais.map(os => Number(os.id)));
-  const novas = (lista || []).filter(os => os?.id != null && !idsLocais.has(Number(os.id)));
-
-  // Lista primeiro: as novas aparecem no quadro mesmo se o detalhe falhar
-  // (a O.S fica marcada como incompleta e é completada depois).
-  for (const os of novas) await dbPut('os_lista', { ...os, os_id: Number(os.id) });
-
-  // Baixa as novas + re-tenta as que ficaram pendentes na preparação inicial
-  // (apenas as que ainda estão na lista do servidor).
   const idsServidor = new Set((lista || []).map(os => Number(os.id)));
-  const baixar = [...new Set([
-    ...novas.map(os => Number(os.id)),
-    ...faltantesAntigos.filter(id => idsServidor.has(Number(id))),
-  ])];
-  if (baixar.length) await _baixarEmParalelo(baixar);
+
+  const novas = (lista || []).filter(os => os?.id != null && !idsLocais.has(Number(os.id)));
+  const existentes = (lista || []).filter(os => os?.id != null && idsLocais.has(Number(os.id)));
+
+  // 1) Lista: novas + resumo das existentes sem pendência. `atualizadas` e
+  //    `mudou` consideram só as que realmente mudaram no resumo.
+  for (const os of novas) await dbPut('os_lista', { ...os, os_id: Number(os.id) });
+  let atualizadas = 0;
+  const mudou = new Set();
+  for (const os of existentes) {
+    const id = Number(os.id);
+    if (comPendencia.has(id)) continue;
+    const localLimpo = { ...(locaisPorId.get(id) || {}) };
+    delete localLimpo.os_id;
+    if (JSON.stringify(localLimpo) !== JSON.stringify(os)) {
+      atualizadas += 1;
+      mudou.add(id);
+    }
+    await dbPut('os_lista', { ...os, os_id: id });
+  }
+
+  // 2) Detalhe + checklist: novos, alterados, faltantes e (no refresh manual)
+  //    todos os existentes sem pendência.
+  const baixar = new Set();
+  for (const os of novas) baixar.add(Number(os.id));
+  for (const os of existentes) {
+    const id = Number(os.id);
+    if (comPendencia.has(id)) continue;
+    if (completo || mudou.has(id)) baixar.add(id);
+  }
+  for (const id of faltantesAntigos) {
+    if (idsServidor.has(Number(id))) baixar.add(Number(id));
+  }
+  if (baixar.size) await _baixarEmParalelo([...baixar]);
+
+  // 3) Poda: O.S que saíram da lista ativa e não têm pendência local.
+  //    Só quando a lista veio completa — o teto de LIMITE_LISTA_CAMPO pode
+  //    truncar a resposta e "sumir" com O.S válidas do pacote.
+  const listaCompleta = (lista || []).length < LIMITE_LISTA_CAMPO;
+  let removidas = 0;
+  if (listaCompleta) {
+    for (const id of idsLocais) {
+      if (idsServidor.has(id) || comPendencia.has(id)) continue;
+      await dbDel('os_lista', id);
+      await dbDel('os', id);
+      await dbDel('checklist', id);
+      removidas += 1;
+    }
+  }
+
+  // 4) Catálogo de serviços (materiais offline) — best-effort.
+  await _baixarCatalogo();
 
   const faltantes = [];
   for (const id of baixar) {
@@ -301,7 +368,7 @@ export async function atualizarPacoteCampo() {
     quantidade: (await getListaLocal()).length,
     faltantes,
   });
-  return { novas: novas.length, faltantes };
+  return { novas: novas.length, atualizadas, removidas, faltantes };
 }
 
 export async function limparPacote() {
@@ -309,12 +376,13 @@ export async function limparPacote() {
   await dbClearStore('os');
   await dbClearStore('checklist');
   await dbClearStore('produtos');
-  // Ao sair do Modo Campo o tablet é apagado por completo (é da equipe):
-  // fila de operações e fotos pendentes não podem vazar para o próximo usuário.
+  // Limpeza total (card de recuperação/troca de usuário): a fila e as fotos
+  // pendentes saem junto para não vazarem para o próximo usuário do aparelho.
   await dbClearStore('fila');
   await dbClearStore('fotos');
   await dbDel('meta', 'pacote');
   await dbDel('meta', 'responsavel');
+  await dbDel('meta', 'dono');
 }
 
 // ---------------------------------------------------------------------------

@@ -59,7 +59,10 @@ function Login({ onLogin, mensagemExpirada = false }) {
           console.error('Falha ao persistir sessão no Login:', err);
         }
 
-        onLogin(data);
+        const assumiu = await onLogin(data);
+        // Se o App assumiu a condução (ex.: confirmação de troca de usuário),
+        // não força a navegação — ele navega após a decisão.
+        if (assumiu === false) return;
 
         // Rede de segurança: se o App não navegar por qualquer motivo, força a
         // navegação aqui (a sessão já está persistida acima).

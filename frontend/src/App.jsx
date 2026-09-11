@@ -37,7 +37,7 @@ import Login from './pages/Login';
 import { MODULOS } from './modules';
 import { API_URL, apiFetch, getToken, setToken, clearToken, segundosAteExpiracao, renovarSessao } from './api';
 import ModalConfirmacao from './components/ModalConfirmacao';
-import { isModoCampo, setModoCampo, contarPendentes } from './offline/offline';
+import { setModoCampo, contarPendentes, donoPacote } from './offline/offline';
 import { limparTudoLocal } from './offline/db';
 import { gravarLocal, gravarSessao, lerLocal, lerSessao, removerLocal, storageDisponivel } from './utils/storage';
 
@@ -376,10 +376,9 @@ function App() {
   const notificacoesNaoLidas = notificacoes.filter(n => !n.lida).length;
   const totalSinos = notificacoesNaoLidas + alerts.length + sstAlerts.length;
 
-  // Tablet compartilhado: ao trocar de usuário o Modo Campo é encerrado e os
-  // dados locais (pacote, fila e fotos) são apagados do dispositivo. Com
-  // pendências NÃO sincronizadas, sair exige confirmação explícita (C5) —
-  // do contrário o trabalho do campo seria perdido sem aviso.
+  // Pacote local é do usuário (celular pessoal): o mesmo dono mantém os dados
+  // entre sessões; outro usuário no aparelho limpa (com aviso se houver
+  // pendências não sincronizadas).
   const aplicarLogin = (user) => {
     if (user?.token) setToken(user.token);
     const { token, ...dadosUsuario } = user || {};
@@ -396,38 +395,14 @@ function App() {
     setActiveTab('dashboard');
   };
 
-  const executarSaida = async (acao, user = null) => {
-    const concluir = () => {
-      if (acao === 'login') aplicarLogin(user);
-      else aplicarLogout();
-    };
-    if (!isModoCampo()) {
-      concluir();
-      return true;
-    }
-    // IndexedDB pode estar travado/corrompido (ex.: crash anterior do Modo
-    // Campo): timeout evita que login/logout fiquem "pendurados" para sempre.
-    const comTimeout = (promise, ms) => new Promise((resolve) => {
-      const timer = setTimeout(() => resolve(null), ms);
-      promise
-        .then((valor) => { clearTimeout(timer); resolve(valor); })
-        .catch(() => { clearTimeout(timer); resolve(null); });
-    });
-    const pend = await comTimeout(contarPendentes(), 4000);
-    if (!pend || pend.total === 0) {
-      setModoCampo(false);
-      await comTimeout(limparTudoLocal(), 4000);
-      concluir();
-      return true;
-    }
-    setLimpezaPendente({
-      acao,
-      user,
-      operacoes: pend.operacoes || 0,
-      fotos: pend.fotos || 0,
-    });
-    return false;
-  };
+  // Timeout de segurança: IndexedDB travado/corrompido não pode segurar
+  // login/logout para sempre.
+  const comTimeout = (promise, ms) => new Promise((resolve) => {
+    const timer = setTimeout(() => resolve(null), ms);
+    promise
+      .then((valor) => { clearTimeout(timer); resolve(valor); })
+      .catch(() => { clearTimeout(timer); resolve(null); });
+  });
 
   // Navegação forçada após aplicar a sessão: `location.replace` funciona em
   // contextos onde `reload()` é silenciosamente ignorado (WebViews/PWA) e
@@ -453,41 +428,57 @@ function App() {
     irParaApp();
   };
 
+  // Limpeza total dos dados locais (troca de usuário no aparelho).
+  const limparDadosLocais = async () => {
+    setModoCampo(false);
+    await comTimeout(limparTudoLocal(), 4000);
+  };
+
   const confirmarLimpezaPendente = async () => {
     const alvo = limpezaPendente;
     if (!alvo) return;
     setLimpezaPendente({ ...alvo, limpando: true });
-    setModoCampo(false);
-    // Timeout de segurança: banco local travado não pode segurar login/logout.
-    await new Promise((resolve) => {
-      const timer = setTimeout(resolve, 4000);
-      limparTudoLocal()
-        .catch(() => {})
-        .finally(() => { clearTimeout(timer); resolve(); });
-    });
+    await limparDadosLocais();
+    setLimpezaPendente(null);
     if (alvo.acao === 'login') {
-      setLimpezaPendente(null);
       aplicarSessaoENavegar(alvo.user);
       return;
     }
     aplicarLogout();
+  };
+
+  // Troca de usuário cancelada: o Login já persistiu a sessão do novo usuário
+  // antes do onLogin — desfaz para não entrar "pela metade".
+  const cancelarTrocaUsuario = () => {
+    clearToken();
+    removerLocal('munaretto_usuario');
     setLimpezaPendente(null);
   };
 
-  const handleLogin = (user) => {
-    // Aplica a sessão e navega imediatamente. Modo Campo ativo no aparelho é
-    // limpo sem esperar contagem de pendências (usuário confirmou não haver
-    // trabalho importante não sincronizado; a limpeza é best-effort e nunca
-    // segura o login).
-    if (isModoCampo()) {
-      try { setModoCampo(false); } catch { /* noop */ }
-      limparTudoLocal().catch(() => { /* segue */ });
+  const handleLogin = async (user) => {
+    const dono = await comTimeout(donoPacote(), 2000);
+    const mesmoDono = !dono || dono.usuario_id == null
+      || String(dono.usuario_id) === String(user?.id);
+    if (mesmoDono) {
+      aplicarSessaoENavegar(user);
+      return true;
     }
-    aplicarSessaoENavegar(user);
+    // Outro usuário no aparelho: pacote/fila/fotos pertencem ao dono anterior.
+    const pend = await comTimeout(contarPendentes(), 4000);
+    setLimpezaPendente({
+      acao: 'login',
+      user,
+      donoAnterior: dono?.usuario_nome || dono?.usuario_email || 'outro usuário',
+      operacoes: pend?.operacoes || 0,
+      fotos: pend?.fotos || 0,
+    });
+    return false;
   };
 
+  // Logout NÃO apaga os dados locais (celular pessoal): o pacote continua no
+  // aparelho para o próximo login do MESMO usuário.
   const handleLogout = () => {
-    executarSaida('logout');
+    aplicarLogout();
   };
 
   // Busca os dados ATUAIS do usuário no backend e atualiza a sessão.
@@ -569,6 +560,27 @@ function App() {
     }
   }, [tabs, activeTab]);
 
+  // Modal de troca de usuário no aparelho — precisa ser renderizado também na
+  // tela de Login (é o login do novo usuário que dispara a confirmação).
+  const modalTrocaUsuario = (
+    <ModalConfirmacao
+      aberto={limpezaPendente != null}
+      titulo="Entrar com outro usuário neste aparelho?"
+      mensagem={limpezaPendente
+        ? `Os dados locais do Modo Campo pertencem a ${limpezaPendente.donoAnterior}. `
+          + ((limpezaPendente.operacoes || limpezaPendente.fotos)
+            ? `Há ${limpezaPendente.operacoes} operação(ões) e ${limpezaPendente.fotos} foto(s) NÃO sincronizadas que serão perdidas. `
+            : '')
+          + 'Ao entrar com o novo usuário, esses dados serão apagados do dispositivo.'
+        : ''}
+      confirmarTexto="Limpar e entrar"
+      perigo
+      loading={limpezaPendente?.limpando}
+      onConfirmar={confirmarLimpezaPendente}
+      onCancelar={cancelarTrocaUsuario}
+    />
+  );
+
   if (!usuario || !getToken()) {
     return (
       <>
@@ -578,6 +590,7 @@ function App() {
           </div>
         )}
         <Login onLogin={handleLogin} mensagemExpirada={sessaoExpirada} />
+        {modalTrocaUsuario}
       </>
     );
   }
@@ -920,21 +933,7 @@ function App() {
         onCancelar={() => setNotifExcluir(null)}
       />
 
-      {/* Sair com pendências do Modo Campo exige confirmação (C5) */}
-      <ModalConfirmacao
-        aberto={limpezaPendente != null}
-        titulo="Sair do Modo Campo com pendências?"
-        mensagem={limpezaPendente
-          ? `Este tablet ainda tem ${limpezaPendente.operacoes} operação(ões) e `
-            + `${limpezaPendente.fotos} foto(s) NÃO sincronizadas com o servidor. `
-            + 'Sair agora apaga tudo do dispositivo e este trabalho será perdido. '
-            + 'Reconecte e sincronize antes de sair, ou confirme a exclusão abaixo.'
-          : ''}
-        confirmarTexto="Sair e apagar mesmo assim"
-        loading={limpezaPendente?.limpando}
-        onConfirmar={confirmarLimpezaPendente}
-        onCancelar={() => setLimpezaPendente(null)}
-      />
+      {modalTrocaUsuario}
     </ErrorBoundary>
   );
 }
