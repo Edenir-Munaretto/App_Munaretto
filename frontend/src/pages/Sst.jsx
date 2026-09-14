@@ -186,7 +186,7 @@ function Sst() {
   // ============================= Fetch =============================
   const fetchFuncionarios = async () => {
     try {
-      const res = await apiFetch(`${API_URL}/funcionarios/`);
+      const res = await apiFetch(`${API_URL}/funcionarios/`, { retry: 2 });
       if (res.ok) setFuncionarios(await res.json());
     } catch (err) {
       console.error('Erro ao buscar funcionários:', err);
@@ -197,9 +197,9 @@ function Sst() {
     try {
       setLoading(true);
       const [cargosRes, treinRes, matrizRes] = await Promise.all([
-        apiFetch(`${API_URL}/sst/cargos`),
-        apiFetch(`${API_URL}/sst/treinamentos`),
-        apiFetch(`${API_URL}/sst/matriz`),
+        apiFetch(`${API_URL}/sst/cargos`, { retry: 2 }),
+        apiFetch(`${API_URL}/sst/treinamentos`, { retry: 2 }),
+        apiFetch(`${API_URL}/sst/matriz`, { retry: 2 }),
       ]);
       if (cargosRes.ok) setCargos(await cargosRes.json());
       if (treinRes.ok) setTreinamentos(await treinRes.json());
@@ -216,7 +216,7 @@ function Sst() {
     try {
       setLoading(true);
       listaTrein.iniciar();
-      const res = await apiFetch(`${API_URL}/sst/funcionario-treinamentos`);
+      const res = await apiFetch(`${API_URL}/sst/funcionario-treinamentos`, { retry: 2 });
       if (res.ok) {
         setFuncTreinamentos(await res.json());
         listaTrein.sucesso();
@@ -234,7 +234,7 @@ function Sst() {
   const fetchPendencias = async () => {
     try {
       listaPend.iniciar();
-      const res = await apiFetch(`${API_URL}/sst/pendencias`);
+      const res = await apiFetch(`${API_URL}/sst/pendencias`, { retry: 2 });
       if (res.ok) {
         setPendencias(await res.json());
         listaPend.sucesso();
@@ -251,7 +251,7 @@ function Sst() {
     try {
       setLoading(true);
       listaAso.iniciar();
-      const res = await apiFetch(`${API_URL}/sst/aso`);
+      const res = await apiFetch(`${API_URL}/sst/aso`, { retry: 2 });
       if (res.ok) {
         setAsos(await res.json());
         listaAso.sucesso();
@@ -268,7 +268,7 @@ function Sst() {
 
   const fetchEpis = async () => {
     try {
-      const res = await apiFetch(`${API_URL}/sst/epis`);
+      const res = await apiFetch(`${API_URL}/sst/epis`, { retry: 2 });
       if (res.ok) setEpis(await res.json());
     } catch (err) {
       console.error(err);
@@ -279,7 +279,7 @@ function Sst() {
   const fetchFuncEpis = async () => {
     try {
       listaFe.iniciar();
-      const res = await apiFetch(`${API_URL}/sst/funcionario-epis`);
+      const res = await apiFetch(`${API_URL}/sst/funcionario-epis`, { retry: 2 });
       if (res.ok) {
         setFuncEpis(await res.json());
         listaFe.sucesso();
@@ -2530,7 +2530,7 @@ function ModalDocumentosDiversos({ aberto, onFechar, mostrarToast }) {
   const carregar = useCallback(async () => {
     setCarregando(true);
     try {
-      const res = await apiFetch(`${API_URL}/sst/documentos-diversos`);
+      const res = await apiFetch(`${API_URL}/sst/documentos-diversos`, { retry: 2 });
       if (res.ok) setDocumentos(await res.json());
       else mostrarToast(erroDaResposta(await res.json().catch(() => null), 'Erro ao carregar documentos.'), 'error');
     } catch {

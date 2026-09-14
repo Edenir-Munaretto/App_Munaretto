@@ -148,7 +148,7 @@ function Manutencao() {
       const url = busca
         ? `${API_URL}/manutencao/veiculos?busca=${encodeURIComponent(busca)}`
         : `${API_URL}/manutencao/veiculos`;
-      const res = await apiFetch(url);
+      const res = await apiFetch(url, { retry: 2 });
       if (res.ok) {
         setVeiculos(await res.json());
         lista.sucesso();
@@ -217,7 +217,7 @@ function Manutencao() {
   const fetchManutencoes = async (veiculoId) => {
     manutLista.iniciar();
     try {
-      const res = await apiFetch(`${API_URL}/manutencao/veiculos/${veiculoId}/manutencoes`);
+      const res = await apiFetch(`${API_URL}/manutencao/veiculos/${veiculoId}/manutencoes`, { retry: 2 });
       if (res.ok) {
         setManutencoes(await res.json());
         manutLista.sucesso();
@@ -233,7 +233,7 @@ function Manutencao() {
   const fetchEquipamentos = async (veiculoId) => {
     equipLista.iniciar();
     try {
-      const res = await apiFetch(`${API_URL}/manutencao/veiculos/${veiculoId}/equipamentos`);
+      const res = await apiFetch(`${API_URL}/manutencao/veiculos/${veiculoId}/equipamentos`, { retry: 2 });
       if (res.ok) {
         setEquipamentos(await res.json());
         equipLista.sucesso();
@@ -249,7 +249,7 @@ function Manutencao() {
   const fetchDocumentos = async (veiculoId) => {
     docLista.iniciar();
     try {
-      const res = await apiFetch(`${API_URL}/manutencao/veiculos/${veiculoId}/documentos`);
+      const res = await apiFetch(`${API_URL}/manutencao/veiculos/${veiculoId}/documentos`, { retry: 2 });
       if (res.ok) {
         setDocumentos(await res.json());
         docLista.sucesso();
@@ -430,7 +430,7 @@ function Manutencao() {
   const fetchReposicoes = async (equipId) => {
     reposLista.iniciar();
     try {
-      const res = await apiFetch(`${API_URL}/manutencao/equipamentos/${equipId}/reposicoes`);
+      const res = await apiFetch(`${API_URL}/manutencao/equipamentos/${equipId}/reposicoes`, { retry: 2 });
       if (res.ok) {
         setReposicoes(await res.json());
         reposLista.sucesso();

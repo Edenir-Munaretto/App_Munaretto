@@ -22,7 +22,7 @@ function Dashboard({ alerts }) {
   const fetchStats = async () => {
     try {
       setLoading(true);
-      const res = await apiFetch(`${API_URL}/dashboard/resumo`);
+      const res = await apiFetch(`${API_URL}/dashboard/resumo`, { retry: 2 });
       if (!res.ok) {
         setLoading(false);
         return;

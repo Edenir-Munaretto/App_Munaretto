@@ -79,7 +79,10 @@ export default function PainelObra({ obra, onFechar, onAbrirOS, onNovaOS, refres
     setCarregando(true);
     setErro(null);
     try {
-      const res = await apiFetch(`${API_URL}/os/obras/${obra.id}/resumo?status=${encodeURIComponent(status)}`);
+      const res = await apiFetch(
+        `${API_URL}/os/obras/${obra.id}/resumo?status=${encodeURIComponent(status)}`,
+        { retry: 2, timeoutMs: 45000 }
+      );
       if (geracao !== geracaoResumo.current) return;
       if (!res.ok) {
         const corpo = await res.json().catch(() => null);
@@ -88,9 +91,14 @@ export default function PainelObra({ obra, onFechar, onAbrirOS, onNovaOS, refres
         return;
       }
       setDados(await res.json());
-    } catch {
+    } catch (e) {
       if (geracao !== geracaoResumo.current) return;
-      setErro('Falha de conexão ao carregar o resumo da obra.');
+      const expirou = e?.name === 'TimeoutError' || e?.name === 'AbortError';
+      setErro(
+        expirou
+          ? 'O servidor demorou para responder. Tente novamente em instantes.'
+          : 'Falha de conexão ao carregar o resumo da obra.'
+      );
       setDados(null);
     } finally {
       if (geracao === geracaoResumo.current) setCarregando(false);

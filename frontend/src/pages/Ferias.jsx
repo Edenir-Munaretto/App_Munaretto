@@ -53,7 +53,7 @@ function Ferias({ fetchAlerts, fetchNotifications, usuarioAtual }) {
   useEffect(() => {
     const fetchFuncionarios = async () => {
       try {
-        const res = await apiFetch(`${API_URL}/funcionarios/`);
+        const res = await apiFetch(`${API_URL}/funcionarios/`, { retry: 2 });
         if (res.ok) {
           const data = await res.json();
           setFuncionarios(data);
@@ -79,7 +79,7 @@ function Ferias({ fetchAlerts, fetchNotifications, usuarioAtual }) {
       if (proximoMes) queryParams.push(`proximo_mes=true`);
       
       const queryStr = queryParams.length > 0 ? `?${queryParams.join('&')}` : '';
-      const res = await apiFetch(`${API_URL}/ferias/${queryStr}`);
+      const res = await apiFetch(`${API_URL}/ferias/${queryStr}`, { retry: 2 });
       if (res.ok) {
         const data = await res.json();
         setRecords(data);

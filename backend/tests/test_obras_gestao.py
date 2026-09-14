@@ -243,6 +243,56 @@ class TestResumoObra:
         assert dados["servicos"] == []
         assert dados["resumo"]["periodo"] == {"inicio": None, "fim": None}
 
+    def test_resumo_pagina_lancamentos_acima_do_teto_do_postgrest(self, os_gestor_client, db_fake):
+        """O PostgREST devolve ~1000 linhas por página; o resumo deve paginar."""
+        _inserir_obra(db_fake, 503, "Obra Grande")
+        _inserir_produto(db_fake, 705, "Cabo", unidade="m", codigo="CAB-1")
+        _inserir_os(db_fake, 201, 503, "construcao", "em_andamento", "2026-04-01T00:00:00Z")
+        for _ in range(1200):
+            _inserir_material(db_fake, 201, 705, 1, 1, 1, codigo="CAB-1")
+
+        dados = os_gestor_client.get("/api/os/obras/503/resumo").json()
+
+        assert dados["resumo"]["total"] == 1
+        contratos = {c["tipo"]: c for c in dados["contratos"]}
+        assert contratos["construcao"]["total"] == 1200
+        assert contratos["construcao"]["itens"][0]["pecas"] == 1200
+        assert contratos["construcao"]["itens"][0]["os_usadas"] == 1
+        assert dados["os"][0]["total_aplicado"] == 1200
+
+    def test_resumo_agrega_os_em_lotes_de_ids(self, os_gestor_client, db_fake):
+        """O filtro `in_` vai em lotes (200 IDs); todas as O.S devem agregar."""
+        _inserir_obra(db_fake, 504, "Obra Muitas O.S")
+        _inserir_produto(db_fake, 706, "Serviço", unidade="serv", codigo="SRV-1")
+        for indice in range(250):
+            os_id = 300 + indice
+            _inserir_os(
+                db_fake,
+                os_id,
+                504,
+                "manutencao",
+                "concluida",
+                "2026-05-01T00:00:00Z",
+                fim="2026-05-02T00:00:00Z",
+            )
+            _inserir_material(db_fake, os_id, 706, 2, 1, 2, codigo="SRV-1")
+
+        dados = os_gestor_client.get("/api/os/obras/504/resumo").json()
+
+        assert dados["resumo"]["total"] == 250
+        contratos = {c["tipo"]: c for c in dados["contratos"]}
+        assert contratos["manutencao"]["total"] == 500
+        assert contratos["manutencao"]["itens"][0]["os_usadas"] == 250
+
+    def test_resumo_pagina_fotos_acima_do_teto_do_postgrest(self, os_gestor_client, db_fake):
+        _inserir_obra(db_fake, 505, "Obra Fotos")
+        _inserir_os(db_fake, 401, 505, "construcao", "em_andamento", "2026-06-01T00:00:00Z")
+        _anexar_foto(db_fake, 401, qtd=1001)
+
+        dados = os_gestor_client.get("/api/os/obras/505/resumo").json()
+
+        assert dados["os"][0]["fotos_count"] == 1001
+
 
 class TestListarObrasEnriquecidas:
     def test_listar_obras_com_contadores_e_totais_por_contrato(self, os_gestor_client, db_fake):

@@ -36,29 +36,78 @@ def _numero(valor) -> float:
         return 0.0
 
 
+# PostgREST/Supabase devolvem no máximo ~1000 linhas por requisição; os IDs vão
+# em lotes para não estourar o tamanho da URL do filtro `in.()`.
+TAMANHO_PAGINA = 1000
+TAMANHO_LOTE_IDS = 200
+
+
+def _em_lotes(itens: list, tamanho: int = TAMANHO_LOTE_IDS):
+    """Fatia uma lista em lotes (usado nos filtros `in_` do PostgREST)."""
+    for inicio in range(0, len(itens), tamanho):
+        yield itens[inicio : inicio + tamanho]
+
+
+def _ler_paginado(base, tamanho: int = TAMANHO_PAGINA) -> list[dict]:
+    """Lê TODAS as linhas de uma query, paginando pelo teto do PostgREST."""
+    dados: list[dict] = []
+    offset = 0
+    while True:
+        pagina = base.range(offset, offset + tamanho - 1).execute().data or []
+        dados.extend(pagina)
+        if len(pagina) < tamanho:
+            break
+        offset += tamanho
+    return dados
+
+
 def _consultar_lancamentos(db, os_ids: list[int]) -> list[dict]:
-    """Única consulta em `os_materiais` para o conjunto de O.S."""
-    if not os_ids:
+    """Consulta em `os_materiais` para o conjunto de O.S (lotes + paginação)."""
+    ids = list(dict.fromkeys(os_ids))
+    if not ids:
         return []
-    resp = (
-        db.table("os_materiais")
-        .select("os_id, produto_id, quantidade_usada, quantidade_pecas, fator_usc, tipo_usc, codigo_servico")
-        .in_("os_id", os_ids)
-        .execute()
-    )
-    return resp.data or []
+    lancamentos: list[dict] = []
+    for lote in _em_lotes(ids):
+        base = (
+            db.table("os_materiais")
+            .select("os_id, produto_id, quantidade_usada, quantidade_pecas, fator_usc, tipo_usc, codigo_servico")
+            .in_("os_id", lote)
+        )
+        lancamentos.extend(_ler_paginado(base))
+    return lancamentos
+
+
+def contar_fotos_por_os(db, os_ids: list[int]) -> dict[int, int]:
+    """Quantidade de fotos por O.S (lotes + paginação)."""
+    ids = list(dict.fromkeys(os_ids))
+    if not ids:
+        return {}
+    contagem: dict[int, int] = {}
+    for lote in _em_lotes(ids):
+        base = db.table("os_fotos").select("os_id").in_("os_id", lote)
+        for foto in _ler_paginado(base):
+            contagem[foto["os_id"]] = contagem.get(foto["os_id"], 0) + 1
+    return contagem
 
 
 def _consultar_catalogo(db, produto_ids: list[int]) -> dict[int, dict]:
-    """Catálogo (produtos) em uma consulta — nome/unidade por produto."""
-    produto_ids = list(dict.fromkeys(pid for pid in produto_ids if pid is not None))
-    if not produto_ids:
+    """Catálogo (produtos) por produto — lotes + paginação (nome/unidade)."""
+    ids = list(dict.fromkeys(pid for pid in produto_ids if pid is not None))
+    if not ids:
         return {}
-    resp = db.table("produtos").select("id, nome, unidade").in_("id", produto_ids).execute()
-    return {p["id"]: p for p in (resp.data or [])}
+    catalogo: dict[int, dict] = {}
+    for lote in _em_lotes(ids):
+        base = db.table("produtos").select("id, nome, unidade").in_("id", lote)
+        for produto in _ler_paginado(base):
+            catalogo[produto["id"]] = produto
+    return catalogo
 
 
-def agregar_servicos(db, os_linhas: list[dict], lancamentos: list[dict] | None = None) -> list[dict]:
+def agregar_servicos(
+    db,
+    os_linhas: list[dict],
+    lancamentos: list[dict] | None = None,
+) -> list[dict]:
     """Agrega os serviços aplicados das O.S por contrato (tipo da O.S).
 
     - `os_linhas`: linhas das O.S com pelo menos `os_id` e `tipo` (contrato);

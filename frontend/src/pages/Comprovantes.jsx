@@ -113,7 +113,7 @@ function Comprovantes() {
       if (fim) params.append('data_fim', fim);
       
       const query = params.toString() ? `?${params.toString()}` : '';
-      const res = await apiFetch(`${API_URL}/comprovantes/${query}`);
+      const res = await apiFetch(`${API_URL}/comprovantes/${query}`, { retry: 2 });
       if (res.ok) {
         const data = await res.json();
         setComprovantes(data);

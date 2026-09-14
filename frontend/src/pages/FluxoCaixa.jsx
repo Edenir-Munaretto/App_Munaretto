@@ -48,7 +48,7 @@ function FluxoCaixa() {
     try {
       setLoading(true);
       lista.iniciar();
-      const res = await apiFetch(`${API_URL}/fluxo-caixa/`);
+      const res = await apiFetch(`${API_URL}/fluxo-caixa/`, { retry: 2 });
       if (res.ok) {
         const data = await res.json();
         setClosings(data);

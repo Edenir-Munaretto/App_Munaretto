@@ -34,7 +34,7 @@ function Funcionarios({ usuarioAtual }) {
 
   useEffect(() => {
     if (temSst) {
-      apiFetch(`${API_URL}/sst/cargos`)
+      apiFetch(`${API_URL}/sst/cargos`, { retry: 2 })
         .then(res => res.ok ? res.json() : [])
         .then(setCargos)
         .catch(() => setCargos([]));
@@ -48,7 +48,7 @@ function Funcionarios({ usuarioAtual }) {
 
   const fetchStats = async () => {
     try {
-      const res = await apiFetch(`${API_URL}/funcionarios/stats`);
+      const res = await apiFetch(`${API_URL}/funcionarios/stats`, { retry: 2 });
       if (res.ok) setStats(await res.json());
     } catch (err) {
       console.error('Erro ao buscar estatísticas:', err);
@@ -64,7 +64,7 @@ function Funcionarios({ usuarioAtual }) {
       if (filtroStatus !== 'ativos') params.set('status', filtroStatus);
       const qs = params.toString();
       const url = `${API_URL}/funcionarios/${qs ? `?${qs}` : ''}`;
-      const res = await apiFetch(url);
+      const res = await apiFetch(url, { retry: 2 });
       if (res.ok) {
         setFuncionarios(await res.json());
         lista.sucesso();

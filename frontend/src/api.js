@@ -89,23 +89,52 @@ export function erroDaResposta(resData, fallback = 'Erro inesperado.') {
   return fallback;
 }
 
+const ATRASO_RETRY_PADRAO = 800;
+const TIMEOUT_PADRAO = 30000;
+
+const esperar = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+
 export async function apiFetch(url, options = {}) {
-  const token = getToken();
-  const headers = { ...(options.headers || {}) };
-  if (token) {
-    headers['Authorization'] = `Bearer ${token}`;
-  }
-  // Timeout padrão de 30s para não travar em WiFi sem internet; chamadas com
-  // sinal próprio (sonda curta, upload de foto, sincronização) o substituem.
-  const sinal = options.signal || AbortSignal.timeout(30000);
-  const res = await fetch(url, { ...options, headers, signal: sinal });
+  const {
+    retry = 0,
+    retryDelay = ATRASO_RETRY_PADRAO,
+    timeoutMs = TIMEOUT_PADRAO,
+    ...rest
+  } = options;
+  const metodo = (rest.method || 'GET').toUpperCase();
+  const maxTentativas = metodo === 'GET' ? Math.max(0, retry) : 0;
 
-  // 401 com token presente = sessão expirada/inválida. Desloga e avisa o app.
-  if (res.status === 401 && token) {
-    clearToken();
-    removerLocal('munaretto_usuario');
-    window.dispatchEvent(new CustomEvent('auth:unauthorized'));
-  }
+  let ultimoErro;
+  for (let tentativa = 0; tentativa <= maxTentativas; tentativa += 1) {
+    const token = getToken();
+    const headers = { ...(rest.headers || {}) };
+    if (token) {
+      headers['Authorization'] = `Bearer ${token}`;
+    }
+    // Timeout padrão de 30s para não travar em WiFi sem internet; chamadas com
+    // sinal próprio (sonda curta, upload de foto, sincronização) o substituem.
+    const sinal = rest.signal || AbortSignal.timeout(timeoutMs);
+    try {
+      const res = await fetch(url, { ...rest, headers, signal: sinal });
 
-  return res;
+      // 401 com token presente = sessão expirada/inválida. Desloga e avisa o app.
+      if (res.status === 401 && token) {
+        clearToken();
+        removerLocal('munaretto_usuario');
+        window.dispatchEvent(new CustomEvent('auth:unauthorized'));
+      }
+
+      if (res.status >= 500 && tentativa < maxTentativas) {
+        await esperar(retryDelay * (tentativa + 1));
+        continue;
+      }
+
+      return res;
+    } catch (err) {
+      ultimoErro = err;
+      if (tentativa >= maxTentativas || rest.signal?.aborted) throw err;
+      await esperar(retryDelay * (tentativa + 1));
+    }
+  }
+  throw ultimoErro;
 }

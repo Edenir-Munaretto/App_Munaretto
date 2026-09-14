@@ -40,7 +40,7 @@ function Configuracoes({ usuarioAtual, onUsuarioAtualizado }) {
 
   const fetchFuncionarios = async () => {
     try {
-      const res = await apiFetch(`${API_URL}/funcionarios/`);
+      const res = await apiFetch(`${API_URL}/funcionarios/`, { retry: 2 });
       if (res.ok) setFuncionarios(await res.json());
     } catch (err) {
       console.error('Erro ao buscar funcionários:', err);
@@ -51,7 +51,7 @@ function Configuracoes({ usuarioAtual, onUsuarioAtualizado }) {
     try {
       setLoading(true);
       lista.iniciar();
-      const res = await apiFetch(`${API_URL}/usuarios/`);
+      const res = await apiFetch(`${API_URL}/usuarios/`, { retry: 2 });
       if (res.ok) {
         setUsuarios(await res.json());
         lista.sucesso();

@@ -88,7 +88,7 @@ function Recebimentos() {
       if (de) params.append(`${prefixo}_de`, de);
       if (ate) params.append(`${prefixo}_ate`, ate);
       const query = params.toString() ? `?${params.toString()}` : '';
-      const res = await apiFetch(`${API_URL}/recebimentos/${query}`);
+      const res = await apiFetch(`${API_URL}/recebimentos/${query}`, { retry: 2 });
       if (res.ok) {
         const data = await res.json();
         setRecebimentos(data);
@@ -119,7 +119,7 @@ function Recebimentos() {
 
   const fetchClientes = async () => {
     try {
-      const res = await apiFetch(`${API_URL}/clientes/`);
+      const res = await apiFetch(`${API_URL}/clientes/`, { retry: 2 });
       if (res.ok) {
         setClientes(await res.json());
       }

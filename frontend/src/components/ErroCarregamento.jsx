@@ -8,7 +8,7 @@ function ErroCarregamento({ mensagem, onTentarNovamente }) {
       <p className="font-semibold text-slate-600">{mensagem || 'Erro ao carregar os dados.'}</p>
       {onTentarNovamente && (
         <button
-          onClick={onTentarNovamente}
+          onClick={() => onTentarNovamente?.()}
           className="mt-4 px-4 py-2 min-h-11 flex items-center justify-center bg-primary-600 hover:bg-primary-700 text-white rounded-xl text-sm font-semibold transition-all cursor-pointer"
         >
           Tentar novamente

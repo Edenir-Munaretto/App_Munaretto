@@ -39,7 +39,7 @@ function GeradorDocumentos() {
 
   const fetchClientes = async () => {
     try {
-      const res = await apiFetch(`${API_URL}/clientes/`);
+      const res = await apiFetch(`${API_URL}/clientes/`, { retry: 2 });
       if (res.ok) {
         const data = await res.json();
         setClientes(data);
@@ -51,7 +51,7 @@ function GeradorDocumentos() {
 
   const fetchTemplates = async () => {
     try {
-      const res = await apiFetch(`${API_URL}/documentos/templates`);
+      const res = await apiFetch(`${API_URL}/documentos/templates`, { retry: 2 });
       if (res.ok) {
         const data = await res.json();
         setTemplates(data);

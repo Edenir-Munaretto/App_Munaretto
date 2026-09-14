@@ -10,6 +10,7 @@ import logging
 import os
 import re
 import unicodedata
+from concurrent.futures import ThreadPoolExecutor
 from typing import Literal
 
 from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, UploadFile
@@ -26,8 +27,11 @@ from utils.resumo_obra import (
     STATUS_EM_EXECUCAO,
     STATUS_ENCERRADAS,
     STATUS_PARA_TOTAIS,
+    _consultar_lancamentos,
+    _ler_paginado,
     _numero,
     agregar_servicos,
+    contar_fotos_por_os,
 )
 from utils.tipos_os import ORDEM_CONTRATOS, TIPOS_OS, unidade_contrato
 
@@ -491,19 +495,24 @@ def _montar_resumo_obra(db, obra_id: int, status: str = "todas") -> dict:
     obra inteira; lista de O.S e agregados respeitam o filtro de status
     ("ativas"/"encerradas"; rascunho entra apenas em "todas").
     """
-    resp_obra = db.table("obras").select("*, clientes(nome)").eq("id", obra_id).execute()
+    with ThreadPoolExecutor(max_workers=2) as executor:
+        futuro_obra = executor.submit(
+            lambda: db.table("obras").select("*, clientes(nome)").eq("id", obra_id).execute()
+        )
+        futuro_os = executor.submit(
+            lambda: _ler_paginado(
+                db.table("ordens_servico")
+                .select("id, codigo, tipo, status, data_abertura, data_fim, equipes(id, nome)")
+                .eq("obra_id", obra_id)
+                .order("id", desc=True)
+            )
+        )
+        resp_obra = futuro_obra.result()
+        os_todas = futuro_os.result()
+
     if not resp_obra.data:
         raise HTTPException(status_code=404, detail="Obra não encontrada.")
     obra = resp_obra.data[0]
-
-    os_todas = (
-        db.table("ordens_servico")
-        .select("id, codigo, tipo, status, data_abertura, data_fim, equipes(id, nome)")
-        .eq("obra_id", obra_id)
-        .order("id", desc=True)
-        .execute()
-        .data
-    ) or []
 
     # --- Contadores e período SEMPRE da obra inteira (independentes do filtro).
     por_status: dict[str, int] = {}
@@ -539,19 +548,13 @@ def _montar_resumo_obra(db, obra_id: int, status: str = "todas") -> dict:
     soma_por_os: dict[int, float] = {}
     fotos_count: dict[int, int] = {}
     if os_ids:
-        lancamentos = (
-            db.table("os_materiais")
-            .select("os_id, produto_id, quantidade_usada, quantidade_pecas, fator_usc, tipo_usc, codigo_servico")
-            .in_("os_id", os_ids)
-            .execute()
-            .data
-        ) or []
+        with ThreadPoolExecutor(max_workers=2) as executor:
+            futuro_materiais = executor.submit(_consultar_lancamentos, db, os_ids)
+            futuro_fotos = executor.submit(contar_fotos_por_os, db, os_ids)
+            lancamentos = futuro_materiais.result()
+            fotos_count = futuro_fotos.result()
         for m in lancamentos:
             soma_por_os[m["os_id"]] = soma_por_os.get(m["os_id"], 0.0) + _numero(m.get("quantidade_usada"))
-        for f in (
-            db.table("os_fotos").select("os_id").in_("os_id", os_ids).execute().data or []
-        ):
-            fotos_count[f["os_id"]] = fotos_count.get(f["os_id"], 0) + 1
 
     lista_os = [
         {

@@ -49,7 +49,7 @@ function Clientes() {
     lista.iniciar();
     try {
       const url = busca ? `${API_URL}/clientes/?busca=${encodeURIComponent(busca)}` : `${API_URL}/clientes/`;
-      const res = await apiFetch(url);
+      const res = await apiFetch(url, { retry: 2 });
       if (res.ok) {
         const data = await res.json();
         setClientes(data);

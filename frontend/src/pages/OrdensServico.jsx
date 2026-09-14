@@ -2995,7 +2995,7 @@ function OrdensServico({ usuarioAtual }) {
       const qs = params.toString();
 
       // Cadastros de apoio (obras/equipes/produtos) são restritos ao gestor.
-      const resOs = await apiFetch(`${API_URL}/os/${qs ? `?${qs}` : ''}`);
+      const resOs = await apiFetch(`${API_URL}/os/${qs ? `?${qs}` : ''}`, { retry: 2 });
       if (resOs.ok) {
         const pagina = await resOs.json();
         const total = Number(resOs.headers.get('X-Total-Count') || pagina.length);
@@ -3009,9 +3009,9 @@ function OrdensServico({ usuarioAtual }) {
       // trocar filtros): "Carregar mais" não precisa redownloadar.
       if (!reset) return;
       const [resProdutos, resObras, resEquipes] = await Promise.all([
-        apiFetch(`${API_URL}/os/produtos`),
-        ehGestor ? apiFetch(`${API_URL}/os/obras`) : Promise.resolve(null),
-        ehGestor ? apiFetch(`${API_URL}/os/equipes`) : Promise.resolve(null),
+        apiFetch(`${API_URL}/os/produtos`, { retry: 2 }),
+        ehGestor ? apiFetch(`${API_URL}/os/obras`, { retry: 2 }) : Promise.resolve(null),
+        ehGestor ? apiFetch(`${API_URL}/os/equipes`, { retry: 2 }) : Promise.resolve(null),
       ]);
       if (desatualizada()) return;
       if (resProdutos.ok) setProdutos(await resProdutos.json());
@@ -3064,7 +3064,7 @@ function OrdensServico({ usuarioAtual }) {
       params.set('status', filtroArquivo || 'concluida,cancelada');
       params.set('limit', String(LIMITE_PAGINA));
       params.set('offset', String(offset));
-      const res = await apiFetch(`${API_URL}/os/?${params.toString()}`);
+      const res = await apiFetch(`${API_URL}/os/?${params.toString()}`, { retry: 2 });
       if (res.ok) {
         const pagina = await res.json();
         const total = Number(res.headers.get('X-Total-Count') || pagina.length);
