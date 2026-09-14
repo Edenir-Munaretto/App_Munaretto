@@ -168,7 +168,7 @@ O projeto também possui uma versão web com autenticação JWT, em `backend/` (
    | `SUPABASE_URL` | URL do projeto Supabase | Sim |
    | `SUPABASE_KEY` | Chave de API do Supabase | Sim |
    | `JWT_SECRET` | Secret para assinar tokens (gere com `secrets.token_hex(32)`) | Sim |
-   | `JWT_VALIDADE_MINUTOS` | Validade do token em minutos (padrão 480) | Não |
+   | `JWT_VALIDADE_MINUTOS` | Validade do token em minutos (padrão 960) | Não |
    | `CORS_ORIGINS` | Origens permitidas separadas por vírgula (nunca `*` em produção) | Não |
 
 3. Instale as dependências e rode:

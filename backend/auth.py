@@ -35,12 +35,30 @@ def _secret() -> str:
     return os.environ.get("JWT_SECRET") or ""
 
 
-def criar_token_acesso(user_id: int, email: str, validade_minutos: int = 960) -> str:
+# Validade padrão do token (16h) — usada quando JWT_VALIDADE_MINUTOS não está
+# configurada ou contém valor inválido.
+VALIDADE_PADRAO_MINUTOS = 960
+
+
+def _validade_minutos() -> int:
+    """Validade do token em minutos (JWT_VALIDADE_MINUTOS; fallback 16h)."""
+    bruto = os.environ.get("JWT_VALIDADE_MINUTOS")
+    if not bruto:
+        return VALIDADE_PADRAO_MINUTOS
+    try:
+        valor = int(str(bruto).strip())
+    except (TypeError, ValueError):
+        return VALIDADE_PADRAO_MINUTOS
+    return valor if valor > 0 else VALIDADE_PADRAO_MINUTOS
+
+
+def criar_token_acesso(user_id: int, email: str, validade_minutos: int | None = None) -> str:
     """Gera um token JWT assinado com o id e e-mail do usuário (16 horas)."""
     secret = _secret()
     if not secret:
         raise RuntimeError("JWT_SECRET não configurado. Adicione a variável JWT_SECRET no arquivo .env")
-    expiracao = datetime.now(UTC) + timedelta(minutes=validade_minutos)
+    minutos = _validade_minutos() if validade_minutos is None else validade_minutos
+    expiracao = datetime.now(UTC) + timedelta(minutes=minutos)
     payload = {
         "sub": str(user_id),
         "email": email,

@@ -1,10 +1,17 @@
 """Testes básicos de autenticação (T5.1).
 
-Cobre: login OK, senha errada, token inválido, rota protegida sem token e
-permissão negada. Usa um cliente Supabase fake (sem rede).
+Cobre: login OK, senha errada, token inválido, rota protegida sem token,
+permissão negada e a validade do token (JWT_VALIDADE_MINUTOS). Usa um cliente
+Supabase fake (sem rede).
 """
 
 import hashlib
+import os
+
+import jwt
+import pytest
+
+from auth import criar_token_acesso
 
 
 def _hash_senha(senha: str) -> str:
@@ -174,3 +181,49 @@ def test_health_publico(client):
     resp = client.get("/health")
     assert resp.status_code == 200
     assert resp.json()["status"] == "online"
+
+
+def _validade_do_token(token: str) -> int:
+    payload = jwt.decode(token, os.environ["JWT_SECRET"], algorithms=["HS256"])
+    return payload["exp"] - payload["iat"]
+
+
+def _preparar_segredo(monkeypatch):
+    monkeypatch.setenv("JWT_SECRET", "chave-de-teste-segura-12345678901234567890")
+
+
+def test_token_validade_padrao_960_minutos(monkeypatch):
+    _preparar_segredo(monkeypatch)
+    monkeypatch.delenv("JWT_VALIDADE_MINUTOS", raising=False)
+
+    token = criar_token_acesso(99, "teste@munaretto.com")
+
+    assert abs(_validade_do_token(token) - 960 * 60) <= 1
+
+
+def test_token_validade_vem_do_ambiente(monkeypatch):
+    _preparar_segredo(monkeypatch)
+    monkeypatch.setenv("JWT_VALIDADE_MINUTOS", "120")
+
+    token = criar_token_acesso(99, "teste@munaretto.com")
+
+    assert abs(_validade_do_token(token) - 120 * 60) <= 1
+
+
+@pytest.mark.parametrize("valor", ["", "abc", "0", "-5", "  "])
+def test_token_validade_invalida_usa_fallback(monkeypatch, valor):
+    _preparar_segredo(monkeypatch)
+    monkeypatch.setenv("JWT_VALIDADE_MINUTOS", valor)
+
+    token = criar_token_acesso(99, "teste@munaretto.com")
+
+    assert abs(_validade_do_token(token) - 960 * 60) <= 1
+
+
+def test_token_validade_explicita_tem_prioridade(monkeypatch):
+    _preparar_segredo(monkeypatch)
+    monkeypatch.setenv("JWT_VALIDADE_MINUTOS", "120")
+
+    token = criar_token_acesso(99, "teste@munaretto.com", validade_minutos=30)
+
+    assert abs(_validade_do_token(token) - 30 * 60) <= 1

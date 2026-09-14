@@ -28,7 +28,7 @@ online-only) · gestor edita raramente (conflitos raros).
 ## O que já foi entregue
 
 ### Fase A — Backend (concluída)
-- `JWT_VALIDADE_MINUTOS` 480 → **720** (12h) em `backend/.env` e `.env.example`
+- `JWT_VALIDADE_MINUTOS` 480 → **960** (16h) em `backend/.env` e `.env.example`
   (atualizar também na Render).
 - **`POST /api/os/sincronizar`** (`backend/routers/os.py`):
   - Body: `{ operacoes: [{id_local, tipo, os_id, criado_em, payload}], mapa_fotos: {} }`
@@ -108,7 +108,7 @@ online-only) · gestor edita raramente (conflitos raros).
 
 ## Pendências / observações
 
-- **Deploy:** backend na Render (incluir `JWT_VALIDADE_MINUTOS=720` e
+- **Deploy:** backend na Render (incluir `JWT_VALIDADE_MINUTOS=960` e
   `CORS_ORIGINS` com as portas locais 5198/5199) e frontend no Vercel.
 - Materiais **não** estão no offline (decisão do usuário); se precisar depois,
   o tipo `material_lancamento` deve ser adicionado ao sync + fila.
