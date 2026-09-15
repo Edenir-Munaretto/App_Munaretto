@@ -809,6 +809,7 @@ function TabChecklist({ osDetalhe, onAtualizado, mostrarToast, podeEditar }) {
 
 function TabInsumos({ osDetalhe, produtos, onAtualizado, mostrarToast, podeEditar, podeEstornar }) {
   const [buscaProduto, setBuscaProduto] = useState('');
+  const [produtoSelecionadoId, setProdutoSelecionadoId] = useState(null);
   const [qtd, setQtd] = useState(1);
   const [tipoUsc, setTipoUsc] = useState('normal');
   const [salvando, setSalvando] = useState(false);
@@ -903,11 +904,11 @@ function TabInsumos({ osDetalhe, produtos, onAtualizado, mostrarToast, podeEdita
   }, [buscaProduto, catalogoDoContrato]);
 
   const selecionado = useMemo(
-    () => catalogoDoContrato.find(p => p.id === Number(buscaProduto)) || null,
-    [buscaProduto, catalogoDoContrato],
+    () => catalogoDoContrato.find(p => p.id === produtoSelecionadoId) || null,
+    [produtoSelecionadoId, catalogoDoContrato],
   );
 
-  // Ao selecionar uma sugestão, exibe o nome do serviço (o estado guarda o ID).
+  // Ao selecionar uma sugestão, exibe o nome do serviço na barra.
   const textoBusca = selecionado ? selecionado.nome : buscaProduto;
 
   // Código vigente conforme o tipo escolhido: bipagem/digitação do código
@@ -923,25 +924,17 @@ function TabInsumos({ osDetalhe, produtos, onAtualizado, mostrarToast, podeEdita
     return 'normal';
   };
 
-  // Ao digitar/bipar: se o termo for EXATAMENTE o código de um serviço, já
-  // seleciona o serviço e define o tipo correspondente (normal/especial).
-  const aoBuscar = (texto) => {
+  // Digitar/bipar apenas preenche a busca: a lista aparece abaixo e a seleção
+  // acontece só ao tocar na sugestão (nada é puxado para a barra sozinho).
+  const aoDigitarBusca = (texto) => {
     setBuscaProduto(texto);
-    const termo = String(texto || '').trim().toLowerCase();
-    if (termo.length < 2) return;
-    const porEspecial = catalogoDoContrato.find(p =>
-      p.codigo_especial && String(p.codigo_especial).trim().toLowerCase() === termo);
-    if (porEspecial) {
-      setBuscaProduto(String(porEspecial.id));
-      setTipoUsc('especial');
-      return;
-    }
-    const porNormal = catalogoDoContrato.find(p =>
-      p.codigo && String(p.codigo).trim().toLowerCase() === termo);
-    if (porNormal) {
-      setBuscaProduto(String(porNormal.id));
-      setTipoUsc('normal');
-    }
+    setProdutoSelecionadoId(null);
+  };
+
+  const selecionarProduto = (p) => {
+    setTipoUsc(tipoDaSelecao(p));
+    setProdutoSelecionadoId(p.id);
+    setBuscaProduto(p.nome);
   };
 
   // Fatores de conversão do cadastro do produto (USC normal / USC especial).
@@ -996,6 +989,7 @@ function TabInsumos({ osDetalhe, produtos, onAtualizado, mostrarToast, podeEdita
 
   const limparFormulario = () => {
     setBuscaProduto('');
+    setProdutoSelecionadoId(null);
     setQtd(1);
     setTipoUsc('normal');
   };
@@ -1121,7 +1115,7 @@ function TabInsumos({ osDetalhe, produtos, onAtualizado, mostrarToast, podeEdita
         <input
           type="text"
           value={textoBusca}
-          onChange={(e) => aoBuscar(e.target.value)}
+          onChange={(e) => aoDigitarBusca(e.target.value)}
           placeholder="Bipe ou digite nome ou código (normal/especial)..."
           disabled={!podeEditar}
           className={`w-full px-3.5 py-3 border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-primary-500/20 focus:border-primary-500 text-sm ${selecionado ? 'pr-9' : ''}`}
@@ -1129,7 +1123,7 @@ function TabInsumos({ osDetalhe, produtos, onAtualizado, mostrarToast, podeEdita
         {selecionado && (
           <button
             type="button"
-            onClick={() => { setBuscaProduto(''); setTipoUsc('normal'); }}
+            onClick={() => { setBuscaProduto(''); setProdutoSelecionadoId(null); setTipoUsc('normal'); }}
             title="Limpar seleção"
             className="absolute right-2.5 top-[30px] w-7 h-7 flex items-center justify-center rounded-full text-slate-400 hover:text-slate-600 hover:bg-slate-100 cursor-pointer"
           >
@@ -1142,7 +1136,7 @@ function TabInsumos({ osDetalhe, produtos, onAtualizado, mostrarToast, podeEdita
               <button
                 key={p.id}
                 type="button"
-                onClick={() => { setBuscaProduto(String(p.id)); setTipoUsc(tipoDaSelecao(p)); }}
+                onClick={() => selecionarProduto(p)}
                 className="w-full text-left px-3 py-2 hover:bg-primary-50 text-sm text-slate-700 flex flex-col gap-0.5 cursor-pointer"
               >
                 <span className="flex items-center justify-between gap-2 w-full">
