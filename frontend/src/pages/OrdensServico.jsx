@@ -233,7 +233,7 @@ function Toast({ toast }) {
     : 'bg-emerald-50 border-emerald-200 text-emerald-800';
   const icone = toast.type === 'error' ? 'bg-rose-100 text-rose-600' : 'bg-emerald-100 text-emerald-600';
   return (
-    <div className={`fixed z-[70] rounded-xl shadow-xl border text-sm p-4 flex items-start gap-3 max-w-[calc(100vw-2rem)] sm:max-w-sm animate-in slide-in-from-bottom-4 sm:slide-in-from-top-4 duration-300 ${cor} bottom-4 left-4 right-4 sm:left-auto sm:right-4 sm:top-4 sm:bottom-auto`}>
+    <div className={`fixed z-[70] pointer-events-none rounded-xl shadow-xl border text-sm p-4 flex items-start gap-3 max-w-[calc(100vw-2rem)] sm:max-w-sm animate-in slide-in-from-bottom-4 sm:slide-in-from-top-4 duration-300 ${cor} bottom-4 left-4 right-4 sm:left-auto sm:right-4 sm:top-4 sm:bottom-auto`}>
       <div className={`p-1 rounded-full shrink-0 ${icone}`}>
         {toast.type === 'error' ? <AlertTriangle size={16} /> : <Check size={16} />}
       </div>
@@ -242,7 +242,7 @@ function Toast({ toast }) {
         {toast.acao && (
           <button
             onClick={toast.acao.onClick}
-            className="mt-1.5 text-xs font-extrabold underline underline-offset-2 hover:opacity-80 cursor-pointer"
+            className="mt-1.5 text-xs font-extrabold underline underline-offset-2 hover:opacity-80 cursor-pointer pointer-events-auto"
           >
             {toast.acao.label}
           </button>
@@ -2727,7 +2727,7 @@ function OrdensServico({ usuarioAtual }) {
     // Limpa o timer anterior: um toast novo cancela a ocultação do antigo
     // (timers soltos podiam apagar o toast seguinte antes da hora).
     if (toastTimerRef.current) clearTimeout(toastTimerRef.current);
-    toastTimerRef.current = setTimeout(() => setToast(null), type === 'error' ? 8000 : 4500);
+    toastTimerRef.current = setTimeout(() => setToast(null), type === 'error' ? 8000 : 2000);
   }, []);
 
   // Limpa o timer do toast ao desmontar a página.
