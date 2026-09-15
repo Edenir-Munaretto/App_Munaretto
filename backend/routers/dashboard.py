@@ -19,6 +19,7 @@ from utils.date_helpers import STATUS_PROXIMO, STATUS_SEM_VALIDADE, STATUS_VENCI
 from utils.date_helpers import hoje as _hoje
 from utils.date_helpers import parse_data as _parse_data
 from utils.date_helpers import status_vencimento as _status_vencimento
+from utils.documentos_vinculados import aplicar_documentos_vinculados
 
 router = APIRouter(dependencies=[Depends(require_qualquer_permisao(["dashboard", "configuracoes"]))])
 
@@ -131,17 +132,21 @@ def resumo_dashboard(db=Depends(get_supabase)):
         alertas_ferias = _alertas_ferias(ferias)
 
         # ASO: classificação por vencimento
-        aso_data = db.table("aso").select("data_validade").execute()
+        aso_data = db.table("aso").select("funcionario_id", "data_validade").execute()
         asos = aso_data.data or []
         for a in asos:
             a["status"] = _status_vencimento(a.get("data_validade"))
         aso_resumo = _contar_status(asos)
 
-        # Cursos/treinamentos dos funcionários
-        trei_data = db.table("funcionario_treinamentos").select("data_validade").execute()
+        # Cursos/treinamentos dos funcionários. Documentos vinculados (ex:
+        # AUTORIZAÇÃO NR10 E NR35) usam o vencimento derivado dos pré-requisitos.
+        trei_data = db.table("funcionario_treinamentos").select("*").execute()
         treinos = trei_data.data or []
+        catalogo = db.table("treinamentos").select("id", "nome").execute().data or []
+        aplicar_documentos_vinculados(treinos, catalogo, asos)
         for t in treinos:
-            t["status"] = _status_vencimento(t.get("data_validade"))
+            if not t.get("vinculado"):
+                t["status"] = _status_vencimento(t.get("data_validade"))
         cursos_resumo = _contar_status(treinos)
 
         resultado = {

@@ -427,3 +427,180 @@ def test_alertas_sst(sst_client, db_fake):
     assert body["resumo"]["treinamentos"]["Vencido"] == 1
     assert body["resumo"]["epis_ca_vencido"] == 1
     assert any("VENCIDO" in a["mensagem"] and a["gravidade"] == "danger" for a in body["alertas"])
+
+
+# ---------------------------------------------------------------------------
+# Documento com vencimento derivado (AUTORIZAÇÃO NR10 E NR35)
+# ---------------------------------------------------------------------------
+def _criar_cenario_documento(sst_client, db_fake):
+    """Cursos + documento do catálogo + funcionário. Devolve os registros criados."""
+    _criar_funcionario(db_fake)
+    curso_nr10 = sst_client.post(
+        "/api/sst/treinamentos",
+        json={"nome": "NR-10 RECICLAGEM", "norma": "NR-10", "validade_meses": 24},
+    ).json()
+    curso_nr35 = sst_client.post(
+        "/api/sst/treinamentos",
+        json={"nome": "NR-35 TRABALHO EM ALTURA", "norma": "NR-35", "validade_meses": 12},
+    ).json()
+    documento = sst_client.post(
+        "/api/sst/treinamentos",
+        json={"nome": "AUTORIZAÇÃO NR10 E NR35"},
+    ).json()
+    return curso_nr10, curso_nr35, documento
+
+
+def _registrar(sst_client, treinamento_id, data_realizacao, data_validade=None):
+    payload = {
+        "funcionario_id": 1,
+        "treinamento_id": treinamento_id,
+        "data_realizacao": data_realizacao,
+    }
+    if data_validade:
+        payload["data_validade"] = data_validade
+    resp = sst_client.post("/api/sst/funcionario-treinamentos", json=payload)
+    assert resp.status_code == 201, resp.text
+    return resp.json()
+
+
+def _criar_aso_periodico(sst_client, data_exame, validade_meses=12):
+    resp = sst_client.post(
+        "/api/sst/aso",
+        json={
+            "funcionario_id": 1,
+            "tipo_exame": "periodico",
+            "data_exame": data_exame,
+            "validade_meses": validade_meses,
+            "resultado": "apto",
+        },
+    )
+    assert resp.status_code == 201, resp.text
+    return resp.json()
+
+
+def _buscar_documento(sst_client, documento_id):
+    registros = sst_client.get("/api/sst/funcionario-treinamentos").json()
+    return registros, next(r for r in registros if r["treinamento_id"] == documento_id)
+
+
+def test_catalogo_marca_documento_vinculado(sst_client, db_fake):
+    """O catálogo sinaliza o documento e seus pré-requisitos; cursos comuns não."""
+    _, _, documento = _criar_cenario_documento(sst_client, db_fake)
+    catalogo = sst_client.get("/api/sst/treinamentos").json()
+    doc = next(t for t in catalogo if t["id"] == documento["id"])
+    assert doc["vinculado"] is True
+    assert doc["requisitos"] == ["NR-10 RECICLAGEM", "NR-35 TRABALHO EM ALTURA", "ASO"]
+    nr35 = next(t for t in catalogo if t["nome"] == "NR-35 TRABALHO EM ALTURA")
+    assert nr35["vinculado"] is False
+    assert nr35["requisitos"] is None
+
+
+def test_documento_vinculado_vence_junto_com_pre_requisito(sst_client, db_fake):
+    """Validade efetiva = menor entre NR-10, NR-35 e ASO; cursos comuns não mudam."""
+    curso_nr10, curso_nr35, documento = _criar_cenario_documento(sst_client, db_fake)
+    hoje = date.today().isoformat()
+    reg_nr10 = _registrar(sst_client, curso_nr10["id"], hoje)
+    reg_nr35 = _registrar(sst_client, curso_nr35["id"], hoje)
+    aso = _criar_aso_periodico(sst_client, hoje)
+    _registrar(sst_client, documento["id"], hoje)
+
+    registros, doc = _buscar_documento(sst_client, documento["id"])
+    assert doc["vinculado"] is True
+    assert doc["status"] == "Vigente"
+    assert doc["data_validade"] is None  # o documento não tem validade própria
+    assert doc["data_validade_efetiva"] == reg_nr35["data_validade"] == aso["data_validade"]
+    assert doc["data_validade_efetiva"] < reg_nr10["data_validade"]
+    assert doc["motivo"] == "vence junto com NR-35 TRABALHO EM ALTURA"
+
+    # Cursos comuns continuam com o status da própria validade.
+    nr10 = next(r for r in registros if r["treinamento_id"] == curso_nr10["id"])
+    assert nr10["status"] == "Vigente"
+    assert nr10["vinculado"] is False
+
+
+def test_documento_vinculado_vencido_gera_alerta(sst_client, db_fake):
+    """Quando um pré-requisito vence, o documento vence e alerta em danger."""
+    curso_nr10, curso_nr35, documento = _criar_cenario_documento(sst_client, db_fake)
+    hoje = date.today().isoformat()
+    _registrar(sst_client, curso_nr10["id"], hoje)
+    _registrar(sst_client, curso_nr35["id"], hoje)
+    _criar_aso_periodico(sst_client, hoje)
+    _registrar(sst_client, documento["id"], hoje)
+
+    registros = sst_client.get("/api/sst/funcionario-treinamentos").json()
+    reg_nr35 = next(r for r in registros if r["treinamento_id"] == curso_nr35["id"])
+
+    # NR-35 passa a vencer amanhã: documento fica próximo do vencimento.
+    amanha = (date.today() + timedelta(days=1)).isoformat()
+    sst_client.put(
+        f"/api/sst/funcionario-treinamentos/{reg_nr35['id']}",
+        json={
+            "funcionario_id": 1,
+            "treinamento_id": curso_nr35["id"],
+            "data_realizacao": hoje,
+            "data_validade": amanha,
+        },
+    )
+    _, doc = _buscar_documento(sst_client, documento["id"])
+    assert doc["status"] == "Próximo ao Vencimento"
+    assert doc["data_validade_efetiva"] == amanha
+
+    # Validade no passado: documento vencido + alerta.
+    ontem = (date.today() - timedelta(days=1)).isoformat()
+    sst_client.put(
+        f"/api/sst/funcionario-treinamentos/{reg_nr35['id']}",
+        json={
+            "funcionario_id": 1,
+            "treinamento_id": curso_nr35["id"],
+            "data_realizacao": hoje,
+            "data_validade": ontem,
+        },
+    )
+    _, doc = _buscar_documento(sst_client, documento["id"])
+    assert doc["status"] == "Vencido"
+    assert doc["motivo"] == "vence junto com NR-35 TRABALHO EM ALTURA"
+
+    alertas = sst_client.get("/api/sst/alertas").json()["alertas"]
+    assert any(
+        "AUTORIZAÇÃO NR10 E NR35 VENCIDA" in a["mensagem"] and a["gravidade"] == "danger"
+        for a in alertas
+    )
+
+
+def test_documento_vinculado_pendente_sem_curso(sst_client, db_fake):
+    """Faltando um curso, o documento fica 'Sem validade' e alerta pendência."""
+    curso_nr10, _, documento = _criar_cenario_documento(sst_client, db_fake)
+    hoje = date.today().isoformat()
+    _registrar(sst_client, curso_nr10["id"], hoje)
+    _criar_aso_periodico(sst_client, hoje)
+    _registrar(sst_client, documento["id"], hoje)
+
+    _, doc = _buscar_documento(sst_client, documento["id"])
+    assert doc["status"] == "Sem validade"
+    assert doc["faltando"] is True
+    assert doc["motivo"] == "falta: NR-35 TRABALHO EM ALTURA"
+    req = next(r for r in doc["requisitos"] if r["nome"] == "NR-35 TRABALHO EM ALTURA")
+    assert req["registrado"] is False
+
+    alertas = sst_client.get("/api/sst/alertas").json()["alertas"]
+    assert any(
+        "AUTORIZAÇÃO NR10 E NR35 PENDENTE" in a["mensagem"] and a["gravidade"] == "danger"
+        for a in alertas
+    )
+
+
+def test_documento_vinculado_exige_aso_com_validade(sst_client, db_fake):
+    """ASO sem validade (ex: admissional) não satisfaz o pré-requisito."""
+    curso_nr10, curso_nr35, documento = _criar_cenario_documento(sst_client, db_fake)
+    hoje = date.today().isoformat()
+    _registrar(sst_client, curso_nr10["id"], hoje)
+    _registrar(sst_client, curso_nr35["id"], hoje)
+    sst_client.post(
+        "/api/sst/aso",
+        json={"funcionario_id": 1, "tipo_exame": "admissional", "data_exame": hoje},
+    )
+    _registrar(sst_client, documento["id"], hoje)
+
+    _, doc = _buscar_documento(sst_client, documento["id"])
+    assert doc["status"] == "Sem validade"
+    assert doc["motivo"] == "falta: ASO"

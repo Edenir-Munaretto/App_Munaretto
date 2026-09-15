@@ -34,6 +34,10 @@ from utils.date_helpers import (
 from utils.date_helpers import (
     status_vencimento as _status_vencimento,
 )
+from utils.documentos_vinculados import (
+    anotar_catalogo_vinculados,
+    aplicar_documentos_vinculados,
+)
 
 router = APIRouter(dependencies=[Depends(require_permisao("sst"))])
 
@@ -206,6 +210,8 @@ class TreinamentoBase(BaseModel):
 class TreinamentoResponse(TreinamentoBase):
     id: int
     created_at: str | None = None
+    vinculado: bool = False
+    requisitos: list[str] | None = None
 
 
 @router.get("/treinamentos", response_model=list[TreinamentoResponse])
@@ -218,7 +224,9 @@ def listar_treinamentos(
         query = db.table("treinamentos").select("*")
         if not incluir_inativos:
             query = query.eq("ativo", True)
-        return query.order("nome").execute().data
+        dados = query.order("nome").execute().data
+        anotar_catalogo_vinculados(dados)
+        return dados
     except Exception:
         logger.exception("Erro ao listar treinamentos")
         raise HTTPException(status_code=500, detail="Erro ao listar treinamentos") from None
@@ -231,6 +239,7 @@ def cadastrar_treinamento(treinamento: TreinamentoBase, db=Depends(get_supabase)
         response = db.table("treinamentos").insert(treinamento.model_dump()).execute()
         if not response.data:
             raise HTTPException(status_code=500, detail="Falha ao cadastrar treinamento.")
+        anotar_catalogo_vinculados(response.data)
         return response.data[0]
     except Exception:
         logger.exception("Erro ao cadastrar treinamento")
@@ -247,6 +256,7 @@ def atualizar_treinamento(treinamento_id: int, treinamento: TreinamentoBase, db=
         response = db.table("treinamentos").update(treinamento.model_dump()).eq("id", treinamento_id).execute()
         if not response.data:
             raise HTTPException(status_code=500, detail="Falha ao atualizar treinamento.")
+        anotar_catalogo_vinculados(response.data)
         return response.data[0]
     except HTTPException:
         raise
@@ -400,6 +410,14 @@ class FuncTreinamentoBase(BaseModel):
     observacao: str | None = None
 
 
+class RequisitoVinculo(BaseModel):
+    tipo: str
+    nome: str
+    data_validade: str | None = None
+    status: str
+    registrado: bool = True
+
+
 class FuncTreinamentoResponse(FuncTreinamentoBase):
     id: int
     funcionario_nome: str
@@ -409,6 +427,11 @@ class FuncTreinamentoResponse(FuncTreinamentoBase):
     tem_certificado: bool = False
     certificado_nome: str | None = None
     created_at: str | None = None
+    vinculado: bool = False
+    requisitos: list[RequisitoVinculo] | None = None
+    data_validade_efetiva: str | None = None
+    faltando: bool = False
+    motivo: str | None = None
 
 
 @router.get("/funcionario-treinamentos", response_model=list[FuncTreinamentoResponse])
@@ -427,10 +450,14 @@ def listar_funcionario_treinamentos(
             .execute()
             .data
         )
+        catalogo = db.table("treinamentos").select("id", "nome").execute().data
+        asos = db.table("aso").select("funcionario_id", "data_validade").execute().data
+        aplicar_documentos_vinculados(linhas, catalogo, asos)
         cert_map = {c["registro_id"]: c for c in certs}
         resultado = []
         for r in linhas:
-            r["status"] = _status_vencimento(r.get("data_validade"))
+            if not r.get("vinculado"):
+                r["status"] = _status_vencimento(r.get("data_validade"))
             cert = cert_map.get(r.get("id"))
             r["tem_certificado"] = cert is not None
             r["certificado_nome"] = cert.get("nome_original") if cert else None
@@ -1168,9 +1195,12 @@ def obter_alertas(db=Depends(get_supabase)):
         treinos = db.table("funcionario_treinamentos").select("*").execute().data
         asos = db.table("aso").select("*").execute().data
         epis = db.table("epis").select("*").eq("ativo", True).execute().data
+        catalogo = db.table("treinamentos").select("id", "nome").execute().data
 
+        aplicar_documentos_vinculados(treinos, catalogo, asos)
         for t in treinos:
-            t["status"] = _status_vencimento(t.get("data_validade"))
+            if not t.get("vinculado"):
+                t["status"] = _status_vencimento(t.get("data_validade"))
         for a in asos:
             a["status"] = _status_vencimento(a.get("data_validade"))
 
@@ -1185,6 +1215,33 @@ def obter_alertas(db=Depends(get_supabase)):
         hoje = _hoje()
 
         for t in treinos:
+            if t.get("vinculado"):
+                nome_doc = t.get("treinamento_nome")
+                func = t.get("funcionario_nome")
+                if t["status"] == STATUS_VENCIDO:
+                    alertas.append(
+                        _registro_vencimento(
+                            f"{nome_doc} VENCIDA: {func} — {t.get('motivo')}.",
+                            "danger",
+                        )
+                    )
+                elif t["status"] == STATUS_PROXIMO:
+                    d = _parse_data(t.get("data_validade_efetiva"))
+                    dias = (d - hoje).days if d else 0
+                    alertas.append(
+                        _registro_vencimento(
+                            f"{nome_doc} de {func} vence em {dias} dia(s) — {t.get('motivo')}.",
+                            "warning",
+                        )
+                    )
+                elif t.get("faltando"):
+                    alertas.append(
+                        _registro_vencimento(
+                            f"{nome_doc} PENDENTE: {func} — {t.get('motivo')}.",
+                            "danger",
+                        )
+                    )
+                continue
             if t["status"] == STATUS_VENCIDO:
                 alertas.append(
                     _registro_vencimento(

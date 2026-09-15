@@ -141,7 +141,7 @@ function Sst() {
   useEffect(() => {
     fetchFuncionarios();
     if (tab === 'matriz') fetchMatriz();
-    if (tab === 'treinamentos') { fetchFuncTreinamentos(); fetchPendencias(); }
+    if (tab === 'treinamentos') { fetchFuncTreinamentos(); fetchPendencias(); fetchTreinamentos(); }
     if (tab === 'aso') fetchAsos();
     if (tab === 'epi') { fetchEpis(); fetchFuncEpis(); }
   // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -209,6 +209,15 @@ function Sst() {
       showToast('Erro ao carregar matriz de treinamentos.', 'error');
     } finally {
       setLoading(false);
+    }
+  };
+
+  const fetchTreinamentos = async () => {
+    try {
+      const res = await apiFetch(`${API_URL}/sst/treinamentos`, { retry: 2 });
+      if (res.ok) setTreinamentos(await res.json());
+    } catch (err) {
+      console.error('Erro ao buscar catálogo de cursos:', err);
     }
   };
 
@@ -569,6 +578,8 @@ function Sst() {
 
   const qtdPendentes = pendencias.filter(p => p.situacao === 'Pendente').length;
   const qtdVencidos = pendencias.filter(p => p.situacao === 'Vencido').length;
+
+  const cursoSelecionadoFt = treinamentos.find(t => t.id === Number(ftForm.treinamento_id));
 
   const MIMES_CERTIFICADO = ['application/pdf', 'image/jpeg', 'image/png', 'image/webp'];
 
@@ -1335,10 +1346,41 @@ function Sst() {
                         <td className="px-3 py-3 md:px-6 md:py-4">
                           {r.treinamento_nome}
                           {r.norma && <span className="ml-2 px-1.5 py-0.5 rounded bg-primary-50 text-primary-700 border border-primary-100 text-[9px] font-bold">{r.norma}</span>}
+                          {r.vinculado && (
+                            <span className="ml-2 px-1.5 py-0.5 rounded bg-indigo-50 text-indigo-700 border border-indigo-100 text-[9px] font-bold" title={r.motivo || ''}>
+                              Documento vinculado
+                            </span>
+                          )}
+                          {r.vinculado && (r.requisitos || []).length > 0 && (
+                            <div className="mt-1.5 flex flex-wrap gap-1">
+                              {(r.requisitos || []).map(req => (
+                                <span
+                                  key={req.nome}
+                                  title={`${req.nome}: ${req.status}${req.data_validade ? ` (${formatDateBR(req.data_validade)})` : ' - não registrado'}`}
+                                  className={`px-1.5 py-0.5 rounded border text-[9px] font-bold ${
+                                    req.status === 'Vencido'
+                                      ? 'bg-rose-50 text-rose-700 border-rose-100'
+                                      : req.status === 'Próximo ao Vencimento'
+                                        ? 'bg-amber-50 text-amber-700 border-amber-100'
+                                        : req.status === 'Vigente'
+                                          ? 'bg-emerald-50 text-emerald-700 border-emerald-100'
+                                          : 'bg-slate-50 text-slate-500 border-slate-200'
+                                  }`}
+                                >
+                                  {req.nome}
+                                </span>
+                              ))}
+                            </div>
+                          )}
                         </td>
                         <td className="px-3 py-3 md:px-6 md:py-4">{formatDateBR(r.data_realizacao)}</td>
-                        <td className="px-3 py-3 md:px-6 md:py-4">{formatDateBR(r.data_validade)}</td>
-                        <td className="px-3 py-3 md:px-6 md:py-4"><StatusBadge status={r.status} /></td>
+                        <td className="px-3 py-3 md:px-6 md:py-4">{formatDateBR(r.vinculado ? r.data_validade_efetiva : r.data_validade)}</td>
+                        <td className="px-3 py-3 md:px-6 md:py-4">
+                          <StatusBadge status={r.status} />
+                          {r.vinculado && r.motivo && (
+                            <p className="text-[10px] text-slate-400 font-semibold mt-1">{r.motivo}</p>
+                          )}
+                        </td>
                         <td className="px-3 py-3 md:px-6 md:py-4">
                           <div className="flex justify-center items-center gap-2">
                             {r.tem_certificado ? (
@@ -1873,6 +1915,14 @@ function Sst() {
                       {t.tipo && <span className="px-2 py-0.5 rounded-full bg-slate-100 text-slate-600 border border-slate-200 text-[10px] font-bold">{t.tipo}</span>}
                       {t.validade_meses && <span className="px-2 py-0.5 rounded-full bg-amber-50 text-amber-700 border border-amber-100 text-[10px] font-bold">Reciclagem: {t.validade_meses} meses</span>}
                       {t.carga_horaria && <span className="px-2 py-0.5 rounded-full bg-slate-100 text-slate-600 border border-slate-200 text-[10px] font-bold">{t.carga_horaria}h</span>}
+                      {t.vinculado && (
+                        <span
+                          className="px-2 py-0.5 rounded-full bg-indigo-50 text-indigo-700 border border-indigo-100 text-[10px] font-bold"
+                          title="Documento com vencimento atrelado aos pré-requisitos"
+                        >
+                          Documento vinculado: {(t.requisitos || []).join(' + ')}
+                        </span>
+                      )}
                     </div>
                   </div>
                   <div className="flex items-center gap-1.5 shrink-0">
@@ -1965,6 +2015,10 @@ function Sst() {
                 className="w-full px-3.5 py-2 border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-primary-500/20 focus:border-primary-500 text-sm"
               />
             </div>
+            <p className="text-[11px] text-slate-400 font-semibold bg-slate-50 border border-slate-100 rounded-xl p-3">
+              Documentos com vencimento atrelado (ex.: AUTORIZAÇÃO NR10 E NR35) devem ser cadastrados com a
+              Validade em branco: o status passa a acompanhar os pré-requisitos (cursos + ASO) do funcionário.
+            </p>
             <ModalActions label={treinamentoEditingId ? 'Salvar Alterações' : 'Cadastrar Curso'} onCancel={() => setShowTreinamentoModal(false)} />
           </form>
         </ModalShell>
@@ -2101,9 +2155,14 @@ function Sst() {
                   onChange={(e) => setFtForm(p => ({ ...p, data_validade: e.target.value }))}
                   className="w-full px-3.5 py-2 border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-primary-500/20 focus:border-primary-500 text-sm"
                 />
-                {treinamentos.find(t => t.id === Number(ftForm.treinamento_id))?.validade_meses && (
+                {cursoSelecionadoFt?.validade_meses && (
                   <p className="text-[10px] text-slate-400 mt-1 font-semibold">
                     Calculada automaticamente conforme a reciclagem do curso.
+                  </p>
+                )}
+                {cursoSelecionadoFt?.vinculado && (
+                  <p className="text-[10px] text-indigo-500 mt-1 font-semibold">
+                    Documento vinculado: a validade acompanha {(cursoSelecionadoFt.requisitos || []).join(' + ')}.
                   </p>
                 )}
               </div>
