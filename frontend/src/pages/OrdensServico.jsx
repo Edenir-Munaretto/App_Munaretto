@@ -610,7 +610,8 @@ function TabChecklist({ osDetalhe, onAtualizado, mostrarToast, podeEditar }) {
         {resumo.grupos.filter(g => g.total > 0).map(grupo => {
           const aberto = grupoAberto === grupo.grupo;
           const fotosPendentes = fotosPendentesPorGrupo[grupo.grupo] || 0;
-          const aguardandoFoto = !fotosPendentes ? false : grupo.respondidos === grupo.total;
+          const faltandoResposta = grupo.respondidos < grupo.total;
+          const aguardandoFoto = !faltandoResposta && fotosPendentes > 0;
           const completo = grupo.completo && !fotosPendentes;
           const itens = itensPorGrupo[grupo.grupo] || [];
           return (
@@ -621,11 +622,14 @@ function TabChecklist({ osDetalhe, onAtualizado, mostrarToast, podeEditar }) {
                 aria-expanded={aberto}
                 title={`Grupo ${grupo.grupo} · ${grupo.nome}`}
                 className={`w-full flex items-center gap-3 px-4 py-3 text-left cursor-pointer transition-colors max-[639px]:px-4 max-[639px]:py-4 ${
-                  aberto ? 'bg-primary-50' : 'bg-white hover:bg-slate-50'
+                  aberto ? 'bg-primary-50'
+                    : faltandoResposta ? 'bg-rose-50/60 hover:bg-rose-50'
+                    : 'bg-white hover:bg-slate-50'
                 }`}
               >
                 <span className={`w-9 h-9 shrink-0 rounded-full flex items-center justify-center text-xs font-black transition-colors max-[639px]:w-11 max-[639px]:h-11 max-[639px]:text-base ${
                   completo ? 'bg-emerald-100 text-emerald-700'
+                    : faltandoResposta ? 'bg-rose-100 text-rose-700'
                     : aguardandoFoto ? 'bg-amber-100 text-amber-700'
                     : aberto ? 'bg-primary-600 text-white' : 'bg-slate-100 text-slate-500'
                 }`}>
@@ -639,15 +643,19 @@ function TabChecklist({ osDetalhe, onAtualizado, mostrarToast, podeEditar }) {
                     </span>
                     <span className={`shrink-0 text-[10px] font-bold rounded-full px-2 py-0.5 ${
                       completo ? 'bg-emerald-100 text-emerald-700'
+                        : faltandoResposta ? 'bg-rose-100 text-rose-700'
                         : aguardandoFoto ? 'bg-amber-100 text-amber-700'
                         : 'bg-slate-100 text-slate-500'
                     }`}>
                       {grupo.respondidos}/{grupo.total}
+                      {faltandoResposta ? ` · faltam ${grupo.total - grupo.respondidos}` : ''}
                       {fotosPendentes ? ` · ${fotosPendentes} foto(s)` : ''}
                     </span>
                   </span>
                   <span className="block h-1 mt-1.5 bg-slate-100 rounded-full overflow-hidden">
-                    <span className={`block h-full ${aguardandoFoto ? 'bg-amber-500' : 'bg-primary-500'} transition-all`}
+                    <span className={`block h-full ${
+                      faltandoResposta ? 'bg-rose-500' : aguardandoFoto ? 'bg-amber-500' : 'bg-primary-500'
+                    } transition-all`}
                       style={{ width: `${grupo.total ? (grupo.respondidos / grupo.total) * 100 : 0}%` }} />
                   </span>
                 </span>
