@@ -4287,6 +4287,22 @@ function BarraRanking({ rotulo, detalhe, valor, maximo, cor = 'bg-primary-500' }
   );
 }
 
+// Contorno colorido por equipe (cor estável pelo id) para identificar cada
+// card de relance. Tons suaves para não competir com os status internos.
+const CORES_EQUIPE = [
+  { borda: 'border-indigo-300', badge: 'bg-indigo-50 text-indigo-700 border-indigo-200' },
+  { borda: 'border-teal-300', badge: 'bg-teal-50 text-teal-700 border-teal-200' },
+  { borda: 'border-violet-300', badge: 'bg-violet-50 text-violet-700 border-violet-200' },
+  { borda: 'border-cyan-300', badge: 'bg-cyan-50 text-cyan-700 border-cyan-200' },
+  { borda: 'border-fuchsia-300', badge: 'bg-fuchsia-50 text-fuchsia-700 border-fuchsia-200' },
+  { borda: 'border-sky-300', badge: 'bg-sky-50 text-sky-700 border-sky-200' },
+];
+
+function corDaEquipe(equipe) {
+  const base = Number.isFinite(Number(equipe?.id)) ? Number(equipe.id) : 0;
+  return CORES_EQUIPE[Math.abs(base) % CORES_EQUIPE.length];
+}
+
 function PainelDesempenho({ dados, carregando, mes, mesAtual, onMudarMes, onAtualizar, onSelecionarEquipe }) {
   const [ordenacao, setOrdenacao] = useState('backlog');
   const [contratoVolume, setContratoVolume] = useState(TIPO_PADRAO_OS);
@@ -4414,13 +4430,14 @@ function PainelDesempenho({ dados, carregando, mes, mesAtual, onMudarMes, onAtua
             const encerradas = eq.concluidas + eq.canceladas;
             const pctConclusao = encerradas > 0 ? Math.round((eq.concluidas / encerradas) * 100) : null;
             const ehDestaque = destaque?.equipe_id === eq.id;
+            const cor = corDaEquipe(eq);
             return (
               <button
                 key={eq.id}
                 onClick={() => onSelecionarEquipe(eq)}
                 title="Abrir o Quadro filtrado por esta equipe"
-                className={`text-left bg-white rounded-2xl border p-4 shadow-sm hover:shadow-md transition-all cursor-pointer space-y-3 ${
-                  ehDestaque ? 'border-amber-300 ring-1 ring-amber-200' : 'border-slate-100'
+                className={`text-left bg-white rounded-2xl border-2 p-4 shadow-sm hover:shadow-md transition-all cursor-pointer space-y-3 ${
+                  ehDestaque ? 'border-amber-400 ring-2 ring-amber-200' : cor.borda
                 } ${eq.ativa === false ? 'opacity-60' : ''}`}
               >
                 <div className="flex items-center justify-between gap-2">
@@ -4430,7 +4447,7 @@ function PainelDesempenho({ dados, carregando, mes, mesAtual, onMudarMes, onAtua
                     {ehDestaque && <Trophy size={14} className="text-amber-500 shrink-0" />}
                   </div>
                   {eq.numero && (
-                    <span className="text-[10px] font-bold bg-primary-50 text-primary-700 border border-primary-100 rounded-full px-2 py-0.5 shrink-0">
+                    <span className={`text-[10px] font-bold border rounded-full px-2 py-0.5 shrink-0 ${cor.badge}`}>
                       Nº {eq.numero}
                     </span>
                   )}
