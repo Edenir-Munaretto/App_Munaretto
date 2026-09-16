@@ -960,6 +960,54 @@ class TestModeloImpressao:
         resp2 = os_gestor_client.get(f"/api/os/{os_sem_equipe}/imprimir")
         assert resp2.status_code == 200, resp2.text
 
+    def test_imprimir_branco_sai_so_com_equipe_e_membros(self, os_gestor_client, db_fake):
+        """Impressão de emergência: campos vazios, apenas equipe/encarregado/membros."""
+        _seed_cenario(db_fake)
+        db_fake._dados["equipes"][0]["numero"] = "12204"
+
+        resp = os_gestor_client.get(
+            "/api/os/imprimir-branco", params={"equipe_id": 100, "tipo": "construcao"}
+        )
+        assert resp.status_code == 200, resp.text
+        assert resp.headers["content-type"] == "application/pdf"
+        assert resp.content.startswith(b"%PDF")
+
+        import pymupdf
+
+        doc = pymupdf.open(stream=resp.content, filetype="pdf")
+        texto = "\n".join(pagina.get_text() for pagina in doc)
+        # Só a identificação da equipe sai preenchida...
+        assert "12204" in texto
+        assert "Líder de Campo" in texto
+        # ...o restante fica em branco para preenchimento manual.
+        assert "__/__/____" in texto
+        assert "__:__" in texto
+
+    def test_imprimir_branco_linha_viva(self, os_gestor_client, db_fake):
+        _seed_cenario(db_fake)
+        resp = os_gestor_client.get(
+            "/api/os/imprimir-branco", params={"equipe_id": 100, "tipo": "linha_viva"}
+        )
+        assert resp.status_code == 200, resp.text
+        assert resp.content.startswith(b"%PDF")
+
+    def test_imprimir_branco_exige_gestor(self, os_campo_client, db_fake):
+        _seed_cenario(db_fake)
+        resp = os_campo_client.get("/api/os/imprimir-branco", params={"equipe_id": 100})
+        assert resp.status_code == 403
+
+    def test_imprimir_branco_tipo_invalido(self, os_gestor_client, db_fake):
+        _seed_cenario(db_fake)
+        resp = os_gestor_client.get(
+            "/api/os/imprimir-branco", params={"equipe_id": 100, "tipo": "outro"}
+        )
+        assert resp.status_code == 400
+
+    def test_imprimir_branco_equipe_inexistente(self, os_gestor_client, db_fake):
+        _seed_cenario(db_fake)
+        resp = os_gestor_client.get("/api/os/imprimir-branco", params={"equipe_id": 999})
+        assert resp.status_code == 404
+
     def test_modelo_construcao_campo_agencia_sem_cda(self, os_gestor_client, db_fake):
         """O campo Agência do modelo de construção mostra apenas o valor
         digitado, dentro da caixa — sem o rótulo 'CDA' sobrescrito."""

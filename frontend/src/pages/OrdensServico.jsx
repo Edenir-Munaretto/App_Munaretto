@@ -4412,6 +4412,9 @@ function PainelCadastros({ equipes, produtos, recarregar, mostrarToast }) {
   // Equipes
   const [filtroEquipeLista, setFiltroEquipeLista] = useState('');
   const [excluirEquipeAlvo, setExcluirEquipeAlvo] = useState(null);
+  // Impressão de O.S em branco (emergência): modal aberto + equipe pré-selecionada.
+  const [imprimirBrancoAberto, setImprimirBrancoAberto] = useState(false);
+  const [imprimirBrancoEquipe, setImprimirBrancoEquipe] = useState(null);
 
   // Produtos (serviços por contrato) — catálogos INDIVIDUAIS (sem "Todos")
   const [filtroProdutoLista, setFiltroProdutoLista] = useState('');
@@ -4600,6 +4603,13 @@ function PainelCadastros({ equipes, produtos, recarregar, mostrarToast }) {
                 )}
               </div>
               <button
+                onClick={() => { setImprimirBrancoEquipe(null); setImprimirBrancoAberto(true); }}
+                className="flex items-center justify-center gap-1.5 px-4 py-2 bg-white border border-slate-200 text-slate-700 rounded-xl text-xs font-bold hover:bg-slate-50 transition-all cursor-pointer shrink-0"
+                title="Imprimir O.S em branco (emergência) com os membros da equipe"
+              >
+                <Printer size={14} /> Imprimir em branco
+              </button>
+              <button
                 onClick={() => setEquipeModalAberto(true)}
                 className="flex items-center justify-center gap-1.5 px-4 py-2 bg-primary-600 text-white rounded-xl text-xs font-bold hover:bg-primary-700 transition-all cursor-pointer shadow-sm shrink-0"
               >
@@ -4625,6 +4635,17 @@ function PainelCadastros({ equipes, produtos, recarregar, mostrarToast }) {
                       )}
                     </div>
                       <div className="flex items-center gap-1 opacity-60 group-hover:opacity-100 transition-opacity">
+                        <button
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            setImprimirBrancoEquipe(eq);
+                            setImprimirBrancoAberto(true);
+                          }}
+                          className="text-slate-400 hover:text-primary-600 cursor-pointer p-1 rounded hover:bg-white border hover:border-slate-200"
+                          title="Imprimir O.S em branco desta equipe"
+                        >
+                          <Printer size={11} />
+                        </button>
                         <button
                           onClick={(e) => {
                             e.stopPropagation();
@@ -4678,6 +4699,16 @@ function PainelCadastros({ equipes, produtos, recarregar, mostrarToast }) {
                 recarregar={recarregar}
                 mostrarToast={mostrarToast}
                 onFechar={() => { setEquipeModalAberto(false); setEquipeModalEdicao(null); }}
+              />
+            )}
+
+            {/* Impressão de O.S em branco (emergência/fim de semana) */}
+            {imprimirBrancoAberto && (
+              <ModalImprimirBranco
+                equipes={equipes}
+                equipeInicial={imprimirBrancoEquipe}
+                mostrarToast={mostrarToast}
+                onFechar={() => { setImprimirBrancoAberto(false); setImprimirBrancoEquipe(null); }}
               />
             )}
           </div>
@@ -5251,6 +5282,135 @@ function ModalEquipeCadastro({ edicao, recarregar, mostrarToast, onFechar }) {
             className="flex items-center gap-1.5 px-5 py-2.5 bg-primary-600 text-white rounded-xl text-xs font-bold hover:bg-primary-700 transition-all cursor-pointer disabled:opacity-50"
           >
             {salvando ? 'Salvando...' : (edicao ? 'Salvar Alterações' : 'Cadastrar Equipe')}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Impressão de O.S em branco (emergência/fim de semana): o modelo oficial sai
+// com os campos vazios, imprimindo apenas equipe, encarregado e membros.
+// Nada é gravado no sistema — serve para o encarregado preencher à mão.
+// ---------------------------------------------------------------------------
+function ModalImprimirBranco({ equipes, equipeInicial, mostrarToast, onFechar }) {
+  const [equipeId, setEquipeId] = useState(() => String(equipeInicial?.id || ''));
+  const [tipo, setTipo] = useState(TIPO_PADRAO_OS);
+  const [gerando, setGerando] = useState(false);
+
+  const equipe = equipes.find(eq => String(eq.id) === equipeId);
+  const membros = equipe?.membros || [];
+  const encarregado = membros.find(m => m.lider);
+
+  const imprimir = async () => {
+    if (!equipeId) { mostrarToast('Selecione a equipe.', 'error'); return; }
+    // Abre a aba antes do fetch (evita bloqueio de popup).
+    const janela = window.open('', '_blank');
+    setGerando(true);
+    try {
+      const params = new URLSearchParams({ equipe_id: equipeId, tipo });
+      const res = await apiFetch(`${API_URL}/os/imprimir-branco?${params.toString()}`);
+      if (!res.ok) {
+        janela?.close();
+        mostrarToast(erroDaResposta(await res.json().catch(() => null), 'Erro ao gerar a O.S em branco.'), 'error');
+        return;
+      }
+      const blob = await res.blob();
+      const url = window.URL.createObjectURL(blob);
+      janela?.location.replace(url);
+      // A aba nova navegou para a blob URL; revoga após um tempo de segurança.
+      setTimeout(() => window.URL.revokeObjectURL(url), 120000);
+      onFechar();
+    } catch {
+      janela?.close();
+      mostrarToast('Erro de conexão ao gerar a O.S em branco.', 'error');
+    } finally {
+      setGerando(false);
+    }
+  };
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm p-4">
+      <div className="bg-white rounded-2xl shadow-2xl max-w-lg w-full overflow-hidden max-h-[92vh] overflow-y-auto animate-in fade-in zoom-in duration-200">
+        <div className="bg-slate-900 text-white px-6 py-4 flex items-center justify-between sticky top-0">
+          <h3 className="text-sm font-extrabold">Imprimir O.S em Branco</h3>
+          <button type="button" onClick={onFechar} className="text-slate-400 hover:text-white cursor-pointer"><X size={18} /></button>
+        </div>
+        <div className="p-6 space-y-3">
+          <p className="text-xs text-slate-500">
+            Modelo oficial em branco para preenchimento manual (emergências/fins de semana).
+            Sai impresso apenas o número da equipe, o encarregado e a tabela de membros.
+            Nada é gravado no sistema.
+          </p>
+          <div>
+            <label className="block text-xs font-bold text-slate-700 mb-1">Equipe *</label>
+            <select
+              value={equipeId}
+              onChange={e => setEquipeId(e.target.value)}
+              className="w-full px-3 py-2 border border-slate-200 rounded-xl text-sm focus:outline-none focus:border-primary-500 bg-white"
+            >
+              <option value="">Selecione a equipe...</option>
+              {equipes.map(eq => (
+                <option key={eq.id} value={String(eq.id)}>
+                  {eq.nome}{eq.numero ? ` (Nº ${eq.numero})` : ''}
+                </option>
+              ))}
+            </select>
+          </div>
+          <div>
+            <label className="block text-xs font-bold text-slate-700 mb-1">Tipo de O.S *</label>
+            <select
+              value={tipo}
+              onChange={e => setTipo(e.target.value)}
+              className="w-full px-3 py-2 border border-slate-200 rounded-xl text-sm focus:outline-none focus:border-primary-500 bg-white"
+            >
+              {TIPOS_SERVICO_OPCOES.map(op => (
+                <option key={op.valor} value={op.valor}>{op.rotulo}</option>
+              ))}
+            </select>
+          </div>
+          {equipe && (
+            <div className="bg-slate-50 border border-slate-200 rounded-xl p-3 text-xs">
+              <p className="font-bold text-slate-700 mb-1">Serão impressos no modelo:</p>
+              <p className="text-slate-600">
+                Encarregado: <span className="font-semibold">{encarregado?.nome || '—'}</span>
+              </p>
+              <div className="flex flex-wrap gap-1 mt-1.5">
+                {membros.length ? membros.map(m => (
+                  <span
+                    key={m.id}
+                    className={`px-2 py-0.5 rounded-full text-[10px] font-semibold border ${
+                      m.lider
+                        ? 'bg-amber-50 text-amber-700 border-amber-200'
+                        : 'bg-white text-slate-600 border-slate-200'
+                    }`}
+                  >
+                    {m.nome} {m.lider && '★'}
+                  </span>
+                )) : (
+                  <span className="text-slate-400 italic">
+                    Nenhum membro vinculado — o modelo sairá sem a tabela de membros.
+                  </span>
+                )}
+              </div>
+            </div>
+          )}
+        </div>
+        <div className="px-6 py-4 border-t border-slate-100 bg-slate-50 flex gap-2 justify-end">
+          <button
+            type="button"
+            onClick={onFechar}
+            className="px-4 py-2.5 bg-white border border-slate-200 text-slate-600 rounded-xl text-xs font-bold hover:bg-slate-100 transition-colors cursor-pointer"
+          >
+            Cancelar
+          </button>
+          <button
+            onClick={imprimir}
+            disabled={gerando || !equipeId}
+            className="flex items-center gap-1.5 px-5 py-2.5 bg-primary-600 text-white rounded-xl text-xs font-bold hover:bg-primary-700 transition-all cursor-pointer disabled:opacity-50"
+          >
+            <Printer size={14} /> {gerando ? 'Gerando PDF...' : 'Imprimir em branco'}
           </button>
         </div>
       </div>

@@ -311,6 +311,54 @@ def _garantir_acesso_os(db, usuario: UsuarioAutenticado, os_data: dict) -> None:
         )
 
 
+def _dados_equipe_impressao(db, equipe_id: int | None) -> tuple[str | None, str | None, str | None, list[dict]]:
+    """Resolve os dados impressos da equipe: (nome, número, encarregado, membros).
+
+    O encarregado é o membro marcado como líder; os membros saem com nome/cargo
+    para a tabela de assinaturas do modelo. Equipe ausente devolve valores vazios.
+    """
+    equipe_nome = None
+    equipe_numero = None
+    encarregado = None
+    membros: list[dict] = []
+    if not equipe_id:
+        return equipe_nome, equipe_numero, encarregado, membros
+
+    equipe_resp = db.table("equipes").select("nome, numero").eq("id", equipe_id).execute().data
+    if equipe_resp:
+        equipe_nome = equipe_resp[0].get("nome")
+        equipe_numero = equipe_resp[0].get("numero")
+
+    vinculos = (
+        db.table("equipe_membros")
+        .select("funcionario_id, lider")
+        .eq("equipe_id", equipe_id)
+        .execute()
+        .data
+    )
+    func_ids = sorted({v["funcionario_id"] for v in vinculos})
+    funcs = {}
+    if func_ids:
+        resp = db.table("funcionarios").select("id, nome, cargo_id").in_("id", func_ids).execute().data
+        funcs = {f["id"]: f for f in resp}
+    cargos = {}
+    cargo_ids = sorted({f.get("cargo_id") for f in funcs.values() if f.get("cargo_id")})
+    if cargo_ids:
+        resp_c = db.table("cargos").select("id, nome").in_("id", cargo_ids).execute().data
+        cargos = {c["id"]: c.get("nome") for c in resp_c}
+
+    for v in vinculos:
+        func = funcs.get(v["funcionario_id"]) or {}
+        nome = func.get("nome")
+        if not nome:
+            continue
+        membros.append({"nome": nome, "cargo": cargos.get(func.get("cargo_id")) or ""})
+        if v.get("lider") and not encarregado:
+            encarregado = nome
+
+    return equipe_nome, equipe_numero, encarregado, membros
+
+
 def _os_ou_404(db, os_id: int) -> dict:
     resp = db.table("ordens_servico").select("*").eq("id", os_id).execute()
     if not resp.data:
@@ -584,6 +632,51 @@ def transicoes_status():
         "prioridades": sorted(PRIORIDADES),
         "tipos": sorted(TIPOS_OS),
     }
+
+
+@router.get("/imprimir-branco", summary="Gera uma O.S em branco (equipe/membros) para preenchimento manual")
+def imprimir_os_em_branco(
+    equipe_id: int = Query(..., description="Equipe impressa no modelo"),
+    tipo: str = Query("construcao", description="construcao | manutencao | linha_viva"),
+    usuario: UsuarioAutenticado = Depends(get_current_user),
+    db=Depends(get_supabase),
+):
+    """Impressão de emergência (fins de semana/urgências): gera o modelo oficial
+    com os campos em branco, imprimindo apenas o número da equipe, o encarregado
+    (líder) e a tabela de membros (nome/cargo/assinatura). Nada é gravado no banco.
+    """
+    try:
+        _exigir_gestor(usuario)
+        if tipo not in TIPOS_OS:
+            raise HTTPException(status_code=400, detail="Tipo de O.S inválido.")
+
+        equipe_nome, equipe_numero, encarregado, membros = _dados_equipe_impressao(db, equipe_id)
+        if equipe_nome is None:
+            raise HTTPException(status_code=404, detail="Equipe não encontrada.")
+
+        from utils.modelo_os import gerar_modelo_os
+
+        caminho = gerar_modelo_os(
+            os_data={},
+            obra={},
+            equipe_nome=equipe_nome,
+            equipe_numero=equipe_numero,
+            encarregado=encarregado,
+            membros=membros,
+            tipo=tipo,
+        )
+        referencia = re.sub(r"[^\w\-]+", "_", str(equipe_nome)).strip("_") or str(equipe_id)
+        return FileResponse(
+            caminho,
+            media_type="application/pdf",
+            filename=f"OS_EM_BRANCO_{tipo.upper()}_{referencia}.pdf",
+            background=BackgroundTask(_remover_arquivo, caminho),
+        )
+    except HTTPException:
+        raise
+    except Exception:
+        logger.exception("Erro ao imprimir O.S em branco (equipe %s)", equipe_id)
+        raise HTTPException(status_code=500, detail="Erro ao gerar a O.S em branco.") from None
 
 
 @router.get("/", summary="Lista O.S (Kanban/filtros)")
@@ -1756,42 +1849,7 @@ def imprimir_os(os_id: int, usuario: UsuarioAutenticado = Depends(get_current_us
         obra = db.table("obras").select("*").eq("id", os_data["obra_id"]).execute().data
         obra = obra[0] if obra else {}
 
-        equipe_nome = None
-        equipe_numero = None
-        encarregado = None
-        membros: list[dict] = []
-        if os_data.get("equipe_id"):
-            equipe_resp = db.table("equipes").select("nome, numero").eq("id", os_data["equipe_id"]).execute().data
-            if equipe_resp:
-                equipe_nome = equipe_resp[0].get("nome")
-                equipe_numero = equipe_resp[0].get("numero")
-
-            vinculos = (
-                db.table("equipe_membros")
-                .select("funcionario_id, lider")
-                .eq("equipe_id", os_data["equipe_id"])
-                .execute()
-                .data
-            )
-            func_ids = sorted({v["funcionario_id"] for v in vinculos})
-            funcs = {}
-            if func_ids:
-                resp = db.table("funcionarios").select("id, nome, cargo_id").in_("id", func_ids).execute().data
-                funcs = {f["id"]: f for f in resp}
-            cargos = {}
-            cargo_ids = sorted({f.get("cargo_id") for f in funcs.values() if f.get("cargo_id")})
-            if cargo_ids:
-                resp_c = db.table("cargos").select("id, nome").in_("id", cargo_ids).execute().data
-                cargos = {c["id"]: c.get("nome") for c in resp_c}
-
-            for v in vinculos:
-                func = funcs.get(v["funcionario_id"]) or {}
-                nome = func.get("nome")
-                if not nome:
-                    continue
-                membros.append({"nome": nome, "cargo": cargos.get(func.get("cargo_id")) or ""})
-                if v.get("lider") and not encarregado:
-                    encarregado = nome
+        equipe_nome, equipe_numero, encarregado, membros = _dados_equipe_impressao(db, os_data.get("equipe_id"))
 
         from utils.modelo_os import gerar_modelo_os
 
