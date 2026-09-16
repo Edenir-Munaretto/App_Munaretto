@@ -3573,9 +3573,9 @@ function OrdensServico({ usuarioAtual }) {
   const seletorVisao = (
     <div className="flex bg-slate-100 rounded-xl p-1">
       {[
-        ['quadro', 'Quadro O.S', LayoutGrid],
         ...(ehGestor ? [['desempenho', 'Desempenho', BarChart3]] : []),
         ...(ehGestor ? [['obras', 'Obras', Building]] : []),
+        ['quadro', 'Quadro O.S', LayoutGrid],
         ...(ehGestor ? [['cadastros', 'Cadastros', FolderKanban]] : []),
         ...(ehGestor ? [['arquivo', 'Encerradas', Archive]] : []),
       ].map(([key, label, Icon]) => (
@@ -4378,7 +4378,7 @@ function PainelDesempenho({ dados, carregando, mes, mesAtual, onMudarMes, onAtua
         </div>
         {totais && (
           <div className="flex items-center gap-3 text-[11px] font-bold flex-wrap">
-            <span className="bg-sky-50 text-sky-700 border border-sky-100 rounded-full px-2.5 py-1">Backlog {totais.backlog}</span>
+            <span className="bg-sky-50 text-sky-700 border border-sky-100 rounded-full px-2.5 py-1">Abertas {totais.backlog}</span>
             <span className="bg-emerald-50 text-emerald-700 border border-emerald-100 rounded-full px-2.5 py-1">Concluídas {totais.concluidas}</span>
             <span className="bg-rose-50 text-rose-700 border border-rose-100 rounded-full px-2.5 py-1">Canceladas {totais.canceladas}</span>
           </div>
@@ -4410,7 +4410,7 @@ function PainelDesempenho({ dados, carregando, mes, mesAtual, onMudarMes, onAtua
           onChange={e => setOrdenacao(e.target.value)}
           className="px-3 py-1.5 border border-slate-200 rounded-xl text-xs font-bold text-slate-600 bg-white focus:outline-none focus:border-primary-500"
         >
-          <option value="backlog">Ordenar por backlog</option>
+          <option value="backlog">Ordenar por abertas</option>
           <option value="concluidas">Ordenar por concluídas</option>
           <option value="numero">Ordenar por nº da equipe</option>
         </select>
@@ -4456,7 +4456,7 @@ function PainelDesempenho({ dados, carregando, mes, mesAtual, onMudarMes, onAtua
                 <div className="flex items-center justify-between gap-3">
                   <div className="grid grid-cols-3 gap-2 flex-1">
                     <div>
-                      <p className="text-[9px] font-extrabold uppercase tracking-wider text-sky-600">Backlog</p>
+                      <p className="text-[9px] font-extrabold uppercase tracking-wider text-sky-600">Abertas</p>
                       <p className="text-xl font-black text-slate-800">{eq.backlog}</p>
                       <p className="text-[9px] text-slate-400 font-semibold">em aberto agora</p>
                     </div>
@@ -4507,7 +4507,7 @@ function PainelDesempenho({ dados, carregando, mes, mesAtual, onMudarMes, onAtua
       {/* O.S sem equipe (aparecem no total, mas não em um card) */}
       {temSemEquipe && (
         <p className="text-[11px] font-semibold text-slate-500 bg-amber-50 border border-amber-100 rounded-xl px-3 py-2">
-          O.S sem equipe vinculada: backlog {semEquipe.backlog} · concluídas {semEquipe.concluidas} · canceladas {semEquipe.canceladas}.
+          O.S sem equipe vinculada: abertas {semEquipe.backlog} · concluídas {semEquipe.concluidas} · canceladas {semEquipe.canceladas}.
         </p>
       )}
 
