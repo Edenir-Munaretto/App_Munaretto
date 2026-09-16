@@ -2693,7 +2693,10 @@ function OrdensServico({ usuarioAtual }) {
   const [produtos, setProdutos] = useState([]);
   const [loading, setLoading] = useState(true);
   const [toast, setToast] = useState(null);
-  const [visao, setVisao] = useState('quadro');       // quadro | obras | cadastros | arquivo
+  // Gestor abre direto no Desempenho; usuário de campo não tem essa aba.
+  const [visao, setVisao] = useState(() => (
+    (usuarioAtual?.permissoes || []).includes('os') ? 'desempenho' : 'quadro'
+  )); // desempenho | obras | quadro | cadastros | arquivo
   const [osSelecionada, setOsSelecionada] = useState(null);
   const [versaoPainel, setVersaoPainel] = useState(0); // força re-leitura do painel após sync manual
   const [modalNova, setModalNova] = useState(false);
@@ -3116,7 +3119,12 @@ function OrdensServico({ usuarioAtual }) {
   }, [buscaAplicada, filtroObra, filtroEquipe, filtroPrioridade, filtroArquivo, ehGestor, mostrarToast]);
 
   const carregarDados = useCallback(() => {
-    if (ehGestor && visao === 'desempenho') return; // a aba carrega o próprio resumo
+    if (ehGestor && visao === 'desempenho') {
+      // A aba carrega o próprio resumo; não há lista para buscar e o spinner
+      // inicial precisa ser liberado.
+      setLoading(false);
+      return;
+    }
     if (ehGestor && visao === 'arquivo') carregarArquivo(0, true);
     else buscarPagina(0, true);
   }, [buscarPagina, carregarArquivo, ehGestor, visao]);
