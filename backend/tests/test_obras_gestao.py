@@ -41,17 +41,35 @@ def _inserir_produto(db_fake, produto_id, nome, unidade="UN", codigo=None, codig
     )
 
 
-def _inserir_os(db_fake, os_id, obra_id, tipo, status, abertura, fim=None, codigo=None):
+def _inserir_os(db_fake, os_id, obra_id, tipo, status, abertura, fim=None, codigo=None, equipe_id=None):
     db_fake._dados["ordens_servico"].append(
         {
             "id": os_id,
             "codigo": codigo or f"OS-TESTE-{os_id:04d}",
             "obra_id": obra_id,
+            "equipe_id": equipe_id,
             "tipo": tipo,
             "status": status,
             "data_abertura": abertura,
             "data_fim": fim,
             "created_at": "2026-01-01T00:00:00Z",
+        }
+    )
+
+
+def _inserir_equipe(db_fake, equipe_id, nome, numero=None, ativa=True):
+    db_fake._dados["equipes"].append(
+        {"id": equipe_id, "nome": nome, "numero": numero, "ativa": ativa, "created_at": "2026-01-01T00:00:00Z"}
+    )
+
+
+def _vincular_membro(db_fake, equipe_id, funcionario_id, lider=False):
+    db_fake._dados["equipe_membros"].append(
+        {
+            "id": len(db_fake._dados["equipe_membros"]) + 1,
+            "equipe_id": equipe_id,
+            "funcionario_id": funcionario_id,
+            "lider": lider,
         }
     )
 
@@ -636,3 +654,144 @@ class TestTerminoObra:
         assert os_campo_client.get("/api/os/obras/507/servicos").status_code == 403
         assert os_campo_client.get("/api/os/obras/507/termino").status_code == 403
         assert os_campo_client.post("/api/os/obras/507/termino/pdf", json={}).status_code == 403
+
+
+class TestDashboardEquipes:
+    """Aba Desempenho do Controle de O.S (gestor): contadores do mês por equipe."""
+
+    def _seed(self, db_fake):
+        _inserir_obra(db_fake, 501, "Obra Dashboard")
+        _inserir_produto(db_fake, 7, "Cimento")
+        _inserir_equipe(db_fake, 100, "Equipe A", numero="12204")
+        _inserir_equipe(db_fake, 200, "Equipe B", numero="12205")
+        _inserir_equipe(db_fake, 300, "Equipe Sem O.S", numero="12206")
+        _vincular_membro(db_fake, 100, 10, lider=True)
+        _vincular_membro(db_fake, 100, 11)
+
+        # Equipe A: 2 em aberto (backlog), 2 concluídas e 1 cancelada em março.
+        _inserir_os(db_fake, 101, 501, "construcao", "aberta", "2026-03-01T08:00:00Z", equipe_id=100)
+        _inserir_os(db_fake, 102, 501, "construcao", "em_andamento", "2026-03-02T08:00:00Z", equipe_id=100)
+        _inserir_os(
+            db_fake,
+            103,
+            501,
+            "construcao",
+            "concluida",
+            "2026-03-03T08:00:00Z",
+            fim="2026-03-10T18:00:00Z",
+            equipe_id=100,
+        )
+        _inserir_os(
+            db_fake,
+            104,
+            501,
+            "construcao",
+            "cancelada",
+            "2026-03-04T08:00:00Z",
+            fim="2026-03-20T18:00:00Z",
+            equipe_id=100,
+        )
+        _inserir_os(
+            db_fake,
+            108,
+            501,
+            "manutencao",
+            "concluida",
+            "2026-03-05T08:00:00Z",
+            fim="2026-03-10T12:00:00Z",
+            equipe_id=100,
+        )
+        # Equipe B: 1 concluída em março e 1 em fevereiro (tendência).
+        _inserir_os(
+            db_fake,
+            105,
+            501,
+            "construcao",
+            "concluida",
+            "2026-03-01T08:00:00Z",
+            fim="2026-03-05T18:00:00Z",
+            equipe_id=200,
+        )
+        _inserir_os(
+            db_fake,
+            106,
+            501,
+            "construcao",
+            "concluida",
+            "2026-02-01T08:00:00Z",
+            fim="2026-02-25T18:00:00Z",
+            equipe_id=200,
+        )
+        # Sem equipe: 1 em aberto.
+        _inserir_os(db_fake, 107, 501, "construcao", "aberta", "2026-03-06T08:00:00Z")
+
+        _inserir_material(db_fake, 103, 7, 15.0, 15, 1)
+        _inserir_material(db_fake, 105, 7, 2.5, 2.5, 1)
+        _inserir_material(db_fake, 108, 7, 3.0, 3, 1)
+
+    def test_contadores_do_mes_por_equipe(self, os_gestor_client, db_fake):
+        self._seed(db_fake)
+        resp = os_gestor_client.get("/api/os/dashboard-equipes", params={"mes": "2026-03"})
+        assert resp.status_code == 200, resp.text
+        dados = resp.json()
+
+        por_id = {e["id"]: e for e in dados["equipes"]}
+        assert len(por_id) == 3
+        assert (por_id[100]["backlog"], por_id[100]["concluidas"], por_id[100]["canceladas"]) == (2, 2, 1)
+        assert por_id[100]["membros"] == 2
+        assert (por_id[200]["backlog"], por_id[200]["concluidas"], por_id[200]["canceladas"]) == (0, 1, 0)
+        # Equipe sem O.S entra com zeros (semântica de left join).
+        assert (por_id[300]["backlog"], por_id[300]["concluidas"], por_id[300]["canceladas"]) == (0, 0, 0)
+
+        assert dados["sem_equipe"]["backlog"] == 1
+        assert dados["totais"] == {"backlog": 3, "concluidas": 3, "canceladas": 1}
+
+    def test_volume_aplicado_por_contrato(self, os_gestor_client, db_fake):
+        self._seed(db_fake)
+        dados = os_gestor_client.get("/api/os/dashboard-equipes", params={"mes": "2026-03"}).json()
+        por_id = {e["id"]: e for e in dados["equipes"]}
+
+        # USC (construção) e ULV (manutenção) ficam separados no ranking.
+        assert por_id[100]["volume_por_tipo"] == [
+            {"tipo": "construcao", "unidade": "USC", "total": 15.0},
+            {"tipo": "manutencao", "unidade": "ULV", "total": 3.0},
+        ]
+        assert por_id[200]["volume_por_tipo"] == [{"tipo": "construcao", "unidade": "USC", "total": 2.5}]
+        assert por_id[300]["volume_por_tipo"] == []
+
+    def test_series_diaria_e_tendencia_de_6_meses(self, os_gestor_client, db_fake):
+        self._seed(db_fake)
+        dados = os_gestor_client.get("/api/os/dashboard-equipes", params={"mes": "2026-03"}).json()
+
+        # Série diária do mês: 31 dias; dia 10 tem 2 concluídas, dia 5 tem 1.
+        assert len(dados["concluidas_por_dia"]) == 31
+        assert dados["concluidas_por_dia"][9] == 2
+        assert dados["concluidas_por_dia"][4] == 1
+
+        # Tendência: 6 meses até o mês selecionado (fevereiro conta a O.S 106).
+        assert [m["mes"] for m in dados["meses"]] == [
+            "2025-10", "2025-11", "2025-12", "2026-01", "2026-02", "2026-03",
+        ]
+        por_mes = {m["mes"]: m for m in dados["meses"]}
+        assert por_mes["2026-03"]["concluidas"] == 3
+        assert por_mes["2026-03"]["canceladas"] == 1
+        assert por_mes["2026-02"]["concluidas"] == 1
+
+    def test_equipe_destaque_do_mes(self, os_gestor_client, db_fake):
+        self._seed(db_fake)
+        dados = os_gestor_client.get("/api/os/dashboard-equipes", params={"mes": "2026-03"}).json()
+        assert dados["destaque"] == {
+            "equipe_id": 100,
+            "nome": "Equipe A",
+            "numero": "12204",
+            "concluidas": 2,
+        }
+
+    def test_mes_invalido_400(self, os_gestor_client, db_fake):
+        self._seed(db_fake)
+        assert os_gestor_client.get("/api/os/dashboard-equipes", params={"mes": "2026-13"}).status_code == 400
+        assert os_gestor_client.get("/api/os/dashboard-equipes", params={"mes": "marco"}).status_code == 400
+
+    def test_negado_para_usuario_de_campo(self, os_campo_client, db_fake):
+        self._seed(db_fake)
+        assert os_campo_client.get("/api/os/dashboard-equipes").status_code == 403

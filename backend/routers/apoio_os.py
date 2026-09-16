@@ -4,6 +4,7 @@ Segue o mesmo padrão dos demais routers do projeto: Supabase via PostgREST,
 validação com Pydantic e permissão de módulo ("os").
 """
 
+import calendar
 import contextlib
 import io
 import logging
@@ -22,12 +23,14 @@ from starlette.background import BackgroundTask
 
 from auth import require_permisao, require_qualquer_permisao
 from supabase_client import get_supabase
+from utils.date_helpers import agora_fuso_brasil, em_fuso_brasil
 from utils.resumo_obra import (
     ORDEM_STATUS,
     STATUS_EM_EXECUCAO,
     STATUS_ENCERRADAS,
     STATUS_PARA_TOTAIS,
     _consultar_lancamentos,
+    _em_lotes,
     _ler_paginado,
     _numero,
     agregar_servicos,
@@ -853,6 +856,197 @@ def excluir_equipe(equipe_id: int, db=Depends(get_supabase)):
     except Exception:
         logger.exception("Erro ao excluir equipe %s", equipe_id)
         raise HTTPException(status_code=500, detail="Erro ao excluir equipe.") from None
+
+
+# ---------------------------------------------------------------------------
+# Dashboard de desempenho por equipe (aba "Desempenho" do Controle de O.S)
+# ---------------------------------------------------------------------------
+
+MESES_JANELA_DASHBOARD = 6
+
+
+def _mes_iso(valor) -> str | None:
+    """'YYYY-MM' de um timestamp ISO no fuso brasileiro (None se inválido)."""
+    dt = em_fuso_brasil(valor)
+    return dt.strftime("%Y-%m") if dt else None
+
+
+def _validar_mes_dashboard(mes: str | None) -> str:
+    """Valida o parâmetro `mes` (AAAA-MM); padrão: mês atual no fuso brasileiro."""
+    if not mes:
+        return agora_fuso_brasil().strftime("%Y-%m")
+    if not re.fullmatch(r"\d{4}-(0[1-9]|1[0-2])", mes):
+        raise HTTPException(status_code=400, detail="Mês inválido. Use o formato AAAA-MM.")
+    return mes
+
+
+def _janela_meses(mes: str, quantidade: int = MESES_JANELA_DASHBOARD) -> list[str]:
+    """Últimos `quantidade` meses até `mes` (inclusive), do mais antigo ao atual."""
+    ano, numero = int(mes[:4]), int(mes[5:7])
+    meses: list[str] = []
+    for _ in range(quantidade):
+        meses.append(f"{ano:04d}-{numero:02d}")
+        numero -= 1
+        if numero == 0:
+            numero = 12
+            ano -= 1
+    return list(reversed(meses))
+
+
+def _consultar_volume_concluidas(db, os_ids: list[int]) -> dict[int, float]:
+    """Soma `quantidade_usada` (unidade do contrato) por O.S — lotes + paginação."""
+    ids = list(dict.fromkeys(os_ids))
+    if not ids:
+        return {}
+    volume: dict[int, float] = {}
+    for lote in _em_lotes(ids):
+        base = db.table("os_materiais").select("os_id, quantidade_usada").in_("os_id", lote)
+        for lancamento in _ler_paginado(base):
+            os_id = lancamento["os_id"]
+            volume[os_id] = volume.get(os_id, 0.0) + _numero(lancamento.get("quantidade_usada"))
+    return volume
+
+
+def _novo_resumo_equipe(equipe_id, nome, numero, ativa, membros) -> dict:
+    return {
+        "id": equipe_id,
+        "nome": nome,
+        "numero": numero,
+        "ativa": ativa,
+        "membros": membros,
+        "backlog": 0,
+        "concluidas": 0,
+        "canceladas": 0,
+        "volume_por_tipo": {},
+    }
+
+
+def _volume_em_lista(volume_por_tipo: dict[str, float]) -> list[dict]:
+    """Volume por contrato na ordem canônica, com unidade (USC/ULV)."""
+    return [
+        {"tipo": tipo, "unidade": unidade_contrato(tipo), "total": round(volume_por_tipo.get(tipo, 0.0), 3)}
+        for tipo in ORDEM_CONTRATOS
+        if volume_por_tipo.get(tipo, 0.0) > 0
+    ]
+
+
+@router.get("/dashboard-equipes", dependencies=GESTOR_ONLY, summary="Desempenho das equipes por mês")
+def dashboard_equipes(
+    mes: str | None = Query(None, description="Mês de referência (AAAA-MM); padrão: mês atual"),
+    db=Depends(get_supabase),
+):
+    """Resumo de desempenho por equipe para a aba Desempenho (gestor).
+
+    - backlog: O.S em aberto/em andamento AGORA (independente do mês);
+    - concluídas/canceladas: `data_fim` dentro do mês de referência;
+    - volume aplicado: soma de `quantidade_usada` das concluídas no mês, por
+      contrato (USC/ULV) — unidades diferentes, por isso o ranking no frontend
+      é separado por tipo;
+    - séries: concluídas por dia do mês e tendência dos últimos 6 meses.
+    """
+    try:
+        mes = _validar_mes_dashboard(mes)
+
+        equipes = db.table("equipes").select("id, nome, numero, ativa").order("nome").execute().data or []
+        membros_por_equipe: dict[int, int] = {}
+        if equipes:
+            base_vinculos = db.table("equipe_membros").select("equipe_id")
+            for vinculo in _ler_paginado(base_vinculos):
+                equipe_id = vinculo["equipe_id"]
+                membros_por_equipe[equipe_id] = membros_por_equipe.get(equipe_id, 0) + 1
+
+        por_equipe: dict[int, dict] = {
+            e["id"]: _novo_resumo_equipe(
+                e["id"], e.get("nome"), e.get("numero"), e.get("ativa", True), membros_por_equipe.get(e["id"], 0)
+            )
+            for e in equipes
+        }
+        sem_equipe = _novo_resumo_equipe(None, "Sem equipe", None, True, 0)
+
+        # O.S concluídas no mês: os_id -> (resumo da equipe, tipo/contrato).
+        os_concluidas_mes: dict[int, tuple[dict, str]] = {}
+        concluidas_por_dia: dict[int, int] = {}
+        janela = _janela_meses(mes)
+        tendencia = {m: {"mes": m, "concluidas": 0, "canceladas": 0} for m in janela}
+
+        os_rows = _ler_paginado(db.table("ordens_servico").select("id, equipe_id, status, tipo, data_fim"))
+        for os_row in os_rows:
+            resumo = por_equipe.get(os_row.get("equipe_id")) or sem_equipe
+            status = os_row.get("status")
+            if status in STATUS_EM_EXECUCAO:
+                resumo["backlog"] += 1
+
+            mes_fim = _mes_iso(os_row.get("data_fim"))
+            if mes_fim == mes:
+                if status == "concluida":
+                    resumo["concluidas"] += 1
+                    tipo = os_row.get("tipo") or "construcao"
+                    os_concluidas_mes[os_row["id"]] = (resumo, tipo)
+                    fim_brasil = em_fuso_brasil(os_row.get("data_fim"))
+                    if fim_brasil:
+                        concluidas_por_dia[fim_brasil.day] = concluidas_por_dia.get(fim_brasil.day, 0) + 1
+                elif status == "cancelada":
+                    resumo["canceladas"] += 1
+
+            if mes_fim in tendencia:
+                if status == "concluida":
+                    tendencia[mes_fim]["concluidas"] += 1
+                elif status == "cancelada":
+                    tendencia[mes_fim]["canceladas"] += 1
+
+        volume_por_os = _consultar_volume_concluidas(db, list(os_concluidas_mes))
+        for os_id, (resumo, tipo) in os_concluidas_mes.items():
+            resumo["volume_por_tipo"][tipo] = resumo["volume_por_tipo"].get(tipo, 0.0) + volume_por_os.get(os_id, 0.0)
+
+        lista_equipes = []
+        for resumo in por_equipe.values():
+            resumo["volume_por_tipo"] = _volume_em_lista(resumo["volume_por_tipo"])
+            lista_equipes.append(resumo)
+        sem_equipe["volume_por_tipo"] = _volume_em_lista(sem_equipe["volume_por_tipo"])
+
+        totais = {
+            "backlog": sum(r["backlog"] for r in lista_equipes) + sem_equipe["backlog"],
+            "concluidas": sum(r["concluidas"] for r in lista_equipes) + sem_equipe["concluidas"],
+            "canceladas": sum(r["canceladas"] for r in lista_equipes) + sem_equipe["canceladas"],
+        }
+
+        # Equipe destaque do mês: mais concluídas; empate por volume aplicado.
+        candidatos = [r for r in lista_equipes if r["concluidas"] > 0]
+        destaque = None
+        if candidatos:
+            melhor = sorted(
+                candidatos,
+                key=lambda r: (
+                    -r["concluidas"],
+                    -sum(v["total"] for v in r["volume_por_tipo"]),
+                    (r["nome"] or "").lower(),
+                ),
+            )[0]
+            destaque = {
+                "equipe_id": melhor["id"],
+                "nome": melhor["nome"],
+                "numero": melhor["numero"],
+                "concluidas": melhor["concluidas"],
+            }
+
+        dias_no_mes = calendar.monthrange(int(mes[:4]), int(mes[5:7]))[1]
+
+        return {
+            "mes": mes,
+            "dias_no_mes": dias_no_mes,
+            "equipes": lista_equipes,
+            "sem_equipe": sem_equipe,
+            "totais": totais,
+            "concluidas_por_dia": [concluidas_por_dia.get(dia, 0) for dia in range(1, dias_no_mes + 1)],
+            "meses": list(tendencia.values()),
+            "destaque": destaque,
+            "gerado_em": agora_fuso_brasil().isoformat(),
+        }
+    except HTTPException:
+        raise
+    except Exception:
+        logger.exception("Erro ao montar o dashboard de equipes (mes=%s)", mes)
+        raise HTTPException(status_code=500, detail="Erro ao montar o dashboard de equipes.") from None
 
 
 # ---------------------------------------------------------------------------

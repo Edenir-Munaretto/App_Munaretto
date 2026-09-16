@@ -5,7 +5,7 @@ import {
   AlertTriangle, Check, Clock, CalendarClock, FileDown, LayoutGrid,
   FolderKanban, HardHat, Boxes, Trash2, Image as ImageIcon,
   Pencil, Building, Printer, ListChecks, RefreshCw, WifiOff, ChevronDown, Archive,
-  Upload, FileSpreadsheet, Download,
+  Upload, FileSpreadsheet, Download, BarChart3, Trophy, ChevronLeft, ChevronRight,
 } from 'lucide-react';
 import { API_URL, apiFetch, erroDaResposta } from '../api';
 import ModalConfirmacao from '../components/ModalConfirmacao';
@@ -90,6 +90,32 @@ const LIMITE_PAGINA = 100;
 // refresh periódico (novas O.S + atualizações + poda das encerradas).
 const REFRESH_MIN_MS = 60 * 1000;
 const REFRESH_INTERVALO_MS = 4 * 60 * 1000;
+
+// ---- Aba Desempenho (gestor): helpers de mês ----
+const NOMES_MESES = [
+  'janeiro', 'fevereiro', 'março', 'abril', 'maio', 'junho',
+  'julho', 'agosto', 'setembro', 'outubro', 'novembro', 'dezembro',
+];
+
+// Mês atual no fuso LOCAL do navegador (YYYY-MM) — o ISO/UTC viraria o mês
+// horas antes da meia-noite no Brasil.
+function mesAtualLocal() {
+  const agora = new Date();
+  return `${agora.getFullYear()}-${String(agora.getMonth() + 1).padStart(2, '0')}`;
+}
+
+function somarMes(mes, delta) {
+  const [ano, numero] = mes.split('-').map(Number);
+  const data = new Date(ano, numero - 1 + delta, 1);
+  return `${data.getFullYear()}-${String(data.getMonth() + 1).padStart(2, '0')}`;
+}
+
+function rotuloMes(mes) {
+  if (!mes) return '';
+  const [ano, numero] = mes.split('-');
+  const nome = NOMES_MESES[Number(numero) - 1] || '';
+  return `${nome.charAt(0).toUpperCase()}${nome.slice(1)} ${ano}`;
+}
 
 // Contratos INDEPENDENTES: cada contrato tem o SEU catálogo. Um serviço só
 // pertence ao catálogo do próprio tipo; legados (sem tipo) valem para todos.
@@ -2695,6 +2721,11 @@ function OrdensServico({ usuarioAtual }) {
   const [totalEncerradas, setTotalEncerradas] = useState(0);
   const [carregandoArquivo, setCarregandoArquivo] = useState(false);
 
+  // ---- Aba Desempenho (gestor) ----
+  const [resumoDesempenho, setResumoDesempenho] = useState(null);
+  const [carregandoDesempenho, setCarregandoDesempenho] = useState(false);
+  const [mesDesempenho, setMesDesempenho] = useState(mesAtualLocal);
+
   // Largura da tela (painel em tela cheia < 1024px; drawer no desktop).
   const [ehTelaLarga, setEhTelaLarga] = useState(
     typeof window !== 'undefined' && window.innerWidth >= 1024,
@@ -3085,9 +3116,35 @@ function OrdensServico({ usuarioAtual }) {
   }, [buscaAplicada, filtroObra, filtroEquipe, filtroPrioridade, filtroArquivo, ehGestor, mostrarToast]);
 
   const carregarDados = useCallback(() => {
+    if (ehGestor && visao === 'desempenho') return; // a aba carrega o próprio resumo
     if (ehGestor && visao === 'arquivo') carregarArquivo(0, true);
     else buscarPagina(0, true);
   }, [buscarPagina, carregarArquivo, ehGestor, visao]);
+
+  // Aba Desempenho (gestor): resumo por equipe do mês selecionado.
+  const carregarDesempenho = useCallback(async () => {
+    if (!ehGestor) return;
+    setCarregandoDesempenho(true);
+    try {
+      const res = await apiFetch(
+        `${API_URL}/os/dashboard-equipes?mes=${encodeURIComponent(mesDesempenho)}`,
+        { retry: 2 }
+      );
+      if (res.ok) {
+        setResumoDesempenho(await res.json());
+      } else {
+        mostrarToast(erroDaResposta(await res.json().catch(() => null), 'Erro ao carregar o desempenho.'), 'error');
+      }
+    } catch {
+      mostrarToast('Erro de conexão ao carregar o desempenho.', 'error');
+    } finally {
+      setCarregandoDesempenho(false);
+    }
+  }, [ehGestor, mesDesempenho, mostrarToast]);
+
+  useEffect(() => {
+    if (ehGestor && visao === 'desempenho') carregarDesempenho();
+  }, [ehGestor, visao, carregarDesempenho]);
 
   const carregarMais = () => buscarPagina(listaOs.length, false);
   const carregarMaisArquivo = () => carregarArquivo(listaEncerradas.length, false);
@@ -3517,6 +3574,7 @@ function OrdensServico({ usuarioAtual }) {
     <div className="flex bg-slate-100 rounded-xl p-1">
       {[
         ['quadro', 'Quadro O.S', LayoutGrid],
+        ...(ehGestor ? [['desempenho', 'Desempenho', BarChart3]] : []),
         ...(ehGestor ? [['obras', 'Obras', Building]] : []),
         ...(ehGestor ? [['cadastros', 'Cadastros', FolderKanban]] : []),
         ...(ehGestor ? [['arquivo', 'Encerradas', Archive]] : []),
@@ -3543,6 +3601,12 @@ function OrdensServico({ usuarioAtual }) {
     const encerrada = os.status === 'concluida' || os.status === 'cancelada';
     setVisao(encerrada ? 'arquivo' : 'quadro');
     setOsSelecionada(os.id);
+  };
+
+  // Aba Desempenho: clicar no card da equipe abre o Quadro já filtrado por ela.
+  const abrirQuadroDaEquipe = (equipe) => {
+    setFiltroEquipe(String(equipe.id));
+    setVisao('quadro');
   };
 
   const filtros = (
@@ -3994,6 +4058,18 @@ function OrdensServico({ usuarioAtual }) {
         </>
       )}
 
+      {visao === 'desempenho' && ehGestor && (
+        <PainelDesempenho
+          dados={resumoDesempenho}
+          carregando={carregandoDesempenho}
+          mes={mesDesempenho}
+          mesAtual={mesAtualLocal()}
+          onMudarMes={setMesDesempenho}
+          onAtualizar={carregarDesempenho}
+          onSelecionarEquipe={abrirQuadroDaEquipe}
+        />
+      )}
+
       {visao === 'arquivo' && ehGestor && (
         <>
           {filtros}
@@ -4187,6 +4263,359 @@ function OrdensServico({ usuarioAtual }) {
           setPendentes(p);
         }}
       />
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Aba Desempenho (gestor): cards por equipe (backlog atual + concluídas e
+// canceladas do mês) e rankings/evolução em CSS/SVG puro (sem bibliotecas).
+// ---------------------------------------------------------------------------
+
+function BarraRanking({ rotulo, detalhe, valor, maximo, cor = 'bg-primary-500' }) {
+  const pct = maximo > 0 ? Math.max(2, Math.round((valor / maximo) * 100)) : 0;
+  return (
+    <div className="space-y-1">
+      <div className="flex items-center justify-between gap-2 text-xs">
+        <span className="font-bold text-slate-700 truncate">{rotulo}</span>
+        <span className="font-black text-slate-800 shrink-0">{detalhe}</span>
+      </div>
+      <div className="h-2.5 bg-slate-100 rounded-full overflow-hidden">
+        <div className={`h-full rounded-full transition-all duration-500 ${cor}`} style={{ width: `${pct}%` }} />
+      </div>
+    </div>
+  );
+}
+
+function PainelDesempenho({ dados, carregando, mes, mesAtual, onMudarMes, onAtualizar, onSelecionarEquipe }) {
+  const [ordenacao, setOrdenacao] = useState('backlog');
+  const [contratoVolume, setContratoVolume] = useState(TIPO_PADRAO_OS);
+
+  const equipes = useMemo(() => dados?.equipes || [], [dados]);
+  const semEquipe = dados?.sem_equipe;
+  const destaque = dados?.destaque;
+  const totais = dados?.totais;
+
+  const ordenadas = useMemo(() => {
+    const lista = [...equipes];
+    if (ordenacao === 'concluidas') {
+      lista.sort((a, b) => b.concluidas - a.concluidas || b.backlog - a.backlog);
+    } else if (ordenacao === 'numero') {
+      lista.sort((a, b) => String(a.numero || '').localeCompare(String(b.numero || ''), undefined, { numeric: true }));
+    } else {
+      lista.sort((a, b) => b.backlog - a.backlog || b.concluidas - a.concluidas);
+    }
+    return lista;
+  }, [equipes, ordenacao]);
+
+  const rankingProducao = useMemo(
+    () => [...equipes].filter(e => e.concluidas > 0).sort((a, b) => b.concluidas - a.concluidas || b.backlog - a.backlog),
+    [equipes]
+  );
+  const maxProducao = rankingProducao[0]?.concluidas || 0;
+
+  const rankingVolume = useMemo(
+    () => equipes
+      .map(e => ({ equipe: e, volume: (e.volume_por_tipo || []).find(v => v.tipo === contratoVolume) }))
+      .filter(item => item.volume)
+      .sort((a, b) => b.volume.total - a.volume.total),
+    [equipes, contratoVolume]
+  );
+  const maxVolume = rankingVolume[0]?.volume.total || 0;
+  const unidadeVolume = rankingVolume[0]?.volume.unidade || unidadeContrato(contratoVolume);
+
+  const serieDia = dados?.concluidas_por_dia || [];
+  const maxDia = Math.max(1, ...serieDia);
+  const meses = dados?.meses || [];
+  const maxMes = Math.max(1, ...meses.map(m => m.concluidas + m.canceladas));
+  const temSemEquipe = semEquipe && (semEquipe.backlog + semEquipe.concluidas + semEquipe.canceladas) > 0;
+
+  return (
+    <div className="space-y-4">
+      {/* Cabeçalho: navegação de mês, refresh e totais */}
+      <div className="flex flex-col sm:flex-row gap-3 sm:items-center justify-between bg-white p-3 rounded-2xl border border-slate-100 shadow-sm">
+        <div className="flex items-center gap-1.5">
+          <button
+            onClick={() => onMudarMes(somarMes(mes, -1))}
+            className="w-9 h-9 flex items-center justify-center rounded-xl border border-slate-200 text-slate-600 hover:bg-slate-50 cursor-pointer"
+            title="Mês anterior"
+          >
+            <ChevronLeft size={16} />
+          </button>
+          <span className="text-sm font-extrabold text-slate-800 min-w-[150px] text-center">{rotuloMes(mes)}</span>
+          <button
+            onClick={() => onMudarMes(somarMes(mes, 1))}
+            disabled={mes >= mesAtual}
+            className="w-9 h-9 flex items-center justify-center rounded-xl border border-slate-200 text-slate-600 hover:bg-slate-50 cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed"
+            title="Próximo mês"
+          >
+            <ChevronRight size={16} />
+          </button>
+          <button
+            onClick={onAtualizar}
+            disabled={carregando}
+            className="w-9 h-9 flex items-center justify-center rounded-xl border border-slate-200 text-slate-600 hover:bg-slate-50 cursor-pointer disabled:opacity-40"
+            title="Atualizar"
+          >
+            <RefreshCw size={14} className={carregando ? 'animate-spin' : ''} />
+          </button>
+        </div>
+        {totais && (
+          <div className="flex items-center gap-3 text-[11px] font-bold flex-wrap">
+            <span className="bg-sky-50 text-sky-700 border border-sky-100 rounded-full px-2.5 py-1">Backlog {totais.backlog}</span>
+            <span className="bg-emerald-50 text-emerald-700 border border-emerald-100 rounded-full px-2.5 py-1">Concluídas {totais.concluidas}</span>
+            <span className="bg-rose-50 text-rose-700 border border-rose-100 rounded-full px-2.5 py-1">Canceladas {totais.canceladas}</span>
+          </div>
+        )}
+      </div>
+
+      {/* Equipe destaque do mês */}
+      {destaque && (
+        <div className="bg-gradient-to-r from-slate-900 via-slate-800 to-primary-950 text-white rounded-2xl p-4 sm:p-5 flex items-center gap-4 shadow-lg relative overflow-hidden">
+          <div className="absolute right-0 bottom-0 top-0 w-1/3 bg-[radial-gradient(circle_at_right,rgba(245,158,11,0.18),transparent)] pointer-events-none" />
+          <span className="w-12 h-12 rounded-2xl bg-amber-400/20 text-amber-300 flex items-center justify-center shrink-0 relative z-10">
+            <Trophy size={24} />
+          </span>
+          <div className="min-w-0 relative z-10">
+            <p className="text-[10px] font-extrabold uppercase tracking-wider text-amber-300">Equipe destaque de {rotuloMes(mes)}</p>
+            <p className="text-lg font-black truncate">
+              {destaque.numero ? `Nº ${destaque.numero} · ` : ''}{destaque.nome}
+            </p>
+            <p className="text-xs text-slate-300">{destaque.concluidas} O.S concluída(s) no mês</p>
+          </div>
+        </div>
+      )}
+
+      {/* Cards por equipe */}
+      <div className="flex items-center justify-between gap-2 flex-wrap">
+        <h3 className="font-extrabold text-slate-800 text-sm">Equipes ({equipes.length})</h3>
+        <select
+          value={ordenacao}
+          onChange={e => setOrdenacao(e.target.value)}
+          className="px-3 py-1.5 border border-slate-200 rounded-xl text-xs font-bold text-slate-600 bg-white focus:outline-none focus:border-primary-500"
+        >
+          <option value="backlog">Ordenar por backlog</option>
+          <option value="concluidas">Ordenar por concluídas</option>
+          <option value="numero">Ordenar por nº da equipe</option>
+        </select>
+      </div>
+
+      {carregando && !dados ? (
+        <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-3">
+          {[0, 1, 2].map(i => <div key={i} className="h-44 bg-slate-100 animate-pulse rounded-2xl" />)}
+        </div>
+      ) : equipes.length === 0 ? (
+        <p className="text-center text-xs text-slate-400 py-10 bg-white rounded-2xl border border-slate-100">
+          Nenhuma equipe cadastrada.
+        </p>
+      ) : (
+        <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-3">
+          {ordenadas.map(eq => {
+            const encerradas = eq.concluidas + eq.canceladas;
+            const pctConclusao = encerradas > 0 ? Math.round((eq.concluidas / encerradas) * 100) : null;
+            const ehDestaque = destaque?.equipe_id === eq.id;
+            return (
+              <button
+                key={eq.id}
+                onClick={() => onSelecionarEquipe(eq)}
+                title="Abrir o Quadro filtrado por esta equipe"
+                className={`text-left bg-white rounded-2xl border p-4 shadow-sm hover:shadow-md transition-all cursor-pointer space-y-3 ${
+                  ehDestaque ? 'border-amber-300 ring-1 ring-amber-200' : 'border-slate-100'
+                } ${eq.ativa === false ? 'opacity-60' : ''}`}
+              >
+                <div className="flex items-center justify-between gap-2">
+                  <div className="flex items-center gap-2 min-w-0">
+                    <HardHat size={16} className="text-primary-600 shrink-0" />
+                    <span className="font-extrabold text-slate-800 text-sm truncate">{eq.nome}</span>
+                    {ehDestaque && <Trophy size={14} className="text-amber-500 shrink-0" />}
+                  </div>
+                  {eq.numero && (
+                    <span className="text-[10px] font-bold bg-primary-50 text-primary-700 border border-primary-100 rounded-full px-2 py-0.5 shrink-0">
+                      Nº {eq.numero}
+                    </span>
+                  )}
+                </div>
+
+                <div className="flex items-center justify-between gap-3">
+                  <div className="grid grid-cols-3 gap-2 flex-1">
+                    <div>
+                      <p className="text-[9px] font-extrabold uppercase tracking-wider text-sky-600">Backlog</p>
+                      <p className="text-xl font-black text-slate-800">{eq.backlog}</p>
+                      <p className="text-[9px] text-slate-400 font-semibold">em aberto agora</p>
+                    </div>
+                    <div>
+                      <p className="text-[9px] font-extrabold uppercase tracking-wider text-emerald-600">Concluídas</p>
+                      <p className="text-xl font-black text-slate-800">{eq.concluidas}</p>
+                      <p className="text-[9px] text-slate-400 font-semibold">no mês</p>
+                    </div>
+                    <div>
+                      <p className="text-[9px] font-extrabold uppercase tracking-wider text-rose-600">Canceladas</p>
+                      <p className="text-xl font-black text-slate-800">{eq.canceladas}</p>
+                      <p className="text-[9px] text-slate-400 font-semibold">no mês</p>
+                    </div>
+                  </div>
+                  <div
+                    className="relative w-14 h-14 rounded-full shrink-0"
+                    title={pctConclusao == null
+                      ? 'Nenhuma O.S encerrada no mês'
+                      : `${pctConclusao}% das O.S encerradas no mês foram concluídas`}
+                    style={{
+                      background: pctConclusao == null
+                        ? '#e2e8f0'
+                        : `conic-gradient(#10b981 ${pctConclusao * 3.6}deg, #f43f5e 0deg)`,
+                    }}
+                  >
+                    <span className="absolute inset-1.5 bg-white rounded-full flex items-center justify-center text-[10px] font-black text-slate-700">
+                      {pctConclusao == null ? '—' : `${pctConclusao}%`}
+                    </span>
+                  </div>
+                </div>
+
+                <div className="flex items-center justify-between gap-2 text-[10px] font-semibold text-slate-400">
+                  <span>{eq.membros} membro(s)</span>
+                  <span className="flex gap-1.5 flex-wrap justify-end">
+                    {(eq.volume_por_tipo || []).map(v => (
+                      <span key={v.tipo} className="bg-slate-50 border border-slate-200 rounded-full px-2 py-0.5">
+                        {v.total} {v.unidade}
+                      </span>
+                    ))}
+                  </span>
+                </div>
+              </button>
+            );
+          })}
+        </div>
+      )}
+
+      {/* O.S sem equipe (aparecem no total, mas não em um card) */}
+      {temSemEquipe && (
+        <p className="text-[11px] font-semibold text-slate-500 bg-amber-50 border border-amber-100 rounded-xl px-3 py-2">
+          O.S sem equipe vinculada: backlog {semEquipe.backlog} · concluídas {semEquipe.concluidas} · canceladas {semEquipe.canceladas}.
+        </p>
+      )}
+
+      {/* Rankings */}
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+        <div className="bg-white rounded-2xl border border-slate-100 shadow-sm p-4 space-y-3">
+          <h4 className="font-bold text-slate-800 text-sm flex items-center gap-2">
+            <Trophy size={15} className="text-amber-500" /> Produção do mês — O.S concluídas
+          </h4>
+          {rankingProducao.length === 0 ? (
+            <p className="text-xs text-slate-400 py-6 text-center">Nenhuma O.S concluída neste mês.</p>
+          ) : (
+            <div className="space-y-2.5">
+              {rankingProducao.map((eq, i) => (
+                <BarraRanking
+                  key={eq.id}
+                  rotulo={`${i + 1}º ${eq.numero ? `· Nº ${eq.numero} ` : ''}${eq.nome}`}
+                  detalhe={`${eq.concluidas} O.S`}
+                  valor={eq.concluidas}
+                  maximo={maxProducao}
+                  cor={i === 0 ? 'bg-amber-400' : i === 1 ? 'bg-slate-400' : i === 2 ? 'bg-orange-400' : 'bg-primary-500'}
+                />
+              ))}
+            </div>
+          )}
+        </div>
+
+        <div className="bg-white rounded-2xl border border-slate-100 shadow-sm p-4 space-y-3">
+          <div className="flex items-center justify-between gap-2 flex-wrap">
+            <h4 className="font-bold text-slate-800 text-sm flex items-center gap-2">
+              <Boxes size={15} className="text-primary-600" /> Volume aplicado ({unidadeVolume})
+            </h4>
+            <div className="flex bg-slate-100 rounded-lg p-0.5">
+              {TIPOS_SERVICO_OPCOES.map(op => (
+                <button
+                  key={op.valor}
+                  onClick={() => setContratoVolume(op.valor)}
+                  className={`px-2.5 py-1 rounded-md text-[11px] font-bold transition-all cursor-pointer ${
+                    contratoVolume === op.valor ? 'bg-white text-primary-700 shadow-sm' : 'text-slate-500 hover:text-slate-700'
+                  }`}
+                >
+                  {op.rotulo}
+                </button>
+              ))}
+            </div>
+          </div>
+          {rankingVolume.length === 0 ? (
+            <p className="text-xs text-slate-400 py-6 text-center">
+              Nenhum serviço aplicado em {ROTULOS_TIPO_SERVICO[contratoVolume]} neste mês.
+            </p>
+          ) : (
+            <div className="space-y-2.5">
+              {rankingVolume.map((item, i) => (
+                <BarraRanking
+                  key={item.equipe.id}
+                  rotulo={`${i + 1}º ${item.equipe.numero ? `· Nº ${item.equipe.numero} ` : ''}${item.equipe.nome}`}
+                  detalhe={`${item.volume.total} ${item.volume.unidade}`}
+                  valor={item.volume.total}
+                  maximo={maxVolume}
+                />
+              ))}
+            </div>
+          )}
+        </div>
+      </div>
+
+      {/* Evolução */}
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+        <div className="bg-white rounded-2xl border border-slate-100 shadow-sm p-4 space-y-3">
+          <h4 className="font-bold text-slate-800 text-sm flex items-center gap-2">
+            <BarChart3 size={15} className="text-primary-600" /> Concluídas por dia — {rotuloMes(mes)}
+          </h4>
+          {serieDia.every(v => v === 0) ? (
+            <p className="text-xs text-slate-400 py-6 text-center">Nenhuma conclusão registrada neste mês.</p>
+          ) : (
+            <>
+              <div className="flex items-end gap-[3px] h-28">
+                {serieDia.map((valor, i) => (
+                  <div key={i} className="flex-1 h-full flex items-end" title={`Dia ${i + 1}: ${valor} concluída(s)`}>
+                    <div
+                      className={`w-full rounded-t-sm ${valor > 0 ? 'bg-primary-500' : 'bg-slate-100'}`}
+                      style={{ height: valor > 0 ? `${Math.max(6, (valor / maxDia) * 100)}%` : '3px' }}
+                    />
+                  </div>
+                ))}
+              </div>
+              <div className="flex justify-between text-[9px] font-bold text-slate-400">
+                <span>1</span><span>10</span><span>20</span><span>{serieDia.length}</span>
+              </div>
+            </>
+          )}
+        </div>
+
+        <div className="bg-white rounded-2xl border border-slate-100 shadow-sm p-4 space-y-3">
+          <h4 className="font-bold text-slate-800 text-sm flex items-center gap-2">
+            <BarChart3 size={15} className="text-primary-600" /> Últimos 6 meses
+          </h4>
+          <div className="flex items-end gap-2 h-28">
+            {meses.map(m => {
+              const total = m.concluidas + m.canceladas;
+              const altura = total > 0 ? Math.max(8, (total / maxMes) * 100) : 3;
+              const pctCanceladas = total > 0 ? (m.canceladas / total) * 100 : 0;
+              return (
+                <div
+                  key={m.mes}
+                  className="flex-1 h-full flex flex-col justify-end items-center gap-1"
+                  title={`${rotuloMes(m.mes)}: ${m.concluidas} concluída(s), ${m.canceladas} cancelada(s)`}
+                >
+                  <span className="text-[9px] font-black text-slate-500">{m.concluidas}</span>
+                  <div className="w-full rounded-t-sm overflow-hidden bg-emerald-500" style={{ height: `${altura}%` }}>
+                    <div className="w-full bg-rose-400" style={{ height: `${pctCanceladas}%` }} />
+                  </div>
+                  <span className="text-[9px] font-bold text-slate-400 uppercase">
+                    {(NOMES_MESES[Number(m.mes.slice(5)) - 1] || '').slice(0, 3)}
+                  </span>
+                </div>
+              );
+            })}
+          </div>
+          <div className="flex items-center gap-3 text-[10px] font-bold text-slate-400">
+            <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-sm bg-emerald-500" /> Concluídas</span>
+            <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-sm bg-rose-400" /> Canceladas</span>
+          </div>
+        </div>
+      </div>
     </div>
   );
 }
