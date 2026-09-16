@@ -1080,7 +1080,7 @@ def _obter_detalhe_os(db, usuario: UsuarioAutenticado, os_id: int) -> dict:
 def editar_os(
     os_id: int, payload: OSUpdate, usuario: UsuarioAutenticado = Depends(get_current_user), db=Depends(get_supabase)
 ):
-    """Permite editar escopo/prazo/equipe enquanto a O.S não está encerrada."""
+    """Permite editar escopo/data de execução/equipe enquanto a O.S não está encerrada."""
     try:
         _exigir_gestor(usuario)
         os_data = _os_ou_404(db, os_id)

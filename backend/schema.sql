@@ -700,7 +700,7 @@ CREATE TABLE IF NOT EXISTS ordens_servico (
         CHECK (status IN ('rascunho', 'aberta', 'em_andamento', 'concluida', 'cancelada')),
     prioridade VARCHAR(10) NOT NULL DEFAULT 'media'
         CHECK (prioridade IN ('baixa', 'media', 'alta', 'critica')),
-    data_abertura TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+    data_abertura TIMESTAMP WITH TIME ZONE,
     prazo_entrega DATE,
     data_fim TIMESTAMP WITH TIME ZONE,
     descricao_escopo TEXT,

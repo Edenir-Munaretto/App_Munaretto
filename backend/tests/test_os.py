@@ -960,6 +960,43 @@ class TestModeloImpressao:
         resp2 = os_gestor_client.get(f"/api/os/{os_sem_equipe}/imprimir")
         assert resp2.status_code == 200, resp2.text
 
+    def test_imprimir_usa_data_de_execucao_no_campo_data(self, os_gestor_client, db_fake):
+        """O campo 'Data' do modelo impresso é a data de execução
+        (prazo_entrega) — nunca a data de criação/abertura da O.S."""
+        _seed_cenario(db_fake)
+        criada = _criar_os(os_gestor_client, tipo="construcao", prazo_entrega="2026-12-31").json()
+        assert not criada.get("data_abertura")  # rascunho nasce sem abertura
+
+        resp = os_gestor_client.get(f"/api/os/{criada['id']}/imprimir")
+        assert resp.status_code == 200, resp.text
+
+        import pymupdf
+
+        doc = pymupdf.open(stream=resp.content, filetype="pdf")
+        texto = "\n".join(pagina.get_text() for pagina in doc)
+        assert "31/12/2026" in texto
+
+    def test_imprimir_sem_data_de_execucao_nao_herda_criacao(self, os_gestor_client, db_fake):
+        """Sem data de execução o campo 'Data' sai no placeholder — a data de
+        criação/abertura gravada na O.S não vaza para o modelo impresso."""
+        _seed_cenario(db_fake)
+        criada = _criar_os(os_gestor_client, tipo="construcao", prazo_entrega=None).json()
+        # Emula o banco antigo: a coluna data_abertura vinha com a data de
+        # criação por causa do DEFAULT CURRENT_TIMESTAMP (removido no schema).
+        registro = next(o for o in db_fake._dados["ordens_servico"] if o["id"] == criada["id"])
+        registro["data_abertura"] = "2026-03-04T08:00:00+00:00"
+        registro["created_at"] = "2026-03-04T08:00:00+00:00"
+
+        resp = os_gestor_client.get(f"/api/os/{criada['id']}/imprimir")
+        assert resp.status_code == 200, resp.text
+
+        import pymupdf
+
+        doc = pymupdf.open(stream=resp.content, filetype="pdf")
+        texto = "\n".join(pagina.get_text() for pagina in doc)
+        assert "__/__/____" in texto
+        assert "04/03/2026" not in texto
+
     def test_imprimir_branco_sai_so_com_equipe_e_membros(self, os_gestor_client, db_fake):
         """Impressão de emergência: campos vazios, apenas equipe/encarregado/membros."""
         _seed_cenario(db_fake)

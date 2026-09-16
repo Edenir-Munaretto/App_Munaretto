@@ -129,14 +129,14 @@ const PRIORIDADES = {
   critica: { label: 'Crítica', cor: 'bg-rose-50 text-rose-700 border-rose-300' },
 };
 
-// Semáforo de prazo: vermelho = atrasada, âmbar = vence em <= 3 dias.
-function situacaoPrazo(os) {
+// Semáforo de execução: vermelho = atrasada, âmbar = executa em <= 3 dias.
+function situacaoExecucao(os) {
   if (!os.prazo_entrega || ['concluida', 'cancelada'].includes(os.status)) return null;
   const hoje = new Date();
-  const prazo = new Date(`${os.prazo_entrega}T23:59:59`);
-  const dias = Math.ceil((prazo - hoje) / 86400000);
-  if (dias < 0) return { label: `Atrasada (${Math.abs(dias)}d)`, classe: 'bg-rose-100 text-rose-700 border-rose-200', urgente: true };
-  if (dias <= 3) return { label: dias === 0 ? 'Vence hoje' : `Vence em ${dias}d`, classe: 'bg-amber-100 text-amber-800 border-amber-200', urgente: false };
+  const execucao = new Date(`${os.prazo_entrega}T23:59:59`);
+  const dias = Math.ceil((execucao - hoje) / 86400000);
+  if (dias < 0) return { label: `Execução atrasada (${Math.abs(dias)}d)`, classe: 'bg-rose-100 text-rose-700 border-rose-200', urgente: true };
+  if (dias <= 3) return { label: dias === 0 ? 'Executa hoje' : `Executa em ${dias}d`, classe: 'bg-amber-100 text-amber-800 border-amber-200', urgente: false };
   return null;
 }
 
@@ -294,13 +294,13 @@ function BarraMateriais({ os }) {
 // ---------------------------------------------------------------------------
 
 function CardOS({ os, onClick, draggableProps = {} }) {
-  const prazo = situacaoPrazo(os);
+  const execucao = situacaoExecucao(os);
   return (
     <div
       {...draggableProps}
       onClick={onClick}
       className={`bg-white rounded-xl border shadow-sm hover:shadow-md transition-all p-3 cursor-pointer ${
-        prazo?.urgente ? 'border-l-4 border-l-rose-500 border-y-slate-100 border-r-slate-100' : 'border-slate-100'
+        execucao?.urgente ? 'border-l-4 border-l-rose-500 border-y-slate-100 border-r-slate-100' : 'border-slate-100'
       }`}
     >
       <div className="flex items-center justify-between gap-2">
@@ -311,9 +311,9 @@ function CardOS({ os, onClick, draggableProps = {} }) {
       <p className="text-xs text-slate-400">{os.obras?.clientes?.nome || os.obras?.cliente_celesc || ''}</p>
 
       <div className="flex items-center gap-1.5 mt-2 flex-wrap">
-        {prazo && (
-          <span className={`px-2 py-0.5 rounded-full border text-[10px] font-bold flex items-center gap-1 ${prazo.classe}`}>
-            <CalendarClock size={11} />{prazo.label}
+        {execucao && (
+          <span className={`px-2 py-0.5 rounded-full border text-[10px] font-bold flex items-center gap-1 ${execucao.classe}`}>
+            <CalendarClock size={11} />{execucao.label}
           </span>
         )}
         {os.equipes && (
@@ -1800,7 +1800,7 @@ function PainelExecucao({ osId, produtos, onFechar, recarregarLista, mostrarToas
   const podeExcluir = ehGestor && podeEditar;
   // Exclusão da O.S: gestor, apenas rascunho ou encerradas (sem execução ativa).
   const podeExcluirOs = ehGestor && ['rascunho', 'concluida', 'cancelada'].includes(detalhe.status);
-  const prazo = situacaoPrazo(detalhe);
+  const execucao = situacaoExecucao(detalhe);
 
   const abrirPdf = async (caminho) => {
     // Abre uma aba imediatamente (evita bloqueio de popup) e navega para o
@@ -1881,9 +1881,9 @@ function PainelExecucao({ osId, produtos, onFechar, recarregarLista, mostrarToas
             <span className="font-mono text-sm font-bold text-primary-700">{detalhe.codigo}</span>
             <BadgeStatus status={detalhe.status} />
             <BadgePrioridade prioridade={detalhe.prioridade} />
-            {prazo && (
-              <span className={`px-2 py-0.5 rounded-full border text-[10px] font-bold flex items-center gap-1 ${prazo.classe}`}>
-                <CalendarClock size={11} />{prazo.label}
+            {execucao && (
+              <span className={`px-2 py-0.5 rounded-full border text-[10px] font-bold flex items-center gap-1 ${execucao.classe}`}>
+                <CalendarClock size={11} />{execucao.label}
               </span>
             )}
           </div>
@@ -2402,7 +2402,7 @@ function ModalNovaOS({ aberto, obras, equipes, onFechar, onCriada, mostrarToast,
           </div>
           <div className="grid grid-cols-2 gap-4">
             <div>
-              <label className="block text-xs font-bold text-slate-700 mb-1.5">Prazo de entrega</label>
+              <label className="block text-xs font-bold text-slate-700 mb-1.5">Data de execução</label>
               <input type="date" value={form.prazo_entrega} onChange={(e) => setForm({ ...form, prazo_entrega: e.target.value })}
                 className="w-full px-3.5 py-2 border border-slate-200 rounded-xl text-sm focus:outline-none focus:border-primary-500" />
             </div>

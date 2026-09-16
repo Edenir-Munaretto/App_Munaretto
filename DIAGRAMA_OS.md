@@ -116,7 +116,7 @@ stateDiagram-v2
 
 ```mermaid
 flowchart TD
-    A["1. GESTOR cria a O.S<br/>obra + equipe + prioridade + prazo + M.O. orçada (R$)<br/>capa (tipo construção / linha viva)"] --> B
+    A["1. GESTOR cria a O.S<br/>obra + equipe + prioridade + data de execução + M.O. orçada (R$)<br/>capa (tipo construção / linha viva)"] --> B
     B["2. NA BASE (online)<br/>check-in (hora + GPS) e preenchimento do<br/>Grupo 1 'Preparação (base)'"] --> C
     C["3. LIBERAÇÃO: aberta → em_andamento<br/>botão de status (gate Grupo 1) ou play do H.H."] --> D
     D["4. NO CAMPO — Painel de Execução (abas)<br/>checklist (2–5) · cronômetro H.H. · serviços<br/>evidências (fotos) · timeline"] --> E
@@ -127,7 +127,7 @@ flowchart TD
 
 ```
  1. GESTOR cria a O.S (ModalNovaOS)
-    · obra + equipe + prioridade + prazo + custo M.O. orçado
+    · obra + equipe + prioridade + data de execução + custo M.O. orçado
     · "capa" (tipo construção/linha viva)
     · O sistema copia o catálogo do checklist → SNAPSHOT fixo na O.S
       (mudanças futuras no catálogo não alteram O.S antigas)

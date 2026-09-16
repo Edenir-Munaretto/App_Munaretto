@@ -24,8 +24,8 @@ def _fmt_data(iso: str) -> str:
     return str(iso or "-")
 
 
-def _fmt_prazo(valor) -> str:
-    """Prazo de entrega é DATE (sem hora): devolve dd/mm/aaaa."""
+def _fmt_data_execucao(valor) -> str:
+    """Data de execução é DATE (sem hora): devolve dd/mm/aaaa."""
     texto = str(valor or "").strip()
     if len(texto) >= 10 and texto[4] == "-" and texto[7] == "-":
         return f"{texto[8:10]}/{texto[5:7]}/{texto[0:4]}"
@@ -60,7 +60,7 @@ def gerar_pdf_os(
     prioridades = {"baixa": "Baixa", "media": "Média", "alta": "Alta", "critica": "Crítica"}
     pdf._linha_dado("Prioridade", prioridades.get(os_data.get("prioridade"), os_data.get("prioridade")))
     pdf._linha_dado("Abertura", _fmt_data(os_data.get("data_abertura")))
-    pdf._linha_dado("Prazo de entrega", _fmt_prazo(os_data.get("prazo_entrega")))
+    pdf._linha_dado("Data de execução", _fmt_data_execucao(os_data.get("prazo_entrega")))
     pdf._linha_dado("Encerramento", _fmt_data(os_data.get("data_fim")) if os_data.get("data_fim") else "-")
 
     pdf._titulo_secao("ESCOPO DO SERVIÇO")

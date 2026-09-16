@@ -75,7 +75,7 @@ def gerar_modelo_os(
     contexto = {
         "obra": obra.get("nome") or "",
         "agencia": os_data.get("agencia") or "",
-        "data": _fmt_data_br(os_data.get("data_abertura") or os_data.get("created_at")),
+        "data": _fmt_data_br(os_data.get("prazo_entrega")),
         "equipe": equipe_label,
         "encarregado": encarregado or "",
         "municipio": municipio or "",
