@@ -91,6 +91,9 @@ export function erroDaResposta(resData, fallback = 'Erro inesperado.') {
 
 const ATRASO_RETRY_PADRAO = 800;
 const TIMEOUT_PADRAO = 30000;
+// Uploads de arquivo precisam de mais tempo que uma chamada comum (o padrão de
+// 30s abortava arquivos grandes em conexões lentas).
+const TIMEOUT_UPLOAD_PADRAO = 120000;
 
 const esperar = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
@@ -137,4 +140,50 @@ export async function apiFetch(url, options = {}) {
     }
   }
   throw ultimoErro;
+}
+
+// Upload de arquivo com progresso REAL (o fetch não expõe o andamento do envio).
+// Retorna um objeto compatível com o uso atual de apiFetch: { ok, status, json() }.
+// O `onProgress` recebe 0-100 conforme os bytes sobem; ao chegar em 100 o
+// servidor ainda pode estar processando (B2/compressão) — a UI deve avisar.
+export function enviarArquivoComProgresso(url, formData, { onProgress, timeoutMs = TIMEOUT_UPLOAD_PADRAO } = {}) {
+  return new Promise((resolve, reject) => {
+    const xhr = new XMLHttpRequest();
+    xhr.open('POST', url);
+    const token = getToken();
+    if (token) {
+      xhr.setRequestHeader('Authorization', `Bearer ${token}`);
+    }
+    xhr.timeout = timeoutMs;
+
+    xhr.upload.onprogress = (evento) => {
+      if (evento.lengthComputable && onProgress) {
+        onProgress(Math.round((evento.loaded / evento.total) * 100));
+      }
+    };
+
+    xhr.onload = () => {
+      // 401 com token presente = sessão expirada/inválida. Desloga e avisa o app.
+      if (xhr.status === 401 && token) {
+        clearToken();
+        removerLocal('munaretto_usuario');
+        window.dispatchEvent(new CustomEvent('auth:unauthorized'));
+      }
+      resolve({
+        ok: xhr.status >= 200 && xhr.status < 300,
+        status: xhr.status,
+        json: async () => {
+          try {
+            return JSON.parse(xhr.responseText);
+          } catch {
+            return null;
+          }
+        },
+      });
+    };
+    xhr.onerror = () => reject(new Error('network'));
+    xhr.ontimeout = () => reject(new Error('timeout'));
+
+    xhr.send(formData);
+  });
 }

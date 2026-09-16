@@ -76,8 +76,13 @@ def _registro_origem(db, tipo_registro: str, registro_id: int):
     return registro.data[0]
 
 
-async def _enviar_documento(tipo_registro: str, registro_id: int, arquivo: UploadFile, db):
-    """Implementa o upload para o tipo de registro informado."""
+def _enviar_documento(tipo_registro: str, registro_id: int, arquivo: UploadFile, db):
+    """Implementa o upload para o tipo de registro informado.
+
+    Endpoint SÍNCRONO (def): roda no threadpool do FastAPI, então o upload
+    bloqueante para o B2 e as chamadas síncronas ao Supabase não travam o
+    event loop da API.
+    """
     registro = _registro_origem(db, tipo_registro, registro_id)
     funcionario_id = registro["funcionario_id"]
 
@@ -89,7 +94,7 @@ async def _enviar_documento(tipo_registro: str, registro_id: int, arquivo: Uploa
             detail="Tipo de arquivo não permitido. Envie PDF, JPG, PNG ou WEBP.",
         )
 
-    conteudo = await arquivo.read()
+    conteudo = arquivo.file.read()
     if not conteudo:
         raise HTTPException(status_code=400, detail="Arquivo vazio.")
     if len(conteudo) > TAMANHO_MAXIMO_BYTES:
@@ -155,14 +160,14 @@ def _obter_metadados(db, tipo_registro: str, registro_id: int):
 # Certificados de treinamentos (funcionario_treinamentos)
 # ---------------------------------------------------------------------------
 @router.post("/treinamento/{registro_id}", status_code=201)
-async def enviar_certificado_treinamento(
+def enviar_certificado_treinamento(
     registro_id: int,
     arquivo: UploadFile = File(...),
     db=Depends(get_supabase),
 ):
     """Faz upload do certificado de um treinamento realizado."""
     try:
-        return await _enviar_documento("treinamento", registro_id, arquivo, db)
+        return _enviar_documento("treinamento", registro_id, arquivo, db)
     except HTTPException:
         raise
     except Exception:
@@ -200,14 +205,14 @@ def excluir_certificado_treinamento(registro_id: int, db=Depends(get_supabase)):
 # Documentos de ASO (aso)
 # ---------------------------------------------------------------------------
 @router.post("/aso/{registro_id}", status_code=201)
-async def enviar_documento_aso(
+def enviar_documento_aso(
     registro_id: int,
     arquivo: UploadFile = File(...),
     db=Depends(get_supabase),
 ):
     """Faz upload do laudo/exame de um ASO."""
     try:
-        return await _enviar_documento("aso", registro_id, arquivo, db)
+        return _enviar_documento("aso", registro_id, arquivo, db)
     except HTTPException:
         raise
     except Exception:

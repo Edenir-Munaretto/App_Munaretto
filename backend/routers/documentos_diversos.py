@@ -121,7 +121,7 @@ def listar_documentos(db=Depends(get_supabase)):
 
 
 @router.post("/documentos-diversos", status_code=201, summary="Envia um documento (com compressão)")
-async def enviar_documento(
+def enviar_documento(
     arquivo: UploadFile = File(...),
     usuario: UsuarioAutenticado = Depends(require_permisao("sst")),
     db=Depends(get_supabase),
@@ -130,6 +130,8 @@ async def enviar_documento(
 
     PDFs são recompactados no backend (PyMuPDF); imagens devem ser
     compactadas no frontend (canvas -> JPEG) antes do envio.
+    Endpoint SÍNCRONO (def): a recompressão e o upload ao B2 rodam no
+    threadpool do FastAPI, sem bloquear o event loop da API.
     """
     try:
         mime = (arquivo.content_type or "").lower()
@@ -140,7 +142,7 @@ async def enviar_documento(
                 detail="Tipo de arquivo não permitido. Envie PDF, JPG, PNG ou WEBP.",
             )
 
-        conteudo = await arquivo.read()
+        conteudo = arquivo.file.read()
         if not conteudo:
             raise HTTPException(status_code=400, detail="Arquivo vazio.")
         if len(conteudo) > TAMANHO_MAXIMO_BYTES:

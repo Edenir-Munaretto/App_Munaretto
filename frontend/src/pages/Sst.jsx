@@ -1,9 +1,9 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import {
   Search, Plus, Edit2, Trash2, X, Check, AlertTriangle,
-  HardHat, GraduationCap, Stethoscope, Link2, Unlink, Briefcase, FileText, User, Printer, ListChecks, FolderOpen, Download, Upload
+  HardHat, GraduationCap, Stethoscope, Link2, Unlink, Briefcase, FileText, User, Printer, ListChecks, FolderOpen, Download, Upload, Loader2
 } from 'lucide-react';
-import { API_URL, apiFetch, erroDaResposta } from '../api';
+import { API_URL, apiFetch, erroDaResposta, enviarArquivoComProgresso } from '../api';
 import ModalConfirmacao from '../components/ModalConfirmacao';
 import PaginacaoControle from '../components/PaginacaoControle';
 import ErroCarregamento from '../components/ErroCarregamento';
@@ -97,6 +97,8 @@ function Sst() {
   });
   const [ftCertificado, setFtCertificado] = useState(null);
   const [ftCertificadoAtual, setFtCertificadoAtual] = useState(null);
+  const [ftEnviando, setFtEnviando] = useState(false);
+  const [ftProgresso, setFtProgresso] = useState(null); // 0-100 do upload do certificado
   const [buscaFuncFt, setBuscaFuncFt] = useState('');
   const [sugestoesFtAbertas, setSugestoesFtAbertas] = useState(false);
   const [sugestoesMatriz, setSugestoesMatriz] = useState([]);
@@ -115,6 +117,8 @@ function Sst() {
   });
   const [asoCertificado, setAsoCertificado] = useState(null);
   const [asoCertificadoAtual, setAsoCertificadoAtual] = useState(null);
+  const [asoEnviando, setAsoEnviando] = useState(false);
+  const [asoProgresso, setAsoProgresso] = useState(null); // 0-100 do upload do documento
   const [buscaFuncAso, setBuscaFuncAso] = useState('');
   const [sugestoesAsoAbertas, setSugestoesAsoAbertas] = useState(false);
 
@@ -601,6 +605,7 @@ function Sst() {
 
   const handleFtSubmit = async (e) => {
     e.preventDefault();
+    if (ftEnviando) return; // evita duplo clique durante o envio
     if (!ftForm.funcionario_id || !ftForm.treinamento_id || !ftForm.data_realizacao) {
       showToast('Funcionário, curso e data de realização são obrigatórios.', 'error');
       return;
@@ -620,6 +625,8 @@ function Sst() {
       data_validade: ftForm.data_validade || null,
       carga_horaria: ftForm.carga_horaria ? Number(ftForm.carga_horaria) : null,
     };
+    setFtEnviando(true);
+    setFtProgresso(ftCertificado ? 0 : null);
     try {
       const method = ftEditingId ? 'PUT' : 'POST';
       const url = ftEditingId ? `${API_URL}/sst/funcionario-treinamentos/${ftEditingId}` : `${API_URL}/sst/funcionario-treinamentos/`;
@@ -636,7 +643,9 @@ function Sst() {
       if (ftCertificado) {
         const fd = new FormData();
         fd.append('arquivo', ftCertificado);
-        const upRes = await apiFetch(`${API_URL}/certificados/treinamento/${resData.id}`, { method: 'POST', body: fd });
+        const upRes = await enviarArquivoComProgresso(`${API_URL}/certificados/treinamento/${resData.id}`, fd, {
+          onProgress: setFtProgresso,
+        });
         if (!upRes.ok) {
           const upData = await upRes.json().catch(() => null);
           showToast(`Registro salvo, mas falha no upload do certificado: ${erroDaResposta(upData, 'erro no upload')}`, 'error');
@@ -656,7 +665,15 @@ function Sst() {
       fetchPendencias();
     } catch (err) {
       console.error(err);
-      showToast('Erro de conexão ao salvar treinamento.', 'error');
+      showToast(
+        err?.message === 'timeout'
+          ? 'Tempo esgotado ao enviar o arquivo. Verifique a conexão e tente novamente.'
+          : 'Erro de conexão ao salvar treinamento.',
+        'error'
+      );
+    } finally {
+      setFtEnviando(false);
+      setFtProgresso(null);
     }
   };
 
@@ -758,6 +775,7 @@ function Sst() {
 
   const handleAsoSubmit = async (e) => {
     e.preventDefault();
+    if (asoEnviando) return; // evita duplo clique durante o envio
     if (!asoForm.funcionario_id || !asoForm.data_exame) {
       showToast('Funcionário e data do exame são obrigatórios.', 'error');
       return;
@@ -776,6 +794,8 @@ function Sst() {
       validade_meses: asoForm.validade_meses ? Number(asoForm.validade_meses) : null,
       data_validade: asoForm.data_validade || null,
     };
+    setAsoEnviando(true);
+    setAsoProgresso(asoCertificado ? 0 : null);
     try {
       const method = asoEditingId ? 'PUT' : 'POST';
       const url = asoEditingId ? `${API_URL}/sst/aso/${asoEditingId}` : `${API_URL}/sst/aso/`;
@@ -792,7 +812,9 @@ function Sst() {
       if (asoCertificado) {
         const fd = new FormData();
         fd.append('arquivo', asoCertificado);
-        const upRes = await apiFetch(`${API_URL}/certificados/aso/${resData.id}`, { method: 'POST', body: fd });
+        const upRes = await enviarArquivoComProgresso(`${API_URL}/certificados/aso/${resData.id}`, fd, {
+          onProgress: setAsoProgresso,
+        });
         if (!upRes.ok) {
           const upData = await upRes.json().catch(() => null);
           showToast(`ASO salvo, mas falha no upload do documento: ${erroDaResposta(upData, 'erro no upload')}`, 'error');
@@ -810,7 +832,15 @@ function Sst() {
       fetchAsos();
     } catch (err) {
       console.error(err);
-      showToast('Erro de conexão ao salvar ASO.', 'error');
+      showToast(
+        err?.message === 'timeout'
+          ? 'Tempo esgotado ao enviar o arquivo. Verifique a conexão e tente novamente.'
+          : 'Erro de conexão ao salvar ASO.',
+        'error'
+      );
+    } finally {
+      setAsoEnviando(false);
+      setAsoProgresso(null);
     }
   };
 
@@ -2055,7 +2085,7 @@ function Sst() {
 
       {/* Modal Treinamento do Funcionário */}
       {showFtModal && (
-        <ModalShell titulo={ftEditingId ? 'Editar Registro de Treinamento' : 'Registrar Treinamento'} onClose={() => setShowFtModal(false)}>
+        <ModalShell titulo={ftEditingId ? 'Editar Registro de Treinamento' : 'Registrar Treinamento'} onClose={() => setShowFtModal(false)} bloquearFechar={ftEnviando}>
           <form onSubmit={handleFtSubmit} className="p-6 space-y-4">
             <div className="relative">
               <label className="block text-xs font-bold text-slate-700 mb-1.5">Funcionário *</label>
@@ -2200,21 +2230,29 @@ function Sst() {
               <input
                 type="file"
                 accept="application/pdf,image/jpeg,image/png,image/webp"
+                disabled={ftEnviando}
                 onChange={(e) => setFtCertificado(e.target.files?.[0] || null)}
-                className="w-full text-sm text-slate-500 file:mr-3 file:px-4 file:py-2 file:rounded-xl file:border-0 file:bg-primary-50 file:text-primary-700 file:font-bold file:cursor-pointer hover:file:bg-primary-100 cursor-pointer"
+                className="w-full text-sm text-slate-500 file:mr-3 file:px-4 file:py-2 file:rounded-xl file:border-0 file:bg-primary-50 file:text-primary-700 file:font-bold file:cursor-pointer hover:file:bg-primary-100 cursor-pointer disabled:opacity-50"
               />
               <p className="text-[10px] text-slate-400 mt-1 font-semibold">
                 PDF, JPG, PNG ou WEBP - máximo 15 MB. Ao editar, um novo arquivo substitui o anterior.
               </p>
+              {ftEnviando && ftProgresso != null && (
+                <BarraProgressoUpload progresso={ftProgresso} rotulo="Enviando certificado..." />
+              )}
             </div>
-            <ModalActions label={ftEditingId ? 'Salvar Alterações' : 'Registrar Treinamento'} onCancel={() => setShowFtModal(false)} />
+            <ModalActions
+              label={ftEditingId ? 'Salvar Alterações' : 'Registrar Treinamento'}
+              onCancel={() => setShowFtModal(false)}
+              loading={ftEnviando}
+            />
           </form>
         </ModalShell>
       )}
 
       {/* Modal ASO */}
       {showAsoModal && (
-        <ModalShell titulo={asoEditingId ? 'Editar ASO' : 'Novo ASO'} onClose={() => setShowAsoModal(false)}>
+        <ModalShell titulo={asoEditingId ? 'Editar ASO' : 'Novo ASO'} onClose={() => setShowAsoModal(false)} bloquearFechar={asoEnviando}>
           <form onSubmit={handleAsoSubmit} className="p-6 space-y-4">
             <div className="relative">
               <label className="block text-xs font-bold text-slate-700 mb-1.5">Funcionário *</label>
@@ -2347,14 +2385,22 @@ function Sst() {
               <input
                 type="file"
                 accept="application/pdf,image/jpeg,image/png,image/webp"
+                disabled={asoEnviando}
                 onChange={(e) => setAsoCertificado(e.target.files?.[0] || null)}
-                className="w-full text-sm text-slate-500 file:mr-3 file:px-4 file:py-2 file:rounded-xl file:border-0 file:bg-primary-50 file:text-primary-700 file:font-bold file:cursor-pointer hover:file:bg-primary-100 cursor-pointer"
+                className="w-full text-sm text-slate-500 file:mr-3 file:px-4 file:py-2 file:rounded-xl file:border-0 file:bg-primary-50 file:text-primary-700 file:font-bold file:cursor-pointer hover:file:bg-primary-100 cursor-pointer disabled:opacity-50"
               />
               <p className="text-[10px] text-slate-400 mt-1 font-semibold">
                 PDF, JPG, PNG ou WEBP - máximo 15 MB. Ao editar, um novo arquivo substitui o anterior.
               </p>
+              {asoEnviando && asoProgresso != null && (
+                <BarraProgressoUpload progresso={asoProgresso} rotulo="Enviando documento..." />
+              )}
             </div>
-            <ModalActions label={asoEditingId ? 'Salvar Alterações' : 'Cadastrar ASO'} onCancel={() => setShowAsoModal(false)} />
+            <ModalActions
+              label={asoEditingId ? 'Salvar Alterações' : 'Cadastrar ASO'}
+              onCancel={() => setShowAsoModal(false)}
+              loading={asoEnviando}
+            />
           </form>
         </ModalShell>
       )}
@@ -2580,6 +2626,8 @@ function ModalDocumentosDiversos({ aberto, onFechar, mostrarToast }) {
   const [documentos, setDocumentos] = useState([]);
   const [carregando, setCarregando] = useState(false);
   const [enviando, setEnviando] = useState(false);
+  // { nome, indice, total, progresso } do arquivo em envio (barra de progresso).
+  const [envioAtual, setEnvioAtual] = useState(null);
   const [excluirAlvo, setExcluirAlvo] = useState(null);
   const inputRef = useRef(null);
 
@@ -2608,26 +2656,38 @@ function ModalDocumentosDiversos({ aberto, onFechar, mostrarToast }) {
   const enviarArquivos = async (files) => {
     let ok = 0;
     setEnviando(true);
-    for (const original of files) {
+    for (let i = 0; i < files.length; i += 1) {
+      const original = files[i];
       if (!MIMES.includes(original.type)) {
+        setEnvioAtual(null);
         mostrarToast(`"${original.name}" deve ser PDF, JPG, PNG ou WEBP.`, 'error');
         continue;
       }
       if (original.size > LIMITE_BYTES) {
+        setEnvioAtual(null);
         mostrarToast(`"${original.name}" excede o limite de 15 MB.`, 'error');
         continue;
       }
       const arquivo = await comprimirImagem(original);
       const fd = new FormData();
       fd.append('arquivo', arquivo);
+      setEnvioAtual({ nome: arquivo.name, indice: i + 1, total: files.length, progresso: 0 });
       try {
-        const res = await apiFetch(`${API_URL}/sst/documentos-diversos`, { method: 'POST', body: fd });
+        const res = await enviarArquivoComProgresso(`${API_URL}/sst/documentos-diversos`, fd, {
+          onProgress: (pct) => setEnvioAtual(atual => (atual ? { ...atual, progresso: pct } : atual)),
+        });
         if (res.ok) ok += 1;
         else mostrarToast(erroDaResposta(await res.json().catch(() => null), `Falha ao enviar ${arquivo.name}.`), 'error');
-      } catch {
-        mostrarToast(`Erro de conexão ao enviar ${arquivo.name}.`, 'error');
+      } catch (err) {
+        mostrarToast(
+          err?.message === 'timeout'
+            ? `Tempo esgotado ao enviar ${arquivo.name}.`
+            : `Erro de conexão ao enviar ${arquivo.name}.`,
+          'error'
+        );
       }
     }
+    setEnvioAtual(null);
     if (ok) mostrarToast(`${ok} documento(s) enviado(s).`);
     setEnviando(false);
     carregar();
@@ -2651,7 +2711,7 @@ function ModalDocumentosDiversos({ aberto, onFechar, mostrarToast }) {
   const totalBytes = documentos.reduce((soma, d) => soma + Number(d.tamanho_bytes || 0), 0);
 
   return (
-    <ModalShell titulo="Documentos Diversos" onClose={onFechar} largura="max-w-2xl">
+    <ModalShell titulo="Documentos Diversos" onClose={onFechar} largura="max-w-2xl" bloquearFechar={enviando}>
       <div className="p-4 md:p-6 space-y-4">
         {/* Resumo */}
         <div className="flex items-center justify-between gap-3 flex-wrap bg-slate-50 border border-slate-100 rounded-xl px-4 py-3">
@@ -2673,6 +2733,12 @@ function ModalDocumentosDiversos({ aberto, onFechar, mostrarToast }) {
             <Upload size={22} />
             {enviando ? 'Enviando...' : 'Enviar documentos (PDF ou imagem)'}
           </button>
+          {enviando && envioAtual && (
+            <BarraProgressoUpload
+              progresso={envioAtual.progresso}
+              rotulo={`Enviando ${envioAtual.nome} (${envioAtual.indice} de ${envioAtual.total})`}
+            />
+          )}
           <input
             ref={inputRef}
             type="file"
@@ -2752,13 +2818,18 @@ function ModalDocumentosDiversos({ aberto, onFechar, mostrarToast }) {
   );
 }
 
-function ModalShell({ titulo, onClose, children, largura = 'max-w-2xl' }) {
+function ModalShell({ titulo, onClose, children, largura = 'max-w-2xl', bloquearFechar = false }) {
   return (
     <div className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center z-50 p-4">
       <div className={`bg-white rounded-2xl shadow-2xl ${largura} w-full overflow-hidden animate-in fade-in zoom-in duration-200 max-h-[92vh] flex flex-col`}>
         <div className="bg-slate-900 text-white px-3 py-3 md:px-6 md:py-4 flex items-center justify-between shrink-0">
           <h3 className="font-bold text-lg">{titulo}</h3>
-          <button onClick={onClose} className="text-slate-400 hover:text-white text-xl font-bold cursor-pointer">
+          <button
+            onClick={onClose}
+            disabled={bloquearFechar}
+            title={bloquearFechar ? 'Aguarde o envio terminar' : 'Fechar'}
+            className="text-slate-400 hover:text-white text-xl font-bold cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed"
+          >
             <X size={20} />
           </button>
         </div>
@@ -2768,21 +2839,50 @@ function ModalShell({ titulo, onClose, children, largura = 'max-w-2xl' }) {
   );
 }
 
-function ModalActions({ label, onCancel }) {
+// Barra de progresso do upload (0-100). Ao chegar em 100 o servidor ainda
+// processa (B2/compactação), então o rótulo muda para "Processando...".
+function BarraProgressoUpload({ progresso, rotulo }) {
+  const pct = Math.max(0, Math.min(100, Number(progresso) || 0));
+  const processando = pct >= 100;
+  return (
+    <div className="mt-2">
+      <div className="flex items-center justify-between gap-2 text-[11px] font-bold text-slate-600 mb-1">
+        <span className="flex items-center gap-1.5 min-w-0">
+          <Loader2 size={12} className="animate-spin text-primary-600 shrink-0" />
+          <span className="truncate">{rotulo}</span>
+        </span>
+        <span className="shrink-0">{processando ? 'Processando no servidor...' : `${pct}%`}</span>
+      </div>
+      <div className="h-1.5 w-full bg-slate-100 rounded-full overflow-hidden">
+        <div
+          className={`h-full rounded-full transition-all duration-200 ${
+            processando ? 'bg-emerald-500 animate-pulse' : 'bg-primary-500'
+          }`}
+          style={{ width: `${pct}%` }}
+        />
+      </div>
+    </div>
+  );
+}
+
+function ModalActions({ label, onCancel, loading = false }) {
   return (
     <div className="flex justify-end gap-3 pt-4 border-t border-slate-100">
       <button
         type="button"
         onClick={onCancel}
-        className="px-4 py-2 border border-slate-200 text-slate-600 rounded-xl text-sm font-semibold hover:bg-slate-50 transition-all cursor-pointer"
+        disabled={loading}
+        className="px-4 py-2 border border-slate-200 text-slate-600 rounded-xl text-sm font-semibold hover:bg-slate-50 transition-all cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
       >
         Cancelar
       </button>
       <button
         type="submit"
-        className="px-5 py-2 bg-primary-600 text-white rounded-xl text-sm font-semibold hover:bg-primary-700 transition-all shadow-md shadow-primary-900/10 cursor-pointer"
+        disabled={loading}
+        className="flex items-center gap-2 px-5 py-2 bg-primary-600 text-white rounded-xl text-sm font-semibold hover:bg-primary-700 transition-all shadow-md shadow-primary-900/10 cursor-pointer disabled:opacity-60 disabled:cursor-not-allowed"
       >
-        {label}
+        {loading && <Loader2 size={15} className="animate-spin" />}
+        {loading ? 'Enviando...' : label}
       </button>
     </div>
   );
