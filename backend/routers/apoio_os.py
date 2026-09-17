@@ -10,6 +10,7 @@ import io
 import logging
 import os
 import re
+import time
 import unicodedata
 from concurrent.futures import ThreadPoolExecutor
 from typing import Literal
@@ -491,12 +492,16 @@ def excluir_obra(obra_id: int, db=Depends(get_supabase)):
         raise HTTPException(status_code=500, detail="Erro ao excluir obra.") from None
 
 
-def _montar_resumo_obra(db, obra_id: int, status: str = "todas") -> dict:
+def _montar_resumo_obra(db, obra_id: int, status: str = "todas", incluir_fotos: bool = True) -> dict:
     """Consulta consolidada da obra — usada pelo resumo e pelos PDFs.
 
     Levanta 404 quando a obra não existe. Contadores/período são sempre da
     obra inteira; lista de O.S e agregados respeitam o filtro de status
     ("ativas"/"encerradas"; rascunho entra apenas em "todas").
+
+    `incluir_fotos=False` (usado pelos PDFs): pula a contagem de fotos por O.S
+    — os relatórios não exibem esse dado e a consulta é a mais pesada em obras
+    com muitas evidências.
     """
     with ThreadPoolExecutor(max_workers=2) as executor:
         futuro_obra = executor.submit(
@@ -553,9 +558,9 @@ def _montar_resumo_obra(db, obra_id: int, status: str = "todas") -> dict:
     if os_ids:
         with ThreadPoolExecutor(max_workers=2) as executor:
             futuro_materiais = executor.submit(_consultar_lancamentos, db, os_ids)
-            futuro_fotos = executor.submit(contar_fotos_por_os, db, os_ids)
+            futuro_fotos = executor.submit(contar_fotos_por_os, db, os_ids) if incluir_fotos else None
             lancamentos = futuro_materiais.result()
-            fotos_count = futuro_fotos.result()
+            fotos_count = futuro_fotos.result() if futuro_fotos is not None else {}
         for m in lancamentos:
             soma_por_os[m["os_id"]] = soma_por_os.get(m["os_id"], 0.0) + _numero(m.get("quantidade_usada"))
 
@@ -617,7 +622,8 @@ def relatorio_obra(
     try:
         from utils.pdf_obra import gerar_pdf_obra
 
-        dados = _montar_resumo_obra(db, obra_id, status)
+        inicio = time.perf_counter()
+        dados = _montar_resumo_obra(db, obra_id, status, incluir_fotos=False)
         caminho = gerar_pdf_obra(
             obra=dados["obra"],
             os_linhas=dados["os"],
@@ -625,6 +631,7 @@ def relatorio_obra(
             filtro=dados["filtro"],
             resumo=dados["resumo"],
         )
+        logger.info("Relatório da obra %s gerado em %.2fs", obra_id, time.perf_counter() - inicio)
         return FileResponse(
             caminho,
             media_type="application/pdf",
@@ -648,13 +655,15 @@ def relatorio_servicos_obra(
     try:
         from utils.pdf_obra import gerar_pdf_servicos_obra
 
-        dados = _montar_resumo_obra(db, obra_id, status)
+        inicio = time.perf_counter()
+        dados = _montar_resumo_obra(db, obra_id, status, incluir_fotos=False)
         caminho = gerar_pdf_servicos_obra(
             obra=dados["obra"],
             contratos=dados["contratos"],
             filtro=dados["filtro"],
             resumo=dados["resumo"],
         )
+        logger.info("Relatório de serviços da obra %s gerado em %.2fs", obra_id, time.perf_counter() - inicio)
         return FileResponse(
             caminho,
             media_type="application/pdf",

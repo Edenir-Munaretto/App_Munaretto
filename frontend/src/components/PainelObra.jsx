@@ -135,9 +135,15 @@ export default function PainelObra({ obra, onFechar, onAbrirOS, onNovaOS, refres
       // Libera a blob URL depois de a aba carregar (revogar antes pode
       // cancelar a leitura do PDF).
       setTimeout(() => window.URL.revokeObjectURL(url), 120000);
-    } catch {
+    } catch (e) {
       janela?.close();
-      mostrarToast('Falha de conexão ao gerar o PDF.', 'error');
+      const expirou = e?.name === 'TimeoutError' || e?.name === 'AbortError';
+      mostrarToast(
+        expirou
+          ? 'O relatório demorou demais para ser gerado. Tente novamente em instantes.'
+          : 'Falha de conexão ao gerar o PDF.',
+        'error'
+      );
     } finally {
       setGerando(false);
     }

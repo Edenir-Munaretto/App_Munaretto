@@ -487,6 +487,32 @@ class TestRelatoriosPdfObra:
         assert os_gestor_client.get("/api/os/obras/9999/relatorio").status_code == 404
         assert os_gestor_client.get("/api/os/obras/9999/servicos").status_code == 404
 
+    def test_pdf_servicos_com_os_retroativa_na_obra(self, os_gestor_client, db_fake):
+        """Obra com O.S retroativa (sem checklist, com serviços lançados) gera
+        os PDFs normalmente — regressão relatada após o uso das retroativas."""
+        _seed_obra_com_os(db_fake)
+        criada = os_gestor_client.post(
+            "/api/os/",
+            json={
+                "obra_id": 501,
+                "retroativa": True,
+                "data_execucao": "2026-09-10",
+                "justificativa_retroativa": "Emergência registrada no formulário de papel.",
+            },
+        )
+        assert criada.status_code == 201, criada.text
+        os_id = criada.json()["id"]
+        lancamento = os_gestor_client.post(
+            f"/api/os/{os_id}/materiais",
+            json={"produto_id": 701, "quantidade_usada": 5, "tipo_usc": "normal"},
+        )
+        assert lancamento.status_code in (200, 201), lancamento.text
+
+        for rota in ("relatorio", "servicos"):
+            resp = os_gestor_client.get(f"/api/os/obras/501/{rota}")
+            assert resp.status_code == 200, resp.text
+            assert resp.content.startswith(b"%PDF")
+
     def test_pdf_da_obra_com_travessao_nao_quebra(self, os_gestor_client, db_fake):
         """Caracteres fora do latin-1 (travessão) em obra/cliente/endereço não
         podem derrubar o PDF — as fontes core do FPDF só aceitam latin-1."""
