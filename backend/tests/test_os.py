@@ -2503,6 +2503,20 @@ class TestOsRetroativa:
         resp = self._criar_retroativa(os_campo_client)
         assert resp.status_code == 403
 
+    def test_impressao_modelo_usa_data_da_execucao(self, os_gestor_client, db_fake):
+        """O modelo impresso da retroativa mostra a data real da execução
+        (a O.S retroativa não preenche prazo_entrega)."""
+        import pymupdf
+
+        self._seed_com_modelo_checklist(db_fake)
+        os_id = self._criar_retroativa(os_gestor_client).json()["id"]
+
+        resp = os_gestor_client.get(f"/api/os/{os_id}/imprimir")
+        assert resp.status_code == 200, resp.text
+        doc = pymupdf.open(stream=resp.content, filetype="pdf")
+        texto = "\n".join(pagina.get_text() for pagina in doc)
+        assert "10/09/2026" in texto
+
     def test_campo_nao_recebe_retroativa_na_listagem(self, os_gestor_client, os_campo_client, db_fake):
         """A retroativa não entra no pacote/quadro do campo; a normal entra."""
         self._seed_com_modelo_checklist(db_fake)

@@ -76,7 +76,9 @@ def gerar_modelo_os(
     contexto = {
         "obra": obra.get("nome") or "",
         "agencia": os_data.get("agencia") or "",
-        "data": _fmt_data_br(os_data.get("prazo_entrega")),
+        # O.S retroativa imprime a data real da execução; nas demais vale o
+        # prazo previsto informado no cadastro.
+        "data": _fmt_data_br(os_data.get("data_execucao") or os_data.get("prazo_entrega")),
         "equipe": equipe_label,
         "encarregado": encarregado or "",
         "municipio": municipio or "",
