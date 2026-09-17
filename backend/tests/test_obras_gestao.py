@@ -487,6 +487,24 @@ class TestRelatoriosPdfObra:
         assert os_gestor_client.get("/api/os/obras/9999/relatorio").status_code == 404
         assert os_gestor_client.get("/api/os/obras/9999/servicos").status_code == 404
 
+    def test_pdf_da_obra_com_travessao_nao_quebra(self, os_gestor_client, db_fake):
+        """Caracteres fora do latin-1 (travessão) em obra/cliente/endereço não
+        podem derrubar o PDF — as fontes core do FPDF só aceitam latin-1."""
+        _seed_obra_com_os(db_fake)
+        obra = next(o for o in db_fake._dados["obras"] if o["id"] == 501)
+        obra["nome"] = "Obra Alpha — Lote 2"
+        obra["endereco"] = "Rua Central — Sala 3"
+        cliente = next(c for c in db_fake._dados["clientes"] if c["id"] == obra.get("cliente_id"))
+        cliente["nome"] = "Cliente — Especial"
+
+        for rota in ("relatorio", "servicos"):
+            resp = os_gestor_client.get(f"/api/os/obras/501/{rota}")
+            assert resp.status_code == 200, resp.text
+            assert resp.content.startswith(b"%PDF")
+
+        texto = self._texto_pdf(os_gestor_client.get("/api/os/obras/501/servicos"))
+        assert "Obra Alpha" in texto
+
 
 TERMINO_PAYLOAD = {
     "numero_projeto": "400800001",

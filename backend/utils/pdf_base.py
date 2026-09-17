@@ -45,6 +45,17 @@ def _novo_caminho_temp(prefixo: str, sufixo: str = ".pdf") -> str:
     return caminho
 
 
+def _txt(valor) -> str:
+    """Texto seguro para as fontes core do FPDF (latin-1 com substituição).
+
+    Caracteres fora do latin-1 (travessão "—", aspas curvas, emoji) derrubavam
+    a geração do PDF com FPDFUnicodeEncodingException.
+    """
+    if valor is None:
+        return ""
+    return str(valor).encode("latin-1", "replace").decode("latin-1")
+
+
 def desenhar_logo(pdf: FPDF, x: float, y: float, altura: float) -> float:
     """Desenha a logo da empresa mantendo a proporção do PNG.
 
@@ -102,12 +113,12 @@ def desenhar_cabecalho(pdf: FPDF, titulo: str, subtitulo: str = "") -> float:
     pdf.set_text_color(15, 23, 42)
     pdf.set_font("Arial", "B", 14)
     pdf.set_xy(0, y_linha + 2.5)
-    pdf.cell(largura_pagina, 8, titulo, align="C")
+    pdf.cell(largura_pagina, 8, _txt(titulo), align="C")
     if subtitulo:
         pdf.set_font("Arial", "", 9)
         pdf.set_text_color(71, 85, 105)
         pdf.set_xy(0, y_linha + 11)
-        pdf.cell(largura_pagina, 5, subtitulo, align="C")
+        pdf.cell(largura_pagina, 5, _txt(subtitulo), align="C")
 
     y_final = y_linha + 17
     pdf.set_y(y_final)
@@ -140,23 +151,23 @@ class RelatorioBase(FPDF):
         self.set_font("Arial", "B", 11)
         self.set_text_color(15, 23, 42)
         self.set_fill_color(226, 232, 240)
-        self.cell(0, 8, f" {titulo}", ln=True, fill=True)
+        self.cell(0, 8, f" {_txt(titulo)}", ln=True, fill=True)
         self.ln(1)
 
     def _linha_dado(self, rotulo: str, valor: str):
         self.set_font("Arial", "B", 9)
         self.set_text_color(71, 85, 105)
-        self.write(6, f"{rotulo}: ")
+        self.write(6, f"{_txt(rotulo)}: ")
         self.set_font("Arial", "", 9)
         self.set_text_color(15, 23, 42)
-        self.multi_cell(0, 6, valor or "-")
+        self.multi_cell(0, 6, _txt(valor) or "-")
         self.ln(1)
 
     def _aviso_sem_dados(self, texto: str):
         """Aviso em itálico quando uma seção não tem registros."""
         self.set_font("Arial", "I", 9)
         self.set_text_color(100, 116, 139)
-        self.multi_cell(0, 6, texto)
+        self.multi_cell(0, 6, _txt(texto))
         self.ln(2)
 
     def _quebrar_texto(self, texto: str, largura: float) -> list[str]:
@@ -197,7 +208,7 @@ class RelatorioBase(FPDF):
         self.set_fill_color(15, 23, 42)
         self.set_text_color(255, 255, 255)
         for nome, w in zip(nomes, larguras, strict=True):
-            self.cell(w, 7, f" {nome}", border=1, fill=True)
+            self.cell(w, 7, f" {_txt(nome)}", border=1, fill=True)
         self.ln()
         self.set_text_color(15, 23, 42)
 
@@ -224,9 +235,7 @@ class RelatorioBase(FPDF):
         for i, linha in enumerate(linhas):
             celulas = []
             for valor, w in zip(linha, larguras, strict=True):
-                texto = str(valor if valor is not None else "-")
-                # FPDF core fonts são latin-1: evita erro com caracteres fora.
-                texto = texto.encode("latin-1", "replace").decode("latin-1")
+                texto = _txt(valor if valor is not None else "-")
                 celulas.append((self._quebrar_texto(texto, w - 2.2), w))
             altura = max(len(partes) for partes, _ in celulas) * altura_linha
 

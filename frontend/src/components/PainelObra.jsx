@@ -3,7 +3,7 @@ import {
   AlertTriangle, Building, ClipboardList, FileDown, FileText, FolderOpen,
   MapPin, Package, Plus, RefreshCw, X,
 } from 'lucide-react';
-import { API_URL, apiFetch } from '../api';
+import { API_URL, apiFetch, erroDaResposta } from '../api';
 import { unidadeContrato } from '../utils/contratos';
 import TerminoObra from './TerminoObra';
 
@@ -118,10 +118,15 @@ export default function PainelObra({ obra, onFechar, onAbrirOS, onNovaOS, refres
     const janela = window.open('', '_blank');
     setGerando(true);
     try {
-      const res = await apiFetch(`${API_URL}/os/obras/${obra.id}/${recurso}?status=${encodeURIComponent(filtro)}`);
+      // PDFs demoram mais que uma chamada comum (consultas + geração): o
+      // timeout padrão de 30s abortava em obras grandes/cold start.
+      const res = await apiFetch(`${API_URL}/os/obras/${obra.id}/${recurso}?status=${encodeURIComponent(filtro)}`, {
+        timeoutMs: 120000,
+      });
       if (!res.ok) {
         janela?.close();
-        mostrarToast('Erro ao gerar o PDF.', 'error');
+        const detalhe = erroDaResposta(await res.json().catch(() => null), 'Erro ao gerar o PDF.');
+        mostrarToast(detalhe, 'error');
         return;
       }
       const blob = await res.blob();
