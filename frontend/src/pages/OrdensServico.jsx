@@ -140,8 +140,6 @@ function situacaoExecucao(os) {
   return null;
 }
 
-const brl = (v) => `R$ ${Number(v || 0).toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
-
 const fmtData = (iso) => {
   if (!iso) return '-';
   try {
@@ -2258,8 +2256,6 @@ function ModalNovaOS({ aberto, obras, equipes, onFechar, onCriada, mostrarToast,
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [aberto, edicao, obraInicial]);
 
-  const totalGeral = Number(form.custo_mo_orcado || 0);
-
   const salvar = async (e) => {
     e.preventDefault();
     if (salvando) return; // duplo toque/Enter repetido
@@ -2533,23 +2529,15 @@ function ModalNovaOS({ aberto, obras, equipes, onFechar, onCriada, mostrarToast,
               </select>
             </div>
           </div>
-          <div className="grid grid-cols-2 gap-4">
-            {/* Na O.S retroativa a data relevante é a real da execução (painel
-                âmbar acima); o prazo previsto não se aplica. */}
-            {!form.retroativa && (
-              <div>
-                <label className="block text-xs font-bold text-slate-700 mb-1.5">Data de execução</label>
-                <input type="date" value={form.prazo_entrega} onChange={(e) => setForm({ ...form, prazo_entrega: e.target.value })}
-                  className="w-full px-3.5 py-2 border border-slate-200 rounded-xl text-sm focus:outline-none focus:border-primary-500" />
-              </div>
-            )}
-            <div className={form.retroativa ? 'col-span-2' : ''}>
-              <label className="block text-xs font-bold text-slate-700 mb-1.5">M.O. orçada (R$)</label>
-              <input type="number" step="0.01" min="0" value={form.custo_mo_orcado}
-                onChange={(e) => setForm({ ...form, custo_mo_orcado: e.target.value })}
+          {/* Na O.S retroativa a data relevante é a real da execução (painel
+              âmbar acima); o prazo previsto não se aplica. */}
+          {!form.retroativa && (
+            <div>
+              <label className="block text-xs font-bold text-slate-700 mb-1.5">Data de execução</label>
+              <input type="date" value={form.prazo_entrega} onChange={(e) => setForm({ ...form, prazo_entrega: e.target.value })}
                 className="w-full px-3.5 py-2 border border-slate-200 rounded-xl text-sm focus:outline-none focus:border-primary-500" />
             </div>
-          </div>
+          )}
           <div>
             <label className="block text-xs font-bold text-slate-700 mb-1.5">Escopo do serviço</label>
             <textarea rows={3} value={form.descricao_escopo} onChange={(e) => setForm({ ...form, descricao_escopo: e.target.value })}
@@ -2628,13 +2616,6 @@ function ModalNovaOS({ aberto, obras, equipes, onFechar, onCriada, mostrarToast,
             </div>
           </div>
         </div>
-        {/* Resumo do custo de M.O. previsto antes de salvar */}
-        {Number(form.custo_mo_orcado) > 0 && (
-          <div className="mx-6 mb-3 rounded-xl bg-slate-900 text-white px-4 py-2.5 flex justify-between items-center">
-            <span className="text-xs font-semibold text-slate-300">M.O. orçada prevista</span>
-            <span className="text-base font-extrabold">{brl(totalGeral)}</span>
-          </div>
-        )}
         <div className="px-6 py-4 border-t border-slate-100 flex justify-end gap-3 sticky bottom-0 bg-white">
           <button type="button" onClick={onFechar}
             className="px-4 py-2 border border-slate-200 text-slate-600 rounded-xl text-sm font-semibold hover:bg-slate-50 cursor-pointer">Cancelar</button>
