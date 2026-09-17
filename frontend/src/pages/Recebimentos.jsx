@@ -4,6 +4,7 @@ import { API_URL, apiFetch, erroDaResposta } from '../api';
 import ModalConfirmacao from '../components/ModalConfirmacao';
 import ErroCarregamento from '../components/ErroCarregamento';
 import { useFetchState } from '../hooks/useFetchState';
+import { parseDecimalBR } from '../utils/numeros';
 
 function Recebimentos() {
   const [recebimentos, setRecebimentos] = useState([]);
@@ -128,29 +129,8 @@ function Recebimentos() {
     }
   };
 
-  const parseCurrencyBR = (value) => {
-    if (value === null || value === undefined) return 0;
-    if (typeof value === 'number') return value;
-    const cleaned = String(value).replace(/[R$\s]/g, '').replace(/\./g, '').replace(',', '.');
-    const num = parseFloat(cleaned);
-    return isNaN(num) ? 0 : num;
-  };
-
-  const parseInput = (value) => {
-    if (value === null || value === undefined || value === '') return 0;
-    if (typeof value === 'number') return value;
-    let str = String(value).replace(/[^\d.,-]/g, '');
-    if (str.includes(',')) {
-      str = str.replace(/\./g, '').replace(',', '.');
-    } else if ((str.match(/\./g) || []).length > 1) {
-      str = str.replace(/\./g, '');
-    }
-    const num = parseFloat(str);
-    return isNaN(num) ? 0 : num;
-  };
-
   const pagCliente = () =>
-    parseInput(formData.valor_da_obra) - parseInput(formData.valor_de_devolucao);
+    parseDecimalBR(formData.valor_da_obra) - parseDecimalBR(formData.valor_de_devolucao);
 
   const sugestoesClientes = buscaCliente.trim()
     ? clientes.filter(c => c.nome.toLowerCase().includes(buscaCliente.toLowerCase())).slice(0, 8)
@@ -162,8 +142,8 @@ function Recebimentos() {
     setFormData(prev => ({
       ...prev,
       nome_cliente: cliente.nome || '',
-      valor_da_obra: parseCurrencyBR(cliente.valor_da_obra),
-      valor_de_devolucao: parseCurrencyBR(cliente.valor_de_devolucao),
+      valor_da_obra: parseDecimalBR(cliente.valor_da_obra),
+      valor_de_devolucao: parseDecimalBR(cliente.valor_de_devolucao),
       nota_ps: cliente.nota_ps || ''
     }));
   };
@@ -218,8 +198,8 @@ function Recebimentos() {
     const payload = {
       ...formData,
       pag_cliente: pagCliente(),
-      valor_da_obra: parseInput(formData.valor_da_obra),
-      valor_de_devolucao: parseInput(formData.valor_de_devolucao)
+      valor_da_obra: parseDecimalBR(formData.valor_da_obra),
+      valor_de_devolucao: parseDecimalBR(formData.valor_de_devolucao)
     };
 
     try {

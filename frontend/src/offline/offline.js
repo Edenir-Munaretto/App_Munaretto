@@ -50,6 +50,11 @@ export function armazenamentoOfflineDisponivel() {
 
 let _conectividade = true;
 
+if (typeof window !== 'undefined') {
+  // O evento `online` do navegador reabre a conexão sem depender da sonda.
+  window.addEventListener('online', () => { _conectividade = true; });
+}
+
 export function setConectividade(ok) {
   _conectividade = !!ok;
 }
@@ -79,6 +84,11 @@ export async function testarConexao() {
 }
 
 export function isOffline() {
+  if (!isModoCampo()) {
+    // Fora do Modo Campo não existe sonda contínua: confia no navegador para
+    // uma falha isolada não "grudar" offline até recarregar a página.
+    return typeof navigator !== 'undefined' && navigator.onLine === false;
+  }
   return (typeof navigator !== 'undefined' && navigator.onLine === false) || _conectividade === false;
 }
 

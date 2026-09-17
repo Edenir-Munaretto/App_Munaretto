@@ -19,7 +19,6 @@ por `tipo_registro`:
 """
 
 import logging
-import os
 import uuid
 
 from fastapi import APIRouter, Depends, File, HTTPException, UploadFile
@@ -27,6 +26,7 @@ from fastapi import APIRouter, Depends, File, HTTPException, UploadFile
 from auth import require_permisao
 from storage import bucket, get_s3_client
 from supabase_client import get_supabase
+from utils.uploads import ler_upload_limitado, nome_arquivo_seguro, validar_magia_documento
 
 router = APIRouter(dependencies=[Depends(require_permisao("sst"))])
 
@@ -48,13 +48,6 @@ TABELA_REGISTRO = {
 
 TAMANHO_MAXIMO_BYTES = 15 * 1024 * 1024  # 15 MB por arquivo
 VALIDADE_PRESIGNED_SEGUNDOS = 15 * 60  # 15 minutos
-
-
-def _nome_arquivo_seguro(nome: str) -> str:
-    """Remove caminhos (path traversal) e caracteres que podem quebrar a URL."""
-    base = os.path.basename(str(nome or "").replace("\\", "/")).strip()
-    base = "".join(c for c in base if c.isalnum() or c in (" ", "-", "_", "."))
-    return base[:500] or "documento"
 
 
 def _remover_objeto(s3, chave: str) -> None:
@@ -94,24 +87,25 @@ def _enviar_documento(tipo_registro: str, registro_id: int, arquivo: UploadFile,
             detail="Tipo de arquivo não permitido. Envie PDF, JPG, PNG ou WEBP.",
         )
 
-    conteudo = arquivo.file.read()
-    if not conteudo:
-        raise HTTPException(status_code=400, detail="Arquivo vazio.")
-    if len(conteudo) > TAMANHO_MAXIMO_BYTES:
-        raise HTTPException(
-            status_code=400,
-            detail="Arquivo excede o limite de 15 MB.",
-        )
+    conteudo = ler_upload_limitado(
+        arquivo,
+        TAMANHO_MAXIMO_BYTES,
+        mensagem_limite="Arquivo excede o limite de 15 MB.",
+    )
+    validar_magia_documento(mime, conteudo)
 
     s3 = get_s3_client()
 
-    # Substituição segura: se já existe documento, remove o anterior.
+    # Substituição segura: o documento NOVO só substitui o antigo depois de
+    # estar gravado no bucket E com metadados persistidos. Antes, o antigo era
+    # apagado primeiro e uma falha no meio deixava o registro sem documento.
     existente = (
         db.table("certificados").select("*").eq("tipo_registro", tipo_registro).eq("registro_id", registro_id).execute()
     )
-    if existente.data:
-        _remover_objeto(s3, existente.data[0]["bucket_key"])
-        db.table("certificados").delete().eq("tipo_registro", tipo_registro).eq("registro_id", registro_id).execute()
+    anterior = existente.data[0] if existente.data else None
+    # Guarda a chave antiga ANTES do update (o objeto `anterior` pode ser
+    # mutado pelo driver/fake no momento em que o metadado é atualizado).
+    bucket_key_anterior = anterior.get("bucket_key") if anterior else None
 
     # Chave única no bucket: documentos/<tipo>/<id_colaborador>/<uuid>.<ext>
     bucket_key = f"documentos/{tipo_registro}/{funcionario_id}/{uuid.uuid4().hex}{extensao}"
@@ -123,26 +117,29 @@ def _enviar_documento(tipo_registro: str, registro_id: int, arquivo: UploadFile,
         ContentType=mime,
     )
 
-    response = (
-        db.table("certificados")
-        .insert(
-            {
-                "tipo_registro": tipo_registro,
-                "colaborador_id": funcionario_id,
-                "registro_id": registro_id,
-                "nome_original": _nome_arquivo_seguro(arquivo.filename),
-                "tamanho_bytes": len(conteudo),
-                "mime_type": mime,
-                "bucket_key": bucket_key,
-            }
-        )
-        .execute()
-    )
+    metadados = {
+        "tipo_registro": tipo_registro,
+        "colaborador_id": funcionario_id,
+        "registro_id": registro_id,
+        "nome_original": nome_arquivo_seguro(arquivo.filename),
+        "tamanho_bytes": len(conteudo),
+        "mime_type": mime,
+        "bucket_key": bucket_key,
+    }
+
+    if anterior:
+        response = db.table("certificados").update(metadados).eq("id", anterior["id"]).execute()
+    else:
+        response = db.table("certificados").insert(metadados).execute()
 
     if not response.data:
-        # Rollback: remove o objeto enviado para não deixar arquivo órfão.
+        # Rollback: remove o objeto NOVO; o antigo permanece íntegro.
         _remover_objeto(s3, bucket_key)
         raise HTTPException(status_code=500, detail="Falha ao salvar metadados do documento.")
+
+    # Só agora o objeto antigo pode ser removido (best-effort).
+    if bucket_key_anterior and bucket_key_anterior != bucket_key:
+        _remover_objeto(s3, bucket_key_anterior)
 
     return response.data[0]
 

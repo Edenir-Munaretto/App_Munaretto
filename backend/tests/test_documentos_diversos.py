@@ -147,7 +147,7 @@ def test_listar_vazio(sst_client, s3_fake):
 
 def test_listar_documentos(sst_client, s3_fake):
     _upload(sst_client, nome="a.pdf")
-    _upload(sst_client, nome="b.jpg", mime="image/jpeg", conteudo=b"jpeg")
+    _upload(sst_client, nome="b.jpg", mime="image/jpeg", conteudo=b"\xff\xd8\xff\xe0 jpeg")
     resp = sst_client.get("/api/sst/documentos-diversos")
     assert resp.status_code == 200
     docs = resp.json()

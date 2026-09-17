@@ -20,6 +20,7 @@ from utils.date_helpers import hoje as _hoje
 from utils.date_helpers import parse_data as _parse_data
 from utils.date_helpers import status_vencimento as _status_vencimento
 from utils.documentos_vinculados import aplicar_documentos_vinculados
+from utils.paginacao import ler_paginado as _ler_paginado
 
 router = APIRouter(dependencies=[Depends(require_qualquer_permisao(["dashboard", "configuracoes"]))])
 
@@ -119,30 +120,31 @@ def resumo_dashboard(db=Depends(get_supabase)):
         return _cache["data"]
 
     try:
+        # Todas as leituras são paginadas: com mais de ~1000 registros o
+        # PostgREST trunca a resposta e os totais ficariam errados em silêncio.
         # Funcionários: total sem excluídos (ativos + inativos)
-        funcs = db.table("funcionarios").select("ativo", "excluido").eq("excluido", False).execute()
-        total_funcionarios = len(funcs.data or [])
+        funcs = _ler_paginado(db.table("funcionarios").select("ativo", "excluido").eq("excluido", False))
+        total_funcionarios = len(funcs)
 
         # Férias: contagem de registros Agendado/Em Férias e alertas de prazo
-        fer_data = db.table("gestao_ferias").select("nome, data_inicio, data_retorno, data_limite, status").execute()
-        ferias = fer_data.data or []
+        ferias = _ler_paginado(
+            db.table("gestao_ferias").select("nome, data_inicio, data_retorno, data_limite, status")
+        )
         for f in ferias:
             f["status"] = _status_ferias(f.get("data_inicio"), f.get("data_retorno"), f.get("status"))
         ferias_ativas = sum(1 for f in ferias if f.get("status") in STATUS_FERIAS_ATIVAS)
         alertas_ferias = _alertas_ferias(ferias)
 
         # ASO: classificação por vencimento
-        aso_data = db.table("aso").select("funcionario_id", "data_validade").execute()
-        asos = aso_data.data or []
+        asos = _ler_paginado(db.table("aso").select("funcionario_id", "data_validade"))
         for a in asos:
             a["status"] = _status_vencimento(a.get("data_validade"))
         aso_resumo = _contar_status(asos)
 
         # Cursos/treinamentos dos funcionários. Documentos vinculados (ex:
         # AUTORIZAÇÃO NR10 E NR35) usam o vencimento derivado dos pré-requisitos.
-        trei_data = db.table("funcionario_treinamentos").select("*").execute()
-        treinos = trei_data.data or []
-        catalogo = db.table("treinamentos").select("id", "nome").execute().data or []
+        treinos = _ler_paginado(db.table("funcionario_treinamentos").select("*"))
+        catalogo = _ler_paginado(db.table("treinamentos").select("id", "nome"))
         aplicar_documentos_vinculados(treinos, catalogo, asos)
         for t in treinos:
             if not t.get("vinculado"):

@@ -37,6 +37,7 @@ import Login from './pages/Login';
 import { MODULOS } from './modules';
 import { API_URL, apiFetch, getToken, setToken, clearToken, segundosAteExpiracao, renovarSessao } from './api';
 import ModalConfirmacao from './components/ModalConfirmacao';
+import TrocaSenhaObrigatoria from './components/TrocaSenhaObrigatoria';
 import { setModoCampo, contarPendentes, donoPacote } from './offline/offline';
 import { limparTudoLocal } from './offline/db';
 import { gravarLocal, gravarSessao, lerLocal, lerSessao, removerLocal, storageDisponivel } from './utils/storage';
@@ -595,6 +596,22 @@ function App() {
     );
   }
 
+  // Primeiro acesso com senha temporária: o backend bloqueia as demais rotas
+  // até a troca; a tela dedicada evita que o app pareça "quebrado" com 403.
+  if (usuario?.precisa_trocar_senha) {
+    return (
+      <>
+        {!storageOk && (
+          <div className="fixed top-0 inset-x-0 z-[70]">
+            <AvisoArmazenamento />
+          </div>
+        )}
+        <TrocaSenhaObrigatoria onConcluido={atualizarUsuarioAtual} onSair={handleLogout} />
+        {modalTrocaUsuario}
+      </>
+    );
+  }
+
   if (tabs.length === 0) {
     return (
       <div className="flex h-screen items-center justify-center bg-slate-50 p-6">
@@ -618,7 +635,7 @@ function App() {
   const ActiveComponent = tabs.find(t => t.id === activeTab)?.component || tabs[0].component;
 
   return (
-    <ErrorBoundary>
+    <>
       <div className="flex h-dvh bg-slate-50 overflow-hidden">
 
       {/* Overlay para fechar o menu no mobile */}
@@ -910,15 +927,18 @@ function App() {
           </div>
         </header>
 
-        {/* VIEW CONTAINER */}
+        {/* VIEW CONTAINER — ErrorBoundary POR ABA: um erro em uma página não
+            derruba a navegação; trocar de aba (key) reinicia o limite. */}
         <div className="flex-1 overflow-y-auto p-4 md:p-6">
-          <ActiveComponent
-            alerts={alerts}
-            fetchAlerts={fetchAlerts}
-            fetchNotifications={fetchNotifications}
-            usuarioAtual={usuario}
-            onUsuarioAtualizado={atualizarUsuarioAtual}
-          />
+          <ErrorBoundary key={activeTab}>
+            <ActiveComponent
+              alerts={alerts}
+              fetchAlerts={fetchAlerts}
+              fetchNotifications={fetchNotifications}
+              usuarioAtual={usuario}
+              onUsuarioAtualizado={atualizarUsuarioAtual}
+            />
+          </ErrorBoundary>
         </div>
       </main>
       </div>
@@ -934,7 +954,7 @@ function App() {
       />
 
       {modalTrocaUsuario}
-    </ErrorBoundary>
+    </>
   );
 }
 

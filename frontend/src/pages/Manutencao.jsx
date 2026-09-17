@@ -161,11 +161,8 @@ function Manutencao() {
     }
   };
 
-  useEffect(() => {
-    fetchVeiculos();
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
-
+  // Busca veículos na montagem e a cada mudança do termo de busca (o efeito
+  // com [busca] já roda no mount; um efeito [] extra fazia fetch duplicado).
   useEffect(() => {
     fetchVeiculos();
   // eslint-disable-next-line react-hooks/exhaustive-deps

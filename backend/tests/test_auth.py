@@ -110,7 +110,9 @@ def test_atualizar_usuario_senha_vazia_ok(client, db_fake):
             "email": "teste@munaretto.com",
             "senha": "",
             "ativo": True,
-            "permissoes": ["clientes", "sst"],
+            # Mantém "configuracoes" para não acionar o bloqueio de
+            # auto-rebaixamento (o usuário edita a si mesmo neste teste).
+            "permissoes": ["clientes", "sst", "configuracoes"],
         },
         headers={"Authorization": f"Bearer {token}"},
     )
@@ -227,3 +229,114 @@ def test_token_validade_explicita_tem_prioridade(monkeypatch):
     token = criar_token_acesso(99, "teste@munaretto.com", validade_minutos=30)
 
     assert abs(_validade_do_token(token) - 30 * 60) <= 1
+
+
+# ---------------------------------------------------------------------------
+# Endurecimento (Fase 0): token, rate limit por IP, troca de senha e admins
+# ---------------------------------------------------------------------------
+
+
+def test_token_sem_expiracao_e_rejeitado(client, db_fake):
+    """Token sem a claim `exp` não pode ser aceito (options.require)."""
+    _injetar_usuario(db_fake)
+    token_sem_exp = jwt.encode(
+        {"sub": "99", "email": "teste@munaretto.com"},
+        os.environ["JWT_SECRET"],
+        algorithm="HS256",
+    )
+    resp = client.get("/api/clientes/", headers={"Authorization": f"Bearer {token_sem_exp}"})
+    assert resp.status_code in (401, 403)
+
+
+def test_ip_cliente_usa_ultima_entrada_do_xff():
+    """O IP confiável é o último do X-Forwarded-For (o primeiro pode ser forjado)."""
+    from starlette.requests import Request
+
+    from auth import obter_ip_cliente
+
+    scope = {
+        "type": "http",
+        "headers": [(b"x-forwarded-for", b"9.9.9.9, 8.8.8.8, 7.7.7.7")],
+        "client": ("1.2.3.4", 1234),
+    }
+    assert obter_ip_cliente(Request(scope)) == "7.7.7.7"
+
+
+def test_hash_novo_usa_600k_iteracoes_e_antigo_continua_valido():
+    from routers.usuarios import hash_senha, verificar_senha
+
+    novo = hash_senha("senhaForte123")
+    assert novo.startswith("pbkdf2$sha256$600000$")
+    assert verificar_senha("senhaForte123", novo)
+
+    antigo = _hash_senha("senhaForte123")  # formato legado salt$hash (100k)
+    assert verificar_senha("senhaForte123", antigo)
+
+
+def test_troca_pendente_bloqueia_rotas_e_permite_trocar_senha(client, db_fake):
+    """Com `precisa_trocar_senha`, só as rotas de troca de senha respondem."""
+    db_fake._dados["usuarios"].append(
+        {
+            "id": 98,
+            "nome": "Primeiro Acesso",
+            "email": "primeiro@munaretto.com",
+            "senha": _hash_senha("senhaTemporaria123"),
+            "permissoes": ["clientes"],
+            "ativo": True,
+            "precisa_trocar_senha": True,
+        }
+    )
+    token = _login(client, email="primeiro@munaretto.com", senha="senhaTemporaria123")
+    headers = {"Authorization": f"Bearer {token}"}
+
+    bloqueado = client.get("/api/clientes/", headers=headers)
+    assert bloqueado.status_code == 403
+    assert "Troca de senha obrigatória" in bloqueado.json()["detail"]
+
+    assert client.get("/api/usuarios/me", headers=headers).status_code == 200
+
+    troca = client.post(
+        "/api/usuarios/trocar-senha",
+        json={"senha_atual": "senhaTemporaria123", "nova_senha": "senhaNovaForte123"},
+        headers=headers,
+    )
+    assert troca.status_code == 200, troca.text
+
+    liberado = client.get("/api/clientes/", headers=headers)
+    assert liberado.status_code == 200, liberado.text
+
+
+def test_admin_nao_pode_remover_o_proprio_acesso(client, db_fake):
+    """Auto-rebaixamento (tirar 'configuracoes' de si) deve retornar 400."""
+    _injetar_usuario(
+        db_fake,
+        email="admin2@munaretto.com",
+        senha="adminSenha123",
+        permissoes=("configuracoes",),
+    )
+    token = _login(client, email="admin2@munaretto.com", senha="adminSenha123")
+    resp = client.put(
+        "/api/usuarios/99",
+        json={
+            "nome": "Teste",
+            "email": "teste@munaretto.com",
+            "permissoes": ["clientes"],
+            "ativo": True,
+        },
+        headers={"Authorization": f"Bearer {token}"},
+    )
+    assert resp.status_code == 400
+    assert "próprio acesso" in resp.json()["detail"]
+
+
+def test_admin_nao_pode_excluir_a_propria_conta(client, db_fake):
+    _injetar_usuario(
+        db_fake,
+        email="admin3@munaretto.com",
+        senha="adminSenha456",
+        permissoes=("configuracoes",),
+    )
+    token = _login(client, email="admin3@munaretto.com", senha="adminSenha456")
+    resp = client.delete("/api/usuarios/99", headers={"Authorization": f"Bearer {token}"})
+    assert resp.status_code == 400
+    assert "própria conta" in resp.json()["detail"]

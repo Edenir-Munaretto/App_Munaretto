@@ -6,6 +6,7 @@ services:
     dockerfilePath: ./backend/Dockerfile
     dockerContext: ./backend
     region: oregon
+    healthCheckPath: /health
     envVars:
       # Ambiente de produção: desabilita o Swagger (/docs) e o schema OpenAPI.
       - key: APP_ENV

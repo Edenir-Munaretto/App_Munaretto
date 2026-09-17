@@ -8,6 +8,8 @@ from docxtpl import DocxTemplate
 from num2words import num2words
 from openpyxl import load_workbook
 
+from utils.jinja_seguro import criar_ambiente_jinja
+
 logger = logging.getLogger(__name__)
 
 TEMPLATES_DIR = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "templates")
@@ -188,7 +190,9 @@ def preencher_word(cliente: dict, template_name: str, out_dir: str) -> str:
         return None
 
     doc = DocxTemplate(template_path)
-    doc.render(contexto)
+    # Sandbox: templates podem ser enviados por usuários; expressões Jinja2
+    # não podem escapar do contexto de renderização.
+    doc.render(contexto, jinja_env=criar_ambiente_jinja())
 
     nome_cliente = "".join([c for c in str(contexto["nome"]) if c.isalnum() or c in (" ", "-", "_", ".")]).strip()
     nome_template = "".join([c for c in str(template_name) if c.isalnum() or c in (" ", "-", "_", ".")]).strip()

@@ -21,12 +21,16 @@ import { contarPendentes, dispositivoId } from './offline';
 
 const TAMANHO_LOTE = 200;
 
-function ehConflito(status) {
+// Erros DEFINITIVOS (não adianta reenviar) = conflito para revisão/descarte.
+// Exceção: o 409 transitório "já está sendo processada por outra sincronização"
+// é uma corrida entre dois envios — deve continuar como erro retryável.
+function ehConflito(status, erro = '') {
+  if (status === 409 && /sendo processada por outra sincroniza/i.test(String(erro))) return false;
   return status === 400 || status === 409 || status === 422;
 }
 
 // 1) Fotos pendentes (filtradas pelo seletor, se informado).
-async function enviarFotos(fotos, resumo, mapaFotos, onProgress) {
+async function enviarFotos(fotos, resumo, mapaFotos, onProgress, dispositivo) {
   for (const foto of fotos) {
     try {
       // Foto que já subiu numa execução anterior (id_servidor persistido):
@@ -39,6 +43,10 @@ async function enviarFotos(fotos, resumo, mapaFotos, onProgress) {
       }
       const fd = new FormData();
       fd.append('arquivo', foto.arquivo.blob, foto.arquivo.nome);
+      // Chave de idempotência: o servidor usa (dispositivo, id_local) para não
+      // duplicar a evidência quando o upload expira e é reenviado.
+      fd.append('id_local', String(foto.id_local));
+      if (dispositivo) fd.append('dispositivo', String(dispositivo));
       const qs = foto.geolocalizacao ? `?geolocalizacao=${encodeURIComponent(foto.geolocalizacao)}` : '';
       // Evidências de item do checklist usam o endpoint do item; as do
       // cancelamento (sem item) usam o endpoint genérico de fotos da O.S.
@@ -66,7 +74,7 @@ async function enviarFotos(fotos, resumo, mapaFotos, onProgress) {
         }
       } else {
         const erro = erroDaResposta(data, 'Erro no envio da foto.');
-        const conflito = ehConflito(res?.status);
+        const conflito = ehConflito(res?.status, erro);
         const falha = { id_local: foto.id_local, tipo: 'foto', erro };
         resumo.falhas.push(falha);
         if (conflito) resumo.conflitos.push(falha);
@@ -98,8 +106,7 @@ async function enviarFotos(fotos, resumo, mapaFotos, onProgress) {
 
 // 2) Operações pendentes, em lotes de até TAMANHO_LOTE (o backend rejeita
 //    lotes acima de 500 — um 422 derrubaria a fila inteira sem processar).
-async function enviarOperacoes(ops, mapaFotos, resumo, onProgress) {
-  const dispositivo = await dispositivoId();
+async function enviarOperacoes(ops, mapaFotos, resumo, onProgress, dispositivo) {
   for (let i = 0; i < ops.length; i += TAMANHO_LOTE) {
     const fatia = ops.slice(i, i + TAMANHO_LOTE);
     try {
@@ -127,12 +134,21 @@ async function enviarOperacoes(ops, mapaFotos, resumo, onProgress) {
       }
       if (!res.ok || !dados?.resultados) {
         // Lote inteiro recusado (validação/erro): marca os itens para não
-        // perdê-los e encerra os lotes seguintes desta execução.
+        // perdê-los. Se for problema de payload (4xx), tenta o próximo lote;
+        // se for rede/5xx, encerra esta execução.
         const erro = erroDaResposta(dados, 'Falha ao sincronizar operações.');
+        const conflito = ehConflito(res.status, erro);
         for (const op of fatia) {
           resumo.falhas.push({ id_local: op.id_local, tipo: 'operacao', opTipo: op.tipo, erro });
-          await dbPut('fila', { ...op, status: 'erro', erro, tentativas: (op.tentativas || 0) + 1 });
+          await dbPut('fila', {
+            ...op,
+            status: 'erro',
+            erro,
+            classificacao: conflito ? 'conflito' : null,
+            tentativas: (op.tentativas || 0) + 1,
+          });
         }
+        if (conflito) continue;
         return false;
       }
       for (const r of dados.resultados) {
@@ -142,14 +158,15 @@ async function enviarOperacoes(ops, mapaFotos, resumo, onProgress) {
         } else {
           const erro = r.erro || 'Erro ao aplicar operação.';
           const opOriginal = ops.find(op => op.id_local === r.id_local);
+          const conflito = ehConflito(r.status, erro);
           const falha = { id_local: r.id_local, tipo: 'operacao', opTipo: opOriginal?.tipo, erro };
           resumo.falhas.push(falha);
-          if (ehConflito(r.status)) resumo.conflitos.push(falha);
+          if (conflito) resumo.conflitos.push(falha);
           await dbPut('fila', {
             ...opOriginal,
             status: 'erro',
             erro,
-            classificacao: ehConflito(r.status) ? 'conflito' : null,
+            classificacao: conflito ? 'conflito' : null,
             tentativas: (opOriginal?.tentativas || 0) + 1,
           });
         }
@@ -188,10 +205,13 @@ export async function sincronizar(onProgress, seletor = null) {
     conflitos: [],
   };
   const mapaFotos = {};
+  const dispositivo = await dispositivoId();
 
   // Com seletor (reenvio individual), apenas o TIPO selecionado é enviado —
   // reenviar uma operação não pode reprocessar todas as fotos pendentes e
-  // vice-versa.
+  // vice-versa. Exceção: operações de status referenciam fotos de cancelamento
+  // (`payload.fotos_ids`); essas fotos PRECISAM subir junto, senão o lote
+  // chega sem o mapa e a operação é rejeitada como conflito.
   const somenteSeletor = !!(seletor && (seletor.fotos?.length || seletor.operacoes?.length));
 
   // Registros corrompidos (sem objeto/chave ou foto sem arquivo) são pulados:
@@ -200,23 +220,38 @@ export async function sincronizar(onProgress, seletor = null) {
   const fotoEnviavel = f =>
     valido(f) && (f.status === 'enviada' ? !!f.id_servidor : !!f.arquivo?.blob);
 
-  let fotos = (await dbGetAll('fotos')).filter(fotoEnviavel);
-  if (seletor?.fotos?.length) {
-    fotos = fotos.filter(f => seletor.fotos.includes(f.id_local));
-  } else if (somenteSeletor) {
-    fotos = [];
-  }
-  const fotosOk = await enviarFotos(fotos, resumo, mapaFotos, onProgress);
-  if (!fotosOk) return resumo;
-
   let ops = (await dbGetAll('fila')).filter(valido);
   if (seletor?.operacoes?.length) {
     ops = ops.filter(op => seletor.operacoes.includes(op.id_local));
   } else if (somenteSeletor) {
     ops = [];
   }
+  // Ordena por O.S e depois por horário ANTES de fatiar: o lote de 200 precisa
+  // manter a cronologia real (play antes de pause etc.), e o IndexedDB devolve
+  // as chaves em ordem aleatória de UUID.
+  ops.sort((a, b) => {
+    const osA = Number(a.os_id) || 0;
+    const osB = Number(b.os_id) || 0;
+    if (osA !== osB) return osA - osB;
+    return String(a.criado_em || '').localeCompare(String(b.criado_em || ''));
+  });
+
+  let fotos = (await dbGetAll('fotos')).filter(fotoEnviavel);
+  if (seletor?.fotos?.length) {
+    fotos = fotos.filter(f => seletor.fotos.includes(f.id_local));
+  } else if (seletor?.operacoes?.length) {
+    const idsReferenciados = new Set(
+      ops.flatMap(op => (op.payload?.fotos_ids || []).map(String)),
+    );
+    fotos = fotos.filter(f => idsReferenciados.has(String(f.id_local)));
+  } else if (somenteSeletor) {
+    fotos = [];
+  }
+  const fotosOk = await enviarFotos(fotos, resumo, mapaFotos, onProgress, dispositivo);
+  if (!fotosOk) return resumo;
+
   if (ops.length) {
-    const opsOk = await enviarOperacoes(ops, mapaFotos, resumo, onProgress);
+    const opsOk = await enviarOperacoes(ops, mapaFotos, resumo, onProgress, dispositivo);
     if (opsOk) await limparFotosSemUso();
   }
 

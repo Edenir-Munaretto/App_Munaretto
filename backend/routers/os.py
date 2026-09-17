@@ -20,7 +20,7 @@ import re
 import uuid
 from datetime import UTC, datetime, timedelta
 
-from fastapi import APIRouter, Depends, File, HTTPException, Query, Response, UploadFile
+from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, Response, UploadFile
 from fastapi.responses import FileResponse, StreamingResponse
 from pydantic import BaseModel, Field, ValidationError, field_validator
 from starlette.background import BackgroundTask
@@ -37,7 +37,10 @@ from utils.checklist_os import (
     snapshot_checklist,
 )
 from utils.date_helpers import agora_fuso_brasil
+from utils.paginacao import ler_paginado as _ler_paginado
 from utils.tipos_os import ROTULOS_TIPO, TIPOS_OS, unidade_contrato
+from utils.uploads import ler_upload_limitado_async as _ler_upload_limitado
+from utils.uploads import validar_magia_documento as _validar_magia_imagem
 
 # O módulo é acessível ao gestor ("os") e ao usuário de campo ("os_campo").
 # O usuário de campo enxerga apenas as O.S das equipes em que atua e executa
@@ -807,14 +810,12 @@ def listar_os(
         # N+1 no frontend): soma da quantidade aplicada em USC (já convertida).
         if dados:
             os_ids = [d["id"] for d in dados]
-            aplicacoes = (
-                db.table("os_materiais")
-                .select("os_id, quantidade_usada")
-                .in_("os_id", os_ids)
-                .execute()
-                .data
+            # Paginado: uma página de 100 O.S pode ter >1000 materiais/fotos
+            # somados e o PostgREST truncaria os contadores em silêncio.
+            aplicacoes = _ler_paginado(
+                db.table("os_materiais").select("os_id, quantidade_usada").in_("os_id", os_ids)
             )
-            fotos = db.table("os_fotos").select("os_id").in_("os_id", os_ids).execute().data
+            fotos = _ler_paginado(db.table("os_fotos").select("os_id").in_("os_id", os_ids))
             fotos_count = {}
             for f in fotos or []:
                 fotos_count[f["os_id"]] = fotos_count.get(f["os_id"], 0) + 1
@@ -844,56 +845,16 @@ def _eh_violacao_unique(exc: Exception) -> bool:
     return any(marca in texto for marca in ("23505", "duplicate key", "já existe", "already exists"))
 
 
-_CHUNK_LEITURA_UPLOAD = 1024 * 1024  # 1 MB
+def _ref_sync(dispositivo: str | None, id_local: str | None) -> str | None:
+    """Chave determinística (dispositivo + id_local) para uploads offline.
 
-
-async def _ler_upload_limitado(
-    arquivo: UploadFile,
-    limite: int,
-    *,
-    mensagem_vazio: str = "Arquivo vazio.",
-    mensagem_limite: str = "Arquivo excede o limite de 15 MB.",
-) -> bytes:
-    """Lê o arquivo em chunks de 1 MB e recusa SEM ler tudo quando estoura o
-    limite (uploads grandes não podem ser carregados inteiros em memória)."""
-    partes = []
-    total = 0
-    while True:
-        bloco = await arquivo.read(_CHUNK_LEITURA_UPLOAD)
-        if not bloco:
-            break
-        total += len(bloco)
-        if total > limite:
-            raise HTTPException(status_code=400, detail=mensagem_limite)
-        partes.append(bloco)
-    if total == 0:
-        raise HTTPException(status_code=400, detail=mensagem_vazio)
-    return b"".join(partes)
-
-
-def _validar_magia_imagem(mime: str, conteudo: bytes) -> None:
-    """Confere os bytes de assinatura (magic bytes) do formato declarado.
-
-    O `content_type` é informado pelo cliente — sem esta checagem, conteúdo
-    arbitrário seria gravado como imagem no bucket (mitigado só pela
-    privacidade do bucket). Leniente com arquivos ínfimos (chunk mínimo).
+    Com ela, o reenvio de uma foto após timeout cai na MESMA chave do bucket e
+    o endpoint devolve o registro já criado em vez de duplicar a evidência.
     """
-    assinaturas = {
-        "image/jpeg": (b"\xff\xd8\xff",),
-        "image/png": (b"\x89PNG\r\n\x1a\n",),
-        "image/webp": (b"RIFF", b"WEBP"),  # RIFF no início e WEBP a partir de 8
-    }
-    prefixos = assinaturas.get(mime or "")
-    if not prefixos:
-        return  # mime já validado pelo mapa de permitidos antes
-    if not conteudo:
-        raise HTTPException(status_code=400, detail="Arquivo vazio.")
-    if mime == "image/webp":
-        if not (conteudo.startswith(b"RIFF") and b"WEBP" in conteudo[8:16]):
-            raise HTTPException(status_code=400, detail="O arquivo enviado não é uma imagem WEBP válida.")
-        return
-    if not any(conteudo.startswith(p) for p in prefixos):
-        raise HTTPException(status_code=400, detail="O arquivo enviado não corresponde ao tipo de imagem informado.")
+    if not dispositivo or not id_local:
+        return None
+    limpo = re.sub(r"[^A-Za-z0-9_-]", "", f"{dispositivo}_{id_local}")
+    return limpo[:120] or None
 
 
 def _apagar_recursos_os(db, os_id: int) -> None:
@@ -1377,6 +1338,8 @@ async def enviar_foto_checklist(
     item_id: int,
     arquivo: UploadFile = File(...),
     geolocalizacao: str | None = Query(None, max_length=100),
+    id_local: str | None = Form(None, max_length=120, description="Id local da foto no dispositivo offline"),
+    dispositivo: str | None = Form(None, max_length=120, description="Identificador do dispositivo offline"),
     usuario: UsuarioAutenticado = Depends(get_current_user),
     db=Depends(get_supabase),
 ):
@@ -1396,11 +1359,24 @@ async def enviar_foto_checklist(
         extensao = MIMES_FOTO_PERMITIDOS.get(mime)
         if extensao is None:
             raise HTTPException(status_code=400, detail="Tipo de arquivo não permitido. Envie JPG, PNG ou WEBP.")
-        conteudo = await _ler_upload_limitado(arquivo, TAMANHO_MAXIMO_FOTO_BYTES)
+        conteudo = await _ler_upload_limitado(
+            arquivo,
+            TAMANHO_MAXIMO_FOTO_BYTES,
+            mensagem_limite="Arquivo excede o limite de 15 MB.",
+        )
         _validar_magia_imagem(mime, conteudo)
 
         s3 = get_s3_client()
-        bucket_key = f"os_fotos/{os_id}/checklist_{item_id}_{uuid.uuid4().hex}{extensao}"
+        ref = _ref_sync(dispositivo, id_local)
+        bucket_key = f"os_fotos/{os_id}/checklist_{item_id}_{'s_' + ref if ref else uuid.uuid4().hex}{extensao}"
+
+        if ref:
+            # Reenvio após timeout: a foto do item já está gravada — devolve o
+            # registro existente sem apagar/duplicar a evidência.
+            existente = db.table("os_fotos").select("*").eq("os_id", os_id).eq("bucket_key", bucket_key).execute()
+            if existente.data:
+                return existente.data[0]
+
         s3.put_object(
             Bucket=bucket(),
             Key=bucket_key,
@@ -2253,6 +2229,8 @@ def _apontar_hora(
 async def enviar_foto(
     os_id: int,
     arquivo: UploadFile = File(...),
+    id_local: str | None = Form(None, max_length=120, description="Id local da foto no dispositivo offline"),
+    dispositivo: str | None = Form(None, max_length=120, description="Identificador do dispositivo offline"),
     usuario: UsuarioAutenticado = Depends(get_current_user),
     db=Depends(get_supabase),
 ):
@@ -2278,7 +2256,15 @@ async def enviar_foto(
         _validar_magia_imagem(mime, conteudo)
 
         s3 = get_s3_client()
-        bucket_key = f"os_fotos/{os_id}/{uuid.uuid4().hex}{extensao}"
+        ref = _ref_sync(dispositivo, id_local)
+        bucket_key = f"os_fotos/{os_id}/{'s_' + ref if ref else uuid.uuid4().hex}{extensao}"
+
+        if ref:
+            # Reenvio após timeout: a foto já está gravada — devolve o registro
+            # existente em vez de duplicar a evidência (descarta o upload novo).
+            existente = db.table("os_fotos").select("*").eq("os_id", os_id).eq("bucket_key", bucket_key).execute()
+            if existente.data:
+                return existente.data[0]
         s3.put_object(Bucket=bucket(), Key=bucket_key, Body=conteudo, ContentType=mime)
 
         # Basename + truncatura: o nome do cliente não pode virar caminho.
@@ -2423,7 +2409,8 @@ def excluir_os(os_id: int, usuario: UsuarioAutenticado = Depends(get_current_use
                 detail="Apenas O.S em rascunho ou encerradas (concluída/cancelada) podem ser excluídas.",
             )
 
-        fotos = db.table("os_fotos").select("bucket_key").eq("os_id", os_id).execute().data or []
+        # Paginado: sem isso, O.S com >1000 fotos deixaria objetos órfãos no B2.
+        fotos = _ler_paginado(db.table("os_fotos").select("bucket_key").eq("os_id", os_id))
         db.table("ordens_servico").delete().eq("id", os_id).execute()
 
         # Depois da exclusão das linhas (cascata): tenta limpar os objetos.

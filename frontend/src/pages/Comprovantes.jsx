@@ -4,6 +4,7 @@ import { API_URL, apiFetch, erroDaResposta } from '../api';
 import ModalConfirmacao from '../components/ModalConfirmacao';
 import ErroCarregamento from '../components/ErroCarregamento';
 import { useFetchState } from '../hooks/useFetchState';
+import { parseDecimalBR } from '../utils/numeros';
 
 const NUMERIC_FIELDS = [
   'valor_total', 'base_calculo', 'valor_inss', 'valor_iss', 'valor_liquido',
@@ -1012,8 +1013,9 @@ function ModalLancamento({ aberto, comprovante, onFechar, onSalvo, mostrarToast 
     }
 
     const camposFaltando = camposObrigatorios.filter(campo => {
+      // "0" é um valor válido (ex.: valor pago isento); só vazio é faltante.
       const v = formData[campo];
-      return v === '' || v === null || v === undefined || v === 0;
+      return v === '' || v === null || v === undefined;
     });
 
     if (camposFaltando.length > 0) {
@@ -1030,8 +1032,7 @@ function ModalLancamento({ aberto, comprovante, onFechar, onSalvo, mostrarToast 
     Object.keys(formData).forEach(key => {
       let v = formData[key];
       if (NUMERIC_FIELDS.includes(key)) {
-        const num = parseFloat(String(v).replace(',', '.'));
-        v = isNaN(num) ? 0 : num;
+        v = parseDecimalBR(v);
       } else {
         v = v === "" ? null : v;
       }

@@ -12,6 +12,7 @@ import tempfile
 from docxtpl import DocxTemplate
 
 from utils.document_generator import TEMPLATES_DIR, convert_docx_to_pdf
+from utils.jinja_seguro import criar_ambiente_jinja
 
 logger = logging.getLogger(__name__)
 
@@ -140,7 +141,7 @@ def gerar_modelo_os(
     os.close(fd)
 
     doc = DocxTemplate(template_path)
-    doc.render(contexto)
+    doc.render(contexto, jinja_env=criar_ambiente_jinja())
     doc.save(caminho_docx)
 
     try:

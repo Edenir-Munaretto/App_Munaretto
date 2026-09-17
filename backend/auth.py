@@ -69,12 +69,26 @@ def criar_token_acesso(user_id: int, email: str, validade_minutos: int | None = 
 
 
 def decodificar_token(token: str) -> dict | None:
-    """Valida o token e retorna o payload. Retorna None se inválido ou expirado."""
+    """Valida o token e retorna o payload. Retorna None se inválido ou expirado.
+
+    Exige as claims ``exp`` e ``sub`` (token sem expiração é rejeitado).
+    """
+    secret = _secret()
+    if not secret:
+        return None
     try:
-        return jwt.decode(token, _secret(), algorithms=[ALGORITMO])
+        return jwt.decode(
+            token,
+            secret,
+            algorithms=[ALGORITMO],
+            options={"require": ["exp", "sub"]},
+        )
     except jwt.ExpiredSignatureError:
         return None
     except jwt.InvalidTokenError:
+        return None
+    except jwt.PyJWTError:
+        # Cobre InvalidKeyError e demais falhas de configuração do token.
         return None
 
 
@@ -94,17 +108,35 @@ class UsuarioAutenticado(BaseModel):
     # Vínculo com o cadastro de funcionário (permite derivar as equipes do
     # usuário de campo). Definido no cadastro de Usuários (Configurações).
     funcionario_id: int | None = None
+    # Quando True, o usuário só pode acessar as rotas de troca de senha até
+    # definir uma nova senha (primeiro acesso com senha temporária).
+    precisa_trocar_senha: bool = False
 
 
 def _sem_senha(user: dict) -> dict:
     return {k: v for k, v in user.items() if k != "senha"}
 
 
+# Rotas acessíveis mesmo com troca de senha pendente (o usuário precisa
+# conseguir ver quem está logado e definir a nova senha).
+ROTAS_LIVRES_COM_TROCA_PENDENTE = (
+    "/api/usuarios/trocar-senha",
+    "/api/usuarios/me",
+)
+
+
 def get_current_user(
+    request: Request,
     token: str = Depends(oauth2_scheme),
     db=Depends(get_supabase),
 ) -> UsuarioAutenticado:
     """Valida o token JWT e retorna o usuário autenticado do banco."""
+    if not secret_esta_configurada():
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Servidor mal configurado: JWT_SECRET não definido. Contate o administrador.",
+        )
+
     payload = decodificar_token(token)
     if not payload:
         raise CREDENCIAIS_INVALIDAS
@@ -123,6 +155,12 @@ def get_current_user(
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Usuário inativo. Contate o administrador.",
+        )
+
+    if user.get("precisa_trocar_senha") and request.url.path not in ROTAS_LIVRES_COM_TROCA_PENDENTE:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Troca de senha obrigatória no primeiro acesso.",
         )
 
     dados = _sem_senha(user)
@@ -244,8 +282,15 @@ limite_login = LoginRateLimiter()
 
 
 def obter_ip_cliente(request: Request) -> str:
-    """Obtém o IP do cliente, respeitando cabeçalho X-Forwarded-For quando existir."""
+    """Obtém o IP do cliente a partir do X-Forwarded-For.
+
+    Usa a ÚLTIMA entrada do cabeçalho: é a mais próxima do proxy reverso
+    confiável (Render), enquanto as primeiras podem ter sido forjadas pelo
+    próprio cliente para burlar o rate limit.
+    """
     forwarded = request.headers.get("x-forwarded-for")
     if forwarded:
-        return forwarded.split(",")[0].strip()
+        partes = [p.strip() for p in forwarded.split(",") if p.strip()]
+        if partes:
+            return partes[-1]
     return request.client.host if request.client else "desconhecido"

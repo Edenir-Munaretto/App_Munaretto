@@ -27,7 +27,15 @@ RUN pip install --no-cache-dir -r requirements.txt
 # Copia os arquivos do backend e os templates
 COPY . .
 
+# Executa sem privilégios de root (usuário dedicado com home gravável, que o
+# LibreOffice precisa para rodar headless).
+RUN useradd --create-home --uid 1000 appuser && chown -R appuser:appuser /app
+USER appuser
+
 EXPOSE 8000
+
+HEALTHCHECK --interval=30s --timeout=5s --start-period=40s --retries=3 \
+  CMD python -c "import os,urllib.request; urllib.request.urlopen('http://127.0.0.1:' + os.environ.get('PORT','8000') + '/health', timeout=4)"
 
 # Render injeta a porta via variável PORT; fallback para 8000 em dev local.
 CMD ["sh", "-c", "uvicorn main:app --host 0.0.0.0 --port ${PORT:-8000}"]

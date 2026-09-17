@@ -15,6 +15,8 @@ Regras de produto definidas para a Fase 1:
 
 from collections import defaultdict
 
+from utils.paginacao import em_lotes as _em_lotes
+from utils.paginacao import ler_paginado as _ler_paginado
 from utils.tipos_os import ORDEM_CONTRATOS, unidade_contrato
 
 # Grupos de status da gestão por obra (espelham a semântica do módulo O.S).
@@ -34,31 +36,6 @@ def _numero(valor) -> float:
         return float(valor or 0)
     except (TypeError, ValueError):
         return 0.0
-
-
-# PostgREST/Supabase devolvem no máximo ~1000 linhas por requisição; os IDs vão
-# em lotes para não estourar o tamanho da URL do filtro `in.()`.
-TAMANHO_PAGINA = 1000
-TAMANHO_LOTE_IDS = 200
-
-
-def _em_lotes(itens: list, tamanho: int = TAMANHO_LOTE_IDS):
-    """Fatia uma lista em lotes (usado nos filtros `in_` do PostgREST)."""
-    for inicio in range(0, len(itens), tamanho):
-        yield itens[inicio : inicio + tamanho]
-
-
-def _ler_paginado(base, tamanho: int = TAMANHO_PAGINA) -> list[dict]:
-    """Lê TODAS as linhas de uma query, paginando pelo teto do PostgREST."""
-    dados: list[dict] = []
-    offset = 0
-    while True:
-        pagina = base.range(offset, offset + tamanho - 1).execute().data or []
-        dados.extend(pagina)
-        if len(pagina) < tamanho:
-            break
-        offset += tamanho
-    return dados
 
 
 def _consultar_lancamentos(db, os_ids: list[int]) -> list[dict]:

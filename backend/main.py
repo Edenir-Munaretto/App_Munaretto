@@ -1,6 +1,7 @@
 import logging
 import os
 import sys
+from contextlib import asynccontextmanager
 
 import uvicorn
 from dotenv import load_dotenv
@@ -40,7 +41,7 @@ def _configurar_logging():
     nivel_valido = getattr(logging, nivel, None)
     if not isinstance(nivel_valido, int):
         nivel = "INFO"
-    if os.environ.get("APP_ENV", "development") == "production":
+    if os.environ.get("APP_ENV", "production") == "production":
         fmt = '{"time":"%(asctime)s","level":"%(levelname)s","logger":"%(name)s","message":"%(message)s"}'
     else:
         fmt = "%(asctime)s | %(levelname)-8s | %(name)s | %(message)s"
@@ -54,15 +55,27 @@ def _configurar_logging():
 
 _configurar_logging()
 
-APP_ENV = os.environ.get("APP_ENV", "development")
+# Falha-seguro: sem APP_ENV explícito, assume produção (sem /docs, sem
+# /openapi.json e com HSTS). Para desenvolvimento, defina APP_ENV=development.
+APP_ENV = os.environ.get("APP_ENV", "production")
 
-# Falha-seguro: a documentação interativa só abre quando o ambiente foi
-# EXPLICITAMENTE marcado como desenvolvimento (esquecer APP_ENV não expõe
-# /docs e /openapi.json em produção).
+
+@asynccontextmanager
+async def _lifespan(app: FastAPI):
+    """Garante o usuário admin padrão no primeiro boot (fora do import/testes)."""
+    from routers.usuarios import _garantir_admin
+    from supabase_client import supabase
+
+    if supabase is not None:
+        _garantir_admin(supabase)
+    yield
+
+
 app = FastAPI(
     title="App Munaretto Web API",
     description="Backend API para gerenciamento de clientes, contratos, férias e fluxo de caixa.",
     version="1.0.0",
+    lifespan=_lifespan,
     docs_url="/docs" if APP_ENV == "development" else None,
     redoc_url="/redoc" if APP_ENV == "development" else None,
     openapi_url="/openapi.json" if APP_ENV == "development" else None,

@@ -19,7 +19,6 @@ Fluxos:
 
 import io
 import logging
-import os
 import uuid
 
 from fastapi import APIRouter, Depends, File, HTTPException, UploadFile
@@ -27,6 +26,7 @@ from fastapi import APIRouter, Depends, File, HTTPException, UploadFile
 from auth import UsuarioAutenticado, require_permisao
 from storage import bucket, get_s3_client
 from supabase_client import get_supabase
+from utils.uploads import ler_upload_limitado, nome_arquivo_seguro, validar_magia_documento
 
 router = APIRouter(dependencies=[Depends(require_permisao("sst"))])
 
@@ -42,13 +42,6 @@ MIMES_PERMITIDOS = {
 
 TAMANHO_MAXIMO_BYTES = 15 * 1024 * 1024  # 15 MB por arquivo (antes da compressão)
 VALIDADE_PRESIGNED_SEGUNDOS = 15 * 60  # 15 minutos
-
-
-def _nome_arquivo_seguro(nome: str) -> str:
-    """Remove caminhos (path traversal) e caracteres que podem quebrar a URL."""
-    base = os.path.basename(str(nome or "").replace("\\", "/")).strip()
-    base = "".join(c for c in base if c.isalnum() or c in (" ", "-", "_", "."))
-    return base[:500] or "documento"
 
 
 def _remover_objeto(s3, chave: str) -> None:
@@ -142,14 +135,12 @@ def enviar_documento(
                 detail="Tipo de arquivo não permitido. Envie PDF, JPG, PNG ou WEBP.",
             )
 
-        conteudo = arquivo.file.read()
-        if not conteudo:
-            raise HTTPException(status_code=400, detail="Arquivo vazio.")
-        if len(conteudo) > TAMANHO_MAXIMO_BYTES:
-            raise HTTPException(
-                status_code=400,
-                detail="Arquivo excede o limite de 15 MB.",
-            )
+        conteudo = ler_upload_limitado(
+            arquivo,
+            TAMANHO_MAXIMO_BYTES,
+            mensagem_limite="Arquivo excede o limite de 15 MB.",
+        )
+        validar_magia_documento(mime, conteudo)
 
         tamanho_original = len(conteudo)
         if mime == "application/pdf":
@@ -170,7 +161,7 @@ def enviar_documento(
             db.table("sst_documentos")
             .insert(
                 {
-                    "nome_original": _nome_arquivo_seguro(arquivo.filename),
+                    "nome_original": nome_arquivo_seguro(arquivo.filename),
                     "tamanho_bytes": len(conteudo),
                     "tamanho_original": tamanho_original,
                     "mime_type": mime,

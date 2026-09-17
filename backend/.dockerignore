@@ -1,0 +1,15 @@
+# Nunca envie segredos, dados de clientes ou artefatos locais para a imagem.
+.env
+.env.*
+!.env.example
+admin_inicial.txt
+__pycache__/
+*.pyc
+.pytest_cache/
+.ruff_cache/
+tests/
+scripts/backups/
+*.db
+*.sqlite
+*.sqlite3
+*.dump

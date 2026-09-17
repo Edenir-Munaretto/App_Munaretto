@@ -16,13 +16,17 @@ from auth import (
     require_permisao,
     secret_esta_configurada,
 )
-from supabase_client import get_supabase, supabase
+from supabase_client import get_supabase
 
 router = APIRouter()
 
 logger = logging.getLogger(__name__)
 
 SENHA_MIN_LENGTH = 8
+
+# Iterações do PBKDF2-HMAC-SHA256 para novas senhas (recomendação OWASP atual).
+# Hashes antigos continuam válidos: a verificação lê as iterações do próprio hash.
+SENHA_ITERACOES = 600_000
 
 # ---------------------------------------------------------------------------
 # Hash de senha (pbkdf2 - sem dependências externas)
@@ -31,9 +35,9 @@ SENHA_MIN_LENGTH = 8
 
 def hash_senha(senha: str) -> str:
     salt = os.urandom(16).hex()
-    hash_value = hashlib.pbkdf2_hmac("sha256", senha.encode("utf-8"), bytes.fromhex(salt), 100000).hex()
+    hash_value = hashlib.pbkdf2_hmac("sha256", senha.encode("utf-8"), bytes.fromhex(salt), SENHA_ITERACOES).hex()
     # Prefixo com algoritmo/iterações permite migração futura (bcrypt/argon2)
-    return f"pbkdf2$sha256$100000${salt}${hash_value}"
+    return f"pbkdf2$sha256${SENHA_ITERACOES}${salt}${hash_value}"
 
 
 def verificar_senha(senha: str, armazenada: str) -> bool:
@@ -119,17 +123,67 @@ class LoginResponse(UsuarioResponse):
 # ---------------------------------------------------------------------------
 
 
+def _caminho_senha_inicial() -> str:
+    """Arquivo onde a senha inicial do admin é gravada com permissão restrita."""
+    return os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "admin_inicial.txt")
+
+
+def _definir_senha_inicial() -> tuple[str, str | None]:
+    """Obtém a senha do admin inicial sem jamais registrá-la em log.
+
+    Ordem de preferência:
+    1. Variável de ambiente ADMIN_SENHA_INICIAL (recomendada em produção);
+    2. Senha aleatória gravada em ``backend/admin_inicial.txt`` (0600), para
+       leitura pontual pelo operador no shell do servidor.
+    """
+    senha_env = os.environ.get("ADMIN_SENHA_INICIAL")
+    if senha_env:
+        if len(senha_env) < SENHA_MIN_LENGTH:
+            logger.error(
+                "ADMIN_SENHA_INICIAL ignorada: é preciso ter ao menos %d caracteres.",
+                SENHA_MIN_LENGTH,
+            )
+        else:
+            return senha_env, "variável de ambiente ADMIN_SENHA_INICIAL"
+
+    senha = secrets.token_urlsafe(12)
+    caminho = _caminho_senha_inicial()
+    try:
+        with open(caminho, "w", encoding="utf-8") as arquivo:
+            arquivo.write(
+                "Senha inicial de admin@munaretto.com (apague este arquivo após o primeiro acesso):\n"
+                f"{senha}\n"
+            )
+        try:
+            os.chmod(caminho, 0o600)
+        except OSError:
+            logger.warning("Não foi possível restringir as permissões de %s", caminho)
+        return senha, f"arquivo {caminho}"
+    except OSError:
+        logger.exception("Falha ao gravar a senha inicial do admin em %s", caminho)
+        return senha, None
+
+
+def _remover_arquivo_senha_inicial() -> None:
+    """Remove o arquivo da senha inicial após o primeiro acesso do admin."""
+    caminho = _caminho_senha_inicial()
+    try:
+        if os.path.exists(caminho):
+            os.remove(caminho)
+    except OSError:
+        logger.warning("Não foi possível remover o arquivo %s", caminho)
+
+
 def _garantir_admin(db) -> None:
     try:
         res = db.table("usuarios").select("id").limit(1).execute()
         if not res.data:
-            # Senha gerada aleatoriamente (não há credencial padrão fraca).
-            senha_temporaria = secrets.token_urlsafe(12)
+            senha_inicial, origem = _definir_senha_inicial()
             db.table("usuarios").insert(
                 {
                     "nome": "Administrador",
                     "email": "admin@munaretto.com",
-                    "senha": hash_senha(senha_temporaria),
+                    "senha": hash_senha(senha_inicial),
                     "permissoes": [
                         "dashboard",
                         "clientes",
@@ -144,11 +198,19 @@ def _garantir_admin(db) -> None:
                     "precisa_trocar_senha": True,
                 }
             ).execute()
-            # A senha é exibida apenas uma vez no log do servidor (nunca persistida em texto).
-            print("✅ Usuário padrão criado: admin@munaretto.com")
-            print(f"🔐 Senha temporária do administrador (troque no 1º acesso): {senha_temporaria}")
-    except Exception as e:
-        print(f"⚠️ Aviso: não foi possível garantir o admin padrão: {e}")
+            if origem:
+                logger.warning(
+                    "Usuário inicial admin@munaretto.com criado. A senha foi definida via %s "
+                    "e deve ser trocada no primeiro acesso.",
+                    origem,
+                )
+            else:
+                logger.error(
+                    "Usuário inicial admin@munaretto.com criado, mas a senha não pôde ser disponibilizada. "
+                    "Defina ADMIN_SENHA_INICIAL e recrie o usuário."
+                )
+    except Exception:
+        logger.exception("Não foi possível garantir o admin padrão")
 
 
 def _user_sem_senha(user: dict) -> dict:
@@ -162,6 +224,21 @@ def _validar_funcionario(db, funcionario_id: int | None) -> None:
     resp = db.table("funcionarios").select("id").eq("id", funcionario_id).execute()
     if not resp.data:
         raise HTTPException(status_code=400, detail="Funcionário vinculado não encontrado.")
+
+
+def _eh_admin(user: dict) -> bool:
+    """Usuário ativo com a permissão 'configuracoes' (administrador)."""
+    return bool(user.get("ativo", True)) and "configuracoes" in (user.get("permissoes") or [])
+
+
+def _contar_admins_ativos(db, excluir_id: int | None = None) -> int:
+    """Conta administradores ativos, opcionalmente ignorando um usuário."""
+    resp = db.table("usuarios").select("*").execute()
+    return sum(
+        1
+        for u in (resp.data or [])
+        if u.get("id") != excluir_id and _eh_admin(u)
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -227,13 +304,15 @@ def criar_usuario(
 ):
     """Cria um novo usuário no sistema."""
     try:
-        dup = db.table("usuarios").select("id").eq("email", usuario.email).execute()
+        email = usuario.email.strip().lower()
+        dup = db.table("usuarios").select("id").eq("email", email).execute()
         if dup.data:
             raise HTTPException(status_code=400, detail="Já existe um usuário com este e-mail.")
 
         _validar_funcionario(db, usuario.funcionario_id)
 
         payload = usuario.model_dump()
+        payload["email"] = email
         payload["senha"] = hash_senha(usuario.senha)
         response = db.table("usuarios").insert(payload).execute()
         if not response.data:
@@ -255,23 +334,41 @@ def atualizar_usuario(
 ):
     """Atualiza um usuário existente."""
     try:
-        check = db.table("usuarios").select("id").eq("id", usuario_id).execute()
+        check = db.table("usuarios").select("*").eq("id", usuario_id).execute()
         if not check.data:
             raise HTTPException(status_code=404, detail="Usuário não encontrado.")
+        atual = check.data[0]
 
-        dup = db.table("usuarios").select("id").eq("email", usuario.email).neq("id", usuario_id).execute()
+        email = usuario.email.strip().lower()
+        dup = db.table("usuarios").select("id").eq("email", email).neq("id", usuario_id).execute()
         if dup.data:
             raise HTTPException(status_code=400, detail="Já existe um usuário com este e-mail.")
 
         _validar_funcionario(db, usuario.funcionario_id)
 
         payload = usuario.model_dump()
+        payload["email"] = email
         if not payload.get("senha"):
             payload.pop("senha", None)
         else:
             payload["senha"] = hash_senha(payload["senha"])
             # Ao definir nova senha, encerra a exigência de troca no primeiro acesso.
             payload["precisa_trocar_senha"] = False
+
+        # Não deixa o sistema ficar sem administrador ativo (nem o usuário se
+        # rebaixar/desativar por engano).
+        deixa_de_ser_admin = not payload.get("ativo", True) or "configuracoes" not in payload.get("permissoes", [])
+        if _eh_admin(atual) and deixa_de_ser_admin:
+            if usuario_id == usuario_auth.id:
+                raise HTTPException(
+                    status_code=400,
+                    detail="Você não pode remover o próprio acesso de administrador.",
+                )
+            if _contar_admins_ativos(db, excluir_id=usuario_id) == 0:
+                raise HTTPException(
+                    status_code=400,
+                    detail="O sistema precisa de pelo menos um administrador ativo.",
+                )
 
         response = db.table("usuarios").update(payload).eq("id", usuario_id).execute()
         if not response.data:
@@ -292,9 +389,18 @@ def excluir_usuario(
 ):
     """Exclui um usuário do sistema."""
     try:
-        check = db.table("usuarios").select("id").eq("id", usuario_id).execute()
+        if usuario_id == usuario_auth.id:
+            raise HTTPException(status_code=400, detail="Você não pode excluir a própria conta.")
+
+        check = db.table("usuarios").select("*").eq("id", usuario_id).execute()
         if not check.data:
             raise HTTPException(status_code=404, detail="Usuário não encontrado.")
+
+        if _eh_admin(check.data[0]) and _contar_admins_ativos(db, excluir_id=usuario_id) == 0:
+            raise HTTPException(
+                status_code=400,
+                detail="O sistema precisa de pelo menos um administrador ativo.",
+            )
 
         db.table("usuarios").delete().eq("id", usuario_id).execute()
         return {"status": "success", "message": "Usuário excluído com sucesso."}
@@ -387,6 +493,9 @@ def trocar_senha(
             }
         ).eq("id", usuario.id).execute()
 
+        # O arquivo com a senha inicial não é mais necessário.
+        _remover_arquivo_senha_inicial()
+
         return {"status": "success", "message": "Senha alterada com sucesso."}
     except HTTPException:
         raise
@@ -426,9 +535,5 @@ def renovar_sessao(
         raise HTTPException(status_code=500, detail="Erro ao renovar sessão") from None
 
 
-# Garante a existência de um usuário admin padrão no primeiro acesso
-if supabase is not None:
-    try:
-        _garantir_admin(supabase)
-    except Exception as e:
-        print(f"⚠️ Aviso ao inicializar admin padrão: {e}")
+# O admin padrão é garantido na inicialização da aplicação (lifespan em main.py).
+# A chamada não fica no import do módulo para não tocar o banco durante testes.

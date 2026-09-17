@@ -10,7 +10,6 @@ protocolo S3); no banco ficam apenas os metadados e a chave do objeto.
 """
 
 import logging
-import os
 import re
 import uuid
 
@@ -21,6 +20,7 @@ from auth import require_permisao
 from storage import bucket, get_s3_client
 from supabase_client import get_supabase
 from utils.date_helpers import STATUS_PROXIMO, STATUS_VENCIDO, status_vencimento
+from utils.uploads import ler_upload_limitado, nome_arquivo_seguro, validar_magia_documento
 
 router = APIRouter(dependencies=[Depends(require_permisao("manutencao"))])
 
@@ -133,13 +133,6 @@ def _placa_duplicada(db, placa: str, ignorar_id: int | None = None) -> bool:
         if _normalizar_placa(v.get("placa", "")) == placa_norm:
             return True
     return False
-
-
-def _nome_arquivo_seguro(nome: str) -> str:
-    """Remove caminhos (path traversal) e caracteres que podem quebrar a URL."""
-    base = os.path.basename(str(nome or "").replace("\\", "/")).strip()
-    base = "".join(c for c in base if c.isalnum() or c in (" ", "-", "_", "."))
-    return base[:500] or "documento"
 
 
 def _remover_objeto(s3, chave: str) -> None:
@@ -562,7 +555,7 @@ def listar_documentos_veiculo(veiculo_id: int, db=Depends(get_supabase)):
 
 
 @router.post("/veiculos/{veiculo_id}/documentos", response_model=VeiculoDocumentoResponse, status_code=201)
-async def cadastrar_documento_veiculo(
+def cadastrar_documento_veiculo(
     veiculo_id: int,
     arquivo: UploadFile = File(...),
     tipo: str = Form(..., min_length=2, description="Tipo do documento (ex.: CRLV, Certificado do Cronotacógrafo)"),
@@ -570,7 +563,11 @@ async def cadastrar_documento_veiculo(
     observacao: str | None = Form(None, description="Observação sobre o documento"),
     db=Depends(get_supabase),
 ):
-    """Anexa um documento ao veículo e salva o arquivo no bucket privado (B2)."""
+    """Anexa um documento ao veículo e salva o arquivo no bucket privado (B2).
+
+    Endpoint SÍNCRONO (def): a leitura do arquivo e o upload bloqueante ao B2
+    rodam no threadpool do FastAPI, sem travar o event loop.
+    """
     try:
         if not _veiculo_existe(db, veiculo_id):
             raise HTTPException(status_code=404, detail="Veículo não encontrado")
@@ -583,14 +580,12 @@ async def cadastrar_documento_veiculo(
                 detail="Tipo de arquivo não permitido. Envie PDF, JPG, PNG ou WEBP.",
             )
 
-        conteudo = await arquivo.read()
-        if not conteudo:
-            raise HTTPException(status_code=400, detail="Arquivo vazio.")
-        if len(conteudo) > TAMANHO_MAXIMO_BYTES:
-            raise HTTPException(
-                status_code=400,
-                detail="Arquivo excede o limite de 15 MB.",
-            )
+        conteudo = ler_upload_limitado(
+            arquivo,
+            TAMANHO_MAXIMO_BYTES,
+            mensagem_limite="Arquivo excede o limite de 15 MB.",
+        )
+        validar_magia_documento(mime, conteudo)
 
         s3 = get_s3_client()
 
@@ -610,7 +605,7 @@ async def cadastrar_documento_veiculo(
                 {
                     "veiculo_id": veiculo_id,
                     "tipo": tipo.strip(),
-                    "nome_original": _nome_arquivo_seguro(arquivo.filename),
+                    "nome_original": nome_arquivo_seguro(arquivo.filename),
                     "tamanho_bytes": len(conteudo),
                     "mime_type": mime,
                     "bucket_key": bucket_key,

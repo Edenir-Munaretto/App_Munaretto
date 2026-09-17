@@ -8,6 +8,14 @@ frontend/dist/
 .env.backup
 *.pyc
 .pytest_cache/
+.ruff_cache/
 legacy/
 backend/scripts/backups/
 backend/scripts/backup.log
+# Arquivos de banco / dumps locais nunca devem ser versionados (PII)
+*.db
+*.sqlite
+*.sqlite3
+*.dump
+# Senha inicial do admin gerada no primeiro boot (nunca versionar)
+admin_inicial.txt
