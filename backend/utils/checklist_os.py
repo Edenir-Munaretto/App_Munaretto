@@ -44,8 +44,13 @@ def snapshot_checklist(db, os_id: int) -> None:
     Em corrida (duas chamadas simultâneas), insere apenas os itens faltantes:
     o UNIQUE(os_id, classificacao) protege e a violação de unicidade é tratada
     como sucesso (o concorrente já gravou).
+
+    O.S com `checklist_dispensado` (retroativa) NUNCA gera itens — inclusive
+    nas leituras que chamam `garantir_snapshot`.
     """
-    os_row = db.table("ordens_servico").select("tipo").eq("id", os_id).execute().data
+    os_row = db.table("ordens_servico").select("tipo, checklist_dispensado").eq("id", os_id).execute().data
+    if os_row and os_row[0].get("checklist_dispensado"):
+        return
     tipo_os = (os_row[0].get("tipo") if os_row else None) or "construcao"
     if tipo_os not in TIPOS_OS:
         tipo_os = "construcao"

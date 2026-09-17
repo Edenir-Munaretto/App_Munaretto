@@ -91,3 +91,18 @@ def agora_fuso_brasil() -> datetime:
     """'Agora' no fuso brasileiro (para rodapés 'Gerado em ...')."""
     tz = _fuso_brasil()
     return datetime.now(UTC).astimezone(tz) if tz else datetime.now(UTC)
+
+
+def meio_dia_fuso_brasil(dia: date) -> datetime:
+    """Meio-dia no fuso brasileiro para a data informada.
+
+    Usado nos timestamps de O.S retroativa (abertura/encerramento iguais à data
+    real da execução): o meio-dia evita que a conversão para UTC mude o dia em
+    relatórios e séries mensais.
+    """
+    from datetime import time
+
+    tz = _fuso_brasil()
+    if tz is None:
+        return datetime.combine(dia, time(12, 0), tzinfo=UTC)
+    return datetime.combine(dia, time(12, 0), tzinfo=tz)

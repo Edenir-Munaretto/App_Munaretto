@@ -722,9 +722,19 @@ CREATE TABLE IF NOT EXISTS ordens_servico (
     alimentador VARCHAR(100),
     chave VARCHAR(100),
     obs TEXT,
+    -- O.S retroativa: execução registrada em papel depois do serviço feito.
+    -- Ver scripts/adicionar_os_retroativa.sql (migração idempotente).
+    retroativa BOOLEAN NOT NULL DEFAULT FALSE,
+    checklist_dispensado BOOLEAN NOT NULL DEFAULT FALSE,
+    data_execucao DATE,
     created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
 );
+
+-- Colunas de O.S retroativa em bancos que já existiam (idempotente).
+ALTER TABLE IF EXISTS ordens_servico ADD COLUMN IF NOT EXISTS retroativa BOOLEAN NOT NULL DEFAULT FALSE;
+ALTER TABLE IF EXISTS ordens_servico ADD COLUMN IF NOT EXISTS checklist_dispensado BOOLEAN NOT NULL DEFAULT FALSE;
+ALTER TABLE IF EXISTS ordens_servico ADD COLUMN IF NOT EXISTS data_execucao DATE;
 
 DROP TRIGGER IF EXISTS trg_update_os_updated_at ON ordens_servico;
 CREATE TRIGGER trg_update_os_updated_at

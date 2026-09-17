@@ -199,6 +199,17 @@ def _capa(pdf: _PdfChecklist, os_data: dict, obra: dict, equipe_nome: str, equip
     pdf.set_font("Arial", "", 8)
     pdf.cell(0, 5, f"Data de abertura: {_fmt_data(os_data.get('data_abertura'))}", ln=True)
     pdf.cell(0, 5, f"Data de encerramento: {_fmt_data(os_data.get('data_fim'))}", ln=True)
+    if os_data.get("checklist_dispensado"):
+        pdf.ln(1)
+        pdf.set_font("Arial", "B", 8)
+        pdf.set_text_color(180, 83, 9)
+        pdf.cell(
+            0,
+            5,
+            "O.S retroativa: checklist dispensado (execução registrada manualmente em papel).",
+            ln=True,
+        )
+        pdf.set_text_color(15, 23, 42)
 
 
 def _tabela_checklist(pdf: _PdfChecklist, itens: list):
@@ -363,6 +374,26 @@ def _paginas_fotos(pdf: _PdfChecklist, itens: list, baixar_foto):
         pdf.multi_cell(larg_celula, 4, f"{data}{f'  ·  GPS {gps}' if gps else ''}", align="L")
 
 
+def _aviso_checklist_dispensado(pdf: _PdfChecklist):
+    """Página de aviso para O.S retroativa (sem checklist gerado)."""
+    pdf.add_page()
+    pdf.set_fill_color(254, 243, 199)
+    pdf.set_text_color(180, 83, 9)
+    pdf.set_font("Arial", "B", 11)
+    pdf.cell(0, 9, " CHECKLIST DISPENSADO - O.S RETROATIVA", ln=True, fill=True)
+    pdf.ln(3)
+    pdf.set_text_color(15, 23, 42)
+    pdf.set_font("Arial", "", 10)
+    pdf.multi_cell(
+        0,
+        6,
+        _txt(
+            "A execução desta O.S foi registrada manualmente em papel. "
+            "O checklist de execução não se aplica a este registro."
+        ),
+    )
+
+
 def gerar_pdf_checklist(
     os_data: dict,
     obra: dict,
@@ -379,8 +410,11 @@ def gerar_pdf_checklist(
     pdf.set_margins(MARGEM, 18, MARGEM)
 
     _capa(pdf, os_data, obra, equipe_nome or "", equipe_numero or "", encarregado or "", membros or [])
-    _tabela_checklist(pdf, itens)
-    _paginas_fotos(pdf, itens, baixar_foto or (lambda chave: None))
+    if os_data.get("checklist_dispensado"):
+        _aviso_checklist_dispensado(pdf)
+    else:
+        _tabela_checklist(pdf, itens)
+        _paginas_fotos(pdf, itens, baixar_foto or (lambda chave: None))
 
     caminho = _novo_caminho_temp("os_checklist_")
     pdf.output(caminho)

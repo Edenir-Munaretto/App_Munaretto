@@ -2395,3 +2395,110 @@ class TestCorrecoesLote5:
         )
         assert resp.status_code == 400
         assert db_fake._dados["os_fotos"] == []
+
+
+class TestOsRetroativa:
+    """O.S retroativa: serviço já executado em papel — nasce em andamento,
+    sem checklist, na data real da execução."""
+
+    JUSTIFICATIVA = "Emergência de fim de semana registrada no formulário de papel."
+
+    def _seed_com_modelo_checklist(self, db_fake):
+        """Cenário com catálogo de checklist ativo (prova que o snapshot não roda)."""
+        _seed_cenario(db_fake)
+        db_fake._dados["os_checklist_modelos"].append(
+            {
+                "id": 1,
+                "tipo": "geral",
+                "grupo": 1,
+                "ordem": 1,
+                "classificacao": "1.1",
+                "pergunta": "EPIs conferidos?",
+                "exige_foto": False,
+                "ativo": True,
+            }
+        )
+
+    def _criar_retroativa(self, client, **overrides):
+        payload = {
+            "obra_id": 5,
+            "retroativa": True,
+            "data_execucao": "2026-09-10",
+            "justificativa_retroativa": self.JUSTIFICATIVA,
+            **overrides,
+        }
+        return client.post("/api/os/", json=payload)
+
+    def test_criar_retroativa_nasce_em_andamento_sem_checklist(self, os_gestor_client, db_fake):
+        self._seed_com_modelo_checklist(db_fake)
+        resp = self._criar_retroativa(os_gestor_client)
+        assert resp.status_code == 201, resp.text
+        dados = resp.json()
+        assert dados["status"] == "em_andamento"
+        assert dados["retroativa"] is True
+        assert dados["checklist_dispensado"] is True
+        assert dados["data_execucao"] == "2026-09-10"
+        # Nada de snapshot: o catálogo tinha item ativo, mas a O.S é dispensada.
+        assert [i for i in db_fake._dados["os_checklist_itens"] if i["os_id"] == dados["id"]] == []
+        historico = [h for h in db_fake._dados["os_historico"] if h["os_id"] == dados["id"]]
+        assert historico and historico[-1]["status_novo"] == "em_andamento"
+        assert "retroativa" in historico[-1]["justificativa"].lower()
+
+    def test_leituras_nao_recriam_checklist(self, os_gestor_client, db_fake):
+        """garantir_snapshot não pode ressuscitar os itens em GETs."""
+        self._seed_com_modelo_checklist(db_fake)
+        os_id = self._criar_retroativa(os_gestor_client).json()["id"]
+
+        assert os_gestor_client.get(f"/api/os/{os_id}").status_code == 200
+        assert os_gestor_client.get(f"/api/os/{os_id}/checklist").status_code == 200
+
+        itens = [i for i in db_fake._dados["os_checklist_itens"] if i["os_id"] == os_id]
+        assert itens == []
+        # O gate de conclusão libera (sem itens).
+        detalhe = os_gestor_client.get(f"/api/os/{os_id}").json()
+        assert detalhe["checklist"]["completo"] is True
+        assert detalhe["checklist"]["inicio_liberado"] is True
+
+    def test_lancar_material_e_concluir_com_data_da_execucao(self, os_gestor_client, db_fake):
+        self._seed_com_modelo_checklist(db_fake)
+        os_id = self._criar_retroativa(os_gestor_client).json()["id"]
+
+        resp = os_gestor_client.post(
+            f"/api/os/{os_id}/materiais",
+            json={"produto_id": 7, "quantidade_usada": 2, "tipo_usc": "normal"},
+        )
+        assert resp.status_code in (200, 201), resp.text
+
+        concluiu = os_gestor_client.put(f"/api/os/{os_id}/status", json={"novo_status": "concluida"})
+        assert concluiu.status_code == 200, concluiu.text
+        linha = next(o for o in db_fake._dados["ordens_servico"] if o["id"] == os_id)
+        assert str(linha["data_fim"]).startswith("2026-09-10")
+        # Gestor ainda pode complementar lançamentos na O.S encerrada.
+        extra = os_gestor_client.post(f"/api/os/{os_id}/materiais", json={"produto_id": 7, "quantidade_usada": 1})
+        assert extra.status_code in (200, 201)
+
+    def test_retroativa_exige_justificativa_e_data(self, os_gestor_client, db_fake):
+        _seed_cenario(db_fake)
+        sem_justificativa = self._criar_retroativa(os_gestor_client, justificativa_retroativa="")
+        assert sem_justificativa.status_code == 422
+
+        justificativa_curta = self._criar_retroativa(os_gestor_client, justificativa_retroativa="curta")
+        assert justificativa_curta.status_code == 422
+
+        sem_data = self._criar_retroativa(os_gestor_client, data_execucao=None)
+        assert sem_data.status_code == 400
+
+        data_futura = self._criar_retroativa(os_gestor_client, data_execucao="2999-01-01")
+        assert data_futura.status_code == 400
+
+    def test_os_normal_continua_gerando_checklist(self, os_gestor_client, db_fake):
+        """Regressão: sem a flag, o snapshot segue acontecendo."""
+        self._seed_com_modelo_checklist(db_fake)
+        os_id = _criar_os(os_gestor_client).json()["id"]
+        itens = [i for i in db_fake._dados["os_checklist_itens"] if i["os_id"] == os_id]
+        assert len(itens) == 1
+
+    def test_campo_nao_pode_criar_retroativa(self, os_campo_client, db_fake):
+        self._seed_com_modelo_checklist(db_fake)
+        resp = self._criar_retroativa(os_campo_client)
+        assert resp.status_code == 403

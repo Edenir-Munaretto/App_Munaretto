@@ -688,3 +688,39 @@ def test_conclusao_exige_evidencia_fotografica_dos_itens(os_gestor_client, db_fa
     resp = os_gestor_client.put(f"/api/os/{os_id}/status", json={"novo_status": "concluida"})
     assert resp.status_code == 200, resp.text
     assert resp.json()["status"] == "concluida"
+
+
+# ---------------------------------------------------------------------------
+# O.S retroativa (sem checklist)
+# ---------------------------------------------------------------------------
+
+
+def test_relatorio_pdf_retroativa_mostra_aviso_de_dispensa(os_gestor_client, db_fake):
+    """Relatório da O.S retroativa sai com o aviso no lugar da tabela vazia."""
+    import pymupdf
+
+    from tests.test_os import _seed_cenario
+
+    _seed_cenario(db_fake)
+    _seed_modelos(db_fake)
+    resp = os_gestor_client.post(
+        "/api/os/",
+        json={
+            "obra_id": 5,
+            "retroativa": True,
+            "data_execucao": "2026-09-10",
+            "justificativa_retroativa": "Emergência registrada no formulário de papel.",
+        },
+    )
+    assert resp.status_code == 201, resp.text
+    os_id = resp.json()["id"]
+
+    relatorio = os_gestor_client.get(f"/api/os/{os_id}/checklist/report")
+    assert relatorio.status_code == 200, relatorio.text
+    assert relatorio.content.startswith(b"%PDF")
+
+    doc = pymupdf.open(stream=relatorio.content, filetype="pdf")
+    texto = "\n".join(page.get_text() for page in doc)
+    assert "CHECKLIST DISPENSADO" in texto
+    # Nenhum item de checklist foi criado para esta O.S.
+    assert [i for i in db_fake._dados["os_checklist_itens"] if i["os_id"] == os_id] == []

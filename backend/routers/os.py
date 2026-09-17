@@ -18,7 +18,7 @@ import logging
 import os
 import re
 import uuid
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, date, datetime, timedelta
 
 from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, Response, UploadFile
 from fastapi.responses import FileResponse, StreamingResponse
@@ -36,7 +36,8 @@ from utils.checklist_os import (
     resumo_checklist,
     snapshot_checklist,
 )
-from utils.date_helpers import agora_fuso_brasil
+from utils.date_helpers import agora_fuso_brasil, meio_dia_fuso_brasil, parse_data
+from utils.date_helpers import hoje as _hoje_brasil
 from utils.paginacao import ler_paginado as _ler_paginado
 from utils.tipos_os import ROTULOS_TIPO, TIPOS_OS, unidade_contrato
 from utils.uploads import ler_upload_limitado_async as _ler_upload_limitado
@@ -153,9 +154,15 @@ class OSCreate(BaseModel):
     alimentador: str | None = None
     chave: str | None = None
     obs: str | None = None
+    # O.S retroativa: serviço já executado e anotado em papel. Nasce em
+    # andamento, sem checklist, com a data real da execução.
+    retroativa: bool = False
+    data_execucao: str | None = None  # ISO date (YYYY-MM-DD), obrigatória se retroativa
+    justificativa_retroativa: str | None = None
 
     _val_hora = field_validator("hora_desligar", "hora_religar")(_validar_hora)
     _val_prazo = field_validator("prazo_entrega")(_validar_data_iso)
+    _val_data_execucao = field_validator("data_execucao")(_validar_data_iso)
 
 
 class OSUpdate(BaseModel):
@@ -898,7 +905,13 @@ def _criar_os_com_registro(db, dados: dict, tentativas: int = 5) -> dict:
 
 @router.post("/", status_code=201)
 def criar_os(payload: OSCreate, usuario: UsuarioAutenticado = Depends(get_current_user), db=Depends(get_supabase)):
-    """Cria uma nova O.S (status inicial 'rascunho')."""
+    """Cria uma nova O.S.
+
+    O.S normal: status inicial 'rascunho' + snapshot do checklist.
+    O.S retroativa: o serviço já foi executado e anotado em papel — nasce
+    'em andamento', SEM checklist e com a data real da execução (auditada no
+    histórico). Materiais/serviços podem ser lançados na sequência.
+    """
     try:
         _exigir_gestor(usuario)
         if payload.prioridade not in PRIORIDADES:
@@ -909,6 +922,23 @@ def criar_os(payload: OSCreate, usuario: UsuarioAutenticado = Depends(get_curren
             raise HTTPException(status_code=404, detail="Obra não encontrada.")
         if payload.equipe_id and not db.table("equipes").select("id").eq("id", payload.equipe_id).execute().data:
             raise HTTPException(status_code=404, detail="Equipe não encontrada.")
+
+        justificativa_retroativa = None
+        if payload.retroativa:
+            justificativa_retroativa = (payload.justificativa_retroativa or "").strip()
+            if len(justificativa_retroativa) < MIN_REABERTURA_CARACTERES:
+                raise HTTPException(
+                    status_code=422,
+                    detail=(
+                        "Para registrar uma O.S retroativa é obrigatória uma justificativa "
+                        f"com no mínimo {MIN_REABERTURA_CARACTERES} caracteres."
+                    ),
+                )
+            if not payload.data_execucao:
+                raise HTTPException(status_code=400, detail="Informe a data de execução (quando o serviço foi feito).")
+            data_exec = date.fromisoformat(payload.data_execucao)
+            if data_exec > _hoje_brasil():
+                raise HTTPException(status_code=400, detail="A data de execução não pode ser futura.")
 
         dados = {
             "obra_id": payload.obra_id,
@@ -932,14 +962,39 @@ def criar_os(payload: OSCreate, usuario: UsuarioAutenticado = Depends(get_curren
             "obs": payload.obs,
             "criado_por": usuario.email,
         }
+
+        if payload.retroativa:
+            # Nasce em execução, na data real do serviço, sem checklist.
+            dados.update(
+                {
+                    "status": "em_andamento",
+                    "retroativa": True,
+                    "checklist_dispensado": True,
+                    "data_execucao": payload.data_execucao,
+                    "data_abertura": meio_dia_fuso_brasil(data_exec).isoformat(),
+                }
+            )
+
         nova = _criar_os_com_registro(db, dados)
 
         # Estágios de apoio (snapshot do checklist + histórico). Sem transação
         # no PostgREST: se qualquer um falhar, removemos o que já foi gravado
         # (rollback) em vez de devolver uma O.S órfã ou parcial.
         try:
-            snapshot_checklist(db, nova["id"])
-            _gravar_historico(db, nova["id"], None, "rascunho", None, usuario.email, None)
+            if payload.retroativa:
+                _gravar_historico(
+                    db,
+                    nova["id"],
+                    None,
+                    "em_andamento",
+                    "O.S retroativa — execução registrada manualmente em papel. "
+                    f"Motivo: {justificativa_retroativa}",
+                    usuario.email,
+                    None,
+                )
+            else:
+                snapshot_checklist(db, nova["id"])
+                _gravar_historico(db, nova["id"], None, "rascunho", None, usuario.email, None)
         except HTTPException:
             _apagar_recursos_os(db, nova["id"])
             raise
@@ -1175,7 +1230,14 @@ def alterar_status(
 
         updates = {"status": novo}
         if novo in ("concluida", "cancelada"):
-            updates["data_fim"] = _agora().isoformat()
+            # O.S retroativa: o encerramento reflete a DATA REAL da execução,
+            # para relatórios/séries mensais caírem no mês certo. O momento em
+            # que o registro foi feito continua em created_at/histórico.
+            data_execucao = parse_data(os_data.get("data_execucao"))
+            if novo == "concluida" and data_execucao:
+                updates["data_fim"] = meio_dia_fuso_brasil(data_execucao).isoformat()
+            else:
+                updates["data_fim"] = _agora().isoformat()
         if reabertura:
             # Volta ao funil: sem data de encerramento (limpa a do ciclo antigo).
             updates["data_fim"] = None

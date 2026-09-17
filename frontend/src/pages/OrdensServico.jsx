@@ -305,7 +305,17 @@ function CardOS({ os, onClick, draggableProps = {} }) {
     >
       <div className="flex items-center justify-between gap-2">
         <span className="font-mono text-xs font-bold text-primary-700">{os.codigo}</span>
-        <BadgePrioridade prioridade={os.prioridade} />
+        <div className="flex items-center gap-1.5">
+          {os.retroativa && (
+            <span
+              className="px-2 py-0.5 rounded-full bg-amber-50 border border-amber-200 text-[10px] font-bold text-amber-700"
+              title="O.S retroativa (execução registrada em papel)"
+            >
+              Retroativa
+            </span>
+          )}
+          <BadgePrioridade prioridade={os.prioridade} />
+        </div>
       </div>
       <p className="text-sm font-bold text-slate-800 mt-1 truncate">{os.obras?.nome || 'Obra'}</p>
       <p className="text-xs text-slate-400">{os.obras?.clientes?.nome || os.obras?.cliente_celesc || ''}</p>
@@ -1758,6 +1768,12 @@ function PainelExecucao({ osId, produtos, onFechar, recarregarLista, mostrarToas
     return () => clearTimeout(timerRetry.current);
   }, [carregar, versaoPainel]);
 
+  // O.S retroativa não tem aba de checklist: se ela estava ativa, volta para
+  // Serviços (as demais abas continuam funcionando normalmente).
+  useEffect(() => {
+    if (detalhe?.checklist_dispensado && aba === 'checklist') setAba('insumos');
+  }, [detalhe?.checklist_dispensado, aba]);
+
   if (erro) {
     return (
       <div className="fixed inset-0 w-full lg:left-auto lg:w-[560px] xl:w-[680px] bg-white z-40 flex flex-col items-center justify-center gap-4 p-6">
@@ -1826,8 +1842,9 @@ function PainelExecucao({ osId, produtos, onFechar, recarregarLista, mostrarToas
   };
 
   // Usuário de campo não vê o Histórico (timeline de status do gestor).
+  // O.S retroativa não tem checklist (execução registrada em papel).
   const abasDisponiveis = [
-    ['checklist', 'Checklist', ListChecks],
+    ...(detalhe?.checklist_dispensado ? [] : [['checklist', 'Checklist', ListChecks]]),
     ['insumos', 'Serviços', Package],
     ['evidencias', 'Evidências', Camera],
     ...(ehGestor ? [['timeline', 'Histórico', Clock]] : []),
@@ -1835,6 +1852,12 @@ function PainelExecucao({ osId, produtos, onFechar, recarregarLista, mostrarToas
 
   const corpoAbas = (
     <>
+      {detalhe?.checklist_dispensado && (
+        <div className="mb-3 rounded-xl bg-amber-50 border border-amber-200 px-3 py-2.5 text-[11px] font-semibold text-amber-800">
+          O.S retroativa — checklist dispensado. A execução foi registrada manualmente em papel;
+          lance abaixo os serviços aplicados.
+        </div>
+      )}
       <div className="flex gap-1 bg-slate-100 rounded-xl p-1 mb-4">
         {abasDisponiveis.map(([key, label, Icon]) => (
           <button
@@ -1848,7 +1871,7 @@ function PainelExecucao({ osId, produtos, onFechar, recarregarLista, mostrarToas
           </button>
         ))}
       </div>
-      {aba === 'checklist' && (
+      {aba === 'checklist' && !detalhe?.checklist_dispensado && (
         <TabChecklist
           osDetalhe={detalhe}
           onAtualizado={() => { carregar(); recarregarLista(); }}
@@ -2044,6 +2067,16 @@ const FORM_OS_INICIAL = {
   tipo: TIPO_PADRAO_OS, agencia: '', municipio: '', local_servico: '',
   bt_energizado: false, at_energizado_bloqueio: false, bloqueio: false,
   hora_desligar: '', hora_religar: '', alimentador: '', chave: '', obs: '',
+  // O.S retroativa: serviço já executado e anotado em papel.
+  retroativa: false, data_execucao: '', justificativa_retroativa: '',
+};
+
+// Data de hoje no formato AAAA-MM-DD (limite máximo da data de execução).
+const hojeIso = () => {
+  const d = new Date();
+  const mes = String(d.getMonth() + 1).padStart(2, '0');
+  const dia = String(d.getDate()).padStart(2, '0');
+  return `${d.getFullYear()}-${mes}-${dia}`;
 };
 
 // Autocomplete de obras: sugere conforme digita, buscando por nome (Nota PS)
@@ -2173,7 +2206,7 @@ function ObraAutocomplete({ obras, value, disabled = false, onChange }) {
   );
 }
 
-function ModalNovaOS({ aberto, obras, equipes, onFechar, onCriada, mostrarToast, edicao, obraInicial = null }) {
+function ModalNovaOS({ aberto, obras, equipes, onFechar, onCriada, mostrarToast, edicao, obraInicial = null, onAbrirOs = null }) {
   const [form, setForm] = useState(FORM_OS_INICIAL);
   const [salvando, setSalvando] = useState(false);
   const [criada, setCriada] = useState(null); // {id, codigo} ao salvar com sucesso
@@ -2203,6 +2236,9 @@ function ModalNovaOS({ aberto, obras, equipes, onFechar, onCriada, mostrarToast,
         alimentador: edicao.alimentador || '',
         chave: edicao.chave || '',
         obs: edicao.obs || '',
+        retroativa: !!edicao.retroativa,
+        data_execucao: edicao.data_execucao || '',
+        justificativa_retroativa: '',
       });
       setCriada(null);
     } else {
@@ -2228,6 +2264,14 @@ function ModalNovaOS({ aberto, obras, equipes, onFechar, onCriada, mostrarToast,
     e.preventDefault();
     if (salvando) return; // duplo toque/Enter repetido
     if (!form.obra_id) { mostrarToast('Selecione a obra.', 'error'); return; }
+    const eraRetroativa = !edicao && form.retroativa;
+    if (eraRetroativa) {
+      if (!form.data_execucao) { mostrarToast('Informe a data real da execução.', 'error'); return; }
+      if ((form.justificativa_retroativa || '').trim().length < 10) {
+        mostrarToast('Descreva a justificativa da O.S retroativa (mínimo 10 caracteres).', 'error');
+        return;
+      }
+    }
     setSalvando(true);
     try {
       const corpo = {
@@ -2251,6 +2295,11 @@ function ModalNovaOS({ aberto, obras, equipes, onFechar, onCriada, mostrarToast,
         chave: form.chave || null,
         obs: form.obs || null,
       };
+      if (eraRetroativa) {
+        corpo.retroativa = true;
+        corpo.data_execucao = form.data_execucao;
+        corpo.justificativa_retroativa = form.justificativa_retroativa.trim();
+      }
 
       const res = edicao
         ? await apiFetch(`${API_URL}/os/${edicao.id}`, {
@@ -2270,7 +2319,11 @@ function ModalNovaOS({ aberto, obras, equipes, onFechar, onCriada, mostrarToast,
           onCriada();
           onFechar();
         } else {
-          mostrarToast(`O.S ${data.codigo} criada como rascunho.`);
+          mostrarToast(
+            eraRetroativa
+              ? `O.S retroativa ${data.codigo} registrada em andamento (sem checklist).`
+              : `O.S ${data.codigo} criada como rascunho.`
+          );
           onCriada();
           setCriada(data);
         }
@@ -2320,9 +2373,28 @@ function ModalNovaOS({ aberto, obras, equipes, onFechar, onCriada, mostrarToast,
           <div className="w-16 h-16 mx-auto rounded-full bg-emerald-50 border border-emerald-100 flex items-center justify-center mb-4">
             <Check size={28} className="text-emerald-600" />
           </div>
-          <h3 className="text-lg font-extrabold text-slate-800">O.S {criada.codigo} criada!</h3>
-          <p className="text-xs text-slate-500 mt-1 mb-6">Deseja imprimir a ordem de serviço no modelo oficial?</p>
+          <h3 className="text-lg font-extrabold text-slate-800">
+            O.S {criada.codigo} {criada.retroativa ? 'registrada!' : 'criada!'}
+          </h3>
+          <p className="text-xs text-slate-500 mt-1 mb-6">
+            {criada.retroativa
+              ? 'O.S retroativa em andamento (sem checklist). Lance agora os serviços executados em campo.'
+              : 'Deseja imprimir a ordem de serviço no modelo oficial?'}
+          </p>
           <div className="space-y-2">
+            {criada.retroativa && onAbrirOs && (
+              <button
+                onClick={() => {
+                  const id = criada.id;
+                  setCriada(null);
+                  onFechar();
+                  onAbrirOs(id);
+                }}
+                className="w-full py-3 bg-emerald-600 text-white rounded-xl text-sm font-bold hover:bg-emerald-700 cursor-pointer flex items-center justify-center gap-2"
+              >
+                <Package size={16} /> Lançar serviços agora
+              </button>
+            )}
             <button
               onClick={imprimirModelo}
               disabled={imprimindo}
@@ -2353,6 +2425,65 @@ function ModalNovaOS({ aberto, obras, equipes, onFechar, onCriada, mostrarToast,
           <button type="button" onClick={onFechar} className="text-slate-400 hover:text-white cursor-pointer"><X size={20} /></button>
         </div>
         <div className="p-6 space-y-4">
+          {/* Modalidade: normal (checklist) x retroativa (execução em papel) */}
+          {!edicao && (
+            <div>
+              <label className="block text-xs font-bold text-slate-700 mb-1.5">Modalidade</label>
+              <div className="grid grid-cols-2 gap-2 rounded-xl bg-slate-100 p-1">
+                <button
+                  type="button"
+                  onClick={() => setForm(f => ({ ...f, retroativa: false }))}
+                  className={`py-2.5 rounded-lg text-xs font-bold transition-all cursor-pointer ${
+                    !form.retroativa ? 'bg-white text-primary-700 shadow-sm' : 'text-slate-500'
+                  }`}
+                >
+                  O.S normal
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setForm(f => ({ ...f, retroativa: true }))}
+                  className={`py-2.5 rounded-lg text-xs font-bold transition-all cursor-pointer ${
+                    form.retroativa ? 'bg-amber-500 text-white shadow-sm' : 'text-slate-500'
+                  }`}
+                >
+                  O.S retroativa
+                </button>
+              </div>
+              {form.retroativa && (
+                <div className="mt-3 rounded-xl bg-amber-50 border border-amber-200 p-3 space-y-3">
+                  <p className="text-[11px] font-semibold text-amber-800 leading-relaxed">
+                    Use quando o serviço <b>já foi executado</b> e anotado em papel. A O.S nasce
+                    <b> em andamento</b>, na data real da execução, <b>sem checklist</b> — pronta para
+                    lançar os serviços aplicados.
+                  </p>
+                  <div>
+                    <label className="block text-xs font-bold text-amber-900 mb-1">Data real da execução *</label>
+                    <input
+                      type="date"
+                      required={form.retroativa}
+                      max={hojeIso()}
+                      value={form.data_execucao}
+                      onChange={(e) => setForm(f => ({ ...f, data_execucao: e.target.value }))}
+                      className="w-full px-3.5 py-2.5 border border-amber-300 rounded-xl text-sm bg-white focus:outline-none focus:border-amber-500"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-xs font-bold text-amber-900 mb-1">
+                      Justificativa (mínimo 10 caracteres) *
+                    </label>
+                    <textarea
+                      rows={2}
+                      required={form.retroativa}
+                      value={form.justificativa_retroativa}
+                      onChange={(e) => setForm(f => ({ ...f, justificativa_retroativa: e.target.value }))}
+                      placeholder="Ex.: emergência de fim de semana; execução registrada no formulário de papel."
+                      className="w-full px-3.5 py-2.5 border border-amber-300 rounded-xl text-sm bg-white focus:outline-none focus:border-amber-500"
+                    />
+                  </div>
+                </div>
+              )}
+            </div>
+          )}
           <div>
             <label className="block text-xs font-bold text-slate-700 mb-1.5">Obra *</label>
             <ObraAutocomplete
@@ -2401,12 +2532,16 @@ function ModalNovaOS({ aberto, obras, equipes, onFechar, onCriada, mostrarToast,
             </div>
           </div>
           <div className="grid grid-cols-2 gap-4">
-            <div>
-              <label className="block text-xs font-bold text-slate-700 mb-1.5">Data de execução</label>
-              <input type="date" value={form.prazo_entrega} onChange={(e) => setForm({ ...form, prazo_entrega: e.target.value })}
-                className="w-full px-3.5 py-2 border border-slate-200 rounded-xl text-sm focus:outline-none focus:border-primary-500" />
-            </div>
-            <div>
+            {/* Na O.S retroativa a data relevante é a real da execução (painel
+                âmbar acima); o prazo previsto não se aplica. */}
+            {!form.retroativa && (
+              <div>
+                <label className="block text-xs font-bold text-slate-700 mb-1.5">Data de execução</label>
+                <input type="date" value={form.prazo_entrega} onChange={(e) => setForm({ ...form, prazo_entrega: e.target.value })}
+                  className="w-full px-3.5 py-2 border border-slate-200 rounded-xl text-sm focus:outline-none focus:border-primary-500" />
+              </div>
+            )}
+            <div className={form.retroativa ? 'col-span-2' : ''}>
               <label className="block text-xs font-bold text-slate-700 mb-1.5">M.O. orçada (R$)</label>
               <input type="number" step="0.01" min="0" value={form.custo_mo_orcado}
                 onChange={(e) => setForm({ ...form, custo_mo_orcado: e.target.value })}
@@ -4209,6 +4344,7 @@ function OrdensServico({ usuarioAtual }) {
             // Recarrega o resumo do PainelObra (nova O.S criada desta obra).
             setVersaoResumoObra(v => v + 1);
           }}
+          onAbrirOs={(id) => setOsSelecionada(id)}
           mostrarToast={mostrarToast}
         />
       )}
