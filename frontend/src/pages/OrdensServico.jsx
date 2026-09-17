@@ -2385,10 +2385,12 @@ function ModalNovaOS({ aberto, obras, equipes, onFechar, onCriada, mostrarToast,
             {criada.retroativa && onAbrirOs && (
               <button
                 onClick={() => {
-                  const id = criada.id;
+                  // Passa a O.S inteira: o destino troca para a visão certa
+                  // (Quadro) antes de abrir o painel de execução.
+                  const os = criada;
                   setCriada(null);
                   onFechar();
-                  onAbrirOs(id);
+                  onAbrirOs(os);
                 }}
                 className="w-full py-3 bg-emerald-600 text-white rounded-xl text-sm font-bold hover:bg-emerald-700 cursor-pointer flex items-center justify-center gap-2"
               >
@@ -4344,7 +4346,7 @@ function OrdensServico({ usuarioAtual }) {
             // Recarrega o resumo do PainelObra (nova O.S criada desta obra).
             setVersaoResumoObra(v => v + 1);
           }}
-          onAbrirOs={(id) => setOsSelecionada(id)}
+          onAbrirOs={abrirOSDoPainelObra}
           mostrarToast={mostrarToast}
         />
       )}
