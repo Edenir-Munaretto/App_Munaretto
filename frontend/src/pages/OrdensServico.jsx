@@ -1948,8 +1948,10 @@ function PainelExecucao({ osId, produtos, onFechar, recarregarLista, mostrarToas
         );
       })()}
 
-      {/* Checklist de início pendente: bloqueia a liberação da execução */}
-      {detalhe.status === 'aberta' && detalhe.checklist && !detalhe.checklist.inicio_liberado && (
+      {/* Checklist de início pendente: bloqueia a liberação da execução.
+          Aviso apenas para o usuário de campo — o gestor não executa o
+          checklist e o bloqueio do backend continua valendo para todos. */}
+      {!ehGestor && detalhe.status === 'aberta' && detalhe.checklist && !detalhe.checklist.inicio_liberado && (
         <div className="mt-3 rounded-xl border-2 border-rose-300 bg-rose-50 p-3 flex items-center justify-between gap-3">
           <div className="flex items-center gap-2.5 min-w-0">
             <ListChecks size={18} className="text-rose-600 shrink-0" />
