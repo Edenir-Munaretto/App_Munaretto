@@ -499,6 +499,12 @@ export async function salvarChecklistLocal(osId, dados) {
   await dbPut('checklist', { os_id: Number(osId), itens: dados.itens || [], resumo: dados.resumo });
 }
 
+// Peso de prioridade para desempate na lista do Modo Campo (crítica primeiro).
+const PESO_PRIORIDADE = { critica: 0, alta: 1, media: 2, baixa: 3 };
+
+// Data de execução normalizada (ISO AAAA-MM-DD); vazio quando não informada.
+const dataExecucao = (os) => String(os.prazo_entrega || '').slice(0, 10);
+
 export async function getListaLocal() {
   const lista = await dbGetAll('os_lista');
   // Defensivo: registros corrompidos/parciais não podem derrubar a tela do
@@ -506,7 +512,22 @@ export async function getListaLocal() {
   const validos = lista.filter(os =>
     os && typeof os === 'object' && os.id != null && (os.codigo || os.obras?.nome),
   );
-  return validos.sort((a, b) => String(b.created_at || '').localeCompare(String(a.created_at || '')));
+  // Ordenação do Modo Campo: data de execução mais próxima primeiro; O.S sem
+  // data vão para o fim; empate pela prioridade (crítica -> baixa) e, por
+  // último, pelo código em ordem numérica (OS-...-0002 antes de ...-0010).
+  return validos.sort((a, b) => {
+    const dataA = dataExecucao(a);
+    const dataB = dataExecucao(b);
+    if (dataA !== dataB) {
+      if (!dataA) return 1;
+      if (!dataB) return -1;
+      return dataA.localeCompare(dataB);
+    }
+    const pesoA = PESO_PRIORIDADE[a.prioridade] ?? PESO_PRIORIDADE.media;
+    const pesoB = PESO_PRIORIDADE[b.prioridade] ?? PESO_PRIORIDADE.media;
+    if (pesoA !== pesoB) return pesoA - pesoB;
+    return String(a.codigo || '').localeCompare(String(b.codigo || ''), undefined, { numeric: true });
+  });
 }
 
 /** Catálogo de serviços baixado no pacote de campo (lançamento offline). */

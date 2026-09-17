@@ -14,6 +14,7 @@ import {
   atualizarPacoteCampo,
   cachearFotosChecklist,
   donoPacote,
+  getListaLocal,
   recalcularResumo,
   salvarDonoPacote,
 } from './offline';
@@ -114,6 +115,26 @@ describe('atualizarPacoteCampo', () => {
     expect(r.removidas).toBe(1);
     expect(await dbGet('os_lista', 5)).toBeUndefined();
     expect(await dbGet('os_lista', 6)).toMatchObject({ id: 6 }); // pendente não poda
+  });
+});
+
+describe('getListaLocal (ordenação do Modo Campo)', () => {
+  beforeEach(async () => { await limparTudoLocal(); });
+
+  it('ordena por data de execução; sem data no fim; empate por prioridade e código', async () => {
+    await dbPut('os_lista', { id: 1, os_id: 1, codigo: 'OS-1', status: 'aberta', prazo_entrega: '2026-09-20', prioridade: 'media' });
+    await dbPut('os_lista', { id: 2, os_id: 2, codigo: 'OS-2', status: 'aberta', prazo_entrega: '2026-09-10', prioridade: 'media' });
+    await dbPut('os_lista', { id: 3, os_id: 3, codigo: 'OS-3', status: 'aberta', prazo_entrega: null, prioridade: 'critica' });
+    await dbPut('os_lista', { id: 4, os_id: 4, codigo: 'OS-2026-0010', status: 'aberta', prazo_entrega: '2026-09-10', prioridade: 'alta' });
+    await dbPut('os_lista', { id: 5, os_id: 5, codigo: 'OS-2026-0002', status: 'aberta', prazo_entrega: '2026-09-10', prioridade: 'alta' });
+
+    expect((await getListaLocal()).map(o => o.codigo)).toEqual([
+      'OS-2026-0002', // 10/09, alta, código menor
+      'OS-2026-0010', // 10/09, alta
+      'OS-2', // 10/09, média
+      'OS-1', // 20/09, média
+      'OS-3', // sem data (mesmo sendo crítica) vai ao fim
+    ]);
   });
 });
 
