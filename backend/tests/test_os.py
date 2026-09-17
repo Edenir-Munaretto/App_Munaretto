@@ -2502,3 +2502,29 @@ class TestOsRetroativa:
         self._seed_com_modelo_checklist(db_fake)
         resp = self._criar_retroativa(os_campo_client)
         assert resp.status_code == 403
+
+    def test_campo_nao_recebe_retroativa_na_listagem(self, os_gestor_client, os_campo_client, db_fake):
+        """A retroativa não entra no pacote/quadro do campo; a normal entra."""
+        self._seed_com_modelo_checklist(db_fake)
+        retro_id = self._criar_retroativa(os_gestor_client, equipe_id=100).json()["id"]
+
+        normal_id = _criar_os(os_gestor_client, equipe_id=100).json()["id"]
+        assert os_gestor_client.put(f"/api/os/{normal_id}/status", json={"novo_status": "aberta"}).status_code == 200
+
+        ids_campo = {o["id"] for o in os_campo_client.get("/api/os/").json()}
+        assert normal_id in ids_campo
+        assert retro_id not in ids_campo
+
+        ids_gestor = {o["id"] for o in os_gestor_client.get("/api/os/").json()}
+        assert retro_id in ids_gestor
+
+    def test_campo_nao_acessa_nem_opera_retroativa(self, os_gestor_client, os_campo_client, db_fake):
+        """Mesmo com a equipe vinculada, o campo não abre nem opera a retroativa."""
+        self._seed_com_modelo_checklist(db_fake)
+        os_id = self._criar_retroativa(os_gestor_client, equipe_id=100).json()["id"]
+
+        assert os_campo_client.get(f"/api/os/{os_id}").status_code == 403
+        assert os_campo_client.get(f"/api/os/{os_id}/checklist").status_code == 403
+        assert os_campo_client.put(f"/api/os/{os_id}/status", json={"novo_status": "concluida"}).status_code == 403
+        materiais = os_campo_client.post(f"/api/os/{os_id}/materiais", json={"produto_id": 7, "quantidade_usada": 1})
+        assert materiais.status_code == 403

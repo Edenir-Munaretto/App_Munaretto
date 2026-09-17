@@ -310,9 +310,19 @@ def _equipes_do_usuario(db, usuario: UsuarioAutenticado) -> list[int]:
 
 
 def _garantir_acesso_os(db, usuario: UsuarioAutenticado, os_data: dict) -> None:
-    """Usuário de campo só pode acessar O.S da própria equipe."""
+    """Usuário de campo só pode acessar O.S da própria equipe.
+
+    O.S retroativa (execução registrada em papel) é registro do escritório:
+    não é enviada ao Modo Campo nem pode ser operada pelo usuário de campo,
+    mesmo que a equipe dele esteja vinculada.
+    """
     if _e_gestor_os(usuario):
         return
+    if os_data.get("retroativa"):
+        raise HTTPException(
+            status_code=403,
+            detail="Esta O.S retroativa é um registro do escritório e não está disponível para o campo.",
+        )
     equipes_usuario = _equipes_do_usuario(db, usuario)
     if not equipes_usuario or os_data.get("equipe_id") not in equipes_usuario:
         raise HTTPException(
@@ -763,6 +773,9 @@ def listar_os(
                 # O campo vê apenas as O.S em execução (abertas/em andamento):
                 # concluídas/canceladas saem da tela (arquivo fica com o gestor).
                 q = q.in_("status", ("aberta", "em_andamento"))
+                # O.S retroativa é registro do escritório (execução em papel):
+                # nunca entra no pacote/quadro do campo.
+                q = q.neq("retroativa", True)
             if status:
                 # Aceita uma lista separada por vírgula (ex.: "concluida,cancelada"
                 # na visão Encerradas) além do valor único usado no quadro.
@@ -960,6 +973,9 @@ def criar_os(payload: OSCreate, usuario: UsuarioAutenticado = Depends(get_curren
             "alimentador": payload.alimentador,
             "chave": payload.chave,
             "obs": payload.obs,
+            # Explícitos já na criação: o filtro do campo usa `neq True`.
+            "retroativa": False,
+            "checklist_dispensado": False,
             "criado_por": usuario.email,
         }
 
