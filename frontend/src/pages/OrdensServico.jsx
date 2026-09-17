@@ -5,7 +5,7 @@ import {
   AlertTriangle, Check, Clock, CalendarClock, FileDown, LayoutGrid,
   FolderKanban, HardHat, Boxes, Trash2, Image as ImageIcon,
   Pencil, Building, Printer, ListChecks, RefreshCw, WifiOff, ChevronDown, Archive,
-  Upload, FileSpreadsheet, Download, BarChart3, Trophy, ChevronLeft, ChevronRight,
+  Upload, FileSpreadsheet, Download, BarChart3, Trophy, ChevronLeft, ChevronRight, Send,
 } from 'lucide-react';
 import { API_URL, apiFetch, erroDaResposta } from '../api';
 import ModalConfirmacao from '../components/ModalConfirmacao';
@@ -1591,7 +1591,7 @@ function TabTimeline({ historico }) {
 // O checklist de execução bloqueia o início (grupo 1) e a conclusão.
 // 'Cancelar O.S' abre o modal dedicado (justificativa obrigatória) para
 // gestor e campo.
-function AcoesStatus({ detalhe, podeEditar, mudarStatus, aoAplicado, transicoesMap, onAbrirChecklist, onPedirCancelamento, mostrarToast }) {
+function AcoesStatus({ detalhe, podeEditar, mudarStatus, aoAplicado, transicoesMap, onAbrirChecklist, onPedirCancelamento, mostrarToast, ehGestor = false }) {
   const [destinoConfirmar, setDestinoConfirmar] = useState(null);
   const [processando, setProcessando] = useState(false);
 
@@ -1601,6 +1601,9 @@ function AcoesStatus({ detalhe, podeEditar, mudarStatus, aoAplicado, transicoesM
   const iniciar = detalhe.status === 'aberta' && alvos.has('em_andamento');
   const podeCancelar = alvos.has('cancelada');
   const concluir = alvos.has('concluida');
+  // O gestor não inicia a execução (tarefa da equipe de campo): no lugar do
+  // botão ele vê o aviso "Aguardando início da equipe".
+  const mostrarAguardando = ehGestor && iniciar;
 
   const checklist = detalhe.checklist;
 
@@ -1643,18 +1646,39 @@ function AcoesStatus({ detalhe, podeEditar, mudarStatus, aoAplicado, transicoesM
     if (ok) aoAplicado();
   };
 
-  if (!principal && !iniciar && !concluir && !podeCancelar) return null;
+  if (!principal && !(iniciar && !ehGestor) && !mostrarAguardando && !concluir && !podeCancelar) return null;
 
   return (
     <div className="space-y-2">
-      {(principal || iniciar) && (
+      {principal && (
         <button
-          onClick={principal ? ativarOs : liberarInicio}
+          onClick={ativarOs}
           disabled={processando}
           className="w-full h-16 rounded-2xl bg-primary-600 hover:bg-primary-700 text-white text-base font-extrabold shadow-lg shadow-primary-900/10 flex items-center justify-center gap-3 cursor-pointer transition-all disabled:opacity-40 disabled:cursor-not-allowed"
         >
-          <Play size={24} /> {principal ? 'Ativar O.S' : 'Iniciar Execução'}
+          <Send size={24} /> Enviar O.S
         </button>
+      )}
+      {iniciar && !ehGestor && (
+        <button
+          onClick={liberarInicio}
+          disabled={processando}
+          className="w-full h-16 rounded-2xl bg-primary-600 hover:bg-primary-700 text-white text-base font-extrabold shadow-lg shadow-primary-900/10 flex items-center justify-center gap-3 cursor-pointer transition-all disabled:opacity-40 disabled:cursor-not-allowed"
+        >
+          <Play size={24} /> Iniciar Execução
+        </button>
+      )}
+      {mostrarAguardando && (
+        <div className="rounded-xl border border-sky-200 bg-sky-50 px-3 py-3 flex items-start gap-2.5">
+          <Send size={16} className="text-sky-600 mt-0.5 shrink-0" />
+          <div className="min-w-0">
+            <p className="text-xs font-extrabold text-sky-800">Aguardando início da equipe</p>
+            <p className="text-[10px] text-sky-600 font-semibold leading-relaxed">
+              A O.S foi enviada ao campo. A execução começa após o checklist de preparação
+              {detalhe.checklist ? ` (${detalhe.checklist.respondidos}/${detalhe.checklist.total} respondidos)` : ''}.
+            </p>
+          </div>
+        </div>
       )}
       <div className={`grid ${concluir && podeCancelar ? 'grid-cols-2' : 'grid-cols-1'} gap-2`}>
         {concluir && (
@@ -1994,6 +2018,7 @@ function PainelExecucao({ osId, produtos, onFechar, recarregarLista, mostrarToas
           onAbrirChecklist={() => setAba('checklist')}
           onPedirCancelamento={onPedirCancelamento}
           mostrarToast={mostrarToast}
+          ehGestor={ehGestor}
         />        {ehGestor && (
           <div className="grid gap-2 grid-cols-2">
             <button
@@ -3582,6 +3607,13 @@ function OrdensServico({ usuarioAtual }) {
     // Bloqueia transições inválidas com feedback claro ao usuário.
     if (!transicoes[os.status]?.has(destino)) {
       mostrarToast(`Transição não permitida: "${LABEL_STATUS[os.status]}" → "${LABEL_STATUS[destino]}".`, 'error');
+      return;
+    }
+
+    // O gestor não inicia a execução (tarefa da equipe de campo): arrastar
+    // para "Em Andamento" é bloqueado para ele, como no painel.
+    if (destino === 'em_andamento' && ehGestor) {
+      mostrarToast('A execução é iniciada pela equipe de campo.', 'error');
       return;
     }
 
