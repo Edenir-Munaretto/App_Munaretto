@@ -5067,8 +5067,8 @@ function PainelCadastros({ equipes, produtos, recarregar, mostrarToast }) {
 
   const baixarModeloServicos = async () => {
     try {
-      // O modelo traz os rótulos do contrato selecionado (USC/UMD/ULV).
-      const res = await apiFetch(`${API_URL}/os/produtos/modelo?tipo=${encodeURIComponent(impContrato)}`);
+      // O modelo traz os rótulos do contrato selecionado na aba (USC/UMD/ULV).
+      const res = await apiFetch(`${API_URL}/os/produtos/modelo?tipo=${encodeURIComponent(filtroTipoProduto)}`);
       if (!res.ok) {
         mostrarToast('Erro ao baixar o modelo.', 'error');
         return;
@@ -5156,7 +5156,7 @@ function PainelCadastros({ equipes, produtos, recarregar, mostrarToast }) {
   const reiniciarImportacao = () => {
     setImpArquivo(null);
     setImpResumo(null);
-    setImpContrato(TIPO_PADRAO_OS);
+    setImpContrato(filtroTipoProduto);
     if (inputImportRef.current) inputImportRef.current.value = '';
   };
 
@@ -5340,7 +5340,7 @@ function PainelCadastros({ equipes, produtos, recarregar, mostrarToast }) {
                 <button
                   type="button"
                   onClick={baixarModeloServicos}
-                  title="Baixar modelo .xlsx para preenchimento"
+                  title={`Baixar modelo .xlsx do catálogo de ${ROTULOS_TIPO_SERVICO[filtroTipoProduto] || filtroTipoProduto}`}
                   className="flex items-center gap-1.5 px-3 py-2 rounded-xl border border-slate-200 bg-white text-slate-600 text-[10px] font-bold hover:bg-slate-50 transition-all cursor-pointer"
                 >
                   <FileSpreadsheet size={13} />
@@ -5348,7 +5348,7 @@ function PainelCadastros({ equipes, produtos, recarregar, mostrarToast }) {
                 </button>
                 <button
                   type="button"
-                  onClick={() => { setModalImportar(true); setImpResumo(null); setImpArquivo(null); }}
+                  onClick={() => { setModalImportar(true); setImpContrato(filtroTipoProduto); setImpResumo(null); setImpArquivo(null); }}
                   title="Cadastrar serviços em lote (.xlsx)"
                   className="flex items-center gap-1.5 px-3 py-2 rounded-xl border border-slate-200 bg-white text-slate-600 text-[10px] font-bold hover:bg-slate-50 transition-all cursor-pointer"
                 >
@@ -5537,7 +5537,9 @@ function PainelCadastros({ equipes, produtos, recarregar, mostrarToast }) {
                   ))}
                 </select>
                 <p className="text-[10px] font-semibold text-slate-400 mt-1">
-                  Vale para todas as linhas do arquivo. Baixe o modelo pelo botão &quot;Modelo&quot; para conferir as colunas.
+                  Vale para todas as linhas do arquivo. Os fatores são lidos como &quot;Qtd{' '}
+                  {unidadeContrato(impContrato)}&quot; — baixe o modelo pelo botão &quot;Modelo&quot; para conferir as
+                  colunas.
                 </p>
               </div>
 
