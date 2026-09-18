@@ -28,9 +28,17 @@ logger = logging.getLogger(__name__)
 
 STATUS_FERIAS_ATIVAS = {"Agendado", "Em Férias"}
 
-# Cache simples em memória com TTL de 60 segundos
+# Cache simples em memória com TTL de 10 minutos. O resumo é o mesmo para
+# todos os usuários e muda pouco ao longo do dia — antes ele refazia a leitura
+# de várias tabelas inteiras a cada 60 segundos por processo.
 _cache: dict = {"data": None, "ts": 0.0}
-_CACHE_TTL = 60  # segundos
+_CACHE_TTL = 600  # segundos
+
+
+def limpar_cache_dashboard() -> None:
+    """Invalida o cache do resumo (usado nos testes)."""
+    _cache["data"] = None
+    _cache["ts"] = 0.0
 
 
 def _contar_status(registros: list) -> dict:
@@ -122,9 +130,11 @@ def resumo_dashboard(db=Depends(get_supabase)):
     try:
         # Todas as leituras são paginadas: com mais de ~1000 registros o
         # PostgREST trunca a resposta e os totais ficariam errados em silêncio.
-        # Funcionários: total sem excluídos (ativos + inativos)
-        funcs = _ler_paginado(db.table("funcionarios").select("ativo", "excluido").eq("excluido", False))
-        total_funcionarios = len(funcs)
+        # Funcionários: só o total (count exato no banco; sem baixar as linhas).
+        resp_func = (
+            db.table("funcionarios").select("id", count="exact").eq("excluido", False).limit(1).execute()
+        )
+        total_funcionarios = int(resp_func.count or 0)
 
         # Férias: contagem de registros Agendado/Em Férias e alertas de prazo
         ferias = _ler_paginado(
@@ -143,7 +153,13 @@ def resumo_dashboard(db=Depends(get_supabase)):
 
         # Cursos/treinamentos dos funcionários. Documentos vinculados (ex:
         # AUTORIZAÇÃO NR10 E NR35) usam o vencimento derivado dos pré-requisitos.
-        treinos = _ler_paginado(db.table("funcionario_treinamentos").select("*"))
+        # Colunas explícitas: o resumo só precisa destes campos (antes vinha a
+        # linha inteira de cada treinamento).
+        treinos = _ler_paginado(
+            db.table("funcionario_treinamentos").select(
+                "id, funcionario_id, funcionario_nome, treinamento_id, treinamento_nome, data_validade"
+            )
+        )
         catalogo = _ler_paginado(db.table("treinamentos").select("id", "nome"))
         aplicar_documentos_vinculados(treinos, catalogo, asos)
         for t in treinos:

@@ -258,12 +258,22 @@ async function _baixarEmParalelo(ids, limite = 5, opcoes = {}) {
 /** Teto de O.S ativas baixadas por vez (o PostgREST também limita ~1000). */
 const LIMITE_LISTA_CAMPO = 500;
 
-/** Busca a lista de O.S com retry (falhas de rede/5xx são transitórias). */
+/** Versão do pacote local: mudar quando os campos da listagem mudarem.
+ *  No primeiro refresh após o deploy, os tablets atualizam todas as O.S uma vez
+ *  (de forma controlada) em vez de depender do diff campo a campo. */
+const VERSAO_PACOTE = 2;
+
+/** Busca a lista de O.S com retry (falhas de rede/5xx são transitórias).
+ *  `resumo=true`: o pacote de campo não precisa das colunas pesadas do
+ *  detalhe (obs, dados elétricos) — só dos campos exibidos na listagem. */
 async function _buscarListaOs() {
   let ultimoErro = null;
   for (let tentativa = 0; tentativa < 3; tentativa += 1) {
     try {
-      const res = await apiFetch(`${API_URL}/os/?limit=${LIMITE_LISTA_CAMPO}`, { signal: AbortSignal.timeout(45000) });
+      const res = await apiFetch(
+        `${API_URL}/os/?limit=${LIMITE_LISTA_CAMPO}&resumo=true`,
+        { signal: AbortSignal.timeout(45000) },
+      );
       if (res.ok) return await res.json();
       ultimoErro = erroDaResposta(await res.json().catch(() => null), 'Falha ao baixar a lista de O.S.');
     } catch (e) {
@@ -283,8 +293,11 @@ async function _atualizarMetaPacote(lista) {
     const tem = await dbGet('os', Number(id));
     if (!tem) faltantes.push(id);
   }
+  const metaAnterior = (await infoPacote()) || {};
   await dbPut('meta', {
+    ...metaAnterior,
     chave: 'pacote',
+    versao_pacote: VERSAO_PACOTE,
     preparado_em: new Date().toISOString(),
     quantidade: ids.length,
     faltantes,
@@ -304,6 +317,52 @@ async function _baixarCatalogo() {
   } catch {
     return false; // falha no catálogo não impede o restante do pacote
   }
+}
+
+/** Consulta a versão do catálogo no servidor (token minúsculo). */
+async function _versaoCatalogoServidor() {
+  try {
+    const res = await apiFetch(`${API_URL}/os/produtos/versao`, { signal: AbortSignal.timeout(15000) });
+    if (!res.ok) return null;
+    const dados = await res.json().catch(() => null);
+    return dados?.versao || null;
+  } catch {
+    return null;
+  }
+}
+
+async function _lerVersaoCatalogoLocal() {
+  const meta = await dbGet('meta', 'catalogo');
+  return meta?.versao || null;
+}
+
+async function _gravarVersaoCatalogo(versao) {
+  if (!versao) return;
+  await dbPut('meta', { chave: 'catalogo', versao });
+}
+
+/**
+ * Sincroniza o catálogo do Modo Campo com o servidor SEM baixar os milhares de
+ * serviços em todo refresh: consulta só a versão e rebaixa o catálogo apenas
+ * quando ela muda (ou quando ainda não há catálogo no aparelho).
+ *
+ * Fail-open: se a checagem falhar e já existir catálogo local, mantém o atual.
+ */
+async function _sincronizarCatalogo() {
+  const versaoLocal = await _lerVersaoCatalogoLocal();
+  const temCatalogo = (await getProdutosLocal()).length > 0;
+  const versaoServidor = await _versaoCatalogoServidor();
+
+  if (versaoServidor && versaoLocal === versaoServidor && temCatalogo) {
+    return { ok: true, atualizado: false };
+  }
+  if (!versaoServidor && versaoLocal && temCatalogo) {
+    return { ok: true, atualizado: false }; // indisponível: mantém o local
+  }
+
+  const ok = await _baixarCatalogo();
+  if (ok) await _gravarVersaoCatalogo(versaoServidor);
+  return { ok, atualizado: ok };
 }
 
 /** O.S com pendência local (fila ou fotos não enviadas): não podem ser
@@ -327,7 +386,8 @@ export async function prepararPacoteCampo() {
   await dbClearStore('checklist');
 
   // Catálogo de serviços (lançamento de materiais) também vai para o tablet.
-  await _baixarCatalogo();
+  // Com a versão em `meta.catalogo`, só rebaixa quando o catálogo mudou.
+  await _sincronizarCatalogo();
 
   // Lista vai primeiro (a O.S aparece mesmo que o detalhe precise de retry).
   // IMPORTANTE: a store `os_lista` usa keyPath `os_id` — o item cru da
@@ -386,6 +446,9 @@ export async function donoPacote() {
 export async function atualizarPacoteCampo({ completo = false } = {}) {
   const metaAnterior = await infoPacote();
   const faltantesAntigos = (metaAnterior?.faltantes || []).filter(Boolean);
+  // Layout do pacote mudou (campos da listagem): força a atualização de todas
+  // as O.S uma única vez, de forma controlada, em vez de depender do diff.
+  const layoutMudou = (metaAnterior?.versao_pacote ?? 1) !== VERSAO_PACOTE;
   const comPendencia = await _idsComPendenciaLocal();
 
   const lista = await _buscarListaOs();
@@ -407,7 +470,7 @@ export async function atualizarPacoteCampo({ completo = false } = {}) {
     if (comPendencia.has(id)) continue;
     const localLimpo = { ...(locaisPorId.get(id) || {}) };
     delete localLimpo.os_id;
-    if (JSON.stringify(localLimpo) !== JSON.stringify(os)) {
+    if (layoutMudou || JSON.stringify(localLimpo) !== JSON.stringify(os)) {
       atualizadas += 1;
       mudou.add(id);
     }
@@ -444,8 +507,10 @@ export async function atualizarPacoteCampo({ completo = false } = {}) {
     }
   }
 
-  // 4) Catálogo de serviços (materiais offline) — best-effort.
-  await _baixarCatalogo();
+  // 4) Catálogo de serviços (materiais offline) — best-effort e só quando a
+  //    versão do catálogo mudou (consulta de ~1 KB no lugar dos milhares de
+  //    serviços a cada refresh).
+  await _sincronizarCatalogo();
 
   const faltantes = [];
   for (const id of baixar) {
@@ -454,6 +519,7 @@ export async function atualizarPacoteCampo({ completo = false } = {}) {
   await dbPut('meta', {
     ...(metaAnterior || {}),
     chave: 'pacote',
+    versao_pacote: VERSAO_PACOTE,
     preparado_em: new Date().toISOString(),
     quantidade: (await getListaLocal()).length,
     faltantes,
@@ -473,6 +539,7 @@ export async function limparPacote() {
   await dbClearStore('fila');
   await dbClearStore('fotos');
   await dbDel('meta', 'pacote');
+  await dbDel('meta', 'catalogo');
   await dbDel('meta', 'responsavel');
   await dbDel('meta', 'dono');
 }

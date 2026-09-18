@@ -117,6 +117,48 @@ def _sem_senha(user: dict) -> dict:
     return {k: v for k, v in user.items() if k != "senha"}
 
 
+# ---------------------------------------------------------------------------
+# Cache curto do usuário autenticado
+#
+# Cada request autenticada consulta a tabela `usuarios`. Com os pollings do
+# frontend (notificações, alertas, sessão) a mesma leitura se repete centenas
+# de vezes por dia. Um cache TTL de 60s por id elimina as repetições; os
+# endpoints que alteram usuários invalidam a entrada (routers/usuarios.py).
+# ---------------------------------------------------------------------------
+COLUNAS_USUARIO_AUTENTICACAO = "id, nome, email, permissoes, ativo, funcionario_id, precisa_trocar_senha"
+_CACHE_USUARIO_TTL_SEGUNDOS = 60.0
+_cache_usuarios: dict[int, tuple[float, dict]] = {}
+_trava_cache_usuarios = threading.Lock()
+
+
+def limpar_cache_usuarios(usuario_id: int | None = None) -> None:
+    """Limpa o cache de autenticação (um usuário específico ou todos)."""
+    with _trava_cache_usuarios:
+        if usuario_id is None:
+            _cache_usuarios.clear()
+        else:
+            _cache_usuarios.pop(usuario_id, None)
+
+
+def _usuario_por_id(db, user_id: int) -> dict | None:
+    """Busca o usuário no cache (TTL curto) ou no banco, sem trazer a senha."""
+    agora = time.monotonic()
+    with _trava_cache_usuarios:
+        entrada = _cache_usuarios.get(user_id)
+        if entrada is not None and agora - entrada[0] < _CACHE_USUARIO_TTL_SEGUNDOS:
+            return entrada[1]
+
+    response = db.table("usuarios").select(COLUNAS_USUARIO_AUTENTICACAO).eq("id", user_id).limit(1).execute()
+    if not response.data:
+        limpar_cache_usuarios(user_id)
+        return None
+
+    usuario = response.data[0]
+    with _trava_cache_usuarios:
+        _cache_usuarios[user_id] = (agora, usuario)
+    return usuario
+
+
 # Rotas acessíveis mesmo com troca de senha pendente (o usuário precisa
 # conseguir ver quem está logado e definir a nova senha).
 ROTAS_LIVRES_COM_TROCA_PENDENTE = (
@@ -146,11 +188,11 @@ def get_current_user(
     except (TypeError, ValueError):
         raise CREDENCIAIS_INVALIDAS from None
 
-    response = db.table("usuarios").select("*").eq("id", user_id).limit(1).execute()
-    if not response.data:
+    response = _usuario_por_id(db, user_id)
+    if not response:
         raise CREDENCIAIS_INVALIDAS
 
-    user = response.data[0]
+    user = response
     if not user.get("ativo", True):
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,

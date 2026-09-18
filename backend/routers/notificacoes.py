@@ -1,4 +1,6 @@
 import logging
+import threading
+import time
 from datetime import datetime, timedelta
 
 from fastapi import APIRouter, Depends, HTTPException, Query
@@ -6,10 +8,48 @@ from pydantic import BaseModel, Field
 
 from auth import UsuarioAutenticado, get_current_user
 from supabase_client import get_supabase
+from utils.paginacao import em_lotes
 
 logger = logging.getLogger(__name__)
 
 router = APIRouter(dependencies=[Depends(get_current_user)])
+
+# ---------------------------------------------------------------------------
+# Geração de lembretes fora do caminho da request
+#
+# O GET /notificacoes/ é consultado pelo frontend a cada minuto. Antes, os
+# geradores rodavam em TODA chamada e faziam uma consulta de existência por
+# combinação (programação x usuário), multiplicando o tráfego ao Supabase.
+# Agora rodam no máximo 1x/hora por processo e resolvem a existência em UMA
+# consulta por lote.
+# ---------------------------------------------------------------------------
+_INTERVALO_GERACAO_SEGUNDOS = 3600
+_ultima_geracao = 0.0
+_trava_geracao = threading.Lock()
+
+
+def resetar_geracao_lembretes() -> None:
+    """Zera o relógio da geração de lembretes (usado nos testes)."""
+    global _ultima_geracao
+    _ultima_geracao = 0.0
+
+
+def _executar_geradores_se_necessario(db) -> None:
+    """Executa os geradores no máximo 1x/hora (sem bloquear requests simultâneas)."""
+    global _ultima_geracao
+    agora = time.monotonic()
+    if agora - _ultima_geracao < _INTERVALO_GERACAO_SEGUNDOS:
+        return
+    if not _trava_geracao.acquire(blocking=False):
+        return  # outra request já está gerando
+    try:
+        if time.monotonic() - _ultima_geracao < _INTERVALO_GERACAO_SEGUNDOS:
+            return
+        _gerar_lembretes_ferias(db)
+        _gerar_lembretes_documentos_veiculos(db)
+        _ultima_geracao = time.monotonic()
+    finally:
+        _trava_geracao.release()
 
 
 class NotificacaoCreate(BaseModel):
@@ -54,6 +94,7 @@ def _gerar_lembretes_ferias(db) -> None:
             return
 
         hoje = datetime.now().date()
+        pendentes = []  # (ferias_id, titulo, mensagem)
 
         for p in programacoes.data:
             try:
@@ -92,20 +133,30 @@ def _gerar_lembretes_ferias(db) -> None:
                     f"Faltam {dias_restantes} dias para o início das férias de "
                     f"{nome} ({inicio_br}). A programação ainda não foi confirmada."
                 )
+            pendentes.append((ferias_id, titulo, mensagem))
 
-            for alvo in alvos:
-                existe = (
+        if not pendentes:
+            return
+
+        # Existentes em UMA consulta por lote (antes: 1 SELECT por programação x usuário)
+        existentes = set()
+        for lote_ids in em_lotes(sorted({p[0] for p in pendentes})):
+            for lote_alvos in em_lotes(alvos):
+                resp = (
                     db.table("notificacoes")
-                    .select("id")
-                    .eq("destinatario", alvo)
-                    .eq("ferias_id", ferias_id)
+                    .select("ferias_id, destinatario, mensagem")
                     .eq("tipo", "ferias")
-                    .eq("mensagem", mensagem)
+                    .in_("ferias_id", lote_ids)
+                    .in_("destinatario", lote_alvos)
                     .execute()
                 )
-                if existe.data:
-                    continue
+                for n in resp.data or []:
+                    existentes.add((n.get("ferias_id"), n.get("destinatario"), n.get("mensagem")))
 
+        for ferias_id, titulo, mensagem in pendentes:
+            for alvo in alvos:
+                if (ferias_id, alvo, mensagem) in existentes:
+                    continue
                 db.table("notificacoes").insert(
                     {
                         "tipo": "ferias",
@@ -114,7 +165,8 @@ def _gerar_lembretes_ferias(db) -> None:
                         "destinatario": alvo,
                         "ferias_id": ferias_id,
                         "criada_por": "Sistema",
-                    }
+                    },
+                    returning="minimal",
                 ).execute()
     except Exception as e:
         logger.warning(f"Erro ao gerar lembretes de férias: {e}")
@@ -150,6 +202,7 @@ def _gerar_lembretes_documentos_veiculos(db) -> None:
             return
 
         hoje = datetime.now().date()
+        pendentes = []  # (veiculo_documento_id, titulo, mensagem)
 
         for d in docs.data:
             try:
@@ -191,20 +244,32 @@ def _gerar_lembretes_documentos_veiculos(db) -> None:
                         f'O documento "{d["tipo"]}" do veículo {rotulo} '
                         f"vence em {dias_restantes} dia(s) ({validade_br})."
                     )
+            pendentes.append((doc_id, titulo, mensagem))
 
-            for alvo in alvos:
-                existe = (
+        if not pendentes:
+            return
+
+        # Existentes em UMA consulta por lote (antes: 1 SELECT por documento x usuário)
+        existentes = set()
+        for lote_ids in em_lotes(sorted({p[0] for p in pendentes})):
+            for lote_alvos in em_lotes(alvos):
+                resp = (
                     db.table("notificacoes")
-                    .select("id")
-                    .eq("destinatario", alvo)
-                    .eq("veiculo_documento_id", doc_id)
+                    .select("veiculo_documento_id, destinatario, mensagem")
                     .eq("tipo", "documento_veiculo")
-                    .eq("mensagem", mensagem)
+                    .in_("veiculo_documento_id", lote_ids)
+                    .in_("destinatario", lote_alvos)
                     .execute()
                 )
-                if existe.data:
-                    continue
+                for n in resp.data or []:
+                    existentes.add(
+                        (n.get("veiculo_documento_id"), n.get("destinatario"), n.get("mensagem"))
+                    )
 
+        for doc_id, titulo, mensagem in pendentes:
+            for alvo in alvos:
+                if (doc_id, alvo, mensagem) in existentes:
+                    continue
                 db.table("notificacoes").insert(
                     {
                         "tipo": "documento_veiculo",
@@ -213,7 +278,8 @@ def _gerar_lembretes_documentos_veiculos(db) -> None:
                         "destinatario": alvo,
                         "veiculo_documento_id": doc_id,
                         "criada_por": "Sistema",
-                    }
+                    },
+                    returning="minimal",
                 ).execute()
     except Exception as e:
         logger.warning(f"Erro ao gerar lembretes de documentos de veículos: {e}")
@@ -227,9 +293,16 @@ def listar_notificacoes(
 ):
     """Lista apenas as notificações do usuário autenticado (e-mail derivado do token)."""
     try:
-        _gerar_lembretes_ferias(db)
-        _gerar_lembretes_documentos_veiculos(db)
-        query = db.table("notificacoes").select("*").order("created_at", desc=True)
+        _executar_geradores_se_necessario(db)
+        query = (
+            db.table("notificacoes")
+            .select(
+                "id, tipo, titulo, mensagem, destinatario, ferias_id, "
+                "veiculo_documento_id, lida, criada_por, created_at"
+            )
+            .order("created_at", desc=True)
+            .limit(100)
+        )
 
         # Escopo obrigatório: ignora qualquer destinatário enviado pelo cliente
         query = query.eq("destinatario", usuario.email)
@@ -313,8 +386,11 @@ def marcar_todas_lidas(usuario: UsuarioAutenticado = Depends(get_current_user), 
     """Marca todas as notificações do usuário autenticado como lidas."""
     try:
         # Sem filtro em lida: garante que registros com lida NULL (legado)
-        # também sejam marcados
-        db.table("notificacoes").update({"lida": True}).eq("destinatario", usuario.email).execute()
+        # também sejam marcados. returning="minimal": o PostgREST não devolve
+        # todas as linhas alteradas (economia de tráfego).
+        db.table("notificacoes").update({"lida": True}, returning="minimal").eq(
+            "destinatario", usuario.email
+        ).execute()
         return {"success": True}
     except Exception:
         logger.exception("Erro ao marcar notificações como lidas")

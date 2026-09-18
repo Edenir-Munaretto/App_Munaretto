@@ -2542,3 +2542,34 @@ class TestOsRetroativa:
         assert os_campo_client.put(f"/api/os/{os_id}/status", json={"novo_status": "concluida"}).status_code == 403
         materiais = os_campo_client.post(f"/api/os/{os_id}/materiais", json={"produto_id": 7, "quantidade_usada": 1})
         assert materiais.status_code == 403
+
+
+class TestListagemContadores:
+    """Contadores dos cards da listagem (RPC os_contadores no banco)."""
+
+    def test_listar_os_traz_materiais_aplicados_e_fotos(self, os_gestor_client, db_fake):
+        _seed_cenario(db_fake)
+        os_id = _criar_os(os_gestor_client).json()["id"]
+        assert os_gestor_client.put(f"/api/os/{os_id}/status", json={"novo_status": "aberta"}).status_code == 200
+        # Qtd USC normal = 40 (cadastro) -> 4 x 40 = 160 aplicado.
+        resp = os_gestor_client.post(f"/api/os/{os_id}/materiais", json={"produto_id": 7, "quantidade_usada": 4})
+        assert resp.status_code == 201, resp.text
+        _anexar_foto_via_banco(db_fake, os_id, qtd=2)
+
+        listagem = os_gestor_client.get("/api/os/?limit=10")
+        assert listagem.status_code == 200, listagem.text
+        linha = next(o for o in listagem.json() if o["id"] == os_id)
+        assert linha["total_materiais_aplicado"] == 160.0
+        assert linha["fotos_count"] == 2
+
+    def test_listar_os_resumo_mantem_campos_da_listagem(self, os_gestor_client, db_fake):
+        """`resumo=true` (pacote de campo) preserva busca/cards e contadores."""
+        _seed_cenario(db_fake)
+        os_id = _criar_os(os_gestor_client, descricao_escopo="Troca de poste na rua A").json()["id"]
+        _anexar_foto_via_banco(db_fake, os_id, qtd=1)
+
+        resp = os_gestor_client.get("/api/os/?limit=10&resumo=true")
+        assert resp.status_code == 200, resp.text
+        linha = next(o for o in resp.json() if o["id"] == os_id)
+        assert linha["descricao_escopo"] == "Troca de poste na rua A"
+        assert linha["fotos_count"] == 1

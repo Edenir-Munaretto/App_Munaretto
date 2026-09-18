@@ -88,8 +88,10 @@ const TRANSICOES_STATUS = {
 const LIMITE_PAGINA = 100;
 // Modo Campo contínuo: throttle entre refreshes automáticos e intervalo do
 // refresh periódico (novas O.S + atualizações + poda das encerradas).
+// 30 min: uma O.S nova ainda chega ao tocar no app (focus/online) ou pelo
+// botão "Atualizar O.S"; o intervalo longo evita baixar a lista a cada 4 min.
 const REFRESH_MIN_MS = 60 * 1000;
-const REFRESH_INTERVALO_MS = 4 * 60 * 1000;
+const REFRESH_INTERVALO_MS = 30 * 60 * 1000;
 
 // ---- Aba Desempenho (gestor): helpers de mês ----
 const NOMES_MESES = [

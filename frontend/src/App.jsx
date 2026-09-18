@@ -266,11 +266,12 @@ function App() {
     }
   }, [usuario]);
 
-  // Busca alertas de férias ao carregar
+  // Busca alertas de férias ao carregar e a cada 5 minutos (antes: 100s — o
+  // polling curtinho multiplicava leituras completas das tabelas no Supabase).
   useEffect(() => {
     if (!usuario) return;
     fetchAlerts();
-    const interval = setInterval(fetchAlerts, 100000); // 1.5 minutos
+    const interval = setInterval(fetchAlerts, 300000); // 5 minutos
     return () => clearInterval(interval);
   }, [usuario, fetchAlerts]);
 
@@ -288,11 +289,12 @@ function App() {
     }
   }, [usuario?.email]);
 
-  // Busca notificações do usuário logado ao carregar e periodicamente
+  // Busca notificações do usuário logado ao carregar e a cada 3 minutos
+  // (antes: 1 minuto — cada poll refazia a checagem no backend).
   useEffect(() => {
     if (!usuario) return;
     fetchNotifications();
-    const interval = setInterval(fetchNotifications, 60000); // 1 minuto
+    const interval = setInterval(fetchNotifications, 180000); // 3 minutos
     return () => clearInterval(interval);
   }, [usuario, fetchNotifications]);
 
@@ -501,7 +503,9 @@ function App() {
     }
   }, []);
 
-  // Ao carregar, ao focar a janela (com debounce de 30s) e a cada minuto, sincroniza as permissões.
+  // Ao carregar, ao focar a janela (com debounce de 30s) e a cada 5 minutos,
+  // sincroniza as permissões. O polling mais espaçado reduz consultas ao
+  // Supabase sem prejudicar a atualização (o foco da janela cobre o uso ativo).
   useEffect(() => {
     if (!getToken()) return;
     atualizarUsuarioAtual();
@@ -514,7 +518,7 @@ function App() {
       atualizarUsuarioAtual();
     };
     window.addEventListener('focus', onFocus);
-    const interval = setInterval(atualizarUsuarioAtual, 60000);
+    const interval = setInterval(atualizarUsuarioAtual, 300000);
     return () => {
       window.removeEventListener('focus', onFocus);
       clearInterval(interval);

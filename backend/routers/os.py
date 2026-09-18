@@ -60,6 +60,37 @@ PRIORIDADES = {"baixa", "media", "alta", "critica"}
 # Tipo da O.S (fonte única em utils/tipos_os): define o modelo de impressão
 # (CONSTRUÇÃO e MANUTENÇÃO usam o mesmo layout; LINHA VIVA tem modelo próprio).
 
+# Campos do pacote de campo (`resumo=true`): apenas o que a listagem offline
+# usa — busca (codigo/descricao_escopo/obra/equipe), semáforo de prazo, cards
+# (prioridade/tipo/retroativa) e ordenação. Sem colunas pesadas (obs, dados
+# elétricos, endereço) que só o detalhe completo exibe.
+CAMPOS_RESUMO_OS = (
+    "id, codigo, obra_id, equipe_id, status, prioridade, tipo, prazo_entrega, "
+    "retroativa, descricao_escopo, data_abertura, data_fim, data_execucao, "
+    "created_at, updated_at, "
+    "obras(id, nome, cliente_id, cliente_celesc, clientes(nome)), "
+    "equipes(id, nome, numero)"
+)
+
+
+def _contadores_os_rpc(db, os_ids: list[int]) -> dict[int, dict] | None:
+    """Contadores por O.S via RPC (só o agregado trafega).
+
+    Devolve None quando a função ainda não existe no banco, permitindo o
+    fallback paginado sem quebrar a listagem.
+    """
+    if not os_ids:
+        return {}
+    try:
+        resp = db.rpc("os_contadores", {"p_os_ids": os_ids}).execute()
+    except Exception:
+        logger.info("RPC os_contadores indisponível; usando leitura paginada de fallback")
+        return None
+    if resp is None or resp.data is None:
+        return None
+    return {int(linha["os_id"]): linha for linha in resp.data}
+
+
 # Manutenção e Linha Viva usam listas parecidas, mas são CONTRATOS
 # INDEPENDENTES: cada contrato tem o SEU catálogo de serviços.
 def _validar_servico_do_contrato(db, produto_id: int, tipo_os: str) -> dict:
@@ -708,6 +739,7 @@ def listar_os(
     busca: str | None = Query(None, description="Busca por código, escopo, Nota PS ou nome do cliente"),
     limit: int = Query(100, ge=1, le=500, description="Máximo de O.S por página"),
     offset: int = Query(0, ge=0, description="Registros a pular (paginação)"),
+    resumo: bool = Query(False, description="Pacote de campo: devolve só os campos usados na listagem"),
     usuario: UsuarioAutenticado = Depends(get_current_user),
     db=Depends(get_supabase),
     response: Response = None,
@@ -807,7 +839,9 @@ def listar_os(
 
         query = _aplicar_filtros(
             db.table("ordens_servico").select(
-                "*, obras(id, nome, cliente_id, cliente_celesc, clientes(nome)), equipes(id, nome)"
+                CAMPOS_RESUMO_OS
+                if resumo
+                else "*, obras(id, nome, cliente_id, cliente_celesc, clientes(nome)), equipes(id, nome)"
             )
         )
         # Listagem de encerradas (multi-status): ordena pela data de encerramento
@@ -828,20 +862,30 @@ def listar_os(
 
         # Contadores "Materiais aplicados" por O.S em UMA viagem só (evita
         # N+1 no frontend): soma da quantidade aplicada em USC (já convertida).
+        # Preferência pela RPC agregada (só o total trafega); fallback paginado
+        # para bancos que ainda não aplicaram a função no schema.
         if dados:
             os_ids = [d["id"] for d in dados]
-            # Paginado: uma página de 100 O.S pode ter >1000 materiais/fotos
-            # somados e o PostgREST truncaria os contadores em silêncio.
-            aplicacoes = _ler_paginado(
-                db.table("os_materiais").select("os_id, quantidade_usada").in_("os_id", os_ids)
-            )
-            fotos = _ler_paginado(db.table("os_fotos").select("os_id").in_("os_id", os_ids))
-            fotos_count = {}
-            for f in fotos or []:
-                fotos_count[f["os_id"]] = fotos_count.get(f["os_id"], 0) + 1
-            total_aplicado = {}
-            for m in aplicacoes or []:
-                total_aplicado[m["os_id"]] = total_aplicado.get(m["os_id"], 0.0) + float(m["quantidade_usada"])
+            contadores = _contadores_os_rpc(db, os_ids)
+            if contadores is None:
+                # Paginado: uma página de 100 O.S pode ter >1000 materiais/fotos
+                # somados e o PostgREST truncaria os contadores em silêncio.
+                aplicacoes = _ler_paginado(
+                    db.table("os_materiais").select("os_id, quantidade_usada").in_("os_id", os_ids)
+                )
+                fotos = _ler_paginado(db.table("os_fotos").select("os_id").in_("os_id", os_ids))
+                fotos_count = {}
+                for f in fotos or []:
+                    fotos_count[f["os_id"]] = fotos_count.get(f["os_id"], 0) + 1
+                total_aplicado = {}
+                for m in aplicacoes or []:
+                    total_aplicado[m["os_id"]] = total_aplicado.get(m["os_id"], 0.0) + float(m["quantidade_usada"])
+            else:
+                total_aplicado = {}
+                fotos_count = {}
+                for os_id, linha in contadores.items():
+                    total_aplicado[os_id] = float(linha.get("materiais") or 0)
+                    fotos_count[os_id] = int(linha.get("fotos") or 0)
 
             for d in dados:
                 d["total_materiais_aplicado"] = round(total_aplicado.get(d["id"], 0.0), 3)
@@ -890,7 +934,7 @@ def _apagar_recursos_os(db, os_id: int) -> None:
         ("ordens_servico", "id"),
     ):
         try:
-            db.table(tabela).delete().eq(coluna, os_id).execute()
+            db.table(tabela).delete(returning="minimal").eq(coluna, os_id).execute()
         except Exception:
             logger.exception("Falha no rollback da O.S %s (%s)", os_id, tabela)
 

@@ -7,6 +7,15 @@ que os routers da API possam ser testados sem conexão externa.
 
 from dataclasses import dataclass
 
+# Relógio monotônico do fake: emula o trigger `updated_at` da tabela produtos,
+# usado pelo endpoint de versão do catálogo do Modo Campo.
+_TIMESTAMP_FAKE = [0]
+
+
+def _proximo_timestamp() -> str:
+    _TIMESTAMP_FAKE[0] += 1
+    return f"2026-01-01T00:00:{_TIMESTAMP_FAKE[0] % 60:02d}.{_TIMESTAMP_FAKE[0]:04d}Z"
+
 
 @dataclass
 class _Resposta:
@@ -65,6 +74,12 @@ class _Query:
     def like(self, coluna, valor):
         return self._registrar("ilike", coluna, valor)
 
+    def gte(self, coluna, valor):
+        return self._registrar("gte", coluna, valor)
+
+    def lte(self, coluna, valor):
+        return self._registrar("lte", coluna, valor)
+
     def in_(self, coluna, valores):
         return self._registrar("in", coluna, list(valores))
 
@@ -118,6 +133,12 @@ class _Query:
                 linhas = [r for r in linhas if r.get(coluna) is None]
             elif op == "isnotnull":
                 linhas = [r for r in linhas if r.get(coluna) is not None]
+            elif op == "gte":
+                # Comparação lexicográfica de ISO (AAAA-MM-DD...): NULL fica fora,
+                # como no SQL.
+                linhas = [r for r in linhas if r.get(coluna) is not None and str(r.get(coluna)) >= str(valor)]
+            elif op == "lte":
+                linhas = [r for r in linhas if r.get(coluna) is not None and str(r.get(coluna)) <= str(valor)]
         if self.ordenacao:
             coluna, desc = self.ordenacao
             linhas = sorted(linhas, key=lambda r: str(r.get(coluna, "")), reverse=desc)
@@ -190,7 +211,7 @@ class _Query:
             partes.append(atual)
         return partes
 
-    def insert(self, payload):
+    def insert(self, payload, **kwargs):
         if isinstance(payload, dict):
             payload = [payload]
         self.dados[self.tabela] = self.dados.get(self.tabela, [])
@@ -198,11 +219,13 @@ class _Query:
         for item in payload:
             novo = dict(item)
             novo["id"] = max((r["id"] for r in self.dados[self.tabela]), default=0) + 1
+            if self.tabela == "produtos" and not novo.get("updated_at"):
+                novo["updated_at"] = _proximo_timestamp()
             self.dados[self.tabela].append(novo)
             criados.append(novo)
         return _Resposta(criados)
 
-    def upsert(self, payload, on_conflict=None):
+    def upsert(self, payload, on_conflict=None, **kwargs):
         """Insere ou atualiza linhas com base na chave de conflito.
 
         `on_conflict` aceita uma coluna ou várias separadas por vírgula
@@ -229,11 +252,11 @@ class _Query:
                 atualizados.append(novo)
         return _Resposta(atualizados)
 
-    def update(self, payload):
+    def update(self, payload, **kwargs):
         self._update_payload = payload
         return self
 
-    def delete(self):
+    def delete(self, **kwargs):
         self._delete = True
         return self
 
@@ -242,6 +265,8 @@ class _Query:
             alvo = self._aplica()
             for r in alvo:
                 r.update(self._update_payload)
+                if self.tabela == "produtos":
+                    r["updated_at"] = _proximo_timestamp()
             return _Resposta(alvo)
         if self._delete:
             removidos = self._aplica()
@@ -256,9 +281,78 @@ class _Query:
         return _Resposta(self._aplica())
 
 
+class _RpcQuery:
+    """Simula as funções RPC usadas pelo backend (agregações do schema.sql)."""
+
+    def __init__(self, funcao, parametros, dados):
+        self.funcao = funcao
+        self.parametros = parametros or {}
+        self.dados = dados
+
+    def execute(self):
+        if self.funcao == "os_contadores":
+            return _Resposta(self._os_contadores())
+        if self.funcao == "obras_contadores":
+            return _Resposta(self._obras_contadores())
+        raise Exception(f"RPC desconhecida no fake: {self.funcao}")
+
+    def _os_contadores(self):
+        ids = [int(i) for i in self.parametros.get("p_os_ids") or []]
+        fotos = {}
+        for f in self.dados.get("os_fotos", []):
+            if f.get("os_id") in ids:
+                fotos[f["os_id"]] = fotos.get(f["os_id"], 0) + 1
+        materiais = {}
+        for m in self.dados.get("os_materiais", []):
+            if m.get("os_id") in ids:
+                materiais[m["os_id"]] = materiais.get(m["os_id"], 0) + float(m.get("quantidade_usada") or 0)
+        return [{"os_id": i, "fotos": fotos.get(i, 0), "materiais": materiais.get(i, 0)} for i in ids]
+
+    def _obras_contadores(self):
+        ids = [int(i) for i in self.parametros.get("p_obra_ids") or []]
+        status_ativas = ("aberta", "em_andamento")
+        status_encerradas = ("concluida", "cancelada")
+        status_totais = ("aberta", "em_andamento", "concluida")
+
+        materiais = {}
+        for m in self.dados.get("os_materiais", []):
+            materiais[m.get("os_id")] = materiais.get(m.get("os_id"), 0) + float(m.get("quantidade_usada") or 0)
+
+        agregados = {}
+        for os_row in self.dados.get("ordens_servico", []):
+            obra_id = os_row.get("obra_id")
+            if obra_id not in ids:
+                continue
+            reg = agregados.setdefault(
+                obra_id,
+                {
+                    "os_total": 0,
+                    "os_ativas": 0,
+                    "os_encerradas": 0,
+                    "total_construcao": 0.0,
+                    "total_manutencao": 0.0,
+                    "total_linha_viva": 0.0,
+                },
+            )
+            reg["os_total"] += 1
+            if os_row.get("status") in status_ativas:
+                reg["os_ativas"] += 1
+            if os_row.get("status") in status_encerradas:
+                reg["os_encerradas"] += 1
+            if os_row.get("status") in status_totais:
+                tipo = os_row.get("tipo") or "construcao"
+                chave = f"total_{tipo}"
+                if chave in reg:
+                    reg[chave] += materiais.get(os_row.get("id"), 0.0)
+        return [{"obra_id": oid, **reg} for oid, reg in agregados.items()]
+
+
 class SupabaseFake:
     def __init__(self, dados):
         self._dados = dados
 
     def table(self, tabela):
         return _Query(tabela, self._dados)
+
+    def rpc(self, funcao, parametros=None):
+        return _RpcQuery(funcao, parametros, self._dados)

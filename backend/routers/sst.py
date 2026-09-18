@@ -11,6 +11,7 @@ Regras de vencimento consideradas:
 
 import logging
 import tempfile
+import time
 from datetime import date
 
 from fastapi import APIRouter, Depends, HTTPException, Query
@@ -42,6 +43,22 @@ from utils.documentos_vinculados import (
 router = APIRouter(dependencies=[Depends(require_permisao("sst"))])
 
 logger = logging.getLogger(__name__)
+
+# ---------------------------------------------------------------------------
+# Cache dos alertas de SST (central de notificações)
+#
+# O endpoint é consultado pelo frontend a cada ~100s e varria as tabelas
+# inteiras de treinamentos, ASOs e EPIs para montar contadores/mensagens que
+# mudam pouco. O resultado é o mesmo para todos os usuários do módulo.
+# ---------------------------------------------------------------------------
+_CACHE_ALERTAS: dict = {"data": None, "ts": 0.0}
+_CACHE_ALERTAS_TTL = 600  # segundos
+
+
+def limpar_cache_alertas_sst() -> None:
+    """Invalida o cache dos alertas (usado nos testes)."""
+    _CACHE_ALERTAS["data"] = None
+    _CACHE_ALERTAS["ts"] = 0.0
 
 DIAS_AVISO = 30
 
@@ -442,7 +459,16 @@ def listar_funcionario_treinamentos(
 ):
     """Lista os treinamentos realizados pelos funcionários com status de vencimento."""
     try:
-        linhas = db.table("funcionario_treinamentos").select("*").order("funcionario_nome").execute().data
+        linhas = (
+            db.table("funcionario_treinamentos")
+            .select(
+                "id, funcionario_id, funcionario_nome, treinamento_id, treinamento_nome, norma, "
+                "data_realizacao, data_validade, carga_horaria, certificado_url, observacao, created_at"
+            )
+            .order("funcionario_nome")
+            .execute()
+            .data
+        )
         certs = (
             db.table("certificados")
             .select("registro_id", "nome_original")
@@ -624,7 +650,16 @@ def listar_asos(
 ):
     """Lista os ASOs com status de vencimento."""
     try:
-        linhas = db.table("aso").select("*").order("funcionario_nome").execute().data
+        linhas = (
+            db.table("aso")
+            .select(
+                "id, funcionario_id, funcionario_nome, tipo_exame, data_exame, data_validade, "
+                "validade_meses, medico_responsavel, clinica, resultado, observacao, created_at"
+            )
+            .order("funcionario_nome")
+            .execute()
+            .data
+        )
         certs = (
             db.table("certificados").select("registro_id", "nome_original").eq("tipo_registro", "aso").execute().data
         )
@@ -779,7 +814,9 @@ def listar_epis(
 ):
     """Lista o catálogo de EPIs com a situação do CA."""
     try:
-        query = db.table("epis").select("*")
+        query = db.table("epis").select(
+            "id, nome, categoria, ca_numero, fabricante, ca_validade, ativo, created_at"
+        )
         if not incluir_inativos:
             query = query.eq("ativo", True)
         dados = query.order("nome").execute().data
@@ -833,7 +870,7 @@ def excluir_epi(epi_id: int, db=Depends(get_supabase)):
         check = db.table("epis").select("id").eq("id", epi_id).execute()
         if not check.data:
             raise HTTPException(status_code=404, detail="EPI não encontrado.")
-        db.table("epis").update({"ativo": False}).eq("id", epi_id).execute()
+        db.table("epis").update({"ativo": False}, returning="minimal").eq("id", epi_id).execute()
         return {"success": True, "message": "EPI excluído com sucesso."}
     except HTTPException:
         raise
@@ -872,8 +909,17 @@ def listar_funcionario_epis(
 ):
     """Lista as fichas de entrega de EPI com a situação do CA."""
     try:
-        linhas = db.table("funcionario_epis").select("*").order("data_entrega", desc=True).execute().data
-        epis_cat = db.table("epis").select("*").eq("ativo", True).execute().data
+        linhas = (
+            db.table("funcionario_epis")
+            .select(
+                "id, funcionario_id, funcionario_nome, epi_id, epi_nome, data_entrega, "
+                "data_devolucao, quantidade, observacao, created_at"
+            )
+            .order("data_entrega", desc=True)
+            .execute()
+            .data
+        )
+        epis_cat = db.table("epis").select("id, ca_validade").eq("ativo", True).execute().data
         ca_map = {e["id"]: _status_ca(e.get("ca_validade")) for e in epis_cat}
         resultado = []
         for r in linhas:
@@ -1192,9 +1238,30 @@ def gerar_pdf_ficha_epi(registro_id: int, db=Depends(get_supabase)):
 def obter_alertas(db=Depends(get_supabase)):
     """Resumo de conformidade e alertas de vencimentos de treinamentos, ASOs e CAs de EPI."""
     try:
-        treinos = db.table("funcionario_treinamentos").select("*").execute().data
-        asos = db.table("aso").select("*").execute().data
-        epis = db.table("epis").select("*").eq("ativo", True).execute().data
+        agora = time.monotonic()
+        if _CACHE_ALERTAS["data"] is not None and (agora - _CACHE_ALERTAS["ts"]) < _CACHE_ALERTAS_TTL:
+            return _CACHE_ALERTAS["data"]
+
+        # Colunas explícitas: antes vinha a linha inteira de cada tabela.
+        treinos = (
+            db.table("funcionario_treinamentos")
+            .select("id, funcionario_id, funcionario_nome, treinamento_id, treinamento_nome, data_validade")
+            .execute()
+            .data
+        )
+        asos = (
+            db.table("aso")
+            .select("id, funcionario_id, funcionario_nome, data_validade, tipo_exame, data_exame")
+            .execute()
+            .data
+        )
+        epis = (
+            db.table("epis")
+            .select("id, nome, ca_numero, ca_validade")
+            .eq("ativo", True)
+            .execute()
+            .data
+        )
         catalogo = db.table("treinamentos").select("id", "nome").execute().data
 
         aplicar_documentos_vinculados(treinos, catalogo, asos)
@@ -1289,7 +1356,10 @@ def obter_alertas(db=Depends(get_supabase)):
                 )
 
         alertas.sort(key=lambda x: 0 if x["gravidade"] == "danger" else 1)
-        return {"resumo": resumo, "alertas": alertas}
+        resultado = {"resumo": resumo, "alertas": alertas}
+        _CACHE_ALERTAS["data"] = resultado
+        _CACHE_ALERTAS["ts"] = time.monotonic()
+        return resultado
     except Exception as e:
         logger.exception("Erro ao buscar alertas de SST")
         raise HTTPException(status_code=500, detail="Erro ao buscar alertas de SST") from None

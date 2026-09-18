@@ -12,6 +12,7 @@ from auth import (
     criar_token_acesso,
     get_current_user,
     limite_login,
+    limpar_cache_usuarios,
     obter_ip_cliente,
     require_permisao,
     secret_esta_configurada,
@@ -107,6 +108,10 @@ class UsuarioResponse(BaseModel):
     funcionario_id: int | None = None
     precisa_trocar_senha: bool = False
     created_at: str | None = None
+
+
+# Colunas devolvidas nas listagens/leituras (a senha NUNCA sai do banco).
+COLUNAS_USUARIO_RESPOSTA = "id, nome, email, permissoes, ativo, funcionario_id, precisa_trocar_senha, created_at"
 
 
 class LoginRequest(BaseModel):
@@ -250,7 +255,7 @@ def _contar_admins_ativos(db, excluir_id: int | None = None) -> int:
 def listar_usuarios(usuario: UsuarioAutenticado = Depends(require_permisao("configuracoes")), db=Depends(get_supabase)):
     """Lista todos os usuários cadastrados."""
     try:
-        response = db.table("usuarios").select("*").order("nome").execute()
+        response = db.table("usuarios").select(COLUNAS_USUARIO_RESPOSTA).order("nome").execute()
         return [_user_sem_senha(u) for u in response.data]
     except Exception:
         logger.exception("Erro ao buscar usuários")
@@ -268,7 +273,7 @@ def obter_usuario_atual(
     as permissões, sem exigir logout/login.
     """
     try:
-        response = db.table("usuarios").select("*").eq("id", usuario.id).limit(1).execute()
+        response = db.table("usuarios").select(COLUNAS_USUARIO_RESPOSTA).eq("id", usuario.id).limit(1).execute()
         if not response.data:
             raise HTTPException(status_code=404, detail="Usuário não encontrado.")
         return _user_sem_senha(response.data[0])
@@ -285,7 +290,7 @@ def buscar_usuario(
 ):
     """Busca um usuário pelo ID."""
     try:
-        response = db.table("usuarios").select("*").eq("id", usuario_id).execute()
+        response = db.table("usuarios").select(COLUNAS_USUARIO_RESPOSTA).eq("id", usuario_id).execute()
         if not response.data:
             raise HTTPException(status_code=404, detail="Usuário não encontrado.")
         return _user_sem_senha(response.data[0])
@@ -373,6 +378,7 @@ def atualizar_usuario(
         response = db.table("usuarios").update(payload).eq("id", usuario_id).execute()
         if not response.data:
             raise HTTPException(status_code=500, detail="Falha ao atualizar usuário.")
+        limpar_cache_usuarios(usuario_id)
         return _user_sem_senha(response.data[0])
     except HTTPException:
         raise
@@ -402,7 +408,8 @@ def excluir_usuario(
                 detail="O sistema precisa de pelo menos um administrador ativo.",
             )
 
-        db.table("usuarios").delete().eq("id", usuario_id).execute()
+        db.table("usuarios").delete(returning="minimal").eq("id", usuario_id).execute()
+        limpar_cache_usuarios(usuario_id)
         return {"status": "success", "message": "Usuário excluído com sucesso."}
     except HTTPException:
         raise
@@ -492,6 +499,7 @@ def trocar_senha(
                 "precisa_trocar_senha": False,
             }
         ).eq("id", usuario.id).execute()
+        limpar_cache_usuarios(usuario.id)
 
         # O arquivo com a senha inicial não é mais necessário.
         _remover_arquivo_senha_inicial()
@@ -520,7 +528,7 @@ def renovar_sessao(
                 status_code=500,
                 detail="Servidor mal configurado: JWT_SECRET não definido. Contate o administrador.",
             )
-        response = db.table("usuarios").select("*").eq("id", usuario.id).limit(1).execute()
+        response = db.table("usuarios").select(COLUNAS_USUARIO_RESPOSTA).eq("id", usuario.id).limit(1).execute()
         if not response.data:
             raise HTTPException(status_code=404, detail="Usuário não encontrado.")
         user = response.data[0]

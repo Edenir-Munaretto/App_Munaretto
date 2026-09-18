@@ -18,6 +18,25 @@ def _hash_senha(senha: str) -> str:
     return f"{salt}${valor}"
 
 
+@pytest.fixture(autouse=True)
+def _limpar_caches_globais():
+    """Zera caches em memória entre testes (auth, notificações, dashboard, SST)."""
+    from auth import limpar_cache_usuarios
+    from routers.dashboard import limpar_cache_dashboard
+    from routers.notificacoes import resetar_geracao_lembretes
+    from routers.sst import limpar_cache_alertas_sst
+
+    def _limpar():
+        limpar_cache_usuarios()
+        limpar_cache_dashboard()
+        resetar_geracao_lembretes()
+        limpar_cache_alertas_sst()
+
+    _limpar()
+    yield
+    _limpar()
+
+
 def _montar_dados_banco():
     return {
         "usuarios": [

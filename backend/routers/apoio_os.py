@@ -344,11 +344,13 @@ def _gravar_membros(db, equipe_id: int, membro_ids: list[int], lider_id: int | N
     # 2) Ajusta a flag de líder nos membros mantidos (ex.: remanejamento).
     for fid in membro_ids:
         if fid in atuais_por_func:
-            db.table("equipe_membros").update({"lider": fid == lider_id}).eq("id", atuais_por_func[fid]).execute()
+            db.table("equipe_membros").update({"lider": fid == lider_id}, returning="minimal").eq(
+                "id", atuais_por_func[fid]
+            ).execute()
 
     # 3) Só então remove quem saiu.
     for fid in para_remover:
-        db.table("equipe_membros").delete().eq("id", atuais_por_func[fid]).execute()
+        db.table("equipe_membros").delete(returning="minimal").eq("id", atuais_por_func[fid]).execute()
 
 
 def _membros_da_equipe(db, equipe_id: int) -> list[dict]:
@@ -375,6 +377,34 @@ def _membros_da_equipe(db, equipe_id: int) -> list[dict]:
 # ---------------------------------------------------------------------------
 
 
+def _totais_por_tipo_do_resumo(resumo: dict) -> list[dict]:
+    """Converte as colunas total_<contrato> da RPC na lista exibida nos cards."""
+    totais_por_tipo = []
+    for tipo in ORDEM_CONTRATOS:
+        total = round(_numero(resumo.get(f"total_{tipo}")), 3)
+        if total > 0:
+            totais_por_tipo.append({"tipo": tipo, "unidade": unidade_contrato(tipo), "total": total})
+    return totais_por_tipo
+
+
+def _contadores_obras_rpc(db, obra_ids: list[int]) -> dict[int, dict] | None:
+    """Contadores por obra via RPC (só o agregado trafega).
+
+    Devolve None quando a função ainda não existe no banco, permitindo o
+    fallback paginado sem quebrar a tela.
+    """
+    if not obra_ids:
+        return {}
+    try:
+        resp = db.rpc("obras_contadores", {"p_obra_ids": obra_ids}).execute()
+    except Exception:
+        logger.info("RPC obras_contadores indisponível; usando consultas de fallback")
+        return None
+    if resp is None or resp.data is None:
+        return None
+    return {linha["obra_id"]: linha for linha in resp.data}
+
+
 @router.get("/obras", response_model=list[ObraResponse], dependencies=GESTOR_ONLY)
 def listar_obras(
     busca: str | None = Query(None),
@@ -384,8 +414,9 @@ def listar_obras(
     """Lista obras; opcionalmente filtra por termo (nome/cidade/cliente Celesc).
 
     Enriquecida para a gestão por obra: contadores de O.S (total/ativas/
-    encerradas) e totais aplicados por contrato — 2 consultas globais
-    (O.S por obra + lançamentos das O.S), sem N+1.
+    encerradas) e totais aplicados por contrato. A RPC `obras_contadores`
+    calcula tudo no Postgres (antes o backend baixava TODAS as O.S e TODOS os
+    lançamentos de materiais para somar em memória).
     """
     try:
         query = db.table("obras").select("*, clientes(nome)")
@@ -399,22 +430,28 @@ def listar_obras(
             return obras
 
         obra_ids = [o["id"] for o in obras]
-        os_rows = (
-            db.table("ordens_servico").select("id, obra_id, status, tipo").in_("obra_id", obra_ids).execute().data or []
+        contadores = _contadores_obras_rpc(db, obra_ids)
+        if contadores is not None:
+            for obra in obras:
+                resumo = contadores.get(obra["id"], {})
+                obra["os_total"] = int(resumo.get("os_total") or 0)
+                obra["os_ativas"] = int(resumo.get("os_ativas") or 0)
+                obra["os_encerradas"] = int(resumo.get("os_encerradas") or 0)
+                obra["totais_por_tipo"] = _totais_por_tipo_do_resumo(resumo)
+            return obras
+
+        # Fallback (RPC ainda não aplicada no banco): leitura paginada para não
+        # truncar silenciosamente acima do teto do PostgREST.
+        os_rows = _ler_paginado(
+            db.table("ordens_servico").select("id, obra_id, status, tipo").in_("obra_id", obra_ids)
         )
         soma_por_os: dict[int, float] = {}
         if os_rows:
-            # Soma aplicada por O.S (uma consulta para todas as obras da lista).
             os_ids = [r["id"] for r in os_rows]
-            aplicacoes = (
-                db.table("os_materiais")
-                .select("os_id, quantidade_usada")
-                .in_("os_id", os_ids)
-                .execute()
-                .data
-            )
-            for m in aplicacoes or []:
-                soma_por_os[m["os_id"]] = soma_por_os.get(m["os_id"], 0.0) + _numero(m.get("quantidade_usada"))
+            for lote in _em_lotes(os_ids):
+                base = db.table("os_materiais").select("os_id, quantidade_usada").in_("os_id", lote)
+                for m in _ler_paginado(base):
+                    soma_por_os[m["os_id"]] = soma_por_os.get(m["os_id"], 0.0) + _numero(m.get("quantidade_usada"))
 
         os_por_obra: dict[int, list[dict]] = {}
         for r in os_rows:
@@ -977,14 +1014,28 @@ def dashboard_equipes(
         concluidas_por_dia: dict[int, int] = {}
         janela = _janela_meses(mes)
         tendencia = {m: {"mes": m, "concluidas": 0, "canceladas": 0} for m in janela}
+        # Só as encerradas DENTRO da janela de 6 meses interessam (concluídas/
+        # canceladas antigas nunca entram nos contadores). O backlog corrente é
+        # lido à parte, apenas das O.S em execução — antes a tabela inteira de
+        # ordens_servico era baixada para calcular tudo em memória.
+        inicio_janela = f"{janela[0]}-01"
 
-        os_rows = _ler_paginado(db.table("ordens_servico").select("id, equipe_id, status, tipo, data_fim"))
-        for os_row in os_rows:
+        backlog_rows = _ler_paginado(
+            db.table("ordens_servico").select("id, equipe_id, status, tipo").in_("status", STATUS_EM_EXECUCAO)
+        )
+        for os_row in backlog_rows:
+            resumo = por_equipe.get(os_row.get("equipe_id")) or sem_equipe
+            resumo["backlog"] += 1
+
+        encerradas_rows = _ler_paginado(
+            db.table("ordens_servico")
+            .select("id, equipe_id, status, tipo, data_fim")
+            .in_("status", STATUS_ENCERRADAS)
+            .gte("data_fim", inicio_janela)
+        )
+        for os_row in encerradas_rows:
             resumo = por_equipe.get(os_row.get("equipe_id")) or sem_equipe
             status = os_row.get("status")
-            if status in STATUS_EM_EXECUCAO:
-                resumo["backlog"] += 1
-
             mes_fim = _mes_iso(os_row.get("data_fim"))
             if mes_fim == mes:
                 if status == "concluida":
@@ -1157,6 +1208,34 @@ def _validar_codigos_produto(db, produto: ProdutoCreate, produto_id: int | None 
                     "neste contrato (ou como legado). Edite o serviço existente para alterá-lo."
                 ),
             )
+
+
+@router.get("/produtos/versao", summary="Versão do catálogo de serviços (cache do Modo Campo)")
+def versao_produtos(db=Depends(get_supabase)):
+    """Token leve que muda quando o catálogo muda.
+
+    O Modo Campo consulta este endpoint no refresh e só rebaixa os milhares de
+    serviços quando a versão difere da armazenada no tablet (economia de dados).
+    """
+    try:
+        ultima = (
+            db.table("produtos")
+            .select("id, updated_at")
+            .order("updated_at", desc=True)
+            .order("id", desc=True)
+            .limit(1)
+            .execute()
+            .data
+        )
+        total = db.table("produtos").select("id", count="exact").limit(1).execute()
+        qtd = int(total.count or 0)
+        if not ultima:
+            return {"versao": f"vazio:{qtd}"}
+        row = ultima[0]
+        return {"versao": f"{qtd}:{row.get('id')}:{row.get('updated_at') or ''}"}
+    except Exception:
+        logger.exception("Erro ao obter a versão do catálogo de serviços")
+        raise HTTPException(status_code=500, detail="Erro ao obter a versão do catálogo.") from None
 
 
 @router.get("/produtos", response_model=list[ProdutoResponse])

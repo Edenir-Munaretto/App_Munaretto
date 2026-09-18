@@ -689,6 +689,17 @@ CREATE UNIQUE INDEX IF NOT EXISTS uq_produtos_codigo_especial_tipo
 CREATE UNIQUE INDEX IF NOT EXISTS uq_produtos_codigo_especial_legado
     ON produtos (codigo_especial) WHERE tipo IS NULL;
 
+-- Versão do catálogo (Modo Campo): o tablet consulta só um token de versão no
+-- refresh e rebaixa o catálogo apenas quando algo muda. Insert/update alteram
+-- `updated_at` (trigger); exclusões mudam a contagem usada no token.
+ALTER TABLE IF EXISTS produtos ADD COLUMN IF NOT EXISTS updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP;
+
+DROP TRIGGER IF EXISTS trg_update_produtos_updated_at ON produtos;
+CREATE TRIGGER trg_update_produtos_updated_at
+    BEFORE UPDATE ON produtos
+    FOR EACH ROW
+    EXECUTE FUNCTION update_updated_at_column();
+
 -- TABELA: ordens_servico
 -- `codigo` é gerado no backend no formato OS-<ANO>-<NNNN> (sequencial por ano).
 CREATE TABLE IF NOT EXISTS ordens_servico (
@@ -1089,3 +1100,87 @@ CREATE POLICY "service_role_full_sync_ops" ON sync_ops
 -- ============================================================================
 CREATE UNIQUE INDEX IF NOT EXISTS uq_os_apontamentos_aberto
     ON os_apontamentos (os_id, funcionario_id) WHERE fim IS NULL;
+
+-- ============================================================================
+-- RPCs DE AGREGAÇÃO (economia de tráfego do PostgREST)
+--
+-- Contadores/somas que antes exigiam baixar TODAS as linhas de os_materiais e
+-- os_fotos passam a ser calculados no Postgres e devolvem apenas o agregado.
+-- As funções usam security invoker (padrão): o service_role continua com
+-- acesso pleno pelas policies de RLS das tabelas.
+-- ============================================================================
+
+-- Contadores de uma página de O.S: fotos e total de materiais aplicado (USC).
+CREATE OR REPLACE FUNCTION os_contadores(p_os_ids INTEGER[])
+RETURNS TABLE (os_id INTEGER, fotos BIGINT, materiais NUMERIC)
+LANGUAGE sql STABLE
+AS $$
+    SELECT ids.os_id,
+           COALESCE(f.fotos, 0)::BIGINT AS fotos,
+           COALESCE(m.materiais, 0)::NUMERIC AS materiais
+    FROM unnest(p_os_ids) AS ids(os_id)
+    LEFT JOIN (
+        SELECT os_id, COUNT(*) AS fotos
+        FROM os_fotos
+        WHERE os_id = ANY(p_os_ids)
+        GROUP BY os_id
+    ) f ON f.os_id = ids.os_id
+    LEFT JOIN (
+        SELECT os_id, SUM(quantidade_usada) AS materiais
+        FROM os_materiais
+        WHERE os_id = ANY(p_os_ids)
+        GROUP BY os_id
+    ) m ON m.os_id = ids.os_id
+$$;
+
+-- Contadores por obra da tela de gestão: total/ativas/encerradas e o total
+-- aplicado por contrato (somente status que entram nos totais).
+CREATE OR REPLACE FUNCTION obras_contadores(p_obra_ids INTEGER[])
+RETURNS TABLE (
+    obra_id INTEGER,
+    os_total BIGINT,
+    os_ativas BIGINT,
+    os_encerradas BIGINT,
+    total_construcao NUMERIC,
+    total_manutencao NUMERIC,
+    total_linha_viva NUMERIC
+)
+LANGUAGE sql STABLE
+AS $$
+    WITH contagens AS (
+        SELECT o.obra_id,
+               COUNT(*) AS os_total,
+               COUNT(*) FILTER (WHERE o.status IN ('aberta', 'em_andamento')) AS os_ativas,
+               COUNT(*) FILTER (WHERE o.status IN ('concluida', 'cancelada')) AS os_encerradas
+        FROM ordens_servico o
+        WHERE o.obra_id = ANY(p_obra_ids)
+        GROUP BY o.obra_id
+    ),
+    totais AS (
+        SELECT o.obra_id,
+               SUM(CASE WHEN o.tipo = 'construcao' THEN COALESCE(mat.qtd, 0) ELSE 0 END) AS total_construcao,
+               SUM(CASE WHEN o.tipo = 'manutencao' THEN COALESCE(mat.qtd, 0) ELSE 0 END) AS total_manutencao,
+               SUM(CASE WHEN o.tipo = 'linha_viva' THEN COALESCE(mat.qtd, 0) ELSE 0 END) AS total_linha_viva
+        FROM ordens_servico o
+        LEFT JOIN (
+            SELECT os_id, SUM(quantidade_usada) AS qtd
+            FROM os_materiais
+            GROUP BY os_id
+        ) mat ON mat.os_id = o.id
+        WHERE o.obra_id = ANY(p_obra_ids)
+          AND o.status IN ('aberta', 'em_andamento', 'concluida')
+        GROUP BY o.obra_id
+    )
+    SELECT c.obra_id,
+           c.os_total,
+           c.os_ativas,
+           c.os_encerradas,
+           COALESCE(t.total_construcao, 0)::NUMERIC,
+           COALESCE(t.total_manutencao, 0)::NUMERIC,
+           COALESCE(t.total_linha_viva, 0)::NUMERIC
+    FROM contagens c
+    LEFT JOIN totais t ON t.obra_id = c.obra_id
+$$;
+
+GRANT EXECUTE ON FUNCTION os_contadores(INTEGER[]) TO service_role;
+GRANT EXECUTE ON FUNCTION obras_contadores(INTEGER[]) TO service_role;

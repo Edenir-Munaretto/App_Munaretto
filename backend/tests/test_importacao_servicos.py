@@ -501,3 +501,28 @@ def test_importar_planilha_com_rotulos_ulv(os_gestor_client, db_fake):
     buffer2 = _montar_planilha([["Inválido", "IV-01", "", "UN", "abc", ""]], cabecalhos=cabecalhos_ulv)
     resp2 = _importar(os_gestor_client, buffer2, tipo="linha_viva")
     assert any("Qtd ULV" in e["mensagem"] for e in resp2.json()["erros"])
+
+
+# ---------------------------------------------------------------------------
+# Versão do catálogo (cache do Modo Campo)
+# ---------------------------------------------------------------------------
+def test_versao_catalogo_muda_quando_servico_e_criado_ou_editado(os_gestor_client, db_fake):
+    """O token de versão muda em insert e em update (trigger updated_at)."""
+    v0 = os_gestor_client.get("/api/os/produtos/versao").json()["versao"]
+
+    criado = os_gestor_client.post(
+        "/api/os/produtos",
+        json={"nome": "Serviço Novo", "codigo": "SVC-1", "unidade": "UN", "tipo": "construcao"},
+    )
+    assert criado.status_code == 201, criado.text
+    v1 = os_gestor_client.get("/api/os/produtos/versao").json()["versao"]
+    assert v1 != v0
+
+    produto_id = criado.json()["id"]
+    resp = os_gestor_client.put(
+        f"/api/os/produtos/{produto_id}",
+        json={"nome": "Serviço Editado", "codigo": "SVC-1", "unidade": "UN", "tipo": "construcao"},
+    )
+    assert resp.status_code == 200, resp.text
+    v2 = os_gestor_client.get("/api/os/produtos/versao").json()["versao"]
+    assert v2 != v1

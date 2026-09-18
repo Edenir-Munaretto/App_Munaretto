@@ -15,6 +15,7 @@ import {
   cachearFotosChecklist,
   donoPacote,
   getListaLocal,
+  prepararPacoteCampo,
   recalcularResumo,
   salvarDonoPacote,
 } from './offline';
@@ -22,9 +23,10 @@ import {
 const resposta = (json) => ({ ok: true, json: async () => json });
 
 /** Simula o servidor para os endpoints usados pelo pacote de campo. */
-function servidor({ lista = [], detalhes = {}, checklists = {}, produtos = [] } = {}) {
+function servidor({ lista = [], detalhes = {}, checklists = {}, produtos = [], versaoCatalogo = 'v1' } = {}) {
   apiFetch.mockImplementation(async (url) => {
     const alvo = String(url);
+    if (alvo.includes('/os/produtos/versao')) return resposta({ versao: versaoCatalogo });
     if (alvo.includes('/os/?limit=')) return resposta(lista);
     if (alvo.includes('/os/produtos')) return resposta(produtos);
     const chk = alvo.match(/\/os\/(\d+)\/checklist$/);
@@ -115,6 +117,64 @@ describe('atualizarPacoteCampo', () => {
     expect(r.removidas).toBe(1);
     expect(await dbGet('os_lista', 5)).toBeUndefined();
     expect(await dbGet('os_lista', 6)).toMatchObject({ id: 6 }); // pendente não poda
+  });
+});
+
+describe('catálogo de serviços (versão)', () => {
+  beforeEach(async () => {
+    await limparTudoLocal();
+    apiFetch.mockReset();
+  });
+
+  const urls = () => apiFetch.mock.calls.map((c) => String(c[0]));
+  const baixouCatalogo = () => urls().some((u) => u.includes('/os/produtos') && !u.includes('/versao'));
+
+  it('não rebaixa o catálogo no refresh quando a versão não mudou', async () => {
+    await dbPut('produtos', { id: 1, nome: 'Serviço' });
+    await dbPut('meta', { chave: 'catalogo', versao: 'v1' });
+
+    servidor({ lista: [], versaoCatalogo: 'v1' });
+    await atualizarPacoteCampo();
+
+    expect(urls().some((u) => u.includes('/os/produtos/versao'))).toBe(true);
+    expect(baixouCatalogo()).toBe(false);
+  });
+
+  it('rebaixa o catálogo no refresh quando a versão muda', async () => {
+    await dbPut('produtos', { id: 1, nome: 'Serviço' });
+    await dbPut('meta', { chave: 'catalogo', versao: 'v1' });
+
+    servidor({ lista: [], produtos: [{ id: 2, nome: 'Novo' }], versaoCatalogo: 'v2' });
+    await atualizarPacoteCampo();
+
+    expect(baixouCatalogo()).toBe(true);
+    expect((await dbGet('produtos', 2)).nome).toBe('Novo');
+    expect((await dbGet('meta', 'catalogo')).versao).toBe('v2');
+  });
+
+  it('preparação baixa o catálogo e grava a versão', async () => {
+    servidor({ lista: [], produtos: [{ id: 3, nome: 'Cat' }], versaoCatalogo: 'v9' });
+    await prepararPacoteCampo();
+
+    expect((await dbGet('produtos', 3)).nome).toBe('Cat');
+    expect((await dbGet('meta', 'catalogo')).versao).toBe('v9');
+  });
+
+  it('mantém o catálogo local quando a checagem de versão falha', async () => {
+    await dbPut('produtos', { id: 1, nome: 'Serviço' });
+    await dbPut('meta', { chave: 'catalogo', versao: 'v1' });
+
+    apiFetch.mockImplementation(async (url) => {
+      const alvo = String(url);
+      if (alvo.includes('/os/produtos/versao')) return { ok: false, json: async () => null };
+      if (alvo.includes('/os/?limit=')) return resposta([]);
+      if (alvo.includes('/os/produtos')) return resposta([{ id: 2, nome: 'Novo' }]);
+      return { ok: false, json: async () => null };
+    });
+    await atualizarPacoteCampo();
+
+    expect((await dbGet('produtos', 1)).nome).toBe('Serviço');
+    expect(await dbGet('produtos', 2)).toBeUndefined();
   });
 });
 
