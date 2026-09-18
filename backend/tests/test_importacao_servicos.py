@@ -503,6 +503,46 @@ def test_importar_planilha_com_rotulos_ulv(os_gestor_client, db_fake):
     assert any("Qtd ULV" in e["mensagem"] for e in resp2.json()["erros"])
 
 
+def test_modelo_servicos_rotulos_manutencao_umd(os_gestor_client):
+    """O modelo .xlsx de manutenção traz os rótulos UMD (não ULV/USC)."""
+    resp = os_gestor_client.get("/api/os/produtos/modelo?tipo=manutencao")
+    assert resp.status_code == 200, resp.text
+    wb = load_workbook(io.BytesIO(resp.content), data_only=True)
+    cabecalhos = [c.value for c in wb["Modelo"][1]]
+    assert "Qtd UMD" in cabecalhos
+    assert "Qtd UMD Especial" in cabecalhos
+    assert "Qtd ULV" not in cabecalhos
+    assert "Qtd USC" not in cabecalhos
+
+
+def test_importar_planilha_com_rotulos_umd(os_gestor_client, db_fake):
+    """Planilha com cabeçalhos 'Qtd UMD'/'Código UMD Especial' importa no
+    catálogo de manutenção — sem os aliases UMD o fator entraria como 0."""
+    cabecalhos_umd = [
+        "Serviço (descrição)", "Código Normal", "Código UMD Especial", "Unidade",
+        "Qtd UMD", "Qtd UMD Especial",
+    ]
+    buffer = _montar_planilha(
+        [["Serviço de manutenção", "MAN-01", "MAN-ESP", "UN", 2.5, 3.5]],
+        cabecalhos=cabecalhos_umd,
+    )
+    resp = _importar(os_gestor_client, buffer, tipo="manutencao")
+    assert resp.status_code == 200, resp.text
+    assert resp.json()["criados"] == 1
+    assert resp.json()["erros"] == []
+
+    gravado = next(p for p in db_fake._dados["produtos"] if p["codigo"] == "MAN-01")
+    assert gravado["tipo"] == "manutencao"
+    assert gravado["codigo_especial"] == "MAN-ESP"
+    assert gravado["preco_unitario"] == 2.5
+    assert gravado["qtd_usc_especial"] == 3.5
+
+    # Erro numérico reporta o rótulo do contrato (UMD).
+    buffer2 = _montar_planilha([["Inválido", "MAN-02", "", "UN", "abc", ""]], cabecalhos=cabecalhos_umd)
+    resp2 = _importar(os_gestor_client, buffer2, tipo="manutencao")
+    assert any("Qtd UMD" in e["mensagem"] for e in resp2.json()["erros"])
+
+
 # ---------------------------------------------------------------------------
 # Versão do catálogo (cache do Modo Campo)
 # ---------------------------------------------------------------------------

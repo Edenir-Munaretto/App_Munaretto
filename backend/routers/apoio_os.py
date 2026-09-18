@@ -968,7 +968,7 @@ def _novo_resumo_equipe(equipe_id, nome, numero, ativa, membros) -> dict:
 
 
 def _volume_em_lista(volume_por_tipo: dict[str, float]) -> list[dict]:
-    """Volume por contrato na ordem canônica, com unidade (USC/ULV)."""
+    """Volume por contrato na ordem canônica, com unidade (USC/UMD/ULV)."""
     return [
         {"tipo": tipo, "unidade": unidade_contrato(tipo), "total": round(volume_por_tipo.get(tipo, 0.0), 3)}
         for tipo in ORDEM_CONTRATOS
@@ -986,7 +986,7 @@ def dashboard_equipes(
     - backlog: O.S em aberto/em andamento AGORA (independente do mês);
     - concluídas/canceladas: `data_fim` dentro do mês de referência;
     - volume aplicado: soma de `quantidade_usada` das concluídas no mês, por
-      contrato (USC/ULV) — unidades diferentes, por isso o ranking no frontend
+      contrato (USC/UMD/ULV) — unidades diferentes, por isso o ranking no frontend
       é separado por tipo;
     - séries: concluídas por dia do mês e tendência dos últimos 6 meses.
     """
@@ -1353,7 +1353,8 @@ CAMPOS_MODELO_SERVICO = [
 def _campos_modelo_para_tipo(tipo: str) -> list[tuple[str, str]]:
     """CAMPOS_MODELO_SERVICO com rótulos das colunas de fator do contrato.
 
-    Construção exibe 'Qtd USC'; manutenção/linha viva exibem 'Qtd ULV'.
+    Construção exibe 'Qtd USC'; manutenção exibe 'Qtd UMD'; linha viva exibe
+    'Qtd ULV'.
     """
     u = unidade_contrato(tipo)
     return [
@@ -1393,7 +1394,7 @@ ALIASES_COLUNA_SERVICO = {
     "qtd usc especial": "qtd_usc_especial",
     "usc especial": "qtd_usc_especial",
     "quantidade usc especial": "qtd_usc_especial",
-    # Contratos ULV (manutenção/linha viva) usam o mesmo cabeçalho com ULV.
+    # Contratos ULV (linha viva) usam o mesmo cabeçalho com ULV.
     "qtd ulv": "preco_unitario",
     "ulv": "preco_unitario",
     "ulv normal": "preco_unitario",
@@ -1402,6 +1403,15 @@ ALIASES_COLUNA_SERVICO = {
     "ulv especial": "qtd_usc_especial",
     "quantidade ulv especial": "qtd_usc_especial",
     "codigo ulv especial": "codigo_especial",
+    # Contratos UMD (manutenção) usam o mesmo cabeçalho com UMD.
+    "qtd umd": "preco_unitario",
+    "umd": "preco_unitario",
+    "umd normal": "preco_unitario",
+    "quantidade umd": "preco_unitario",
+    "qtd umd especial": "qtd_usc_especial",
+    "umd especial": "qtd_usc_especial",
+    "quantidade umd especial": "qtd_usc_especial",
+    "codigo umd especial": "codigo_especial",
 }
 
 
@@ -1488,7 +1498,7 @@ def modelo_servicos(
     """Gera e baixa um modelo .xlsx pronto para o cadastro de serviços em lote.
 
     Os rótulos das colunas de fator seguem o contrato (USC p/ construção,
-    ULV p/ manutenção e linha viva).
+    UMD p/ manutenção e ULV p/ linha viva).
     """
     try:
         _validar_tipo_servico(tipo)
@@ -1691,7 +1701,8 @@ def importar_servicos(
             unidade = _normalizar_texto_livre(registro.get("unidade")) or "UN"
 
             # Campos numéricos: vazio -> 0; texto inválido ou negativo -> erro.
-            # Rótulos seguem o contrato importado (USC p/ construção, ULV p/ os demais).
+            # Rótulos seguem o contrato importado (USC construção, UMD manutenção,
+            # ULV linha viva).
             valores = {}
             numeros_ok = True
             for campo, rotulo in (

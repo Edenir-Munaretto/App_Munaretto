@@ -1170,7 +1170,7 @@ def editar_os(
         if payload.equipe_id and not db.table("equipes").select("id").eq("id", payload.equipe_id).execute().data:
             raise HTTPException(status_code=404, detail="Equipe não encontrada.")
 
-        # Tipo/contrato define a unidade (USC/ULV), o catálogo de serviços e o
+        # Tipo/contrato define a unidade (USC/UMD/ULV), o catálogo de serviços e o
         # snapshot do checklist: com histórico lançado, trocá-lo reescreveria
         # os totais retroativamente — por isso a troca só é permitida enquanto
         # a O.S ainda não tem lançamentos nem itens de checklist. O campo tem

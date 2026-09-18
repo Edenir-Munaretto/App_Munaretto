@@ -111,7 +111,7 @@ def _seed_obra_com_os(db_fake, obra_id=501):
     - 101 construcao rascunho            (sem lançamentos)
     - 102 construcao em_andamento        CIM-50 normal x2 + Poste especial
     - 103 construcao concluida (01/03)    CIM-50 normal
-    - 104 manutencao  em_andamento        Limpeza ULV
+    - 104 manutencao  em_andamento        Limpeza UMD
     - 105 construcao cancelada           Demolição (excluída dos totais)
     """
     _inserir_obra(db_fake, obra_id, "Obra Alpha")
@@ -133,7 +133,7 @@ def _seed_obra_com_os(db_fake, obra_id=501):
     _inserir_material(db_fake, 102, 702, 4, 1, 4, tipo="especial", codigo="POS-E")
     # 103: Cimento normal (10 sacos x fator 1,5) = 15 USC.
     _inserir_material(db_fake, 103, 701, 15, 10, 1.5, codigo="CIM-50")
-    # 104: Limpeza (ULV).
+    # 104: Limpeza (UMD).
     _inserir_material(db_fake, 104, 703, 2, 2, 1, codigo="LMP-10")
     # 105: cancelada (não entra nos totais da obra).
     _inserir_material(db_fake, 105, 704, 8, 1, 8, codigo="DEM-1")
@@ -177,7 +177,7 @@ class TestResumoObra:
         tipos = {c["tipo"]: c for c in dados["contratos"]}
         assert set(tipos) == {"construcao", "manutencao"}
         assert tipos["construcao"]["unidade"] == "USC"
-        assert tipos["manutencao"]["unidade"] == "ULV"
+        assert tipos["manutencao"]["unidade"] == "UMD"
 
         # Construção: CIM-50 normal (3+2 sacos da 102 + 10 da 103 = 25 USC,
         # 15 sacos, 2 O.S distintas), POS-E especial e DEM-1 (cancelada).
@@ -326,10 +326,10 @@ class TestListarObrasEnriquecidas:
         assert alpha["os_ativas"] == 2
         assert alpha["os_encerradas"] == 2
         # Totais: em execução + concluídas (25+4 USC); cancelada (DEM-1) fica
-        # fora; manutenção entra com ULV.
+        # fora; manutenção entra com UMD.
         assert alpha["totais_por_tipo"] == [
             {"tipo": "construcao", "unidade": "USC", "total": 29},
-            {"tipo": "manutencao", "unidade": "ULV", "total": 2},
+            {"tipo": "manutencao", "unidade": "UMD", "total": 2},
         ]
 
         beta = obras[502]
@@ -385,9 +385,9 @@ class TestRelatoriosPdfObra:
         assert "Filtro aplicado" in texto
         assert "OS-TESTE-0103" in texto
         assert "TOTAIS POR CONTRATO" in texto
-        # Totais exibidos na unidade do contrato (USC construção / ULV manutenção).
+        # Totais exibidos na unidade do contrato (USC construção / UMD manutenção).
         assert "Construção (USC)" in texto
-        assert "Manutenção (ULV)" in texto
+        assert "Manutenção (UMD)" in texto
 
     def test_relatorio_servicos_obedece_ao_filtro_ativas(self, os_gestor_client, db_fake):
         _seed_obra_com_os(db_fake)
@@ -397,7 +397,7 @@ class TestRelatoriosPdfObra:
 
         assert "SERVIÇOS POR OBRA" in texto
         assert "SERVIÇOS - CONSTRUÇÃO (USC)" in texto
-        assert "SERVIÇOS - MANUTENÇÃO (ULV)" in texto
+        assert "SERVIÇOS - MANUTENÇÃO (UMD)" in texto
         assert "CIM-50" in texto
         assert "POS-E" in texto
         assert "LMP-10" in texto
@@ -795,10 +795,10 @@ class TestDashboardEquipes:
         dados = os_gestor_client.get("/api/os/dashboard-equipes", params={"mes": "2026-03"}).json()
         por_id = {e["id"]: e for e in dados["equipes"]}
 
-        # USC (construção) e ULV (manutenção) ficam separados no ranking.
+        # USC (construção) e UMD (manutenção) ficam separados no ranking.
         assert por_id[100]["volume_por_tipo"] == [
             {"tipo": "construcao", "unidade": "USC", "total": 15.0},
-            {"tipo": "manutencao", "unidade": "ULV", "total": 3.0},
+            {"tipo": "manutencao", "unidade": "UMD", "total": 3.0},
         ]
         assert por_id[200]["volume_por_tipo"] == [{"tipo": "construcao", "unidade": "USC", "total": 2.5}]
         assert por_id[300]["volume_por_tipo"] == []

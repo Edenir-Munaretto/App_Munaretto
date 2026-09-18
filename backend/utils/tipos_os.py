@@ -15,11 +15,12 @@ ROTULOS_TIPO = {
     "linha_viva": "Linha Viva",
 }
 
-# Unidade de valor por contrato: Construção usa USC; Manutenção e Linha Viva
-# usam ULV. Vale para relatório, painel de execução e cadastro/importação.
+# Unidade de valor por contrato: Construção usa USC; Manutenção usa UMD e
+# Linha Viva usa ULV. Vale para relatório, painel de execução e
+# cadastro/importação.
 UNIDADE_POR_TIPO = {
     "construcao": "USC",
-    "manutencao": "ULV",
+    "manutencao": "UMD",
     "linha_viva": "ULV",
 }
 

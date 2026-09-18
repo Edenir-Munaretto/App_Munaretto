@@ -5,7 +5,7 @@
 > contrato/unidade) e 2 relatórios PDF. Sem mudança de schema.
 >
 > **Decisões de produto:** 2 PDFs separados · soma separada por contrato
-> (construção = USC; manutenção/linha viva = ULV) · filtro de status simples
+> (construção = USC; manutenção = UMD; linha viva = ULV) · filtro de status simples
 > (Todas / Em execução / Encerradas).
 
 ## Contexto atual (validado no código)

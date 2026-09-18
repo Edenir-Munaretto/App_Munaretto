@@ -850,7 +850,7 @@ function TabInsumos({ osDetalhe, produtos, onAtualizado, mostrarToast, podeEdita
   const [tipoUsc, setTipoUsc] = useState('normal');
   const [salvando, setSalvando] = useState(false);
   const [estornandoId, setEstornandoId] = useState(null); // ID do lançamento aguardando confirmação
-  // Unidade de valor do contrato da O.S (USC construção / ULV manutenção e linha viva).
+  // Unidade de valor do contrato da O.S (USC construção / UMD manutenção / ULV linha viva).
   const unidade = unidadeContrato(osDetalhe.tipo);
   const rotuloUsc = (sub) => rotuloFator(osDetalhe.tipo, sub);
 
@@ -948,8 +948,8 @@ function TabInsumos({ osDetalhe, produtos, onAtualizado, mostrarToast, podeEdita
   const textoBusca = selecionado ? selecionado.nome : buscaProduto;
 
   // Código vigente conforme o tipo escolhido: bipagem/digitação do código
-  // ESPECIAL seleciona o serviço já com "USC especial" (mesma descrição, dois
-  // códigos distintos).
+  // ESPECIAL seleciona o serviço já com o fator especial (mesma descrição,
+  // dois códigos distintos).
   const codigoAtivo = tipoUsc === 'especial'
     ? selecionado?.codigo_especial || selecionado?.codigo
     : selecionado?.codigo || selecionado?.codigo_especial;
@@ -973,7 +973,7 @@ function TabInsumos({ osDetalhe, produtos, onAtualizado, mostrarToast, podeEdita
     setBuscaProduto(p.nome);
   };
 
-  // Fatores de conversão do cadastro do produto (USC normal / USC especial).
+  // Fatores de conversão do cadastro do produto (normal / especial).
   const uscNormal = Number(selecionado?.preco_unitario || 0);
   const uscEspecial = Number(selecionado?.qtd_usc_especial || 0);
   const temUsc = uscNormal > 0 || uscEspecial > 0;
@@ -1039,8 +1039,8 @@ function TabInsumos({ osDetalhe, produtos, onAtualizado, mostrarToast, podeEdita
     setSalvando(true);
     try {
       // Modo Campo (online ou offline): entra na fila e reflete localmente; o
-      // servidor revalida e converte na sincronização (mesma lógica USC do
-      // gestor) — conectado, o sync automático roda em segundo plano.
+      // servidor revalida e converte na sincronização (mesma lógica de
+      // conversão do gestor) — conectado, o sync automático roda em segundo plano.
       if (isModoCampo() || usarLocal()) {
         const op = await enfileirarOperacao({
           tipo: 'material',
@@ -5067,7 +5067,7 @@ function PainelCadastros({ equipes, produtos, recarregar, mostrarToast }) {
 
   const baixarModeloServicos = async () => {
     try {
-      // O modelo traz os rótulos do contrato selecionado (USC/ULV).
+      // O modelo traz os rótulos do contrato selecionado (USC/UMD/ULV).
       const res = await apiFetch(`${API_URL}/os/produtos/modelo?tipo=${encodeURIComponent(impContrato)}`);
       if (!res.ok) {
         mostrarToast('Erro ao baixar o modelo.', 'error');

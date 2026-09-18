@@ -74,7 +74,7 @@ def gerar_pdf_os(
     )
 
     # --- Serviços aplicados ---------------------------------------------------
-    # Unidade de valor por contrato: Construção = USC; Manutenção/Linha Viva = ULV.
+    # Unidade de valor por contrato: Construção = USC; Manutenção = UMD; Linha Viva = ULV.
     unidade = unidade_contrato(os_data.get("tipo"))
     pdf._titulo_secao(f"SERVIÇOS APLICADOS ({unidade})")
 

@@ -1,8 +1,8 @@
 // Unidade de valor por contrato/tipo de O.S — fonte única dos rótulos.
-// Construção usa USC; Manutenção e Linha Viva usam ULV.
+// Construção usa USC; Manutenção usa UMD; Linha Viva usa ULV.
 export const UNIDADE_POR_TIPO = {
   construcao: 'USC',
-  manutencao: 'ULV',
+  manutencao: 'UMD',
   linha_viva: 'ULV',
 };
 

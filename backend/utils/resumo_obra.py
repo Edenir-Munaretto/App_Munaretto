@@ -3,7 +3,7 @@
 Agrega os lançamentos de serviços das O.S de uma obra separando por contrato
 (tipo da O.S) e por serviço — base do endpoint de resumo da obra e dos
 relatórios PDF. A quantidade já vem convertida para a unidade do contrato
-(USC/ULV) no lançamento (`quantidade_usada` = peças x fator), então os totais
+(USC/UMD/ULV) no lançamento (`quantidade_usada` = peças x fator), então os totais
 aqui já estão na unidade certa de cada contrato.
 
 Regras de produto definidas para a Fase 1:
