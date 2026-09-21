@@ -131,6 +131,17 @@ const PRIORIDADES = {
   critica: { label: 'Crítica', cor: 'bg-rose-50 text-rose-700 border-rose-300' },
 };
 
+// Identificação das abas do PainelExecucao: o ícone usa a cor da seção em
+// TODAS as abas (só o traço, sem fundo); a aba ativa herda a cor no texto e
+// ganha o filete inferior. Fallback neutro para chaves futuras.
+const CORES_ABA = {
+  checklist: { icone: 'text-primary-600', ativo: 'text-primary-700', filete: 'bg-primary-500' },
+  insumos: { icone: 'text-violet-600', ativo: 'text-violet-700', filete: 'bg-violet-500' },
+  evidencias: { icone: 'text-emerald-600', ativo: 'text-emerald-700', filete: 'bg-emerald-500' },
+  timeline: { icone: 'text-slate-500', ativo: 'text-slate-700', filete: 'bg-slate-400' },
+};
+const COR_ABA_PADRAO = CORES_ABA.timeline;
+
 // Data de execução em DD/MM (fatiada do ISO, sem new Date() para não
 // deslocar o dia pelo fuso do navegador).
 function diaMes(iso) {
@@ -1905,17 +1916,25 @@ function PainelExecucao({ osId, produtos, onFechar, recarregarLista, mostrarToas
         </div>
       )}
       <div className="flex gap-1 bg-slate-100 rounded-xl p-1 mb-4">
-        {abasDisponiveis.map(([key, label, Icon]) => (
-          <button
-            key={key}
-            onClick={() => setAba(key)}
-            className={`flex-1 flex items-center justify-center gap-1.5 py-2.5 min-h-11 rounded-lg text-xs font-bold transition-all cursor-pointer ${
-              aba === key ? 'bg-white text-primary-700 shadow-sm' : 'text-slate-500'
-            }`}
-          >
-            <Icon size={15} />{label}
-          </button>
-        ))}
+        {abasDisponiveis.map(([key, label, Icon]) => {
+          const cor = CORES_ABA[key] || COR_ABA_PADRAO;
+          const ativa = aba === key;
+          return (
+            <button
+              key={key}
+              onClick={() => setAba(key)}
+              className={`relative flex-1 flex items-center justify-center gap-1.5 py-2.5 min-h-11 rounded-lg text-xs font-bold transition-all cursor-pointer ${
+                ativa ? `bg-white shadow-sm ${cor.ativo}` : 'text-slate-500'
+              }`}
+            >
+              <Icon size={16} className={ativa ? '' : cor.icone} />
+              {label}
+              {ativa && (
+                <span className={`absolute bottom-1 left-1/2 -translate-x-1/2 h-0.5 w-6 rounded-full ${cor.filete}`} />
+              )}
+            </button>
+          );
+        })}
       </div>
       {aba === 'checklist' && !detalhe?.checklist_dispensado && (
         <TabChecklist
