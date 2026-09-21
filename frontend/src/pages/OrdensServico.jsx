@@ -131,15 +131,26 @@ const PRIORIDADES = {
   critica: { label: 'Crítica', cor: 'bg-rose-50 text-rose-700 border-rose-300' },
 };
 
-// Semáforo de execução: vermelho = atrasada, âmbar = executa em <= 3 dias.
+// Data de execução em DD/MM (fatiada do ISO, sem new Date() para não
+// deslocar o dia pelo fuso do navegador).
+function diaMes(iso) {
+  const [ano, mes, dia] = String(iso || '').slice(0, 10).split('-');
+  return ano && mes && dia ? `${dia}/${mes}` : '';
+}
+
+// Semáforo de execução: vermelho = atrasada, âmbar = executa em <= 3 dias;
+// acima disso o badge fica neutro. A data de execução aparece SEMPRE junto do
+// contador (facilita a identificação visual no Modo Campo).
 function situacaoExecucao(os) {
   if (!os.prazo_entrega || ['concluida', 'cancelada'].includes(os.status)) return null;
   const hoje = new Date();
   const execucao = new Date(`${os.prazo_entrega}T23:59:59`);
   const dias = Math.ceil((execucao - hoje) / 86400000);
-  if (dias < 0) return { label: `Execução atrasada (${Math.abs(dias)}d)`, classe: 'bg-rose-100 text-rose-700 border-rose-200', urgente: true };
-  if (dias <= 3) return { label: dias === 0 ? 'Executa hoje' : `Executa em ${dias}d`, classe: 'bg-amber-100 text-amber-800 border-amber-200', urgente: false };
-  return null;
+  const data = diaMes(os.prazo_entrega);
+  if (dias < 0) return { label: `Execução atrasada (${Math.abs(dias)}d)`, data, classe: 'bg-rose-100 text-rose-700 border-rose-200', urgente: true };
+  if (dias === 0) return { label: 'Executa hoje', data, classe: 'bg-amber-100 text-amber-800 border-amber-200', urgente: false };
+  if (dias <= 3) return { label: `Executa em ${dias}d`, data, classe: 'bg-amber-100 text-amber-800 border-amber-200', urgente: false };
+  return { label: `Executa em ${dias}d`, data, classe: 'bg-slate-50 text-slate-600 border-slate-200', urgente: false };
 }
 
 const fmtData = (iso) => {
@@ -324,6 +335,7 @@ function CardOS({ os, onClick, draggableProps = {} }) {
         {execucao && (
           <span className={`px-2 py-0.5 rounded-full border text-[10px] font-bold flex items-center gap-1 ${execucao.classe}`}>
             <CalendarClock size={11} />{execucao.label}
+            {execucao.data && <b className="font-black">· {execucao.data}</b>}
           </span>
         )}
         {os.equipes && (
@@ -1931,6 +1943,7 @@ function PainelExecucao({ osId, produtos, onFechar, recarregarLista, mostrarToas
             {execucao && (
               <span className={`px-2 py-0.5 rounded-full border text-[10px] font-bold flex items-center gap-1 ${execucao.classe}`}>
                 <CalendarClock size={11} />{execucao.label}
+                {execucao.data && <b className="font-black">· {execucao.data}</b>}
               </span>
             )}
           </div>
