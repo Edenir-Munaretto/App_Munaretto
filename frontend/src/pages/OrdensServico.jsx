@@ -315,60 +315,93 @@ function BarraMateriais({ os }) {
 // Card da O.S (usado no Kanban e na lista mobile)
 // ---------------------------------------------------------------------------
 
-function CardOS({ os, onClick, draggableProps = {} }) {
+function CardOS({ os, onClick, draggableProps = {}, ehGestor = true }) {
   const execucao = situacaoExecucao(os);
-  return (
-    <div
-      {...draggableProps}
-      onClick={onClick}
-      className={`bg-white rounded-xl border shadow-sm hover:shadow-md transition-all p-3 cursor-pointer ${
-        execucao?.urgente ? 'border-l-4 border-l-rose-500 border-y-slate-100 border-r-slate-100' : 'border-slate-100'
-      }`}
+  const cliente = os.obras?.clientes?.nome || os.obras?.cliente_celesc || '';
+  const classeCard = `bg-white rounded-xl border shadow-sm hover:shadow-md transition-all p-3 cursor-pointer ${
+    execucao?.urgente ? 'border-l-4 border-l-rose-500 border-y-slate-100 border-r-slate-100' : 'border-slate-100'
+  }`;
+  const badgeRetroativa = os.retroativa ? (
+    <span
+      className="px-2 py-0.5 rounded-full bg-amber-50 border border-amber-200 text-[10px] font-bold text-amber-700"
+      title="O.S retroativa (execução registrada em papel)"
     >
+      Retroativa
+    </span>
+  ) : null;
+  const chipExecucao = execucao ? (
+    <span className={`px-2.5 py-1 rounded-lg border flex items-center gap-1.5 ${execucao.classe}`}>
+      <CalendarClock size={14} className="shrink-0" />
+      <span className="flex flex-col leading-tight">
+        <span className="text-[10px] font-bold opacity-80">{execucao.label}</span>
+        {execucao.data && <span className="text-sm font-black">{execucao.data}</span>}
+      </span>
+    </span>
+  ) : null;
+  const chipEquipe = os.equipes ? (
+    <span
+      className="px-2.5 py-1 rounded-lg bg-slate-50 border border-slate-200 flex items-center gap-1.5 max-w-full"
+      title={os.equipes.nome}
+    >
+      <HardHat size={14} className="shrink-0 text-slate-400" />
+      <span className="flex flex-col leading-tight min-w-0">
+        <span className="text-[10px] font-bold text-slate-400">Equipe</span>
+        <span className="text-sm font-black text-slate-600 truncate">{os.equipes.nome}</span>
+      </span>
+    </span>
+  ) : null;
+  const chipFotos = os.fotos_count > 0 ? (
+    <span className="px-2 py-0.5 rounded-full bg-primary-50 border border-primary-200 text-[10px] font-bold text-primary-700 flex items-center gap-1" title={`${os.fotos_count} foto(s) anexada(s)`}>
+      <Camera size={11} />{os.fotos_count}
+    </span>
+  ) : null;
+
+  // Usuário de campo: card enxuto — a equipe é implícita (a O.S já chega
+  // atribuída) e a data de execução fica logo abaixo da prioridade. O gestor
+  // mantém o layout completo (data + equipe + fotos na linha inferior).
+  if (!ehGestor) {
+    return (
+      <div {...draggableProps} onClick={onClick} className={classeCard}>
+        <div className="flex items-start justify-between gap-2">
+          <div className="min-w-0 flex-1">
+            <span className="font-mono text-xs font-bold text-primary-700">{os.codigo}</span>
+            <p className="text-sm font-bold text-slate-800 mt-1 truncate">{os.obras?.nome || 'Obra'}</p>
+            <p className="text-xs text-slate-400 truncate">{cliente}</p>
+          </div>
+          <div className="shrink-0 flex flex-col items-end gap-1.5">
+            <div className="flex items-center justify-end gap-1.5 flex-wrap">
+              {badgeRetroativa}
+              <BadgePrioridade prioridade={os.prioridade} />
+            </div>
+            {chipExecucao}
+          </div>
+        </div>
+
+        {chipFotos && (
+          <div className="flex items-center gap-1.5 mt-2">{chipFotos}</div>
+        )}
+
+        <BarraMateriais os={os} />
+      </div>
+    );
+  }
+
+  return (
+    <div {...draggableProps} onClick={onClick} className={classeCard}>
       <div className="flex items-center justify-between gap-2">
         <span className="font-mono text-xs font-bold text-primary-700">{os.codigo}</span>
         <div className="flex items-center gap-1.5">
-          {os.retroativa && (
-            <span
-              className="px-2 py-0.5 rounded-full bg-amber-50 border border-amber-200 text-[10px] font-bold text-amber-700"
-              title="O.S retroativa (execução registrada em papel)"
-            >
-              Retroativa
-            </span>
-          )}
+          {badgeRetroativa}
           <BadgePrioridade prioridade={os.prioridade} />
         </div>
       </div>
       <p className="text-sm font-bold text-slate-800 mt-1 truncate">{os.obras?.nome || 'Obra'}</p>
-      <p className="text-xs text-slate-400">{os.obras?.clientes?.nome || os.obras?.cliente_celesc || ''}</p>
+      <p className="text-xs text-slate-400">{cliente}</p>
 
       <div className="flex items-center gap-1.5 mt-2 flex-wrap">
-        {execucao && (
-          <span className={`px-2.5 py-1 rounded-lg border flex items-center gap-1.5 ${execucao.classe}`}>
-            <CalendarClock size={14} className="shrink-0" />
-            <span className="flex flex-col leading-tight">
-              <span className="text-[10px] font-bold opacity-80">{execucao.label}</span>
-              {execucao.data && <span className="text-sm font-black">{execucao.data}</span>}
-            </span>
-          </span>
-        )}
-        {os.equipes && (
-          <span
-            className="px-2.5 py-1 rounded-lg bg-slate-50 border border-slate-200 flex items-center gap-1.5 max-w-full"
-            title={os.equipes.nome}
-          >
-            <HardHat size={14} className="shrink-0 text-slate-400" />
-            <span className="flex flex-col leading-tight min-w-0">
-              <span className="text-[10px] font-bold text-slate-400">Equipe</span>
-              <span className="text-sm font-black text-slate-600 truncate">{os.equipes.nome}</span>
-            </span>
-          </span>
-        )}
-        {os.fotos_count > 0 && (
-          <span className="px-2 py-0.5 rounded-full bg-primary-50 border border-primary-200 text-[10px] font-bold text-primary-700 flex items-center gap-1" title={`${os.fotos_count} foto(s) anexada(s)`}>
-            <Camera size={11} />{os.fotos_count}
-          </span>
-        )}
+        {chipExecucao}
+        {chipEquipe}
+        {chipFotos}
       </div>
 
       <BarraMateriais os={os} />
@@ -4179,7 +4212,7 @@ function OrdensServico({ usuarioAtual }) {
                               {(prov, snap) => (
                                 <div ref={prov.innerRef} {...prov.draggableProps} {...prov.dragHandleProps}
                                   style={{ ...prov.draggableProps.style, opacity: snap.isDragging ? 0.85 : 1 }}>
-                                  <CardOS os={os} onClick={() => setOsSelecionada(os.id)} />
+                                  <CardOS os={os} onClick={() => setOsSelecionada(os.id)} ehGestor={ehGestor} />
                                 </div>
                               )}
                             </Draggable>
@@ -4241,7 +4274,7 @@ function OrdensServico({ usuarioAtual }) {
                   <div className="flex-1 h-px bg-slate-200" />
                 </div>
                 {porColuna[col.id].map(os => (
-                  <CardOS key={os.id} os={os} onClick={() => setOsSelecionada(os.id)} />
+                  <CardOS key={os.id} os={os} onClick={() => setOsSelecionada(os.id)} ehGestor={ehGestor} />
                 ))}
               </div>
             ))}
