@@ -319,7 +319,7 @@ function CardOS({ os, onClick, draggableProps = {}, ehGestor = true }) {
   const execucao = situacaoExecucao(os);
   const cliente = os.obras?.clientes?.nome || os.obras?.cliente_celesc || '';
   const classeCard = `bg-white rounded-xl border shadow-sm hover:shadow-md transition-all p-3 cursor-pointer ${
-    execucao?.urgente ? 'border-l-4 border-l-rose-500 border-y-slate-100 border-r-slate-100' : 'border-slate-100'
+    execucao?.urgente ? 'border-l-4 border-l-rose-500 border-y-slate-300 border-r-slate-300' : 'border-slate-300'
   }`;
   const badgeRetroativa = os.retroativa ? (
     <span
