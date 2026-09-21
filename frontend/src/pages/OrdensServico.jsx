@@ -333,9 +333,12 @@ function CardOS({ os, onClick, draggableProps = {} }) {
 
       <div className="flex items-center gap-1.5 mt-2 flex-wrap">
         {execucao && (
-          <span className={`px-2 py-0.5 rounded-full border text-[10px] font-bold flex items-center gap-1 ${execucao.classe}`}>
-            <CalendarClock size={11} />{execucao.label}
-            {execucao.data && <b className="font-black">· {execucao.data}</b>}
+          <span className={`px-2.5 py-1 rounded-lg border flex items-center gap-1.5 ${execucao.classe}`}>
+            <CalendarClock size={14} className="shrink-0" />
+            <span className="flex flex-col leading-tight">
+              <span className="text-[10px] font-bold opacity-80">{execucao.label}</span>
+              {execucao.data && <span className="text-sm font-black">{execucao.data}</span>}
+            </span>
           </span>
         )}
         {os.equipes && (
@@ -1941,9 +1944,12 @@ function PainelExecucao({ osId, produtos, onFechar, recarregarLista, mostrarToas
             <BadgeStatus status={detalhe.status} />
             <BadgePrioridade prioridade={detalhe.prioridade} />
             {execucao && (
-              <span className={`px-2 py-0.5 rounded-full border text-[10px] font-bold flex items-center gap-1 ${execucao.classe}`}>
-                <CalendarClock size={11} />{execucao.label}
-                {execucao.data && <b className="font-black">· {execucao.data}</b>}
+              <span className={`px-2.5 py-1 rounded-lg border flex items-center gap-1.5 ${execucao.classe}`}>
+                <CalendarClock size={14} className="shrink-0" />
+                <span className="flex flex-col leading-tight">
+                  <span className="text-[10px] font-bold opacity-80">{execucao.label}</span>
+                  {execucao.data && <span className="text-sm font-black">{execucao.data}</span>}
+                </span>
               </span>
             )}
           </div>
