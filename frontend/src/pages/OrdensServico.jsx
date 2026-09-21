@@ -342,8 +342,15 @@ function CardOS({ os, onClick, draggableProps = {} }) {
           </span>
         )}
         {os.equipes && (
-          <span className="px-2 py-0.5 rounded-full bg-slate-50 border border-slate-200 text-[10px] font-semibold text-slate-500 flex items-center gap-1">
-            <HardHat size={11} />{os.equipes.nome}
+          <span
+            className="px-2.5 py-1 rounded-lg bg-slate-50 border border-slate-200 flex items-center gap-1.5 max-w-full"
+            title={os.equipes.nome}
+          >
+            <HardHat size={14} className="shrink-0 text-slate-400" />
+            <span className="flex flex-col leading-tight min-w-0">
+              <span className="text-[10px] font-bold text-slate-400">Equipe</span>
+              <span className="text-sm font-black text-slate-600 truncate">{os.equipes.nome}</span>
+            </span>
           </span>
         )}
         {os.fotos_count > 0 && (
