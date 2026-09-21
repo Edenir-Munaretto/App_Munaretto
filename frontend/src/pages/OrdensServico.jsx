@@ -2097,12 +2097,6 @@ function PainelExecucao({ osId, produtos, onFechar, recarregarLista, mostrarToas
   return (
     <div className={`${ehMobile ? 'fixed inset-0 z-40 overflow-y-auto' : 'fixed inset-0 z-40 overflow-y-auto shadow-2xl border-l border-slate-200 w-full lg:left-auto lg:w-[560px] xl:w-[680px]'} bg-slate-50`}>
       <div className="p-4 lg:p-6 space-y-4 pb-10">
-        {usarLocal() && (
-          <div className="flex items-center gap-2 rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-[11px] font-bold text-amber-700">
-            <WifiOff size={14} className="shrink-0" />
-            Offline — ações salvas no dispositivo e sincronizadas ao reconectar
-          </div>
-        )}
         {cabecalho}
         {corpoAbas}
       </div>
