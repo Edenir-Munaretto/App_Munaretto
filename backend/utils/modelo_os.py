@@ -205,7 +205,7 @@ def gerar_modelo_os_com_desligamento(
         caminho_desligamento = gerar_pdf_desligamento(
             agencia=os_data.get("agencia") or "",
             projeto_sap=projeto_sap or "",
-            obra=obra.get("nome") or "",
+            obra=os_data.get("descricao_escopo") or obra.get("nome") or "",
             local=os_data.get("local_servico") or obra.get("endereco") or "",
             municipio=os_data.get("municipio") or obra.get("cidade") or "",
             id_obra=str(os_data.get("obra_id") or ""),

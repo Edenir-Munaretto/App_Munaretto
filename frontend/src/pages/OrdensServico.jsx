@@ -5991,7 +5991,7 @@ function ModalEquipeCadastro({ edicao, recarregar, mostrarToast, onFechar }) {
 // Nada é gravado no sistema — a escolha vale só para esta impressão.
 // ---------------------------------------------------------------------------
 function ModalImprimirOS({ detalhe, equipes, abrirPdf, mostrarToast, onFechar }) {
-  const [incluirDesligamento, setIncluirDesligamento] = useState(true);
+  const [incluirDesligamento, setIncluirDesligamento] = useState(false);
   const [substitutoId, setSubstitutoId] = useState('');
 
   const equipe = (equipes || []).find(eq => String(eq.id) === String(detalhe?.equipe_id));

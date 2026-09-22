@@ -1094,6 +1094,15 @@ class TestDesligamento:
         texto = "\n".join(pagina.get_text() for pagina in doc).replace("\u2010", "-")
         return doc, texto
 
+    @staticmethod
+    def _valor_na_linha(doc, pagina, y_min, y_max, x_min=140.0):
+        """Palavras de uma linha de valor da desligamento (à direita do rótulo)."""
+        return " ".join(
+            w[4]
+            for w in doc[pagina].get_text("words")
+            if y_min <= w[1] <= y_max and w[0] >= x_min
+        )
+
     def test_imprimir_com_desligamento_mescla_folha_da_celesc(self, os_gestor_client, db_fake):
         _seed_cenario(db_fake)
         self._seed_substituto(db_fake)
@@ -1103,6 +1112,7 @@ class TestDesligamento:
             agencia="CDA",
             municipio="Ponte Serrada",
             local_servico="25 DE MAIO",
+            descricao_escopo="LIGAÇÃO NOVA",
             hora_desligar="13:00",
             hora_religar="17:00",
             alimentador="FGS01",
@@ -1126,6 +1136,21 @@ class TestDesligamento:
         assert "13:00" in texto and "17:00" in texto
         assert "FGS01" in texto and "FU 82027" in texto
         assert "Ponte Serrada" in texto
+        # Campo "Obra:" mostra a descrição do serviço (escopo), não o nome da obra.
+        assert self._valor_na_linha(doc, 2, 236, 248) == "LIGAÇÃO NOVA"
+
+    def test_desligamento_obra_usa_nome_da_obra_sem_escopo(self, os_gestor_client, db_fake):
+        """Sem descrição de serviço, o campo 'Obra' cai para o nome da obra."""
+        _seed_cenario(db_fake)
+        os_id = _criar_os(os_gestor_client, equipe_id=100, descricao_escopo="").json()["id"]
+
+        resp = os_gestor_client.get(
+            f"/api/os/{os_id}/imprimir", params={"incluir_desligamento": "true"}
+        )
+        assert resp.status_code == 200, resp.text
+
+        doc, _texto = self._texto_do_pdf(resp)
+        assert self._valor_na_linha(doc, 2, 236, 248) == "Obra Central"
 
     def test_desligamento_projeto_sap_usa_nome_da_obra_sem_cliente(self, os_gestor_client, db_fake):
         """Obra de terceiros (Celesc), sem cliente no cadastro: a Nota PS da
