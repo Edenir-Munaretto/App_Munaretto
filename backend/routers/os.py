@@ -403,11 +403,51 @@ def _dados_equipe_impressao(db, equipe_id: int | None) -> tuple[str | None, str 
         nome = func.get("nome")
         if not nome:
             continue
-        membros.append({"nome": nome, "cargo": cargos.get(func.get("cargo_id")) or ""})
+        membros.append(
+            {
+                "nome": nome,
+                "cargo": cargos.get(func.get("cargo_id")) or "",
+                "funcionario_id": v["funcionario_id"],
+                "lider": bool(v.get("lider")),
+            }
+        )
         if v.get("lider") and not encarregado:
             encarregado = nome
 
     return equipe_nome, equipe_numero, encarregado, membros
+
+
+def _nome_substituto(membros: list[dict], substituto_id: int) -> str:
+    """Valida e resolve o substituto impresso na Solicitação de Desligamento.
+
+    O substituto precisa ser um dos demais membros da equipe — nunca o
+    encarregado (líder) — garantindo que a folha saia com alguém habilitado
+    a assumir a equipe no desligamento.
+    """
+    for membro in membros:
+        if membro.get("funcionario_id") == substituto_id:
+            if membro.get("lider"):
+                raise HTTPException(
+                    status_code=400,
+                    detail="O substituto deve ser um membro da equipe diferente do encarregado.",
+                )
+            return membro.get("nome") or ""
+    raise HTTPException(status_code=400, detail="Substituto deve ser um dos membros da equipe da O.S.")
+
+
+def _nota_ps_da_obra(db, obra: dict) -> str:
+    """Nota PS (Projeto Sap) da obra: nota do cliente vinculado ou o nome da obra.
+
+    O cadastro de obra grava a Nota PS no próprio nome (`obras.nome`); quando
+    há cliente vinculado, o valor estruturado `clientes.nota_ps` tem
+    prioridade. Obras de terceiros (Celesc) não têm cliente no cadastro.
+    """
+    cliente_id = obra.get("cliente_id")
+    if cliente_id:
+        resp = db.table("clientes").select("nota_ps").eq("id", cliente_id).limit(1).execute().data
+        if resp and resp[0].get("nota_ps"):
+            return str(resp[0]["nota_ps"])
+    return str(obra.get("nome") or "")
 
 
 def _os_ou_404(db, os_id: int) -> dict:
@@ -1934,11 +1974,24 @@ def _gravar_sync_op(
 
 
 @router.get("/{os_id}/imprimir", summary="Gera o PDF da O.S no modelo oficial")
-def imprimir_os(os_id: int, usuario: UsuarioAutenticado = Depends(get_current_user), db=Depends(get_supabase)):
+def imprimir_os(
+    os_id: int,
+    incluir_desligamento: bool = Query(
+        False,
+        description="Anexa a Solicitação de Desligamento (Celesc) ao PDF da O.S (restrito ao gestor)",
+    ),
+    substituto_id: int | None = Query(
+        None, description="Funcionário substituto, escolhido entre os membros da equipe (exceto o encarregado)"
+    ),
+    usuario: UsuarioAutenticado = Depends(get_current_user),
+    db=Depends(get_supabase),
+):
     """Preenche o modelo da O.S (CONSTRUÇÃO ou LINHA VIVA) e retorna o PDF.
 
     Campos derivados automaticamente quando não preenchidos: município e
-    local vêm da obra; encarregado e membros vêm da equipe vinculada.
+    local vêm da obra; encarregado e membros vêm da equipe vinculada. Com
+    `incluir_desligamento`, a Solicitação de Desligamento é anexada como
+    última página, com o substituto escolhido pelo gestor.
     """
     try:
         os_data = _os_ou_404(db, os_id)
@@ -1949,21 +2002,46 @@ def imprimir_os(os_id: int, usuario: UsuarioAutenticado = Depends(get_current_us
 
         equipe_nome, equipe_numero, encarregado, membros = _dados_equipe_impressao(db, os_data.get("equipe_id"))
 
-        from utils.modelo_os import gerar_modelo_os
+        if incluir_desligamento:
+            _exigir_gestor(usuario)
+            if not os_data.get("equipe_id"):
+                raise HTTPException(
+                    status_code=400,
+                    detail="Vincule uma equipe à O.S para imprimir a Solicitação de Desligamento.",
+                )
+            substituto = _nome_substituto(membros, substituto_id) if substituto_id else ""
+            from utils.modelo_os import gerar_modelo_os_com_desligamento
 
-        caminho = gerar_modelo_os(
-            os_data=os_data,
-            obra=obra,
-            equipe_nome=equipe_nome,
-            equipe_numero=equipe_numero,
-            encarregado=encarregado,
-            membros=membros,
-            tipo=os_data.get("tipo") or "construcao",
-        )
+            caminho = gerar_modelo_os_com_desligamento(
+                os_data=os_data,
+                obra=obra,
+                equipe_nome=equipe_nome,
+                equipe_numero=equipe_numero,
+                encarregado=encarregado,
+                membros=membros,
+                tipo=os_data.get("tipo") or "construcao",
+                substituto=substituto,
+                projeto_sap=_nota_ps_da_obra(db, obra),
+            )
+            nome_arquivo = f"{os_data['codigo']}_modelo_desligamento.pdf"
+        else:
+            from utils.modelo_os import gerar_modelo_os
+
+            caminho = gerar_modelo_os(
+                os_data=os_data,
+                obra=obra,
+                equipe_nome=equipe_nome,
+                equipe_numero=equipe_numero,
+                encarregado=encarregado,
+                membros=membros,
+                tipo=os_data.get("tipo") or "construcao",
+            )
+            nome_arquivo = f"{os_data['codigo']}_modelo.pdf"
+
         return FileResponse(
             caminho,
             media_type="application/pdf",
-            filename=f"{os_data['codigo']}_modelo.pdf",
+            filename=nome_arquivo,
             background=BackgroundTask(_remover_arquivo, caminho),
         )
     except HTTPException:

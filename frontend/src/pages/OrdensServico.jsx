@@ -1783,10 +1783,11 @@ function AcoesStatus({ detalhe, podeEditar, mudarStatus, aoAplicado, transicoesM
   );
 }
 
-function PainelExecucao({ osId, produtos, onFechar, recarregarLista, mostrarToast, ehMobile, mudarStatus, ehGestor, onEditar, onExcluir, transicoes, onPedirCancelamento, onReabrir, versaoPainel }) {
+function PainelExecucao({ osId, produtos, onFechar, recarregarLista, mostrarToast, ehMobile, mudarStatus, ehGestor, onEditar, onExcluir, transicoes, onPedirCancelamento, onReabrir, versaoPainel, equipes = [] }) {
   const [detalhe, setDetalhe] = useState(null);
   const [erro, setErro] = useState('');
   const [aba, setAba] = useState('insumos');
+  const [modalImprimir, setModalImprimir] = useState(false);
   // Timer do retry (1500ms) — cancelado ao trocar de O.S ou desmontar o painel
   // (sem cleanup o retry antigo disparava com o osId anterior, A8).
   const timerRetry = useRef(null);
@@ -2108,7 +2109,7 @@ function PainelExecucao({ osId, produtos, onFechar, recarregarLista, mostrarToas
               <Pencil size={14} /> Editar
             </button>
             <button
-              onClick={() => abrirPdf(`/os/${detalhe.id}/imprimir`)}
+              onClick={() => setModalImprimir(true)}
               className="h-11 rounded-xl bg-primary-600 text-white text-xs font-bold flex items-center justify-center gap-1.5 hover:bg-primary-700 cursor-pointer"
             >
               <Printer size={14} /> Imprimir O.S
@@ -2152,6 +2153,15 @@ function PainelExecucao({ osId, produtos, onFechar, recarregarLista, mostrarToas
         {cabecalho}
         {corpoAbas}
       </div>
+      {modalImprimir && (
+        <ModalImprimirOS
+          detalhe={detalhe}
+          equipes={equipes}
+          abrirPdf={abrirPdf}
+          mostrarToast={mostrarToast}
+          onFechar={() => setModalImprimir(false)}
+        />
+      )}
     </div>
   );
 }
@@ -4241,6 +4251,7 @@ function OrdensServico({ usuarioAtual }) {
               osId={osSelecionada}
               versaoPainel={versaoPainel}
               obras={obras}
+              equipes={equipes}
               produtos={produtos}
               onFechar={() => setOsSelecionada(null)}
               recarregarLista={recarregarLista}
@@ -4389,6 +4400,7 @@ function OrdensServico({ usuarioAtual }) {
               osId={osSelecionada}
               versaoPainel={versaoPainel}
               obras={obras}
+              equipes={equipes}
               produtos={produtos}
               onFechar={() => setOsSelecionada(null)}
               recarregarLista={recarregarLista}
@@ -5965,6 +5977,125 @@ function ModalEquipeCadastro({ edicao, recarregar, mostrarToast, onFechar }) {
             className="flex items-center gap-1.5 px-5 py-2.5 bg-primary-600 text-white rounded-xl text-xs font-bold hover:bg-primary-700 transition-all cursor-pointer disabled:opacity-50"
           >
             {salvando ? 'Salvando...' : (edicao ? 'Salvar Alterações' : 'Cadastrar Equipe')}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Impressão da O.S no modo gestor: permite anexar a Solicitação de
+// Desligamento (Celesc) ao PDF do modelo, escolhendo manualmente o
+// substituto entre os demais membros da equipe (nunca o encarregado).
+// Nada é gravado no sistema — a escolha vale só para esta impressão.
+// ---------------------------------------------------------------------------
+function ModalImprimirOS({ detalhe, equipes, abrirPdf, mostrarToast, onFechar }) {
+  const [incluirDesligamento, setIncluirDesligamento] = useState(true);
+  const [substitutoId, setSubstitutoId] = useState('');
+
+  const equipe = (equipes || []).find(eq => String(eq.id) === String(detalhe?.equipe_id));
+  const membros = equipe?.membros || [];
+  const encarregado = membros.find(m => m.lider);
+  const substitutos = membros.filter(m => !m.lider);
+  const semEquipe = !detalhe?.equipe_id;
+
+  const gerar = () => {
+    if (incluirDesligamento && semEquipe) {
+      mostrarToast('Vincule uma equipe à O.S para incluir a Solicitação de Desligamento.', 'error');
+      return;
+    }
+    const params = new URLSearchParams();
+    if (incluirDesligamento) {
+      params.set('incluir_desligamento', 'true');
+      if (substitutoId) params.set('substituto_id', substitutoId);
+    }
+    const query = params.toString();
+    abrirPdf(`/os/${detalhe.id}/imprimir${query ? `?${query}` : ''}`);
+    onFechar();
+  };
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm p-4">
+      <div className="bg-white rounded-2xl shadow-2xl max-w-lg w-full overflow-hidden max-h-[92vh] overflow-y-auto animate-in fade-in zoom-in duration-200">
+        <div className="bg-slate-900 text-white px-6 py-4 flex items-center justify-between sticky top-0">
+          <h3 className="text-sm font-extrabold">Imprimir O.S</h3>
+          <button type="button" onClick={onFechar} className="text-slate-400 hover:text-white cursor-pointer"><X size={18} /></button>
+        </div>
+        <div className="p-6 space-y-4">
+          <div className="bg-slate-50 border border-slate-200 rounded-xl p-3">
+            <p className="text-xs font-bold text-slate-700">{detalhe?.codigo} · {detalhe?.obras?.nome || 'Sem obra'}</p>
+            <p className="text-[11px] text-slate-500 mt-1">
+              Equipe: {detalhe?.equipes ? (detalhe.equipes.numero ? `Nº ${detalhe.equipes.numero} - ${detalhe.equipes.nome}` : detalhe.equipes.nome) : 'sem equipe'}
+            </p>
+          </div>
+
+          <label className="flex items-start gap-3 rounded-xl border border-slate-200 p-3 cursor-pointer hover:bg-slate-50 transition-colors">
+            <input
+              type="checkbox"
+              checked={incluirDesligamento}
+              onChange={e => setIncluirDesligamento(e.target.checked)}
+              className="w-4 h-4 mt-0.5 accent-primary-600 cursor-pointer"
+            />
+            <span>
+              <span className="block text-xs font-bold text-slate-700">Incluir Solicitação de Desligamento</span>
+              <span className="block text-[11px] text-slate-500 mt-0.5">
+                Anexa a folha da Celesc como última página do PDF. Puxa agência, obra, local, município,
+                data, desligar/religar, alimentador, FuChave, equipe e encarregado da O.S.
+              </span>
+            </span>
+          </label>
+
+          {incluirDesligamento && semEquipe && (
+            <p className="text-[11px] font-bold text-rose-600 bg-rose-50 border border-rose-200 rounded-xl px-3 py-2.5">
+              Esta O.S não tem equipe vinculada. Edite a O.S e selecione a equipe para imprimir a Solicitação de Desligamento.
+            </p>
+          )}
+
+          {incluirDesligamento && !semEquipe && (
+            <div className="space-y-3">
+              <div className="bg-slate-50 border border-slate-200 rounded-xl p-3 text-xs">
+                <p className="font-bold text-slate-700 mb-1">Serão impressos no desligamento:</p>
+                <p className="text-slate-600">
+                  Encarregado: <span className="font-semibold">{encarregado?.nome || '—'}</span>
+                </p>
+              </div>
+              <div>
+                <label className="block text-xs font-bold text-slate-700 mb-1">Substituto (opcional)</label>
+                <select
+                  value={substitutoId}
+                  onChange={e => setSubstitutoId(e.target.value)}
+                  disabled={substitutos.length === 0}
+                  className="w-full px-3 py-2 border border-slate-200 rounded-xl text-sm focus:outline-none focus:border-primary-500 bg-white disabled:bg-slate-100 disabled:text-slate-400"
+                >
+                  <option value="">— Sem substituto —</option>
+                  {substitutos.map(m => (
+                    <option key={m.funcionario_id || m.id} value={String(m.funcionario_id)}>{m.nome}</option>
+                  ))}
+                </select>
+                {substitutos.length === 0 && (
+                  <p className="text-[10px] font-semibold text-slate-400 mt-1">
+                    Nenhum outro membro na equipe além do encarregado.
+                  </p>
+                )}
+              </div>
+            </div>
+          )}
+        </div>
+        <div className="px-6 py-4 border-t border-slate-100 bg-slate-50 flex gap-2 justify-end">
+          <button
+            type="button"
+            onClick={onFechar}
+            className="px-4 py-2.5 bg-white border border-slate-200 text-slate-600 rounded-xl text-xs font-bold hover:bg-slate-100 transition-colors cursor-pointer"
+          >
+            Cancelar
+          </button>
+          <button
+            onClick={gerar}
+            disabled={incluirDesligamento && semEquipe}
+            className="flex items-center gap-1.5 px-5 py-2.5 bg-primary-600 text-white rounded-xl text-xs font-bold hover:bg-primary-700 transition-all cursor-pointer disabled:opacity-50"
+          >
+            <Printer size={14} /> Gerar PDF
           </button>
         </div>
       </div>

@@ -1071,6 +1071,144 @@ class TestModeloImpressao:
         assert not cda, f"Rótulo 'CDA' ainda presente no cabeçalho: {cda}"
 
 
+class TestDesligamento:
+    """Solicitação de Desligamento anexada ao modelo da O.S (modo gestor)."""
+
+    def _seed_substituto(self, db_fake, nota_ps="400774969"):
+        """Segundo membro (não líder) na Equipe A + Nota PS no cliente da obra."""
+        db = db_fake._dados
+        db["funcionarios"].append(
+            {"id": 11, "nome": "Membro Substituto", "cpf": "22222222222", "ativo": True}
+        )
+        db["equipe_membros"].append(
+            {"id": 2, "equipe_id": 100, "funcionario_id": 11, "lider": False}
+        )
+        db["equipes"][0]["numero"] = "12102"
+        db["clientes"][0]["nota_ps"] = nota_ps
+
+    @staticmethod
+    def _texto_do_pdf(resp):
+        import pymupdf
+
+        doc = pymupdf.open(stream=resp.content, filetype="pdf")
+        texto = "\n".join(pagina.get_text() for pagina in doc).replace("\u2010", "-")
+        return doc, texto
+
+    def test_imprimir_com_desligamento_mescla_folha_da_celesc(self, os_gestor_client, db_fake):
+        _seed_cenario(db_fake)
+        self._seed_substituto(db_fake)
+        os_id = _criar_os(
+            os_gestor_client,
+            equipe_id=100,
+            agencia="CDA",
+            municipio="Ponte Serrada",
+            local_servico="25 DE MAIO",
+            hora_desligar="13:00",
+            hora_religar="17:00",
+            alimentador="FGS01",
+            chave="FU 82027",
+        ).json()["id"]
+
+        resp = os_gestor_client.get(
+            f"/api/os/{os_id}/imprimir",
+            params={"incluir_desligamento": "true", "substituto_id": 11},
+        )
+        assert resp.status_code == 200, resp.text
+        assert resp.headers["content-type"] == "application/pdf"
+
+        doc, texto = self._texto_do_pdf(resp)
+        assert doc.page_count == 3  # 2 páginas do modelo Construção + desligamento
+        assert "Solicitação de Desligamento" in texto
+        assert "400774969" in texto  # Projeto (Sap) = Nota PS do cliente
+        assert "Líder de Campo" in texto  # encarregado
+        assert "Membro Substituto" in texto  # substituto escolhido
+        assert "12102" in texto
+        assert "13:00" in texto and "17:00" in texto
+        assert "FGS01" in texto and "FU 82027" in texto
+        assert "Ponte Serrada" in texto
+
+    def test_desligamento_projeto_sap_usa_nome_da_obra_sem_cliente(self, os_gestor_client, db_fake):
+        """Obra de terceiros (Celesc), sem cliente no cadastro: a Nota PS da
+        obra (obras.nome) é usada como Projeto (Sap)."""
+        _seed_cenario(db_fake)
+        db_fake._dados["obras"].append(
+            {
+                "id": 6,
+                "cliente_id": None,
+                "cliente_celesc": "Celesc",
+                "nome": "9876543210",
+                "ativo": True,
+                "created_at": "2026-01-01T00:00:00Z",
+            }
+        )
+        os_id = _criar_os(os_gestor_client, obra_id=6, equipe_id=100).json()["id"]
+
+        resp = os_gestor_client.get(
+            f"/api/os/{os_id}/imprimir", params={"incluir_desligamento": "true"}
+        )
+        assert resp.status_code == 200, resp.text
+
+        _doc, texto = self._texto_do_pdf(resp)
+        assert "9876543210" in texto
+
+    def test_desligamento_substituto_fora_da_equipe_rejeitado(self, os_gestor_client, db_fake):
+        _seed_cenario(db_fake)
+        self._seed_substituto(db_fake)
+        os_id = _criar_os(os_gestor_client, equipe_id=100).json()["id"]
+
+        resp = os_gestor_client.get(
+            f"/api/os/{os_id}/imprimir",
+            params={"incluir_desligamento": "true", "substituto_id": 999},
+        )
+        assert resp.status_code == 400
+        assert "membros da equipe" in resp.json()["detail"]
+
+    def test_desligamento_substituto_nao_pode_ser_o_encarregado(self, os_gestor_client, db_fake):
+        _seed_cenario(db_fake)
+        self._seed_substituto(db_fake)
+        os_id = _criar_os(os_gestor_client, equipe_id=100).json()["id"]
+
+        resp = os_gestor_client.get(
+            f"/api/os/{os_id}/imprimir",
+            params={"incluir_desligamento": "true", "substituto_id": 10},
+        )
+        assert resp.status_code == 400
+        assert "diferente do encarregado" in resp.json()["detail"]
+
+    def test_desligamento_exige_equipe_vinculada(self, os_gestor_client, db_fake):
+        _seed_cenario(db_fake)
+        os_id = _criar_os(os_gestor_client).json()["id"]
+
+        resp = os_gestor_client.get(
+            f"/api/os/{os_id}/imprimir", params={"incluir_desligamento": "true"}
+        )
+        assert resp.status_code == 400
+        assert "Vincule uma equipe" in resp.json()["detail"]
+
+    def test_desligamento_exige_gestor(self, os_gestor_client, os_campo_client, db_fake):
+        _seed_cenario(db_fake)
+        os_id = _criar_os(os_gestor_client, equipe_id=100).json()["id"]
+
+        resp = os_campo_client.get(
+            f"/api/os/{os_id}/imprimir", params={"incluir_desligamento": "true"}
+        )
+        assert resp.status_code == 403
+
+    def test_imprimir_sem_desligamento_ignora_parametros(self, os_gestor_client, db_fake):
+        _seed_cenario(db_fake)
+        self._seed_substituto(db_fake)
+        os_id = _criar_os(os_gestor_client, equipe_id=100).json()["id"]
+
+        resp = os_gestor_client.get(
+            f"/api/os/{os_id}/imprimir", params={"substituto_id": 11}
+        )
+        assert resp.status_code == 200, resp.text
+
+        doc, texto = self._texto_do_pdf(resp)
+        assert doc.page_count == 2
+        assert "Solicitação de Desligamento" not in texto
+
+
 def test_detalhe_nao_quebra_com_cronometro_aberto_de_timestamp_invalido(os_gestor_client, db_fake):
     """Um apontamento aberto com 'inicio' ausente/inválido no banco não pode
     derrubar o detalhe da O.S (regressão do erro 'Erro ao obter detalhes')."""

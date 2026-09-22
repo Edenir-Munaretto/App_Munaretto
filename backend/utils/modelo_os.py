@@ -9,6 +9,7 @@ import logging
 import os
 import tempfile
 
+import pymupdf
 from docxtpl import DocxTemplate
 
 from utils.document_generator import TEMPLATES_DIR, convert_docx_to_pdf
@@ -152,3 +153,75 @@ def gerar_modelo_os(
     finally:
         if os.path.exists(caminho_docx):
             os.remove(caminho_docx)
+
+
+def _mesclar_pdfs(caminho_base: str, caminho_anexo: str) -> str:
+    """Anexa as páginas de `caminho_anexo` ao fim do PDF `caminho_base`."""
+    pdf = pymupdf.open(caminho_base)
+    anexo = pymupdf.open(caminho_anexo)
+    try:
+        pdf.insert_pdf(anexo)
+        fd, destino = tempfile.mkstemp(prefix="os_modelo_desligamento_", suffix=".pdf")
+        os.close(fd)
+        pdf.save(destino)
+    finally:
+        pdf.close()
+        anexo.close()
+        for caminho in (caminho_base, caminho_anexo):
+            if os.path.exists(caminho):
+                os.remove(caminho)
+    return destino
+
+
+def gerar_modelo_os_com_desligamento(
+    os_data: dict,
+    obra: dict,
+    equipe_nome: str | None = None,
+    equipe_numero: str | None = None,
+    encarregado: str | None = None,
+    membros: list | None = None,
+    tipo: str = "construcao",
+    substituto: str | None = None,
+    projeto_sap: str | None = None,
+) -> str:
+    """Gera o modelo da O.S com a Solicitação de Desligamento anexada.
+
+    A desligamento reaproveita os campos derivados do modelo (município/local
+    da obra, data de execução, equipe) e recebe o substituto escolhido pelo
+    gestor no momento da impressão.
+    """
+    caminho_modelo = gerar_modelo_os(
+        os_data=os_data,
+        obra=obra,
+        equipe_nome=equipe_nome,
+        equipe_numero=equipe_numero,
+        encarregado=encarregado,
+        membros=membros,
+        tipo=tipo,
+    )
+    try:
+        from utils.modelo_os_desligamento import gerar_pdf_desligamento
+
+        caminho_desligamento = gerar_pdf_desligamento(
+            agencia=os_data.get("agencia") or "",
+            projeto_sap=projeto_sap or "",
+            obra=obra.get("nome") or "",
+            local=os_data.get("local_servico") or obra.get("endereco") or "",
+            municipio=os_data.get("municipio") or obra.get("cidade") or "",
+            id_obra=str(os_data.get("obra_id") or ""),
+            data=_fmt_data_br(os_data.get("data_execucao") or os_data.get("prazo_entrega")),
+            h_desligar=_fmt_hora(os_data.get("hora_desligar")),
+            h_religar=_fmt_hora(os_data.get("hora_religar")),
+            alimentador=os_data.get("alimentador") or "",
+            chave=os_data.get("chave") or "",
+            servico=os_data.get("descricao_escopo") or "",
+            codigo=os_data.get("codigo") or "",
+            equipe=equipe_numero or "",
+            encarregado=encarregado or "",
+            substituto=substituto or "",
+        )
+        return _mesclar_pdfs(caminho_modelo, caminho_desligamento)
+    except Exception:
+        if os.path.exists(caminho_modelo):
+            os.remove(caminho_modelo)
+        raise
