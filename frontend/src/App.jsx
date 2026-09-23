@@ -266,14 +266,28 @@ function App() {
     }
   }, [usuario]);
 
+  // Perfil de campo puro (os_campo sem 'os'): as notificações do escritório
+  // (férias, veículos, SST) não se aplicam — sem sino e sem polling.
+  const permissoes = usuario?.permissoes || [];
+  const modoCampoUsuario = permissoes.includes('os_campo') && !permissoes.includes('os');
+
+  // Usuário de campo puro: descarta resíduos de notificações/alertas do
+  // usuário anterior no mesmo aparelho.
+  useEffect(() => {
+    if (!modoCampoUsuario) return;
+    setNotificacoes([]);
+    setAlerts([]);
+    setSstAlerts([]);
+  }, [modoCampoUsuario]);
+
   // Busca alertas de férias ao carregar e a cada 5 minutos (antes: 100s — o
   // polling curtinho multiplicava leituras completas das tabelas no Supabase).
   useEffect(() => {
-    if (!usuario) return;
+    if (!usuario || modoCampoUsuario) return;
     fetchAlerts();
     const interval = setInterval(fetchAlerts, 300000); // 5 minutos
     return () => clearInterval(interval);
-  }, [usuario, fetchAlerts]);
+  }, [usuario, modoCampoUsuario, fetchAlerts]);
 
   const fetchNotifications = useCallback(async () => {
     if (!usuario?.email) return;
@@ -292,11 +306,11 @@ function App() {
   // Busca notificações do usuário logado ao carregar e a cada 3 minutos
   // (antes: 1 minuto — cada poll refazia a checagem no backend).
   useEffect(() => {
-    if (!usuario) return;
+    if (!usuario || modoCampoUsuario) return;
     fetchNotifications();
     const interval = setInterval(fetchNotifications, 180000); // 3 minutos
     return () => clearInterval(interval);
-  }, [usuario, fetchNotifications]);
+  }, [usuario, modoCampoUsuario, fetchNotifications]);
 
   const mostrarNotifErro = (msg) => {
     setNotifErro(msg);
@@ -525,14 +539,12 @@ function App() {
     };
   }, [atualizarUsuarioAtual]);
 
-  // O Dashboard é um módulo próprio liberado pelo administrador na aba
-  // Configurações. Quem tiver a permissão "dashboard" tem acesso total aos
-  // dados agregados (funcionários, férias, ASOs e cursos).
-  const permissoes = usuario?.permissoes || [];
-
   // Resultado cacheado: o navegador permite persistir cookies/dados do site?
   const storageOk = storageDisponivel();
 
+  // O Dashboard é um módulo próprio liberado pelo administrador na aba
+  // Configurações. Quem tiver a permissão "dashboard" tem acesso total aos
+  // dados agregados (funcionários, férias, ASOs e cursos).
   const tabs = useMemo(() => [
     ...(permissoes.includes('dashboard') ? [{ id: 'dashboard', label: 'Dashboard', icon: LayoutDashboard, component: Dashboard }] : []),
     ...MODULOS
@@ -751,7 +763,9 @@ function App() {
 
           <div className="flex items-center gap-4">
             
-            {/* Central de Notificações (sino único) */}
+            {/* Central de Notificações (sino único) — oculta no Modo Campo:
+                as notificações do escritório não se aplicam ao usuário de campo */}
+            {!modoCampoUsuario && (
             <div className="relative">
               <button 
                 onClick={() => setShowNotifPanel(!showNotifPanel)} 
@@ -908,6 +922,7 @@ function App() {
                 </div>
               )}
             </div>
+            )}
 
             <div className="h-8 w-[1px] bg-slate-200" />
 
