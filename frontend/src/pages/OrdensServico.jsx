@@ -152,11 +152,18 @@ function diaMes(iso) {
 // Semáforo de execução: vermelho = atrasada, âmbar = executa em <= 3 dias;
 // acima disso o badge fica neutro. A data de execução aparece SEMPRE junto do
 // contador (facilita a identificação visual no Modo Campo).
-function situacaoExecucao(os) {
+// A contagem é por DIA DE CALENDÁRIO: cruza os componentes da data LOCAL com a
+// meia-noite UTC dos mesmos componentes (imune a fuso e horário de verão).
+// Assim o prazo de hoje é 0 mesmo às 10h — antes, a diferença contra 23:59:59
+// dava fração < 1 e o `Math.ceil` exibia "Executa em 1d" no dia do prazo.
+export function situacaoExecucao(os) {
   if (!os.prazo_entrega || ['concluida', 'cancelada'].includes(os.status)) return null;
-  const hoje = new Date();
-  const execucao = new Date(`${os.prazo_entrega}T23:59:59`);
-  const dias = Math.ceil((execucao - hoje) / 86400000);
+  const [ano, mes, dia] = String(os.prazo_entrega).slice(0, 10).split('-').map(Number);
+  if (!ano || !mes || !dia) return null;
+  const agora = new Date();
+  const dias = Math.round(
+    (Date.UTC(ano, mes - 1, dia) - Date.UTC(agora.getFullYear(), agora.getMonth(), agora.getDate())) / 86400000
+  );
   const data = diaMes(os.prazo_entrega);
   if (dias < 0) return { label: `Execução atrasada (${Math.abs(dias)}d)`, data, classe: 'bg-rose-100 text-rose-700 border-rose-200', urgente: true };
   if (dias === 0) return { label: 'Executa hoje', data, classe: 'bg-amber-100 text-amber-800 border-amber-200', urgente: false };
