@@ -79,7 +79,7 @@ stateDiagram-v2
          └────┬─────┘              │
               │ abrir              │
               ▼                    │
-         ┌─────────┐               │   cancelar (justificativa ≥20)
+         ┌─────────┐               │   cancelar (justificativa ≥5)
          │  Aberta ├───────────────┼──────────────►┐
          └────┬────┘               │                │
               │                    │                │
@@ -106,7 +106,7 @@ stateDiagram-v2
 |---|---|
 | `aberta → em_andamento` | Checklist **Grupo 1 (Preparação)** 100% respondido |
 | `→ concluida` | Checklist completo (todos os itens de todos os grupos) |
-| `→ cancelada` | Justificativa ≥ 20 caracteres (foto opcional); gestor e campo (campo só nas O.S das próprias equipes) |
+| `→ cancelada` | Justificativa ≥ 5 caracteres (foto opcional); gestor e campo (campo só nas O.S das próprias equipes) |
 | `concluida/cancelada → aberta` | Reabertura: gestor + justificativa ≥ 10 caracteres |
 | qualquer outra | Rejeitada com 422 (destinos permitidos informados na mensagem) |
 
@@ -120,7 +120,7 @@ flowchart TD
     B["2. NA BASE (online)<br/>check-in (hora + GPS) e preenchimento do<br/>Grupo 1 'Preparação (base)'"] --> C
     C["3. LIBERAÇÃO: aberta → em_andamento<br/>botão de status (gate Grupo 1) ou play do H.H."] --> D
     D["4. NO CAMPO — Painel de Execução (abas)<br/>checklist (2–5) · cronômetro H.H. · serviços<br/>evidências (fotos) · timeline"] --> E
-    E["5. CANCELAMENTO (se necessário)<br/>justificativa ≥20 → cancelada<br/>sai da tela (arquivo do gestor)"] --> F
+    E["5. CANCELAMENTO (se necessário)<br/>justificativa ≥5 → cancelada<br/>sai da tela (arquivo do gestor)"] --> F
     F["6. CONCLUSÃO<br/>checklist 100% → concluída (encerra H.H.<br/>esquecidos, registra data_fim, notifica criador)"] --> G
     G["7. RELATÓRIOS<br/>PDF do checklist · PDF de execução<br/>capa oficial (imprimir) · materiais aplicados + custo M.O."]
 ```
@@ -148,7 +148,7 @@ flowchart TD
     · Evidências ─► fotos (câmera/galeria) no S3; excluir só gestor
     · Timeline   ─► histórico de transições (quem/quando/GPS)
 
- 5. CANCELAMENTO (se necessário): justificativa ≥20 → cancelada (sai do
+ 5. CANCELAMENTO (se necessário): justificativa ≥5 → cancelada (sai do
     quadro do campo; fica na visão Encerradas do gestor, que pode reabrir)
 
  6. CONCLUSÃO: checklist 100% → concluída → encerra cronômetros esquecidos,

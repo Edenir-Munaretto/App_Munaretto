@@ -3,7 +3,7 @@
 Cobre as regras críticas:
 - Geração de código único e status inicial 'rascunho';
 - Máquina de estados (transições inválidas são rejeitadas);
-- Trava do status 'Impedida' (justificativa >= 20 caracteres + fotos);
+- Trava do status 'Cancelada' (justificativa >= 5 caracteres; foto opcional);
 - Apontamento H.H. (play promove a O.S, pause calcula minutos);
 - Custo Real de Mão de Obra (zerado até definir valor por equipe);
 - Permissão granular (usuário de campo só acessa O.S da própria equipe);
@@ -149,14 +149,14 @@ class TestMaquinaEstados:
 
 
 class TestTravaCancelada:
-    """Cancelamento exige justificativa >= 20 caracteres (foto é opcional)."""
+    """Cancelamento exige justificativa >= 5 caracteres (foto é opcional)."""
 
     def test_justificativa_curta_rejeita(self, os_gestor_client, db_fake):
         _seed_cenario(db_fake)
         os_id = _criar_os_aberta_em_andamento(os_gestor_client)
         resp = os_gestor_client.put(
             f"/api/os/{os_id}/status",
-            json={"novo_status": "cancelada", "justificativa": "curta"},
+            json={"novo_status": "cancelada", "justificativa": "ab"},
         )
         assert resp.status_code == 422
         assert "justificativa" in resp.json()["detail"].lower()

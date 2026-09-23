@@ -2,8 +2,8 @@
 
 Regras de negócio centrais:
 - Máquina de estados com transições válidas (ver TRANSICOES_STATUS);
-- Trava de status 'Impedida': justificativa obrigatória (>= 20 caracteres)
-  e pelo menos uma foto de evidência já anexada à O.S.;
+- Trava de status 'Cancelada': justificativa obrigatória (>= 5 caracteres);
+  a foto de evidência é opcional;
 - Apontamento de horas (H.H.) com Play/Pause e cálculo do Custo Real de
   Mão de Obra (zerado até que o valor da hora seja definido por equipe);
 - Lançamento de serviços/materiais com conversão para USC (normal/especial)
@@ -129,7 +129,7 @@ TRANSICOES_STATUS = {
     "cancelada": {"aberta"},
 }
 
-MIN_JUSTIFICATIVA_CANCELADA = 20
+MIN_JUSTIFICATIVA_CANCELADA = 5
 MIN_REABERTURA_CARACTERES = 10
 MIMES_FOTO_PERMITIDOS = {"image/jpeg": ".jpg", "image/png": ".png", "image/webp": ".webp"}
 TAMANHO_MAXIMO_FOTO_BYTES = 15 * 1024 * 1024
@@ -565,7 +565,7 @@ def _encerrar_apontamentos_abertos(db, os_id: int) -> None:
 
 
 def _validar_transicao_cancelada(db, os_data: dict, payload: StatusUpdate) -> str:
-    """Cancelamento exige justificativa descritiva (>= 20 caracteres).
+    """Cancelamento exige justificativa descritiva (>= 5 caracteres).
 
     A foto de evidência é opcional; quando informada, precisa pertencer à O.S.
     Retorna a justificativa validada ou levanta HTTP 422 explicando o motivo.
@@ -1288,7 +1288,7 @@ def alterar_status(
                     ),
                 )
 
-        # Regra 2 (crítica): cancelamento exige justificativa >= 20 caracteres
+        # Regra 2 (crítica): cancelamento exige justificativa >= 5 caracteres
         # (foto de evidência é opcional). Campo e gestor podem cancelar O.S
         # acessíveis ao usuário (o campo apenas as das próprias equipes).
         justificativa = None

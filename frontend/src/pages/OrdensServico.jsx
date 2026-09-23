@@ -2802,9 +2802,9 @@ function ModalCancelamento({ aberto, osAlvo, onConfirmar, onCancelar, processand
     setEnviandoFoto(false);
   };
 
-  // Cancelamento exige apenas a justificativa (>= 20 caracteres); a foto de
+  // Cancelamento exige apenas a justificativa (>= 5 caracteres); a foto de
   // evidência é opcional.
-  const valido = justificativa.trim().length >= 20;
+  const valido = justificativa.trim().length >= 5;
 
   return (
     <div className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center z-50 p-4">
@@ -2827,8 +2827,8 @@ function ModalCancelamento({ aberto, osAlvo, onConfirmar, onCancelar, processand
               placeholder="Ex: Cliente desistiu do serviço; obra suspensa pela concessionária."
               className="w-full px-3.5 py-2.5 border border-slate-200 rounded-xl text-sm focus:outline-none focus:border-rose-400"
             />
-            <span className={`text-xs font-semibold ${justificativa.trim().length >= 20 ? 'text-emerald-600' : 'text-slate-400'}`}>
-              {justificativa.trim().length}/20 caracteres mínimos
+            <span className={`text-xs font-semibold ${justificativa.trim().length >= 5 ? 'text-emerald-600' : 'text-slate-400'}`}>
+              {justificativa.trim().length}/5 caracteres mínimos
             </span>
           </div>
 
@@ -2886,8 +2886,8 @@ function ModalCancelamento({ aberto, osAlvo, onConfirmar, onCancelar, processand
 
           {/* Checklist de validação */}
           <div className="flex gap-4 text-xs">
-            <span className={`flex items-center gap-1 font-semibold ${justificativa.trim().length >= 20 ? 'text-emerald-600' : 'text-slate-400'}`}>
-              <Check size={12} />{justificativa.trim().length >= 20 ? 'Motivo ok' : 'Motivo incompleto'}
+            <span className={`flex items-center gap-1 font-semibold ${justificativa.trim().length >= 5 ? 'text-emerald-600' : 'text-slate-400'}`}>
+              <Check size={12} />{justificativa.trim().length >= 5 ? 'Motivo ok' : 'Motivo incompleto'}
             </span>
             <span className={`flex items-center gap-1 font-semibold ${fotos.length > 0 ? 'text-emerald-600' : 'text-slate-400'}`}>
               <Camera size={12} />{fotos.length > 0 ? `${fotos.length} evidência(s)` : 'Sem evidência (opcional)'}
