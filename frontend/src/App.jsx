@@ -133,6 +133,10 @@ function AvisoArmazenamento() {
 
 const IDS_MODULOS = new Set([...MODULOS.map(m => m.id), 'dashboard']);
 
+// Polling de notificações e alertas de férias (a carga inicial segue imediata
+// ao logar). 120 min reduz requisições; a geração no backend continua 1x/hora.
+const INTERVALO_POLL_NOTIF_MS = 120 * 60 * 1000; // 120 minutos
+
 function abaAtivaInicial() {
   try {
     const salva = lerSessao(CHAVE_ABA_ATIVA);
@@ -280,12 +284,12 @@ function App() {
     setSstAlerts([]);
   }, [modoCampoUsuario]);
 
-  // Busca alertas de férias ao carregar e a cada 5 minutos (antes: 100s — o
-  // polling curtinho multiplicava leituras completas das tabelas no Supabase).
+  // Busca alertas de férias/SST ao carregar e a cada 120 minutos (antes: 300s
+  // — o polling curtinho multiplicava leituras completas das tabelas no Supabase).
   useEffect(() => {
     if (!usuario || modoCampoUsuario) return;
     fetchAlerts();
-    const interval = setInterval(fetchAlerts, 300000); // 5 minutos
+    const interval = setInterval(fetchAlerts, INTERVALO_POLL_NOTIF_MS); // 120 minutos
     return () => clearInterval(interval);
   }, [usuario, modoCampoUsuario, fetchAlerts]);
 
@@ -303,12 +307,12 @@ function App() {
     }
   }, [usuario?.email]);
 
-  // Busca notificações do usuário logado ao carregar e a cada 3 minutos
-  // (antes: 1 minuto — cada poll refazia a checagem no backend).
+  // Busca notificações do usuário logado ao carregar e a cada 120 minutos
+  // (antes: 3 minutos — cada poll refazia a checagem no backend).
   useEffect(() => {
     if (!usuario || modoCampoUsuario) return;
     fetchNotifications();
-    const interval = setInterval(fetchNotifications, 180000); // 3 minutos
+    const interval = setInterval(fetchNotifications, INTERVALO_POLL_NOTIF_MS); // 120 minutos
     return () => clearInterval(interval);
   }, [usuario, modoCampoUsuario, fetchNotifications]);
 
