@@ -696,9 +696,28 @@ function novoId(prefixo) {
   return `${prefixo}-${aleatorio}`;
 }
 
+// Contador monotônico da fila (persistido em `meta.fila_seq`; cache em memória
+// evita ler o IndexedDB a cada enfileiramento e uma corrida entre ações
+// rápidas). Começa em 1 e só cresce; nunca é zerado pela sincronização.
+let _filaSeq = null;
+
+async function proximaFilaSeq() {
+  if (_filaSeq == null) {
+    const reg = await dbGet('meta', 'fila_seq');
+    _filaSeq = Number(reg?.valor) || 0;
+  }
+  _filaSeq += 1;
+  await dbPut('meta', { chave: 'fila_seq', valor: _filaSeq, em: new Date().toISOString() });
+  return _filaSeq;
+}
+
 export async function enfileirarOperacao({ tipo, os_id, payload }) {
   const op = {
     id_local: novoId('op'),
+    // Ordem confiável da fila: o `criado_em` depende do relógio do aparelho
+    // (pode ser ajustado), então um contador monotônico persistido garante ao
+    // backend a cronologia real das ações (ex.: abrir antes de iniciar).
+    seq: await proximaFilaSeq(),
     tipo,
     os_id: Number(os_id),
     criado_em: new Date().toISOString(),

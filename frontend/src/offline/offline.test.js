@@ -230,6 +230,27 @@ describe('dono do pacote', () => {
   });
 });
 
+describe('fila de operações (sequência local)', () => {
+  beforeEach(async () => {
+    await limparTudoLocal();
+  });
+
+  it('gera sequência monotônica persistida e continua após reabrir o app', async () => {
+    vi.resetModules();
+    const off1 = await import('./offline');
+    const a = await off1.enfileirarOperacao({ tipo: 'status', os_id: 1, payload: {} });
+    const b = await off1.enfileirarOperacao({ tipo: 'status', os_id: 1, payload: {} });
+    expect(b.seq).toBe(a.seq + 1);
+
+    // "Reabrir o app": o módulo novo lê o contador do IndexedDB e continua.
+    vi.resetModules();
+    const off2 = await import('./offline');
+    const c = await off2.enfileirarOperacao({ tipo: 'status', os_id: 1, payload: {} });
+    expect(c.seq).toBe(b.seq + 1);
+    expect((await dbGet('meta', 'fila_seq')).valor).toBe(c.seq);
+  });
+});
+
 describe('cachearFotosChecklist', () => {
   beforeEach(async () => {
     await limparTudoLocal();

@@ -133,6 +133,7 @@ async function enviarOperacoes(ops, mapaFotos, resumo, onProgress, dispositivo) 
         body: JSON.stringify({
           operacoes: fatia.map(op => ({
             id_local: op.id_local,
+            seq: op.seq,
             tipo: op.tipo,
             os_id: op.os_id,
             criado_em: op.criado_em,
@@ -240,13 +241,16 @@ async function _executarSincronizacao(onProgress, seletor = null) {
   } else if (somenteSeletor) {
     ops = [];
   }
-  // Ordena por O.S e depois por horário ANTES de fatiar: o lote de 200 precisa
-  // manter a cronologia real (play antes de pause etc.), e o IndexedDB devolve
-  // as chaves em ordem aleatória de UUID.
+  // Ordena por O.S e depois pela SEQUÊNCIA local (monotônica, imune a ajuste
+  // de relógio); `criado_em` fica como desempate das filas antigas (sem seq).
+  // O lote de 200 precisa manter a cronologia real (abrir antes de iniciar).
   ops.sort((a, b) => {
     const osA = Number(a.os_id) || 0;
     const osB = Number(b.os_id) || 0;
     if (osA !== osB) return osA - osB;
+    const seqA = Number(a.seq) || 0;
+    const seqB = Number(b.seq) || 0;
+    if (seqA !== seqB) return seqA - seqB;
     return String(a.criado_em || '').localeCompare(String(b.criado_em || ''));
   });
 

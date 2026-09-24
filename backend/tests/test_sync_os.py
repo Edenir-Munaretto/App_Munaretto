@@ -332,6 +332,68 @@ def test_sync_conflito_gestor_conclui_enquanto_tablet_offline(os_gestor_client, 
     assert detalhe["status"] == "concluida"
 
 
+def test_sync_ordena_por_seq_mesmo_com_relogio_invertido(os_gestor_client, db_fake):
+    """A sequência local do tablet manda na ordem da O.S: mesmo com `criado_em`
+    invertido (relógio ajustado), abrir vem antes de iniciar — sem 422."""
+    from tests.test_os import _criar_os, _seed_cenario
+
+    _seed_cenario(db_fake)
+    _seed_modelos(db_fake)
+    os_id = _criar_os(os_gestor_client).json()["id"]
+    itens = _itens(os_gestor_client, os_id)
+    g1 = [i for i in itens if i["grupo"] == 1]
+
+    # Relógio "errado": as operações POSTERIORES têm criado_em MENOR.
+    ops = [
+        _op("r1", "checklist_resposta", os_id, {"item_id": g1[0]["id"], "resposta": "sim"}, "2026-08-28T12:00:00Z"),
+        _op("r2", "checklist_resposta", os_id, {"item_id": g1[1]["id"], "resposta": "sim"}, "2026-08-28T11:59:00Z"),
+        _op("s-abre", "status", os_id, {"novo_status": "aberta"}, "2026-08-28T11:58:00Z"),
+        _op("s-inicia", "status", os_id, {"novo_status": "em_andamento"}, "2026-08-28T11:57:00Z"),
+    ]
+    for posicao, op in enumerate(ops, start=1):
+        op["seq"] = posicao
+
+    resp = _sync(os_gestor_client, ops)
+    assert resp.status_code == 200, resp.text
+    resultados = {r["id_local"]: r for r in resp.json()["resultados"]}
+    assert all(r["ok"] for r in resultados.values()), resultados
+    assert os_gestor_client.get(f"/api/os/{os_id}").json()["status"] == "em_andamento"
+
+
+def test_sync_resposta_igual_em_os_encerrada_e_sucesso(os_gestor_client, os_campo_client, db_fake):
+    """Fila reenviada depois que a O.S encerrou: resposta IGUAL à já gravada
+    não é conflito (idempotência); resposta divergente continua 400."""
+    from tests.test_os import _criar_os, _seed_cenario
+
+    _seed_cenario(db_fake)
+    _seed_modelos(db_fake)
+    os_id = _criar_os(os_gestor_client, equipe_id=100).json()["id"]
+    os_campo_client.put(f"/api/os/{os_id}/status", json={"novo_status": "aberta"})
+    _responder_tudo(os_gestor_client, db_fake, os_id)
+    assert os_gestor_client.put(f"/api/os/{os_id}/status", json={"novo_status": "em_andamento"}).status_code == 200
+    assert os_gestor_client.put(f"/api/os/{os_id}/status", json={"novo_status": "concluida"}).status_code == 200
+
+    item = _itens(os_campo_client, os_id)[0]
+
+    # Mesma resposta ('sim', gravada por _responder_tudo): sucesso idempotente.
+    op_igual = _op(
+        "r-igual", "checklist_resposta", os_id, {"item_id": item["id"], "resposta": "sim"}, "2026-08-28T18:00:00Z"
+    )
+    resp = _sync(os_campo_client, [op_igual])
+    resultados = {r["id_local"]: r for r in resp.json()["resultados"]}
+    assert resultados["r-igual"]["ok"] is True
+    assert resultados["r-igual"]["dados"]["duplicada"] is True
+
+    # Resposta divergente: conflito definitivo (400) para revisão.
+    op_difere = _op(
+        "r-difere", "checklist_resposta", os_id, {"item_id": item["id"], "resposta": "nao"}, "2026-08-28T18:01:00Z"
+    )
+    resp = _sync(os_campo_client, [op_difere])
+    resultados = {r["id_local"]: r for r in resp.json()["resultados"]}
+    assert resultados["r-difere"]["ok"] is False
+    assert resultados["r-difere"]["status"] == 400
+
+
 def test_sync_conflito_gestor_cancela_os_offline(os_gestor_client, os_campo_client, db_fake):
     """Cancelamento pelo gestor enquanto o tablet está offline: a transição
     divergente do tablet é rejeitada e a O.S permanece cancelada."""

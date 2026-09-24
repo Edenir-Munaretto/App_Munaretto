@@ -262,6 +262,14 @@ class OperacaoSyncIn(BaseModel):
         description="'checklist_resposta', 'status', 'apontamento_play', 'apontamento_pause' ou 'material'",
     )
     os_id: int
+    seq: int | None = Field(
+        None,
+        ge=1,
+        description=(
+            "Sequência local monotônica do tablet (ordem real das ações, imune a "
+            "ajuste de relógio). Ausente em filas antigas."
+        ),
+    )
     criado_em: str | None = Field(None, description="Timestamp ISO no momento em que a ação foi feita no dispositivo")
     payload: dict = Field(default_factory=dict)
 
@@ -1753,11 +1761,16 @@ def sincronizar(
 
     dispositivo = (payload.dispositivo or "").strip()
 
-    # Ordenação estável: por O.S e pela hora registrada no dispositivo;
-    # operações sem timestamp mantêm a ordem de chegada.
+    # Ordenação estável das operações da O.S: pela SEQUÊNCIA local do tablet
+    # quando presente (ordem real, imune a ajuste de relógio); filas antigas
+    # (sem seq, vêm como 0) caem para o `criado_em` do dispositivo.
     operacoes = sorted(
         payload.operacoes,
-        key=lambda op: (op.os_id, _parse_criado_em(op.criado_em) or datetime.min.replace(tzinfo=UTC)),
+        key=lambda op: (
+            op.os_id,
+            op.seq if op.seq is not None else 0,
+            _parse_criado_em(op.criado_em) or datetime.min.replace(tzinfo=UTC),
+        ),
     )
 
     for op in operacoes:
@@ -1822,17 +1835,35 @@ def sincronizar(
                 item_id = op.payload.get("item_id")
                 if item_id is None:
                     raise HTTPException(status_code=400, detail="Operação 'checklist_resposta' sem 'item_id'.")
-                dados = responder_checklist(
-                    op.os_id,
-                    int(item_id),
-                    ChecklistRespostaIn(
-                        resposta=op.payload.get("resposta", ""),
-                        justificativa=op.payload.get("justificativa"),
-                        geolocalizacao=op.payload.get("geolocalizacao"),
-                    ),
-                    usuario,
-                    db,
-                )
+                resposta_op = str(op.payload.get("resposta", "")).strip().lower()
+                try:
+                    dados = responder_checklist(
+                        op.os_id,
+                        int(item_id),
+                        ChecklistRespostaIn(
+                            resposta=op.payload.get("resposta", ""),
+                            justificativa=op.payload.get("justificativa"),
+                            geolocalizacao=op.payload.get("geolocalizacao"),
+                        ),
+                        usuario,
+                        db,
+                    )
+                except HTTPException as exc:
+                    # O.S já encerrada COM a mesma resposta gravada = operação
+                    # já aplicada (fila restaurada/reenvio tardio): sucesso, não
+                    # conflito. Resposta diferente continua conflito p/ revisão.
+                    if exc.status_code != 400 or "encerrada" not in str(exc.detail).lower():
+                        raise
+                    atual = (
+                        db.table("os_checklist_respostas")
+                        .select("resposta")
+                        .eq("item_id", int(item_id))
+                        .execute()
+                        .data
+                    )
+                    if not atual or str(atual[0].get("resposta", "")).strip().lower() != resposta_op:
+                        raise
+                    dados = {"item_id": int(item_id), "resposta": resposta_op, "duplicada": True}
             elif op.tipo == "status":
                 fotos_ids = op.payload.get("fotos_ids") or []
 

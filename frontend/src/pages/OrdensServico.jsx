@@ -11,7 +11,7 @@ import { API_URL, apiFetch, erroDaResposta } from '../api';
 import ModalConfirmacao from '../components/ModalConfirmacao';
 import ModalPendenciasSync from '../components/ModalPendenciasSync';
 import PainelObra from '../components/PainelObra';
-import { comprimirImagem } from '../utils/imagem';
+import { comprimirImagem, mimeFotoPermitido } from '../utils/imagem';
 import { rotuloFator, unidadeContrato } from '../utils/contratos';
 import {
   isModoCampo, setModoCampo, isOffline, usarLocal,
@@ -610,6 +610,13 @@ function TabChecklist({ osDetalhe, onAtualizado, mostrarToast, podeEditar }) {
     if (!item || !files?.length) return;
     setEnviandoFoto(item.id);
     const arquivo = await comprimirImagem(files[0]);
+    // Formato fora da lista do backend (ex.: HEIC não decodificável): avisa na
+    // hora e NÃO enfileira — evita virar conflito 400 na sincronização.
+    if (!mimeFotoPermitido(arquivo?.type)) {
+      mostrarToast('Formato de foto não suportado. Use JPG, PNG ou WEBP.', 'error');
+      setEnviandoFoto(null);
+      return;
+    }
     const gps = await capturarGeolocalizacao();
 
     // Modo Campo (online ou offline): guarda a foto no dispositivo, enfileira
@@ -1514,6 +1521,10 @@ function TabEvidencias({ osDetalhe, onAtualizado, mostrarToast, podeEditar, pode
     let ok = 0;
     for (const original of files) {
       const arquivo = await comprimirImagem(original);
+      if (!mimeFotoPermitido(arquivo?.type)) {
+        mostrarToast(`Formato não suportado: ${original?.name || 'foto'}. Use JPG, PNG ou WEBP.`, 'error');
+        continue;
+      }
       const fd = new FormData();
       fd.append('arquivo', arquivo);
       try {
@@ -2758,7 +2769,7 @@ function ModalNovaOS({ aberto, obras, equipes, onFechar, onCriada, mostrarToast,
   );
 }
 
-function ModalCancelamento({ aberto, osAlvo, onConfirmar, onCancelar, processando }) {
+function ModalCancelamento({ aberto, osAlvo, onConfirmar, onCancelar, processando, mostrarToast }) {
   const [justificativa, setJustificativa] = useState('');
   const [fotos, setFotos] = useState([]);
   const [enviandoFoto, setEnviandoFoto] = useState(false);
@@ -2777,6 +2788,10 @@ function ModalCancelamento({ aberto, osAlvo, onConfirmar, onCancelar, processand
     let novosFotoIds = [...fotos];
     for (const original of files) {
       const arquivo = await comprimirImagem(original);
+      if (!mimeFotoPermitido(arquivo?.type)) {
+        mostrarToast(`Formato não suportado: ${original?.name || 'foto'}. Use JPG, PNG ou WEBP.`, 'error');
+        continue;
+      }
 
       // Modo Campo (online ou offline): guarda a foto no dispositivo; o id
       // local vira a referência da evidência no status de cancelamento
@@ -4486,6 +4501,7 @@ function OrdensServico({ usuarioAtual }) {
         processando={processando}
         onConfirmar={confirmarCancelamento}
         onCancelar={() => setModalCancelamento(null)}
+        mostrarToast={mostrarToast}
       />
 
       <ModalReabrirOS
