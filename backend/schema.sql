@@ -875,39 +875,43 @@ CREATE TABLE IF NOT EXISTS os_checklist_respostas (
 ALTER TABLE IF EXISTS os_fotos
     ADD COLUMN IF NOT EXISTS checklist_item_id INTEGER REFERENCES os_checklist_itens(id) ON DELETE SET NULL;
 
--- Seed do catálogo padrão (29 perguntas do modelo oficial). Idempotente.
+-- Seed do catálogo padrão de Construção/Manutenção (18 perguntas do modelo
+-- oficial, 5 etapas). Idempotente e SINCRONIZADOR: editar pergunta/grupo/
+-- ordem/foto aqui e re-rodar o schema aplica a mudança ao catálogo.
 INSERT INTO os_checklist_modelos (tipo, grupo, ordem, classificacao, pergunta, exige_foto) VALUES
-    ('geral', 1, 1,  '1.1',   'O projeto foi conferido?', FALSE),
-    ('geral', 1, 2,  '1.2',   'Os materiais foram conferidos?', FALSE),
-    ('geral', 1, 3,  '1.3',   'Os EPI''s, EPC''s e Ferramentas foram conferidos?', FALSE),
-    ('geral', 1, 4,  '1.4',   'Os equipamentos do caminhão foram conferidos?', FALSE),
-    ('geral', 1, 5,  '1.5',   'O sistema de escalada em altura foi conferido?', FALSE),
-    ('geral', 1, 6,  '1.6',   'Detector de Tensão foi conferido?', FALSE),
-    ('geral', 2, 1,  '2.1',   'Equipe verificou o local dos trabalhos?', FALSE),
-    ('geral', 2, 2,  '2.2',   'A equipe realizou a APR?', TRUE),
-    ('geral', 2, 3,  '2.3',   'A equipe realizou o DDS?', TRUE),
-    ('geral', 2, 4,  '2.4',   'A equipe conferiu os EPI''s e EPC''s?', FALSE),
-    ('geral', 2, 5,  '2.4.1', 'Capacete, luvas, óculos, botinas e vestimenta?', FALSE),
-    ('geral', 2, 6,  '2.4.2', 'Conjunto de aterramento AT e BT, Detector de Tensão?', FALSE),
-    ('geral', 2, 7,  '2.5',   'Todos os empregados possuem autorização?', FALSE),
-    ('geral', 2, 8,  '2.6',   'Todos entenderam os requisitos de segurança?', FALSE),
-    ('geral', 2, 9,  '2.7',   'Todos estão bem fisicamente e mentalmente?', FALSE),
-    ('geral', 3, 1,  '3.1',   'O trecho do trabalho foi desligado?', TRUE),
-    ('geral', 3, 2,  '3.2',   'Foram sinalizadas as chaves abertas?', TRUE),
-    ('geral', 3, 3,  '3.3',   'Foi realizado o teste de ausência de tensão?', TRUE),
-    ('geral', 3, 4,  '3.4',   'Foram realizados os aterramentos temporários?', TRUE),
-    ('geral', 3, 5,  '3.5',   'O local de trabalho foi sinalizado?', TRUE),
-    ('geral', 3, 6,  '3.6',   'Os trabalhos podem ser iniciados?', FALSE),
-    ('geral', 4, 1,  '4.1',   'Utiliza os EPI''s (Capacete, óculos e vestimenta)?', TRUE),
-    ('geral', 4, 2,  '4.2',   'Há necessidade de Linha de vida?', FALSE),
-    ('geral', 4, 3,  '4.3',   'Trabalhos realizados em dupla?', TRUE),
-    ('geral', 4, 4,  '4.4',   'Registrar o resultado da obra?', TRUE),
-    ('geral', 5, 1,  '5.1',   'Todos os trabalhadores foram retirados da rede?', TRUE),
-    ('geral', 5, 2,  '5.2',   'Todos os aterramentos foram retirados?', FALSE),
-    ('geral', 5, 3,  '5.3',   'Foi recebida a DTD?', TRUE),
-    ('geral', 5, 4,  '5.4',   'Religar conforme ordem de manobra descrita na SD?', FALSE),
-    ('geral', 5, 5,  '5.5',   'Ocorreram acidentes ou incidentes?', FALSE)
-ON CONFLICT (tipo, classificacao) DO NOTHING;
+    ('geral', 1, 1,  '1.1', 'O projeto foi conferido?', FALSE),
+    ('geral', 1, 2,  '1.2', 'Os materiais foram conferidos?', FALSE),
+    ('geral', 1, 3,  '1.3', 'Os EPI''s, EPC''s e Ferramentas foram conferidos?', FALSE),
+    ('geral', 1, 4,  '1.4', 'Os equipamentos e condições do caminhão foram conferidos?', FALSE),
+    ('geral', 2, 1,  '2.1', 'Equipe verificou o local dos trabalhos?', FALSE),
+    ('geral', 2, 2,  '2.2', 'O superior imediato e a equipe realizou a APR (Análise Preliminar de Risco) e o DDS (Diálogo de Segurança)?', TRUE),
+    ('geral', 2, 3,  '2.3', 'Todos os empregados possuem autorização?', FALSE),
+    ('geral', 2, 4,  '2.4', 'Todos entenderam os requisitos de segurança?', FALSE),
+    ('geral', 2, 5,  '2.5', 'Todos estão bem fisicamente e mentalmente?', FALSE),
+    ('geral', 3, 1,  '3.1', 'Foi executado o procedimento de SECCIONAMENTO e BLOQUEIO (Chaves abertas, bloqueadas e sinalizadas)?', TRUE),
+    ('geral', 3, 2,  '3.2', 'Foi realizado o teste de funcionamento do detector de tensão e a ausência de tensão na rede?', TRUE),
+    ('geral', 3, 3,  '3.3', 'Foram realizados os aterramentos temporários?', TRUE),
+    ('geral', 3, 4,  '3.4', 'A área de trabalho encontra-se SINALIZADA e DELIMITADA?', TRUE),
+    ('geral', 4, 1,  '4.1', 'Trabalhadores cumprem a regra de NÃO USAR ADORNOS e CELULAR?', FALSE),
+    ('geral', 4, 2,  '4.2', 'São adotadas medidas de proteção para TRABALHO EM ALTURA e resgate, conforme NR 35 (Linha de vida)?', FALSE),
+    ('geral', 4, 3,  '4.3', 'Trabalhos realizados em dupla?', TRUE),
+    ('geral', 5, 1,  '5.1', 'Todos os trabalhadores foram retirados da rede?', FALSE),
+    ('geral', 5, 2,  '5.2', 'Foi recebida a DTD?', TRUE)
+ON CONFLICT (tipo, classificacao) DO UPDATE SET
+    grupo = EXCLUDED.grupo,
+    ordem = EXCLUDED.ordem,
+    pergunta = EXCLUDED.pergunta,
+    exige_foto = EXCLUDED.exige_foto,
+    ativo = TRUE;
+
+-- Perguntas do catálogo padrão que saíram do modelo: desativa (não apaga,
+-- porque O.S antigas referenciam o modelo) para não entrar em O.S novas.
+UPDATE os_checklist_modelos SET ativo = FALSE
+ WHERE tipo = 'geral'
+   AND classificacao NOT IN (
+       '1.1','1.2','1.3','1.4','2.1','2.2','2.3','2.4','2.5',
+       '3.1','3.2','3.3','3.4','4.1','4.2','4.3','5.1','5.2'
+   );
 
 -- Catálogo EXCLUSIVO do contrato Linha Viva (17 perguntas em 4 etapas).
 -- Quando existir modelo ativo do tipo da O.S, o snapshot usa SOMENTE ele
@@ -930,7 +934,20 @@ INSERT INTO os_checklist_modelos (tipo, grupo, ordem, classificacao, pergunta, e
     ('linha_viva', 3, 4, '3.4', 'Instalação e testes de detector de presença de tensão?', TRUE),
     ('linha_viva', 3, 5, '3.5', 'Instalação de coberturas isolantes?', TRUE),
     ('linha_viva', 4, 1, '4.1', 'Comunicar COD liberação da rede para desbloqueio?', FALSE)
-ON CONFLICT (tipo, classificacao) DO NOTHING;
+ON CONFLICT (tipo, classificacao) DO UPDATE SET
+    grupo = EXCLUDED.grupo,
+    ordem = EXCLUDED.ordem,
+    pergunta = EXCLUDED.pergunta,
+    exige_foto = EXCLUDED.exige_foto,
+    ativo = TRUE;
+
+-- Perguntas de Linha Viva que saírem do catálogo: desativa (sem apagar).
+UPDATE os_checklist_modelos SET ativo = FALSE
+ WHERE tipo = 'linha_viva'
+   AND classificacao NOT IN (
+       '1.1','1.2','1.3','1.4','1.5','1.6','1.7','1.8','1.9',
+       '2.1','2.2','3.1','3.2','3.3','3.4','3.5','4.1'
+   );
 
 -- Índices de integridade/performance (FKs consultadas com frequência)
 CREATE INDEX IF NOT EXISTS idx_obras_cliente ON obras (cliente_id);
