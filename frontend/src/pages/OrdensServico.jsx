@@ -149,6 +149,16 @@ function diaMes(iso) {
   return ano && mes && dia ? `${dia}/${mes}` : '';
 }
 
+// Mensagem do bloqueio de início do checklist citando as etapas pendentes do
+// tipo da O.S (Linha Viva libera após os grupos 1 e 2; demais, grupo 1).
+export function mensagemChecklistInicio(resumo) {
+  const liberacao = resumo?.grupos_liberacao?.length ? resumo.grupos_liberacao : [1];
+  const pendentes = (resumo?.grupos || []).filter(g => liberacao.includes(g.grupo) && !g.completo);
+  if (pendentes.length === 0) return 'Preencha o checklist de início para liberar a execução.';
+  const detalhe = pendentes.map(g => `Grupo ${g.grupo} - ${g.nome} (${g.respondidos}/${g.total})`).join(' e ');
+  return `Preencha o checklist de início para liberar a execução: ${detalhe}.`;
+}
+
 // Semáforo de execução: vermelho = atrasada, âmbar = executa em <= 3 dias;
 // acima disso o badge fica neutro. A data de execução aparece SEMPRE junto do
 // contador (facilita a identificação visual no Modo Campo).
@@ -1663,7 +1673,8 @@ function TabTimeline({ historico }) {
 
 // Botões de transição de status direto no painel — essencial no modo campo,
 // onde não há drag-and-drop. Transições irreversíveis pedem confirmação.
-// O checklist de execução bloqueia o início (grupo 1) e a conclusão.
+// O checklist de execução bloqueia o início (grupos de liberação do tipo —
+// Linha Viva: 1 e 2; demais: 1) e a conclusão.
 // 'Cancelar O.S' abre o modal dedicado (justificativa obrigatória) para
 // gestor e campo.
 function AcoesStatus({ detalhe, podeEditar, mudarStatus, aoAplicado, transicoesMap, onAbrirChecklist, onPedirCancelamento, mostrarToast, ehGestor = false }) {
@@ -1684,7 +1695,7 @@ function AcoesStatus({ detalhe, podeEditar, mudarStatus, aoAplicado, transicoesM
 
   const liberarInicio = async () => {
     if (checklist && !checklist.inicio_liberado) {
-      mostrarToast('Preencha o checklist de início (Grupo 1 - Preparação) para liberar a execução.', 'error');
+      mostrarToast(mensagemChecklistInicio(checklist), 'error');
       onAbrirChecklist?.();
       return false;
     }
@@ -2070,7 +2081,7 @@ function PainelExecucao({ osId, produtos, onFechar, recarregarLista, mostrarToas
             <div className="min-w-0">
               <p className="text-xs font-extrabold text-rose-700">Checklist de início pendente</p>
               <p className="text-[10px] text-rose-500 font-semibold">
-                Preencha o Grupo 1 - Preparação para liberar a execução ({detalhe.checklist.respondidos}/{detalhe.checklist.total} respondidos).
+                {mensagemChecklistInicio(detalhe.checklist)}
               </p>
             </div>
           </div>
@@ -3713,7 +3724,7 @@ function OrdensServico({ usuarioAtual }) {
     if (destino === 'em_andamento') {
       const resumo = await resumoChecklistParaDrag(os);
       if (resumo && !resumo.inicio_liberado) {
-        mostrarToast('Preencha o checklist de início (Grupo 1 - Preparação) para liberar a execução.', 'error');
+        mostrarToast(mensagemChecklistInicio(resumo), 'error');
         return;
       }
     }

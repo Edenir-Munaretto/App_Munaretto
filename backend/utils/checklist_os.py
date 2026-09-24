@@ -4,8 +4,13 @@ O checklist é um SNAPSHOT do catálogo (os_checklist_modelos) copiado para a
 O.S (os_checklist_itens) no momento da criação. Assim, alterações futuras no
 catálogo não mudam O.S antigas (histórico fiel).
 
+Catálogo por contrato: se o tipo da O.S tem modelos ativos próprios (ex.:
+linha_viva), eles SUBSTITUEM o catálogo `geral`; sem modelos do tipo, valem
+os `geral` (construção/manutenção).
+
 Regras de liberação:
-  - INÍCIO (aberta -> em_andamento): grupo 1 (Preparação) totalmente respondido.
+  - INÍCIO (aberta -> em_andamento): grupos de liberação do tipo totalmente
+    respondidos (padrão: grupo 1; linha viva: grupos 1 e 2).
   - CONCLUSÃO (-> concluida): todos os itens respondidos.
   - Resposta 'Não' não bloqueia; a justificativa é OPCIONAL (decisão de
     produto — modelos antigos podem vir com justificativa, mas não é exigida).
@@ -24,11 +29,56 @@ NOMES_GRUPOS = {
     5: "Encerramento",
 }
 
+# Contratos com checklist próprio (catalogado em os_checklist_modelos) podem
+# ter outra estrutura de etapas e outro momento de liberação da execução.
+NOMES_GRUPOS_POR_TIPO = {
+    "linha_viva": {
+        1: "Preparação",
+        2: "Bloqueio e Sinalização",
+        3: "Execução",
+        4: "Encerramento",
+    },
+}
+
 RESPOSTAS_VALIDAS = ("sim", "nao", "na")
 
 GRUPO_LIBERACAO_INICIO = 1
 
+# Grupos que precisam estar completos para a O.S sair de 'aberta' para
+# 'em_andamento'. Linha Viva libera após a sinalização (etapas 1 e 2).
+GRUPOS_LIBERACAO_INICIO_POR_TIPO = {
+    "linha_viva": (1, 2),
+}
+
 logger = logging.getLogger(__name__)
+
+
+def nomes_grupos(tipo_os: str | None) -> dict[int, str]:
+    """Nomes das etapas do checklist para o tipo da O.S (fallback: padrão)."""
+    return NOMES_GRUPOS_POR_TIPO.get(tipo_os or "", NOMES_GRUPOS)
+
+
+def grupos_liberacao(tipo_os: str | None) -> tuple[int, ...]:
+    """Grupos exigidos para liberar o início da execução no tipo da O.S."""
+    return GRUPOS_LIBERACAO_INICIO_POR_TIPO.get(tipo_os or "", (GRUPO_LIBERACAO_INICIO,))
+
+
+def config_grupos_do_snapshot(db, tipo_os: str | None, itens: list[dict]) -> tuple[dict[int, str], tuple[int, ...]]:
+    """Etapas e gate do tipo — só quando o snapshot veio do catálogo do tipo.
+
+    O.S de linha viva criadas ANTES do catálogo próprio têm snapshot do
+    'geral' (modelos do tipo geral): mantêm nomes e liberação padrão, para não
+    mudar o que já está em campo. A config própria vale quando algum item do
+    snapshot aponta para um modelo `tipo=linha_viva` etc.
+    """
+    if tipo_os not in NOMES_GRUPOS_POR_TIPO:
+        return NOMES_GRUPOS, (GRUPO_LIBERACAO_INICIO,)
+    modelo_ids = [i["modelo_id"] for i in itens if i.get("modelo_id")]
+    if modelo_ids:
+        tipos = db.table("os_checklist_modelos").select("tipo").in_("id", modelo_ids).execute().data or []
+        if any(m.get("tipo") == tipo_os for m in tipos):
+            return nomes_grupos(tipo_os), grupos_liberacao(tipo_os)
+    return NOMES_GRUPOS, (GRUPO_LIBERACAO_INICIO,)
 
 
 def _eh_violacao_unique(exc: Exception) -> bool:
@@ -36,11 +86,42 @@ def _eh_violacao_unique(exc: Exception) -> bool:
     return any(marca in texto for marca in ("23505", "duplicate key", "já existe", "already exists"))
 
 
+def _modelos_para_snapshot(db, tipo_os: str) -> list[dict]:
+    """Catálogo ativo aplicável ao tipo da O.S.
+
+    Se o contrato tem catálogo próprio (ex.: linha_viva), ele SUBSTITUI o
+    catálogo padrão; contratos sem catálogo próprio (construção/manutenção)
+    continuam usando os modelos `tipo='geral'`.
+    """
+    especificos = (
+        db.table("os_checklist_modelos")
+        .select("*")
+        .eq("ativo", True)
+        .eq("tipo", tipo_os)
+        .order("grupo")
+        .order("ordem")
+        .execute()
+        .data
+    )
+    if especificos:
+        return especificos
+    return (
+        db.table("os_checklist_modelos")
+        .select("*")
+        .eq("ativo", True)
+        .eq("tipo", "geral")
+        .order("grupo")
+        .order("ordem")
+        .execute()
+        .data
+    )
+
+
 def snapshot_checklist(db, os_id: int) -> None:
     """Copia o catálogo ativo aplicável à O.S (idempotente).
 
-    Modelos `tipo='geral'` valem para qualquer O.S; modelos com tipo específico
-    (construcao/manutencao/linha_viva) só entram na O.S do MESMO tipo.
+    Modelos com tipo específico (ex.: linha_viva) SUBSTITUEM o catálogo
+    `geral` na O.S do MESMO tipo; sem catálogo específico, vale o `geral`.
     Em corrida (duas chamadas simultâneas), insere apenas os itens faltantes:
     o UNIQUE(os_id, classificacao) protege e a violação de unicidade é tratada
     como sucesso (o concorrente já gravou).
@@ -55,46 +136,33 @@ def snapshot_checklist(db, os_id: int) -> None:
     if tipo_os not in TIPOS_OS:
         tipo_os = "construcao"
 
-    modelos = (
-        db.table("os_checklist_modelos")
-        .select("*")
-        .eq("ativo", True)
-        .in_("tipo", ("geral", tipo_os))
-        .order("grupo")
-        .order("ordem")
-        .execute()
-        .data
-    )
+    modelos = _modelos_para_snapshot(db, tipo_os)
     if not modelos:
         return
 
     existentes = db.table("os_checklist_itens").select("classificacao").eq("os_id", os_id).execute().data or []
     presentes = {i["classificacao"] for i in existentes}
 
-    # Catálogo com a MESMA classificação em 'geral' e no tipo da O.S (dados
-    # duplicados por engano): a O.S fica com UMA linha por classificação —
-    # vale o modelo do próprio tipo (mais específico); entre iguais, o
-    # primeiro da ordenação (grupo/ordem do catálogo).
-    melhores: dict[str, tuple[int, dict]] = {}
+    # Uma linha por classificação (o catálogo não repete dentro do mesmo tipo;
+    # entre iguais, vale o primeiro da ordenação grupo/ordem).
+    linhas: list[dict] = []
+    vistas: set[str] = set()
     for m in modelos:
-        if m["classificacao"] in presentes:
+        classificacao = m["classificacao"]
+        if classificacao in presentes or classificacao in vistas:
             continue
-        preferencia = 1 if m["tipo"] == tipo_os else 0
-        atual = melhores.get(m["classificacao"])
-        if atual is None or preferencia > atual[0]:
-            melhores[m["classificacao"]] = (
-                preferencia,
-                {
-                    "os_id": os_id,
-                    "modelo_id": m["id"],
-                    "grupo": m["grupo"],
-                    "ordem": m["ordem"],
-                    "classificacao": m["classificacao"],
-                    "pergunta": m["pergunta"],
-                    "exige_foto": bool(m.get("exige_foto", False)),
-                },
-            )
-    linhas = [linha for _, linha in melhores.values()]
+        vistas.add(classificacao)
+        linhas.append(
+            {
+                "os_id": os_id,
+                "modelo_id": m["id"],
+                "grupo": m["grupo"],
+                "ordem": m["ordem"],
+                "classificacao": classificacao,
+                "pergunta": m["pergunta"],
+                "exige_foto": bool(m.get("exige_foto", False)),
+            }
+        )
     if not linhas:
         return
     try:
@@ -158,29 +226,37 @@ def itens_com_respostas(db, os_id: int) -> list[dict]:
     return itens
 
 
+def _tipo_da_os(db, os_id: int) -> str:
+    os_row = db.table("ordens_servico").select("tipo").eq("id", os_id).execute().data
+    tipo_os = (os_row[0].get("tipo") if os_row else None) or "construcao"
+    return tipo_os if tipo_os in TIPOS_OS else "construcao"
+
+
 def resumo_checklist(db, os_id: int) -> dict:
     """Contagem de respondidos por grupo + flags de liberação."""
+    tipo_os = _tipo_da_os(db, os_id)
     itens = itens_com_respostas(db, os_id)
     total = len(itens)
     respondidos = sum(1 for i in itens if i.get("resposta"))
+    nomes, liberacao = config_grupos_do_snapshot(db, tipo_os, itens)
 
     grupos = []
-    for g in range(1, len(NOMES_GRUPOS) + 1):
+    for g in sorted({i["grupo"] for i in itens}):
         do_grupo = [i for i in itens if i.get("grupo") == g]
         resp_grupo = [i for i in do_grupo if i.get("resposta")]
         grupos.append(
             {
                 "grupo": g,
-                "nome": NOMES_GRUPOS[g],
+                "nome": nomes.get(g, f"Grupo {g}"),
                 "total": len(do_grupo),
                 "respondidos": len(resp_grupo),
                 "completo": bool(do_grupo) and len(resp_grupo) == len(do_grupo),
             }
         )
 
-    inicio = next((g for g in grupos if g["grupo"] == GRUPO_LIBERACAO_INICIO), None)
     # Sem itens cadastrados = recurso não configurado: não bloqueia nada.
-    inicio_liberado = inicio is None or inicio["total"] == 0 or inicio["completo"]
+    de_liberacao = [g for g in grupos if g["grupo"] in liberacao]
+    inicio_liberado = all(g["total"] == 0 or g["completo"] for g in de_liberacao)
     completo = total == 0 or respondidos == total
 
     return {
@@ -188,8 +264,19 @@ def resumo_checklist(db, os_id: int) -> dict:
         "respondidos": respondidos,
         "completo": completo,
         "inicio_liberado": inicio_liberado,
+        "grupos_liberacao": list(liberacao),
         "grupos": grupos,
     }
+
+
+def mensagem_gate_inicio(resumo: dict) -> str:
+    """Mensagem do gate de início citando os grupos de liberação pendentes."""
+    liberacao = set(resumo.get("grupos_liberacao") or (GRUPO_LIBERACAO_INICIO,))
+    pendentes = [g for g in resumo["grupos"] if g["grupo"] in liberacao and not g["completo"]]
+    detalhes = "; ".join(
+        f"Grupo {g['grupo']} - {g['nome']}: {g['respondidos']}/{g['total']} respondidos" for g in pendentes
+    )
+    return f"O checklist de início precisa estar completo para liberar a execução. {detalhes}".strip()
 
 
 def pendentes_para_conclusao(db, os_id: int) -> list[str]:

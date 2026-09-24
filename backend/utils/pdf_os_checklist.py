@@ -16,6 +16,7 @@ import tempfile
 
 from fpdf import FPDF
 
+from utils.checklist_os import nomes_grupos
 from utils.date_helpers import agora_fuso_brasil, em_fuso_brasil
 from utils.pdf_base import desenhar_cabecalho, desenhar_logo
 
@@ -31,14 +32,6 @@ logger = logging.getLogger(__name__)
 
 LARGURA_PAGINA = 210  # A4
 MARGEM = 10
-
-ROTULOS_GRUPOS = {
-    1: "1 - PREPARAÇÃO (BASE)",
-    2: "2 - CHEGADA AO LOCAL",
-    3: "3 - LIBERAÇÃO DA EXECUÇÃO",
-    4: "4 - DURANTE A EXECUÇÃO",
-    5: "5 - ENCERRAMENTO",
-}
 
 ROTULOS_STATUS = {
     "rascunho": "Rascunho",
@@ -212,7 +205,7 @@ def _capa(pdf: _PdfChecklist, os_data: dict, obra: dict, equipe_nome: str, equip
         pdf.set_text_color(15, 23, 42)
 
 
-def _tabela_checklist(pdf: _PdfChecklist, itens: list):
+def _tabela_checklist(pdf: _PdfChecklist, itens: list, rotulos: dict | None = None):
     """Página 2: checklist com Sim/Não/N/A e hora de cada resposta."""
     pdf.add_page()
     pdf.set_fill_color(15, 23, 42)
@@ -257,6 +250,7 @@ def _tabela_checklist(pdf: _PdfChecklist, itens: list):
         pdf.ln()
 
     grupo_atual = None
+    rotulos = rotulos or nomes_grupos(None)
     for item in itens:
         grupo = item.get("grupo")
         if grupo != grupo_atual:
@@ -264,7 +258,8 @@ def _tabela_checklist(pdf: _PdfChecklist, itens: list):
             pdf.set_font("Arial", "B", 9)
             pdf.set_fill_color(241, 245, 249)
             pdf.set_text_color(71, 85, 105)
-            pdf.cell(0, 7, f" {ROTULOS_GRUPOS.get(grupo, f'Grupo {grupo}')}", ln=True, fill=True)
+            rotulo = f"{grupo} - {rotulos[grupo].upper()}" if grupo in rotulos else f"Grupo {grupo}"
+            pdf.cell(0, 7, f" {rotulo}", ln=True, fill=True)
             pdf.set_text_color(15, 23, 42)
             _cabecalho()
         _linha_item(item)
@@ -402,6 +397,7 @@ def gerar_pdf_checklist(
     equipe_numero: str = "",
     encarregado: str = "",
     membros: list | None = None,
+    nomes_grupo: dict | None = None,
     baixar_foto=None,
 ) -> str:
     """Monta o PDF do checklist e retorna o caminho temporário do arquivo."""
@@ -413,7 +409,7 @@ def gerar_pdf_checklist(
     if os_data.get("checklist_dispensado"):
         _aviso_checklist_dispensado(pdf)
     else:
-        _tabela_checklist(pdf, itens)
+        _tabela_checklist(pdf, itens, nomes_grupo or nomes_grupos(os_data.get("tipo")))
         _paginas_fotos(pdf, itens, baixar_foto or (lambda chave: None))
 
     caminho = _novo_caminho_temp("os_checklist_")

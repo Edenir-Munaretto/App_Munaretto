@@ -61,6 +61,25 @@ describe('recalcularResumo', () => {
     expect(r.inicio_liberado).toBe(true);
     expect(r.completo).toBe(true);
   });
+
+  it('linha viva só libera quando os grupos 1 e 2 estão completos', () => {
+    const anterior = { grupos_liberacao: [1, 2] };
+    const parciais = [
+      { id: 1, grupo: 1, resposta: { resposta: 'sim' } },
+      { id: 2, grupo: 2, resposta: null },
+      { id: 3, grupo: 3, resposta: null },
+    ];
+    const bloqueado = recalcularResumo(parciais, anterior);
+    expect(bloqueado.grupos_liberacao).toEqual([1, 2]);
+    expect(bloqueado.inicio_liberado).toBe(false);
+
+    // Grupo 3 pendente não bloqueia o início (só a conclusão).
+    const liberado = recalcularResumo(
+      [parciais[0], { ...parciais[1], resposta: { resposta: 'na' } }, parciais[2]],
+      anterior,
+    );
+    expect(liberado.inicio_liberado).toBe(true);
+  });
 });
 
 describe('atualizarPacoteCampo', () => {

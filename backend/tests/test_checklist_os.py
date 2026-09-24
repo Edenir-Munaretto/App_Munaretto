@@ -25,6 +25,23 @@ def _seed_modelos(db_fake):
     )
 
 
+def _seed_modelos_linha_viva(db_fake):
+    """Catálogo mínimo de linha viva: 2 itens no grupo 1, 1 no grupo 2 e 1 no grupo 3."""
+    db = db_fake._dados
+    db["os_checklist_modelos"].extend(
+        [
+            {"id": 101, "tipo": "linha_viva", "grupo": 1, "ordem": 1, "classificacao": "1.1",
+             "pergunta": "Projeto conferido (LV)?", "exige_foto": False, "ativo": True},
+            {"id": 102, "tipo": "linha_viva", "grupo": 1, "ordem": 2, "classificacao": "1.2",
+             "pergunta": "Materiais conferidos (LV)?", "exige_foto": False, "ativo": True},
+            {"id": 103, "tipo": "linha_viva", "grupo": 2, "ordem": 1, "classificacao": "2.1",
+             "pergunta": "Bloqueio confirmado com o COD?", "exige_foto": False, "ativo": True},
+            {"id": 104, "tipo": "linha_viva", "grupo": 3, "ordem": 1, "classificacao": "3.1",
+             "pergunta": "Detector de tensão instalado?", "exige_foto": False, "ativo": True},
+        ]
+    )
+
+
 def _responder(client, os_id, item, resposta, justificativa=None, geolocalizacao=None):
     payload = {"resposta": resposta}
     if justificativa is not None:
@@ -248,13 +265,138 @@ def test_resumo_no_detalhe(os_gestor_client, db_fake):
     assert resumo["total"] == 3
     assert resumo["inicio_liberado"] is False
     assert resumo["completo"] is False
-    assert len(resumo["grupos"]) == 5
+    # Só os grupos presentes no catálogo (sem baldes vazios 3-5).
+    assert len(resumo["grupos"]) == 2
+    assert resumo["grupos_liberacao"] == [1]
     assert resumo["grupos"][0]["total"] == 2
 
     itens = _itens(os_gestor_client, os_id)
     _responder_grupo(os_gestor_client, db_fake, os_id, itens, 1)
     detalhe = os_gestor_client.get(f"/api/os/{os_id}").json()
     assert detalhe["checklist"]["inicio_liberado"] is True
+
+
+def test_snapshot_linha_viva_substitui_o_catalogo_geral(os_gestor_client, db_fake):
+    """O.S de linha viva usa SOMENTE o catálogo do tipo (nada de 'geral')."""
+    from tests.test_os import _criar_os, _seed_cenario
+
+    _seed_cenario(db_fake)
+    _seed_modelos(db_fake)  # geral
+    _seed_modelos_linha_viva(db_fake)
+    os_id = _criar_os(os_gestor_client, tipo="linha_viva").json()["id"]
+
+    itens = [i for i in db_fake._dados["os_checklist_itens"] if i["os_id"] == os_id]
+    assert {i["modelo_id"] for i in itens} == {101, 102, 103, 104}
+
+
+def test_snapshot_construcao_continua_com_o_catalogo_geral(os_gestor_client, db_fake):
+    """Com catálogo de linha viva cadastrado, construção segue no 'geral'."""
+    from tests.test_os import _criar_os, _seed_cenario
+
+    _seed_cenario(db_fake)
+    _seed_modelos(db_fake)
+    _seed_modelos_linha_viva(db_fake)
+    os_id = _criar_os(os_gestor_client).json()["id"]
+
+    itens = [i for i in db_fake._dados["os_checklist_itens"] if i["os_id"] == os_id]
+    assert {i["modelo_id"] for i in itens} == {1, 2, 3}
+
+
+def test_resumo_linha_viva_tem_nomes_e_grupos_de_liberacao(os_gestor_client, db_fake):
+    from tests.test_os import _criar_os, _seed_cenario
+
+    _seed_cenario(db_fake)
+    _seed_modelos_linha_viva(db_fake)
+    os_id = _criar_os(os_gestor_client, tipo="linha_viva").json()["id"]
+
+    resumo = os_gestor_client.get(f"/api/os/{os_id}").json()["checklist"]
+    assert resumo["total"] == 4
+    assert resumo["grupos_liberacao"] == [1, 2]
+    assert [g["nome"] for g in resumo["grupos"]] == [
+        "Preparação",
+        "Bloqueio e Sinalização",
+        "Execução",
+    ]
+    assert resumo["inicio_liberado"] is False
+
+
+def test_linha_viva_com_snapshot_antigo_mantem_config_padrao(os_gestor_client, db_fake):
+    """O.S de linha viva criada antes do catálogo próprio (itens do 'geral')
+    segue com nomes e gate padrão — o que já está em campo não muda."""
+    from tests.test_os import _criar_os, _seed_cenario
+
+    _seed_cenario(db_fake)
+    _seed_modelos(db_fake)  # apenas catálogo geral
+    os_id = _criar_os(os_gestor_client, tipo="linha_viva").json()["id"]
+
+    resumo = os_gestor_client.get(f"/api/os/{os_id}").json()["checklist"]
+    assert resumo["total"] == 3
+    assert resumo["grupos_liberacao"] == [1]
+    assert [g["nome"] for g in resumo["grupos"]] == ["Preparação (base)", "Chegada ao Local"]
+
+
+def test_gate_inicio_linha_viva_exige_grupos_1_e_2(os_gestor_client, db_fake):
+    from tests.test_os import _criar_os, _seed_cenario
+
+    _seed_cenario(db_fake)
+    _seed_modelos_linha_viva(db_fake)
+    os_id = _criar_os(os_gestor_client, tipo="linha_viva").json()["id"]
+    assert os_gestor_client.put(f"/api/os/{os_id}/status", json={"novo_status": "aberta"}).status_code == 200
+
+    # Grupo 1 completo, grupo 2 pendente: segue bloqueado e a mensagem cita a etapa.
+    itens = _itens(os_gestor_client, os_id)
+    _responder_grupo(os_gestor_client, db_fake, os_id, itens, 1)
+    resp = os_gestor_client.put(f"/api/os/{os_id}/status", json={"novo_status": "em_andamento"})
+    assert resp.status_code == 422
+    assert "Bloqueio e Sinalização" in resp.json()["detail"]
+
+    _responder_grupo(os_gestor_client, db_fake, os_id, itens, 2)
+    resp = os_gestor_client.put(f"/api/os/{os_id}/status", json={"novo_status": "em_andamento"})
+    assert resp.status_code == 200, resp.text
+
+
+def test_gate_conclusao_linha_viva_exige_grupo_3(os_gestor_client, db_fake):
+    from tests.test_os import _criar_os, _seed_cenario
+
+    _seed_cenario(db_fake)
+    _seed_modelos_linha_viva(db_fake)
+    os_id = _criar_os(os_gestor_client, tipo="linha_viva").json()["id"]
+    assert os_gestor_client.put(f"/api/os/{os_id}/status", json={"novo_status": "aberta"}).status_code == 200
+    itens = _itens(os_gestor_client, os_id)
+    _responder_grupo(os_gestor_client, db_fake, os_id, itens, 1)
+    _responder_grupo(os_gestor_client, db_fake, os_id, itens, 2)
+    assert os_gestor_client.put(f"/api/os/{os_id}/status", json={"novo_status": "em_andamento"}).status_code == 200
+
+    resp = os_gestor_client.put(f"/api/os/{os_id}/status", json={"novo_status": "concluida"})
+    assert resp.status_code == 422
+    assert "3.1" in resp.json()["detail"]
+
+    _responder_grupo(os_gestor_client, db_fake, os_id, itens, 3)
+    resp = os_gestor_client.put(f"/api/os/{os_id}/status", json={"novo_status": "concluida"})
+    assert resp.status_code == 200, resp.text
+
+
+def test_relatorio_pdf_linha_viva_usa_rotulos_do_tipo(os_gestor_client, db_fake):
+    import pymupdf
+
+    from tests.test_os import _criar_os, _seed_cenario
+
+    _seed_cenario(db_fake)
+    _seed_modelos_linha_viva(db_fake)
+    os_id = _criar_os(os_gestor_client, tipo="linha_viva", equipe_id=100).json()["id"]
+    itens = _itens(os_gestor_client, os_id)
+    _responder_grupo(os_gestor_client, db_fake, os_id, itens, 1)
+    _responder_grupo(os_gestor_client, db_fake, os_id, itens, 2)
+    _responder_grupo(os_gestor_client, db_fake, os_id, itens, 3)
+
+    resp = os_gestor_client.get(f"/api/os/{os_id}/checklist/report")
+    assert resp.status_code == 200, resp.text
+
+    doc = pymupdf.open(stream=resp.content, filetype="pdf")
+    texto = "\n".join(page.get_text() for page in doc)
+    assert "1 - PREPARAÇÃO" in texto
+    assert "2 - BLOQUEIO E SINALIZAÇÃO" in texto
+    assert "3 - EXECUÇÃO" in texto
 
 
 def test_upload_foto_item(os_gestor_client, db_fake, monkeypatch):

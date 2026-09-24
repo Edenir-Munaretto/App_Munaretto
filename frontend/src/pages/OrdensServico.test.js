@@ -1,7 +1,7 @@
 // Testes do semáforo de execução da O.S (contagem por dia de calendário).
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
-import { situacaoExecucao } from './OrdensServico';
+import { mensagemChecklistInicio, situacaoExecucao } from './OrdensServico';
 
 const os = (over = {}) => ({ status: 'aberta', prazo_entrega: '2026-09-23', ...over });
 
@@ -58,5 +58,31 @@ describe('situacaoExecucao', () => {
     expect(situacaoExecucao(os({ status: 'cancelada' }))).toBeNull();
     expect(situacaoExecucao(os({ prazo_entrega: null }))).toBeNull();
     expect(situacaoExecucao(os({ prazo_entrega: '2026-09' }))).toBeNull();
+  });
+});
+
+describe('mensagemChecklistInicio', () => {
+  it('cita apenas os grupos de liberação ainda pendentes (linha viva: 1 e 2)', () => {
+    const resumo = {
+      grupos_liberacao: [1, 2],
+      grupos: [
+        { grupo: 1, nome: 'Preparação', respondidos: 9, total: 9, completo: true },
+        { grupo: 2, nome: 'Bloqueio e Sinalização', respondidos: 1, total: 2, completo: false },
+      ],
+    };
+    const texto = mensagemChecklistInicio(resumo);
+    expect(texto).toContain('Grupo 2 - Bloqueio e Sinalização (1/2)');
+    expect(texto).not.toContain('Grupo 1');
+  });
+
+  it('usa o grupo 1 como padrão quando o resumo não informa a liberação', () => {
+    const resumo = { grupos: [{ grupo: 1, nome: 'Preparação', respondidos: 0, total: 2, completo: false }] };
+    expect(mensagemChecklistInicio(resumo)).toContain('Grupo 1 - Preparação (0/2)');
+  });
+
+  it('cai na mensagem genérica quando não há pendências', () => {
+    expect(mensagemChecklistInicio({ grupos: [] })).toBe(
+      'Preencha o checklist de início para liberar a execução.',
+    );
   });
 });

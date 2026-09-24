@@ -828,6 +828,10 @@ CREATE TABLE IF NOT EXISTS os_fotos (
 -- Os itens são copiados do catálogo (os_checklist_modelos) para a O.S no
 -- momento da criação (os_checklist_itens = SNAPSHOT): alterações futuras no
 -- catálogo não mudam O.S antigas — histórico fiel.
+--
+-- Catálogo por contrato (`tipo`): se o tipo da O.S tem modelos ativos
+-- próprios (ex.: linha_viva), eles substituem o catálogo 'geral' — ver
+-- utils/checklist_os.py (_modelos_para_snapshot).
 -- ============================================================================
 CREATE TABLE IF NOT EXISTS os_checklist_modelos (
     id SERIAL PRIMARY KEY,
@@ -903,6 +907,29 @@ INSERT INTO os_checklist_modelos (tipo, grupo, ordem, classificacao, pergunta, e
     ('geral', 5, 3,  '5.3',   'Foi recebida a DTD?', TRUE),
     ('geral', 5, 4,  '5.4',   'Religar conforme ordem de manobra descrita na SD?', FALSE),
     ('geral', 5, 5,  '5.5',   'Ocorreram acidentes ou incidentes?', FALSE)
+ON CONFLICT (tipo, classificacao) DO NOTHING;
+
+-- Catálogo EXCLUSIVO do contrato Linha Viva (17 perguntas em 4 etapas).
+-- Quando existir modelo ativo do tipo da O.S, o snapshot usa SOMENTE ele
+-- (não soma o catálogo 'geral') — ver utils/checklist_os.py.
+INSERT INTO os_checklist_modelos (tipo, grupo, ordem, classificacao, pergunta, exige_foto) VALUES
+    ('linha_viva', 1, 1, '1.1', 'O projeto foi conferido?', FALSE),
+    ('linha_viva', 1, 2, '1.2', 'Os materiais foram conferidos?', FALSE),
+    ('linha_viva', 1, 3, '1.3', 'Os EPI''s, EPC''s e Ferramentas foram conferidos?', FALSE),
+    ('linha_viva', 1, 4, '1.4', 'Os equipamentos e condições do caminhão foram conferidos?', FALSE),
+    ('linha_viva', 1, 5, '1.5', 'Equipe verificou o local dos trabalhos?', FALSE),
+    ('linha_viva', 1, 6, '1.6', 'O superior imediato e a equipe realizou a APR (Análise Preliminar de Risco) e o DDS (Diálogo de Segurança)?', TRUE),
+    ('linha_viva', 1, 7, '1.7', 'Todos os empregados possuem autorização?', FALSE),
+    ('linha_viva', 1, 8, '1.8', 'Todos entenderam os requisitos de segurança?', FALSE),
+    ('linha_viva', 1, 9, '1.9', 'Todos estão bem fisicamente e mentalmente?', FALSE),
+    ('linha_viva', 2, 1, '2.1', 'Foi confirmado com o COD o bloqueio do alimentador?', FALSE),
+    ('linha_viva', 2, 2, '2.2', 'A área de trabalho encontra-se SINALIZADA e DELIMITADA?', TRUE),
+    ('linha_viva', 3, 1, '3.1', 'Equipe utilizando EPIs (luva isolante, mangas isolantes) e as luvas isolantes foram testadas?', FALSE),
+    ('linha_viva', 3, 2, '3.2', 'Caminhão está devidamente aterrado e sinalizado o aterramento?', FALSE),
+    ('linha_viva', 3, 3, '3.3', 'Trabalhos realizados em dupla?', TRUE),
+    ('linha_viva', 3, 4, '3.4', 'Instalação e testes de detector de presença de tensão?', TRUE),
+    ('linha_viva', 3, 5, '3.5', 'Instalação de coberturas isolantes?', TRUE),
+    ('linha_viva', 4, 1, '4.1', 'Comunicar COD liberação da rede para desbloqueio?', FALSE)
 ON CONFLICT (tipo, classificacao) DO NOTHING;
 
 -- Índices de integridade/performance (FKs consultadas com frequência)

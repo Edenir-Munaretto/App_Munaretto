@@ -29,9 +29,10 @@ from auth import UsuarioAutenticado, get_current_user, require_qualquer_permisao
 from storage import bucket, get_s3_client
 from supabase_client import get_supabase
 from utils.checklist_os import (
-    GRUPO_LIBERACAO_INICIO,
     RESPOSTAS_VALIDAS,
+    config_grupos_do_snapshot,
     itens_com_respostas,
+    mensagem_gate_inicio,
     pendentes_para_conclusao,
     resumo_checklist,
     snapshot_checklist,
@@ -1299,14 +1300,7 @@ def alterar_status(
         if atual == "aberta" and novo == "em_andamento":
             resumo = resumo_checklist(db, os_id)
             if not resumo["inicio_liberado"]:
-                grupo = next(g for g in resumo["grupos"] if g["grupo"] == GRUPO_LIBERACAO_INICIO)
-                raise HTTPException(
-                    status_code=422,
-                    detail=(
-                        "O checklist de início precisa estar completo para liberar a execução. "
-                        f"Grupo 1 - {grupo['nome']}: {grupo['respondidos']}/{grupo['total']} respondidos."
-                    ),
-                )
+                raise HTTPException(status_code=422, detail=mensagem_gate_inicio(resumo))
         if novo == "concluida":
             resumo = resumo_checklist(db, os_id)
             if not resumo["completo"]:
@@ -1644,6 +1638,9 @@ def relatorio_checklist(os_id: int, usuario: UsuarioAutenticado = Depends(get_cu
                     encarregado = nome
 
         itens = itens_com_respostas(db, os_id)
+        # Rótulos das etapas conforme o SNAPSHOT da O.S (não só o tipo): O.S de
+        # linha viva antigas (catálogo 'geral') mantêm os rótulos padrão.
+        nomes_grupo, _ = config_grupos_do_snapshot(db, os_data.get("tipo"), itens)
         s3 = get_s3_client()
 
         # Teto AGREGADO das fotos embutidas no PDF: cada foto individual já é
@@ -1676,6 +1673,7 @@ def relatorio_checklist(os_id: int, usuario: UsuarioAutenticado = Depends(get_cu
             equipe_numero=equipe.get("numero") or "",
             encarregado=encarregado,
             membros=membros,
+            nomes_grupo=nomes_grupo,
             baixar_foto=_baixar_foto,
         )
         return FileResponse(
@@ -2344,14 +2342,7 @@ def _apontar_hora(
                 resumo = resumo_checklist(db, os_id)
                 if not resumo["inicio_liberado"]:
                     db.table("os_apontamentos").delete().eq("id", resp.data[0]["id"]).execute()
-                    grupo = next(g for g in resumo["grupos"] if g["grupo"] == GRUPO_LIBERACAO_INICIO)
-                    raise HTTPException(
-                        status_code=422,
-                        detail=(
-                            "O checklist de início precisa estar completo para liberar a execução. "
-                            f"Grupo 1 - {grupo['nome']}: {grupo['respondidos']}/{grupo['total']} respondidos."
-                        ),
-                    )
+                    raise HTTPException(status_code=422, detail=mensagem_gate_inicio(resumo))
                 promovida = (
                     db.table("ordens_servico")
                     .update({"status": "em_andamento"})

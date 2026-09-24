@@ -668,12 +668,18 @@ export function recalcularResumo(itens, resumoAnterior = null) {
   });
   const total = itens.length;
   const respondidos = itens.filter(temResposta).length;
-  const inicio = grupos.find(g => g.grupo === 1);
+  // Grupos de liberação do tipo da O.S (vêm do resumo do servidor; padrão [1]).
+  const liberacao = resumoAnterior?.grupos_liberacao?.length ? resumoAnterior.grupos_liberacao : [1];
+  const inicioLiberado = liberacao.every((numero) => {
+    const g = grupos.find(x => x.grupo === numero);
+    return !g || g.total === 0 || g.completo;
+  });
   return {
     total,
     respondidos,
     completo: total === 0 || respondidos === total,
-    inicio_liberado: !inicio || inicio.total === 0 || inicio.completo,
+    inicio_liberado: inicioLiberado,
+    grupos_liberacao: liberacao,
     grupos,
   };
 }
