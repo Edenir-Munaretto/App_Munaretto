@@ -399,6 +399,48 @@ def test_relatorio_pdf_linha_viva_usa_rotulos_do_tipo(os_gestor_client, db_fake)
     assert "3 - EXECUÇÃO" in texto
 
 
+def test_relatorio_pdf_pergunta_longa_mantem_a_grade_da_linha(os_gestor_client, db_fake):
+    """Pergunta com mais de uma linha: TODAS as colunas da linha (classificação,
+    pergunta, Sim/Não/N.A e Hora) ocupam a mesma faixa vertical — sem o X/hora
+    escorregando para a última linha (regressão do layout desconfigurado)."""
+    import pymupdf
+
+    from tests.test_os import _criar_os, _seed_cenario
+
+    _seed_cenario(db_fake)
+    db_fake._dados["os_checklist_modelos"].extend(
+        [
+            {"id": 1, "tipo": "geral", "grupo": 1, "ordem": 1, "classificacao": "1.1",
+             "pergunta": "Pergunta curta?", "exige_foto": False, "ativo": True},
+            {"id": 2, "tipo": "geral", "grupo": 1, "ordem": 2, "classificacao": "1.2",
+             "pergunta": (
+                 "O superior imediato e a equipe realizou a APR (Análise Preliminar de Risco) "
+                 "e o DDS (Diálogo de Segurança)?"
+             ),
+             "exige_foto": False, "ativo": True},
+        ]
+    )
+    os_id = _criar_os(os_gestor_client, equipe_id=100).json()["id"]
+    itens = _itens(os_gestor_client, os_id)
+    _responder_grupo(os_gestor_client, db_fake, os_id, itens, 1)
+
+    resp = os_gestor_client.get(f"/api/os/{os_id}/checklist/report")
+    assert resp.status_code == 200, resp.text
+
+    doc = pymupdf.open(stream=resp.content, filetype="pdf")
+    page = next(p for p in doc if "CHECKLIST DA O.S." in p.get_text())
+    retangulos = [d["rect"] for d in page.get_drawings() if d["rect"].height > 5]
+
+    # Linha da pergunta longa: célula da pergunta (x≈74pt) com 2+ linhas.
+    longa = next(r for r in retangulos if r.height > 30 and 70 < r.x0 < 80)
+    da_linha = [r for r in retangulos if abs(r.y0 - longa.y0) < 0.6 and abs(r.y1 - longa.y1) < 0.6]
+    # classificação + pergunta + Sim + Não + N/A + Hora
+    assert len(da_linha) == 6, da_linha
+    assert all(abs(r.height - longa.height) < 0.6 for r in da_linha), da_linha
+    # Pergunta de 2 linhas = duas linhas de 7 mm (~39,7 pt), sem sobra/deslocamento.
+    assert 30 < longa.height < 45, longa
+
+
 def test_upload_foto_item(os_gestor_client, db_fake, monkeypatch):
     from tests.test_os import _criar_os, _seed_cenario
 

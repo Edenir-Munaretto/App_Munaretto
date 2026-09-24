@@ -229,25 +229,43 @@ def _tabela_checklist(pdf: _PdfChecklist, itens: list, rotulos: dict | None = No
         pdf.ln()
         pdf.set_text_color(15, 23, 42)
 
+    def _rotulo_grupo():
+        if grupo_atual is None:
+            return
+        pdf.set_font("Arial", "B", 9)
+        pdf.set_fill_color(241, 245, 249)
+        pdf.set_text_color(71, 85, 105)
+        rotulo = f"{grupo_atual} - {rotulos[grupo_atual].upper()}" if grupo_atual in rotulos else f"Grupo {grupo_atual}"
+        pdf.cell(0, 7, f" {rotulo}", ln=True, fill=True)
+        pdf.set_text_color(15, 23, 42)
+
     def _linha_item(item):
         resp = item.get("resposta")
         resposta = resp.get("resposta") if resp else None
-        pdf.set_font("Arial", "", 8.5)
-        pdf.cell(col_larg["classif"], 7, f" {item.get('classificacao', '')}", border=1)
         pergunta = _txt(item.get("pergunta", ""))
         largura = col_larg["pergunta"]
-        if len(pergunta) > 70:
-            pdf.multi_cell(largura, 7, f" {pergunta}", border=1)
-            # Após o multi_cell, x já está no fim da célula (new_x padrão = RIGHT).
-            alt = pdf.get_y()
-            pdf.set_xy(pdf.get_x(), alt - 7)
-        else:
-            pdf.cell(largura, 7, f" {pergunta}", border=1)
+        # Altura real da linha: nº de linhas que a pergunta ocupa, medido com a
+        # MESMA largura/fonte do desenho (substitui o heurístico de 70 chars).
+        linhas = pdf.multi_cell(largura, 7, f" {pergunta}", border=0, dry_run=True, output="LINES")
+        altura = max(7, 7 * len(linhas))
+        # A linha inteira não pode ser partida entre páginas: quebra antes e
+        # repete o rótulo do grupo + cabeçalho, mantendo a tabela legível.
+        if pdf.will_page_break(altura):
+            pdf.add_page()
+            _rotulo_grupo()
+            _cabecalho()
+        y0 = pdf.get_y()
+        pdf.set_font("Arial", "", 8.5)
+        pdf.cell(col_larg["classif"], altura, f" {item.get('classificacao', '')}", border=1)
+        # new_y="TOP" mantém o cursor no topo da linha para as colunas de
+        # resposta acompanharem a altura cheia (antes o X/hora caíam apenas na
+        # última linha e a classificação ficava só na primeira — grade quebrada).
+        pdf.multi_cell(largura, 7, f" {pergunta}", border=1, new_x="RIGHT", new_y="TOP")
         for chave in ("sim", "nao", "na"):
             marca = "X" if resposta == chave else ""
-            pdf.cell(col_larg[chave], 7, marca, border=1, align="C")
-        pdf.cell(col_larg["hora"], 7, _fmt_hora(resp.get("criado_em")) if resp else "", border=1, align="C")
-        pdf.ln()
+            pdf.cell(col_larg[chave], altura, marca, border=1, align="C")
+        pdf.cell(col_larg["hora"], altura, _fmt_hora(resp.get("criado_em")) if resp else "", border=1, align="C")
+        pdf.set_xy(pdf.l_margin, y0 + altura)
 
     grupo_atual = None
     rotulos = rotulos or nomes_grupos(None)
@@ -255,12 +273,7 @@ def _tabela_checklist(pdf: _PdfChecklist, itens: list, rotulos: dict | None = No
         grupo = item.get("grupo")
         if grupo != grupo_atual:
             grupo_atual = grupo
-            pdf.set_font("Arial", "B", 9)
-            pdf.set_fill_color(241, 245, 249)
-            pdf.set_text_color(71, 85, 105)
-            rotulo = f"{grupo} - {rotulos[grupo].upper()}" if grupo in rotulos else f"Grupo {grupo}"
-            pdf.cell(0, 7, f" {rotulo}", ln=True, fill=True)
-            pdf.set_text_color(15, 23, 42)
+            _rotulo_grupo()
             _cabecalho()
         _linha_item(item)
 
