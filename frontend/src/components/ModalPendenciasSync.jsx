@@ -184,9 +184,35 @@ function ModalPendenciasSync({
     onItemSincronizado?.();
   };
 
+  // Erros transitórios (rede/5xx/409 de corrida) podem ser reenviados em
+  // massa; conflitos definitivos continuam exigindo revisão item a item.
+  const reenviarComErro = async () => {
+    if (!estaEmWifi()) {
+      setAvisoRede('Conecte-se ao Wi-Fi para sincronizar (evita travamentos em dados móveis).');
+      return;
+    }
+    setAvisoRede(null);
+    setErroAcao(null);
+    try {
+      const seletor = {
+        fotos: fotos.filter(f => f.status === 'erro' && !ehConflito(f)).map(f => f.id_local),
+        operacoes: operacoes.filter(op => op.status === 'erro' && !ehConflito(op)).map(op => op.id_local),
+      };
+      const resultado = await sincronizar(null, seletor);
+      setResumoLocal(resultado);
+      await carregar();
+      onItemSincronizado?.(resultado);
+    } catch {
+      setErroAcao('Não foi possível reenviar os itens com erro. Tente novamente.');
+    }
+  };
+
   const temPendentes = fotos.length + operacoes.length > 0;
   const totalFalhas = (resumo?.falhas?.length || 0) + (resumo?.conflitos?.length || 0);
   const temConflitos = conflitos.length > 0;
+  const errosRetryaveis = [...fotos, ...operacoes].filter(
+    (i) => i.status === 'erro' && !ehConflito(i),
+  );
 
   const mensagemDescarte = confirmarDescarte?.tipo === 'foto'
     ? 'Esta foto é a evidência do serviço e ainda não foi sincronizada. Descartar remove do dispositivo SEM enviar ao servidor — se ela for a única cópia, a evidência será perdida.'
@@ -403,6 +429,16 @@ function ModalPendenciasSync({
             </span>
           )}
           <div className="flex items-center gap-2 flex-wrap">
+            {errosRetryaveis.length > 0 && !sincronizando && !offline && (
+              <button
+                type="button"
+                onClick={reenviarComErro}
+                className="px-4 py-2 bg-amber-500 text-white rounded-xl text-sm font-semibold hover:bg-amber-600 transition-all shadow-md cursor-pointer flex items-center gap-2"
+              >
+                <RefreshCw size={14} />
+                Reenviar {errosRetryaveis.length} com erro
+              </button>
+            )}
             {temConflitos && !sincronizando && !offline && (
               <button
                 type="button"

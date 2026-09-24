@@ -480,6 +480,37 @@ def test_upload_foto_item(os_gestor_client, db_fake, monkeypatch):
     assert len(fake.objetos) == 1
 
 
+def test_reenvio_da_mesma_foto_offline_nao_duplica(os_gestor_client, db_fake, monkeypatch):
+    """Reenvio com o mesmo (dispositivo, id_local) devolve a MESMA evidência —
+    sem linha duplicada (idempotência do upload de foto do checklist)."""
+    from tests.test_os import _criar_os, _seed_cenario
+
+    _seed_cenario(db_fake)
+    _seed_modelos(db_fake)
+    os_id = _criar_os(os_gestor_client, equipe_id=100).json()["id"]
+
+    fake = _FakeS3()
+    monkeypatch.setattr("routers.os.get_s3_client", lambda: fake)
+    monkeypatch.setattr("routers.os.bucket", lambda: "bucket-teste")
+
+    item = next(i for i in _itens(os_gestor_client, os_id) if i["exige_foto"])
+    url = f"/api/os/{os_id}/checklist/{item['id']}/foto"
+    dados = {"id_local": "foto-1", "dispositivo": "tablet-1"}
+
+    primeira = os_gestor_client.post(
+        url, files={"arquivo": ("foto.png", _png_bytes(), "image/png")}, data=dados
+    )
+    assert primeira.status_code == 201, primeira.text
+    segunda = os_gestor_client.post(
+        url, files={"arquivo": ("foto.png", _png_bytes(), "image/png")}, data=dados
+    )
+    assert segunda.status_code == 201, segunda.text
+    assert segunda.json()["id"] == primeira.json()["id"]
+
+    do_item = [f for f in db_fake._dados["os_fotos"] if f.get("checklist_item_id") == item["id"]]
+    assert len(do_item) == 1
+
+
 def test_trocar_foto_item_substitui_anterior(os_gestor_client, db_fake, monkeypatch):
     from tests.test_os import _criar_os, _seed_cenario
 

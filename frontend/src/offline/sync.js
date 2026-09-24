@@ -14,12 +14,30 @@
 // Cada item com falha DEFINITIVA (4xx) permanece na fila marcado como
 // `classificacao: 'conflito'` para revisão/descarte consciente; falhas de
 // rede ou 5xx ficam apenas como `erro` e são reenviadas na próxima tentativa.
+//
+// Concorrência: `sincronizar` é single-flight (toque duplo reusa a MESMA
+// execução) e falhas transitórias ganham 1 reenvio automático ao final. Itens
+// que a execução vencedora já removeu da fila nunca são "ressuscitados".
 
 import { API_URL, apiFetch, erroDaResposta } from '../api';
-import { dbDel, dbGetAll, dbPut } from './db';
+import { dbDel, dbGet, dbGetAll, dbPut } from './db';
 import { contarPendentes, dispositivoId } from './offline';
 
 const TAMANHO_LOTE = 200;
+const ATRASO_RETRY_TRANSITORIO_MS = 1200;
+
+const esperar = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+
+// Grava o estado de erro SÓ se o item ainda existir na fila. Sem isto, duas
+// sincronizações concorrentes (toque duplo) "ressuscitavam" itens que a
+// execução vencedora já tinha apagado — o item ficava preso como 'erro' no
+// dispositivo mesmo já aplicado no servidor.
+async function atualizarSeExistir(store, chave, campos) {
+  const atual = await dbGet(store, chave);
+  if (!atual) return false;
+  await dbPut(store, { ...atual, ...campos });
+  return true;
+}
 
 // Erros DEFINITIVOS (não adianta reenviar) = conflito para revisão/descarte.
 // Exceção: o 409 transitório "já está sendo processada por outra sincronização"
@@ -78,8 +96,7 @@ async function enviarFotos(fotos, resumo, mapaFotos, onProgress, dispositivo) {
         const falha = { id_local: foto.id_local, tipo: 'foto', erro };
         resumo.falhas.push(falha);
         if (conflito) resumo.conflitos.push(falha);
-        await dbPut('fotos', {
-          ...foto,
+        await atualizarSeExistir('fotos', foto.id_local, {
           status: 'erro',
           erro,
           classificacao: conflito ? 'conflito' : null,
@@ -89,8 +106,7 @@ async function enviarFotos(fotos, resumo, mapaFotos, onProgress, dispositivo) {
     } catch {
       const erro = 'Sem conexão durante o envio da foto.';
       resumo.falhas.push({ id_local: foto.id_local, tipo: 'foto', erro });
-      await dbPut('fotos', {
-        ...foto,
+      await atualizarSeExistir('fotos', foto.id_local, {
         status: 'erro',
         erro,
         classificacao: null,
@@ -140,8 +156,7 @@ async function enviarOperacoes(ops, mapaFotos, resumo, onProgress, dispositivo) 
         const conflito = ehConflito(res.status, erro);
         for (const op of fatia) {
           resumo.falhas.push({ id_local: op.id_local, tipo: 'operacao', opTipo: op.tipo, erro });
-          await dbPut('fila', {
-            ...op,
+          await atualizarSeExistir('fila', op.id_local, {
             status: 'erro',
             erro,
             classificacao: conflito ? 'conflito' : null,
@@ -162,8 +177,7 @@ async function enviarOperacoes(ops, mapaFotos, resumo, onProgress, dispositivo) 
           const falha = { id_local: r.id_local, tipo: 'operacao', opTipo: opOriginal?.tipo, erro };
           resumo.falhas.push(falha);
           if (conflito) resumo.conflitos.push(falha);
-          await dbPut('fila', {
-            ...opOriginal,
+          await atualizarSeExistir('fila', r.id_local, {
             status: 'erro',
             erro,
             classificacao: conflito ? 'conflito' : null,
@@ -197,7 +211,7 @@ async function limparFotosSemUso() {
 // `seletor` (opcional) restringe o envio a itens específicos — usado no
 // reenvio individual da tela de pendências:
 //   { fotos: [id_local, ...], operacoes: [id_local, ...] }
-export async function sincronizar(onProgress, seletor = null) {
+async function _executarSincronizacao(onProgress, seletor = null) {
   const resumo = {
     fotosEnviadas: 0,
     operacoesEnviadas: 0,
@@ -256,6 +270,44 @@ export async function sincronizar(onProgress, seletor = null) {
   }
 
   return resumo;
+}
+
+// Falhas transitórias (rede/5xx/409 de corrida) merecem UMA segunda tentativa
+// automática: com o single-flight abaixo, os 409 de "outra sincronização" nem
+// acontecem; e se uma resposta se perdeu, o backend deduplica e confirma. Sem
+// isto, itens já aplicados ficavam presos como 'erro' até reenvio manual.
+async function _retryTransitorios(resumo, onProgress) {
+  const idsFotos = (resumo.falhas || []).filter(f => f.tipo === 'foto').map(f => f.id_local);
+  const idsOps = (resumo.falhas || []).filter(f => f.tipo === 'operacao').map(f => f.id_local);
+  if (!idsFotos.length && !idsOps.length) return resumo;
+  if ((resumo.conflitos || []).length > 0) return resumo; // definitivos: revisão manual
+
+  await esperar(ATRASO_RETRY_TRANSITORIO_MS);
+  const extra = await _executarSincronizacao(onProgress, { fotos: idsFotos, operacoes: idsOps });
+  return {
+    fotosEnviadas: resumo.fotosEnviadas + extra.fotosEnviadas,
+    operacoesEnviadas: resumo.operacoesEnviadas + extra.operacoesEnviadas,
+    falhas: extra.falhas,
+    conflitos: extra.conflitos,
+  };
+}
+
+// Mutex de módulo: um toque duplo (ou "Reenviar tudo" + reenvio individual)
+// não pode rodar duas sincronizações em paralelo. O segundo chamador recebe a
+// MESMA promise — nada é enviado em dobro.
+let sincronizacaoEmAndamento = null;
+
+export async function sincronizar(onProgress, seletor = null) {
+  if (sincronizacaoEmAndamento) return sincronizacaoEmAndamento;
+  sincronizacaoEmAndamento = (async () => {
+    try {
+      const resumo = await _executarSincronizacao(onProgress, seletor);
+      return await _retryTransitorios(resumo, onProgress);
+    } finally {
+      sincronizacaoEmAndamento = null;
+    }
+  })();
+  return sincronizacaoEmAndamento;
 }
 
 /** Remove do dispositivo o que foi sincronizado com sucesso (limpeza). */

@@ -1553,21 +1553,34 @@ async def enviar_foto_checklist(
             .execute()
             .data
         )
-        resp = (
-            db.table("os_fotos")
-            .insert(
-                {
-                    "os_id": os_id,
-                    "checklist_item_id": item["id"],
-                    "nome_original": nome_original[:500],
-                    "tamanho_bytes": len(conteudo),
-                    "mime_type": mime,
-                    "bucket_key": bucket_key,
-                    "enviado_por": usuario.email,
-                }
+        resp = None
+        try:
+            resp = (
+                db.table("os_fotos")
+                .insert(
+                    {
+                        "os_id": os_id,
+                        "checklist_item_id": item["id"],
+                        "nome_original": nome_original[:500],
+                        "tamanho_bytes": len(conteudo),
+                        "mime_type": mime,
+                        "bucket_key": bucket_key,
+                        "enviado_por": usuario.email,
+                    }
+                )
+                .execute()
             )
-            .execute()
-        )
+        except Exception as exc:
+            # Corrida de reenvio (retry/duas sincronizações): o UNIQUE de
+            # bucket_key barra a duplicata — devolve a evidência já gravada em
+            # vez de estourar 500 e sujar a fila do dispositivo.
+            if ref and _eh_violacao_unique(exc):
+                existente = (
+                    db.table("os_fotos").select("*").eq("os_id", os_id).eq("bucket_key", bucket_key).execute()
+                )
+                if existente.data:
+                    return existente.data[0]
+            raise
         if not resp.data:
             _remover_objeto(s3, bucket_key)
             raise HTTPException(status_code=500, detail="Falha ao salvar a foto.")
@@ -2460,20 +2473,32 @@ async def enviar_foto(
 
         # Basename + truncatura: o nome do cliente não pode virar caminho.
         nome_original = os.path.basename((arquivo.filename or "").replace("\\", "/")).strip() or "foto"
-        resp = (
-            db.table("os_fotos")
-            .insert(
-                {
-                    "os_id": os_id,
-                    "nome_original": nome_original[:500],
-                    "tamanho_bytes": len(conteudo),
-                    "mime_type": mime,
-                    "bucket_key": bucket_key,
-                    "enviado_por": usuario.email,
-                }
+        resp = None
+        try:
+            resp = (
+                db.table("os_fotos")
+                .insert(
+                    {
+                        "os_id": os_id,
+                        "nome_original": nome_original[:500],
+                        "tamanho_bytes": len(conteudo),
+                        "mime_type": mime,
+                        "bucket_key": bucket_key,
+                        "enviado_por": usuario.email,
+                    }
+                )
+                .execute()
             )
-            .execute()
-        )
+        except Exception as exc:
+            # Corrida de reenvio: a mesma evidência já foi gravada por outra
+            # requisição (UNIQUE de bucket_key) — devolve a linha existente.
+            if ref and _eh_violacao_unique(exc):
+                existente = (
+                    db.table("os_fotos").select("*").eq("os_id", os_id).eq("bucket_key", bucket_key).execute()
+                )
+                if existente.data:
+                    return existente.data[0]
+            raise
         if not resp.data:
             s3.delete_object(Bucket=bucket(), Key=bucket_key)
             raise HTTPException(status_code=500, detail="Falha ao registrar a foto.")

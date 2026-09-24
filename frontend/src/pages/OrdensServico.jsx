@@ -3003,6 +3003,10 @@ function OrdensServico({ usuarioAtual }) {
   const ultimoRefreshRef = useRef(0);
   // Evita refresh automático e manual rodando juntos (downloads concorrentes).
   const pacoteEmAndamento = useRef(false);
+  // Guarda SÍNCRONA do sync (o `sincronizando` do estado só atualiza no
+  // próximo render — um toque duplo passaria pela checagem e dispararia dois
+  // envios; ver também o mutex de módulo em offline/sync.js).
+  const syncEmAndamento = useRef(false);
 
   const toastTimerRef = useRef(null);
   const mostrarToast = useCallback((message, type = 'success', acao = null) => {
@@ -3017,6 +3021,10 @@ function OrdensServico({ usuarioAtual }) {
   useEffect(() => () => { if (toastTimerRef.current) clearTimeout(toastTimerRef.current); }, []);
 
   const sincronizarAgora = useCallback(async (silencioso = false) => {
+    if (syncEmAndamento.current) {
+      if (!silencioso) mostrarToast('Sincronização já em andamento.', 'error');
+      return;
+    }
     if (isOffline()) {
       if (!silencioso) mostrarToast('Sem conexão — sincronize quando voltar à internet.', 'error');
       return;
@@ -3029,6 +3037,7 @@ function OrdensServico({ usuarioAtual }) {
       return;
     }
     if (sincronizando) return;
+    syncEmAndamento.current = true;
     setSincronizando(true);
     setProgressoSync(null);
     try {
@@ -3116,6 +3125,7 @@ function OrdensServico({ usuarioAtual }) {
     } catch {
       if (!silencioso) mostrarToast('Falha ao sincronizar. Tente novamente.', 'error');
     } finally {
+      syncEmAndamento.current = false;
       setSincronizando(false);
       setProgressoSync(null);
       // IndexedDB pode estar bloqueado/corrompido: nunca deixa o finally
