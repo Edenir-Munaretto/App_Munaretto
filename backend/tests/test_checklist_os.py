@@ -695,6 +695,45 @@ def test_relatorio_pdf_com_foto_no_item(os_gestor_client, db_fake, monkeypatch):
     assert resp.content.startswith(b"%PDF")
 
 
+def test_relatorio_pdf_sem_pagina_entre_tabela_e_fotos(os_gestor_client, db_fake, monkeypatch):
+    """Assinaturas ficam na página da tabela e as fotos começam logo depois —
+    sem a página quase vazia que trazia apenas 'GESTOR DE O.S'."""
+    import pymupdf
+
+    from tests.test_os import _criar_os, _seed_cenario
+
+    _seed_cenario(db_fake)
+    _seed_modelos(db_fake)
+    os_id = _criar_os(os_gestor_client, equipe_id=100).json()["id"]
+
+    fake = _FakeS3()
+    monkeypatch.setattr("routers.os.get_s3_client", lambda: fake)
+    monkeypatch.setattr("routers.os.bucket", lambda: "bucket-teste")
+
+    itens = _itens(os_gestor_client, os_id)
+    item_foto = next(i for i in itens if i["exige_foto"])
+    resp = os_gestor_client.post(
+        f"/api/os/{os_id}/checklist/{item_foto['id']}/foto",
+        files={"arquivo": ("foto.png", _png_bytes(), "image/png")},
+    )
+    assert resp.status_code == 201, resp.text
+    for item in itens:
+        _responder(os_gestor_client, os_id, item, "sim")
+
+    resp = os_gestor_client.get(f"/api/os/{os_id}/checklist/report")
+    assert resp.status_code == 200, resp.text
+
+    doc = pymupdf.open(stream=resp.content, filetype="pdf")
+    paginas = [page.get_text() for page in doc]
+    tabela = next(i for i, texto in enumerate(paginas) if "CHECKLIST DA O.S." in texto)
+    # As DUAS assinaturas ficam na mesma página da tabela.
+    assert "ENCARREGADO DA EQUIPE" in paginas[tabela]
+    assert "GESTOR DE O.S" in paginas[tabela]
+    # A página seguinte é a de fotos (nenhuma página intermediária).
+    assert " FOTOS" in paginas[tabela + 1], "há página extra entre tabela e fotos"
+    assert len(doc) == tabela + 2
+
+
 def test_relatorio_pdf_os_concluida_realista(os_gestor_client, os_campo_client, db_fake, monkeypatch):
     """Dia completo pelo sync: respostas com GPS, 'não' com justificativa,
     fotos e conclusão — o relatório deve sair sem erro."""

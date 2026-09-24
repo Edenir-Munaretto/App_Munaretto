@@ -301,18 +301,22 @@ def _tabela_checklist(pdf: _PdfChecklist, itens: list, rotulos: dict | None = No
             pdf.multi_cell(0, 5, linha, new_x="LMARGIN")
         pdf.set_text_color(15, 23, 42)
 
-    # Assinaturas
-    pdf.ln(8)
-    pdf.set_font("Arial", "", 9)
-    y = pdf.get_y()
+    # Assinaturas em UMA faixa (lado a lado), compacta: cabe na página da
+    # tabela e evita a página quase vazia antes das fotos. Se não houver
+    # espaço, o bloco inteiro vai para a página seguinte (nunca divide as
+    # duas assinaturas).
+    ALTURA_ASSINATURAS = 18  # respiro + rótulo (5) + linha
+    if pdf.will_page_break(ALTURA_ASSINATURAS):
+        pdf.add_page()
     larg = (LARGURA_PAGINA - 2 * MARGEM) / 2 - 5
-    for titulo in ("ENCARREGADO DA EQUIPE", "GESTOR DE O.S"):
-        pdf.line(MARGEM + (0 if titulo.startswith("ENCARREGADO") else larg + 10), y + 12,
-                 MARGEM + (larg - 10 if titulo.startswith("ENCARREGADO") else larg + larg), y + 12)
-        pdf.set_font("Arial", "B", 8)
-        pdf.cell(0, 6, f"  {titulo}  ", new_x="LMARGIN", new_y="NEXT")
-        pdf.ln(8)
-    pdf.set_y(y + 24)
+    y = pdf.get_y() + 4
+    pdf.set_font("Arial", "B", 8)
+    for indice, titulo in enumerate(("ENCARREGADO DA EQUIPE", "GESTOR DE O.S")):
+        x = MARGEM + indice * (larg + 10)
+        pdf.set_xy(x, y)
+        pdf.cell(larg, 5, f"  {titulo}  ")
+        pdf.line(x, y + 7, x + larg - 10, y + 7)
+    pdf.set_y(y + 14)
 
 
 def _paginas_fotos(pdf: _PdfChecklist, itens: list, baixar_foto):
