@@ -98,6 +98,88 @@ def test_excluir_devolucao(devolucoes_client):
     assert devolucoes_client.get("/api/devolucoes-celesc/").json() == []
 
 
+def test_cadastrar_apenas_consumidor_e_nota_ps(devolucoes_client):
+    resp = devolucoes_client.post(
+        "/api/devolucoes-celesc/",
+        json={"consumidor": "Maria Souza", "nota_ps": "PS-500"},
+    )
+    assert resp.status_code == 201, resp.text
+    corpo = resp.json()
+    assert corpo["status"] == "Aberto"
+    assert corpo["data_entrega"] is None
+    assert corpo["data_devolucao"] is None
+
+
+def test_atualizar_apenas_entrega_preserva_demais_campos(devolucoes_client):
+    criada = devolucoes_client.post(
+        "/api/devolucoes-celesc/",
+        json={"consumidor": "Carlos Lima", "nota_ps": "PS-501"},
+    ).json()
+
+    resp = devolucoes_client.put(
+        f"/api/devolucoes-celesc/{criada['id']}",
+        json={"data_entrega": "2026-01-15"},
+    )
+    assert resp.status_code == 200, resp.text
+    corpo = resp.json()
+    assert corpo["consumidor"] == "Carlos Lima"
+    assert corpo["nota_ps"] == "PS-501"
+    assert corpo["data_entrega"] == "2026-01-15"
+    assert corpo["data_devolucao"] is None
+    assert corpo["status"] == "Aberto"
+
+
+def test_registrar_devolucao_sem_entrega_fecha(devolucoes_client):
+    criada = devolucoes_client.post(
+        "/api/devolucoes-celesc/",
+        json={"consumidor": "Ana Paula", "nota_ps": None},
+    ).json()
+
+    resp = devolucoes_client.put(
+        f"/api/devolucoes-celesc/{criada['id']}",
+        json={"data_devolucao": "2026-02-10"},
+    )
+    assert resp.status_code == 200, resp.text
+    assert resp.json()["status"] == "Fechado"
+
+
+def test_limpar_devolucao_reabre_registro(devolucoes_client):
+    criada = devolucoes_client.post(
+        "/api/devolucoes-celesc/",
+        json=_payload(data_devolucao="2026-01-20"),
+    ).json()
+
+    resp = devolucoes_client.put(
+        f"/api/devolucoes-celesc/{criada['id']}",
+        json={"data_devolucao": None},
+    )
+    assert resp.status_code == 200, resp.text
+    corpo = resp.json()
+    assert corpo["status"] == "Aberto"
+    assert corpo["data_entrega"] == "2026-01-10"
+
+
+def test_entrega_posterior_a_devolucao_existente_retorna_400(devolucoes_client):
+    criada = devolucoes_client.post(
+        "/api/devolucoes-celesc/",
+        json=_payload(data_devolucao="2026-01-20"),
+    ).json()
+
+    resp = devolucoes_client.put(
+        f"/api/devolucoes-celesc/{criada['id']}",
+        json={"data_entrega": "2026-01-25"},
+    )
+    assert resp.status_code == 400
+    assert "anterior" in resp.json()["detail"]
+
+
+def test_atualizacao_sem_campos_retorna_400(devolucoes_client):
+    criada = devolucoes_client.post("/api/devolucoes-celesc/", json=_payload()).json()
+
+    resp = devolucoes_client.put(f"/api/devolucoes-celesc/{criada['id']}", json={})
+    assert resp.status_code == 400
+
+
 def test_sem_permissao_nao_acessa(client):
     resp = client.get("/api/devolucoes-celesc/")
     assert resp.status_code in (401, 403)

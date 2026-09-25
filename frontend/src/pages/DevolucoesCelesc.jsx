@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Search, Plus, Edit2, Trash2, Check, AlertTriangle, PackageCheck, ChevronLeft, ChevronRight } from 'lucide-react';
+import { Search, Plus, Edit2, Trash2, Check, AlertTriangle, PackageCheck, Truck, Undo2, ChevronLeft, ChevronRight } from 'lucide-react';
 import { API_URL, apiFetch, erroDaResposta } from '../api';
 import ModalConfirmacao from '../components/ModalConfirmacao';
 import ErroCarregamento from '../components/ErroCarregamento';
@@ -45,6 +45,11 @@ function DevolucoesCelesc() {
   // Exclusão com confirmação customizada
   const [excluindo, setExcluindo] = useState(null); // { id, consumidor }
   const [deleting, setDeleting] = useState(false);
+
+  // Ações rápidas: registrar entrega/devolução em etapas
+  const [acaoRapida, setAcaoRapida] = useState(null); // { tipo: 'entrega' | 'devolucao', registro }
+  const [dataAcao, setDataAcao] = useState('');
+  const [salvandoAcao, setSalvandoAcao] = useState(false);
 
   // Paginação visual (50 por página)
   const REGISTROS_POR_PAGINA = 50;
@@ -113,11 +118,11 @@ function DevolucoesCelesc() {
 
   const handleSubmit = async (e) => {
     e.preventDefault();
-    if (!formData.consumidor.trim() || !formData.data_entrega) {
-      showToast('Consumidor e Data de Entrega são obrigatórios.', 'error');
+    if (!formData.consumidor.trim()) {
+      showToast('O consumidor é obrigatório.', 'error');
       return;
     }
-    if (formData.data_devolucao && formData.data_devolucao < formData.data_entrega) {
+    if (formData.data_entrega && formData.data_devolucao && formData.data_devolucao < formData.data_entrega) {
       showToast('A data de devolução não pode ser anterior à data de entrega.', 'error');
       return;
     }
@@ -174,6 +179,78 @@ function DevolucoesCelesc() {
       setExcluindo(null);
     }
   };
+
+  const abrirAcaoRapida = (tipo, registro) => {
+    setAcaoRapida({ tipo, registro });
+    setDataAcao('');
+  };
+
+  const salvarAcaoRapida = async (e) => {
+    e.preventDefault();
+    if (!acaoRapida) return;
+    if (!dataAcao) {
+      showToast('Informe a data.', 'error');
+      return;
+    }
+
+    const { tipo, registro } = acaoRapida;
+
+    if (tipo === 'devolucao' && registro.data_entrega && dataAcao < registro.data_entrega) {
+      showToast('A data de devolução não pode ser anterior à data de entrega.', 'error');
+      return;
+    }
+    if (tipo === 'entrega' && registro.data_devolucao && dataAcao > registro.data_devolucao) {
+      showToast('A data de entrega não pode ser posterior à data de devolução.', 'error');
+      return;
+    }
+
+    try {
+      setSalvandoAcao(true);
+      const res = await apiFetch(`${API_URL}/devolucoes-celesc/${registro.id}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ [tipo === 'entrega' ? 'data_entrega' : 'data_devolucao']: dataAcao })
+      });
+
+      if (res.ok) {
+        showToast(tipo === 'entrega' ? 'Data de entrega registrada com sucesso!' : 'Data de devolução registrada com sucesso!');
+        setAcaoRapida(null);
+        fetchDevolucoes();
+      } else {
+        showToast(erroDaResposta(await res.json().catch(() => null), 'Erro ao salvar data.'), 'error');
+      }
+    } catch (err) {
+      console.error(err);
+      showToast('Erro de conexão ao salvar data.', 'error');
+    } finally {
+      setSalvandoAcao(false);
+    }
+  };
+
+  const acoesRapidasDoRegistro = (d) => (
+    <>
+      {!d.data_entrega && (
+        <button
+          onClick={() => abrirAcaoRapida('entrega', d)}
+          className="h-11 px-3 flex items-center justify-center gap-1.5 rounded bg-sky-50 hover:bg-sky-100 text-sky-700 border border-sky-100 transition-colors text-xs font-bold"
+          title="Registrar data de entrega"
+        >
+          <Truck size={14} />
+          Entrega
+        </button>
+      )}
+      {!d.data_devolucao && (
+        <button
+          onClick={() => abrirAcaoRapida('devolucao', d)}
+          className="h-11 px-3 flex items-center justify-center gap-1.5 rounded bg-emerald-50 hover:bg-emerald-100 text-emerald-700 border border-emerald-100 transition-colors text-xs font-bold"
+          title="Registrar data de devolução"
+        >
+          <Undo2 size={14} />
+          Devolução
+        </button>
+      )}
+    </>
+  );
 
   // Paginação visual
   const totalPaginas = Math.max(1, Math.ceil(devolucoes.length / REGISTROS_POR_PAGINA));
@@ -295,6 +372,7 @@ function DevolucoesCelesc() {
                     <td className="px-3 py-3 md:px-6 md:py-4"><BadgeStatus status={d.status} /></td>
                     <td className="px-3 py-3 md:px-6 md:py-4">
                       <div className="flex justify-center items-center gap-2">
+                        {acoesRapidasDoRegistro(d)}
                         <button
                           onClick={() => openEditModal(d)}
                           className="w-11 h-11 flex items-center justify-center p-0 rounded bg-slate-50 hover:bg-amber-50 text-slate-500 hover:text-amber-700 border border-slate-100 transition-colors"
@@ -346,6 +424,9 @@ function DevolucoesCelesc() {
                     <span>Devolução: {formatarData(d.data_devolucao)}</span>
                   </div>
                   <div className="mt-1.5"><BadgeStatus status={d.status} /></div>
+                  <div className="flex flex-wrap items-center gap-2 mt-2">
+                    {acoesRapidasDoRegistro(d)}
+                  </div>
                 </div>
                 <div className="flex items-center gap-2 shrink-0">
                   <button
@@ -452,15 +533,17 @@ function DevolucoesCelesc() {
 
                 {/* Data de Entrega */}
                 <div>
-                  <label className="block text-xs font-bold text-slate-700 mb-1.5">Data de Entrega *</label>
+                  <label className="block text-xs font-bold text-slate-700 mb-1.5">Data de Entrega</label>
                   <input
                     type="date"
                     name="data_entrega"
                     value={formData.data_entrega}
                     onChange={handleInputChange}
-                    required
                     className="w-full px-3.5 py-2 border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-primary-500/20 focus:border-primary-500 text-sm"
                   />
+                  <p className="text-[11px] text-slate-400 mt-1.5">
+                    Deixe em branco e registre depois, quando o material chegar.
+                  </p>
                 </div>
 
                 {/* Data de Devolução */}
@@ -480,6 +563,10 @@ function DevolucoesCelesc() {
                 </div>
 
               </div>
+
+              <p className="text-[11px] text-slate-400 -mt-2">
+                Os dados podem ser completados em etapas: cadastre agora e registre a entrega e a devolução depois.
+              </p>
 
               {/* Action Buttons */}
               <div className="flex justify-end gap-3 pt-4 border-t border-slate-100">
@@ -506,6 +593,80 @@ function DevolucoesCelesc() {
                 </button>
               </div>
 
+            </form>
+
+          </div>
+        </div>
+      )}
+
+      {/* Mini-modal de ação rápida: registrar entrega ou devolução */}
+      {acaoRapida && (
+        <div className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-2xl shadow-2xl max-w-md w-full overflow-hidden animate-in fade-in zoom-in duration-200">
+
+            <div className="bg-slate-900 text-white px-6 py-4 flex items-center justify-between">
+              <h3 className="font-bold text-lg">
+                {acaoRapida.tipo === 'entrega' ? '🚚 Registrar Entrega' : '↩️ Registrar Devolução'}
+              </h3>
+              <button
+                onClick={() => setAcaoRapida(null)}
+                className="text-slate-400 hover:text-white text-xl font-bold cursor-pointer"
+              >
+                &times;
+              </button>
+            </div>
+
+            <form onSubmit={salvarAcaoRapida} className="p-6 space-y-4">
+              <div>
+                <p className="text-sm font-bold text-slate-900">{acaoRapida.registro.consumidor}</p>
+                {acaoRapida.registro.nota_ps && (
+                  <p className="font-mono text-xs text-slate-500 mt-0.5">Nota PS: {acaoRapida.registro.nota_ps}</p>
+                )}
+              </div>
+
+              <div>
+                <label className="block text-xs font-bold text-slate-700 mb-1.5">
+                  {acaoRapida.tipo === 'entrega' ? 'Data de Entrega *' : 'Data de Devolução *'}
+                </label>
+                <input
+                  type="date"
+                  value={dataAcao}
+                  min={acaoRapida.tipo === 'devolucao' ? acaoRapida.registro.data_entrega || undefined : undefined}
+                  onChange={(e) => setDataAcao(e.target.value)}
+                  required
+                  autoFocus
+                  className="w-full px-3.5 py-2 border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-primary-500/20 focus:border-primary-500 text-sm"
+                />
+                <p className="text-[11px] text-slate-400 mt-1.5">
+                  {acaoRapida.tipo === 'entrega'
+                    ? 'Data em que o material chegou.'
+                    : 'Ao salvar, o registro passa para o status Fechado.'}
+                </p>
+              </div>
+
+              <div className="flex justify-end gap-3 pt-4 border-t border-slate-100">
+                <button
+                  type="button"
+                  onClick={() => setAcaoRapida(null)}
+                  className="px-4 py-2 border border-slate-200 text-slate-600 rounded-xl text-sm font-semibold hover:bg-slate-50 transition-all cursor-pointer"
+                >
+                  Cancelar
+                </button>
+                <button
+                  type="submit"
+                  disabled={salvandoAcao}
+                  className="px-5 py-2 bg-primary-600 text-white rounded-xl text-sm font-semibold hover:bg-primary-700 transition-all shadow-md shadow-primary-900/10 cursor-pointer disabled:opacity-50 flex items-center gap-2"
+                >
+                  {salvandoAcao ? (
+                    <>
+                      <span className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />
+                      Salvando...
+                    </>
+                  ) : (
+                    'Salvar Data'
+                  )}
+                </button>
+              </div>
             </form>
 
           </div>

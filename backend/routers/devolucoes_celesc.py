@@ -18,7 +18,20 @@ STATUS_VALIDOS = {"Aberto", "Fechado"}
 class DevolucaoCreate(BaseModel):
     consumidor: str = Field(..., min_length=2, description="Nome do consumidor")
     nota_ps: str | None = None
-    data_entrega: str = Field(..., description="Data de entrega no formato YYYY-MM-DD")
+    data_entrega: str | None = Field(None, description="Data de entrega no formato YYYY-MM-DD")
+    data_devolucao: str | None = Field(None, description="Data de devolução no formato YYYY-MM-DD")
+
+
+class DevolucaoUpdate(BaseModel):
+    """Atualização parcial: apenas os campos enviados são alterados.
+
+    Os dados chegam em etapas (cadastro, entrega e devolução), então o corpo
+    pode conter só a data de entrega, só a de devolução, ou qualquer combinação.
+    """
+
+    consumidor: str | None = Field(None, min_length=2, description="Nome do consumidor")
+    nota_ps: str | None = None
+    data_entrega: str | None = Field(None, description="Data de entrega no formato YYYY-MM-DD")
     data_devolucao: str | None = Field(None, description="Data de devolução no formato YYYY-MM-DD")
 
 
@@ -26,7 +39,7 @@ class DevolucaoResponse(BaseModel):
     id: int
     consumidor: str
     nota_ps: str | None
-    data_entrega: str
+    data_entrega: str | None
     data_devolucao: str | None
     status: str
     created_at: str | None = None
@@ -37,12 +50,14 @@ def calcular_status(data_devolucao: str | None) -> str:
     return "Fechado" if data_devolucao else "Aberto"
 
 
-def validar_datas(data_entrega: str, data_devolucao: str | None) -> None:
-    """Valida o formato das datas e impede devolução anterior à entrega."""
-    try:
-        entrega = date.fromisoformat(data_entrega)
-    except (ValueError, TypeError):
-        raise HTTPException(status_code=400, detail="Data de entrega inválida. Use o formato AAAA-MM-DD.") from None
+def validar_datas(data_entrega: str | None, data_devolucao: str | None) -> None:
+    """Valida o formato das datas informadas (quando houver) e impede devolução anterior à entrega."""
+    entrega = None
+    if data_entrega:
+        try:
+            entrega = date.fromisoformat(data_entrega)
+        except (ValueError, TypeError):
+            raise HTTPException(status_code=400, detail="Data de entrega inválida. Use o formato AAAA-MM-DD.") from None
 
     if not data_devolucao:
         return
@@ -52,7 +67,7 @@ def validar_datas(data_entrega: str, data_devolucao: str | None) -> None:
     except (ValueError, TypeError):
         raise HTTPException(status_code=400, detail="Data de devolução inválida. Use o formato AAAA-MM-DD.") from None
 
-    if devolucao < entrega:
+    if entrega is not None and devolucao < entrega:
         raise HTTPException(status_code=400, detail="A data de devolução não pode ser anterior à data de entrega.")
 
 
@@ -83,7 +98,7 @@ def listar_devolucoes(
             else:
                 query = query.is_("data_devolucao", "null")
 
-        response = query.order("data_entrega", desc=True).execute()
+        response = query.order("created_at", desc=True).order("id", desc=True).execute()
 
         # Status calculado em tempo de leitura (não é coluna do banco)
         result = []
@@ -118,14 +133,21 @@ def buscar_devolucao(devolucao_id: int, db=Depends(get_supabase)):
 
 @router.post("/", response_model=DevolucaoResponse, status_code=201)
 def cadastrar_devolucao(devolucao: DevolucaoCreate, db=Depends(get_supabase)):
-    """Cadastra uma nova devolução. Sem data de devolução o registro nasce Aberto."""
-    try:
-        validar_datas(devolucao.data_entrega, devolucao.data_devolucao)
+    """Cadastra uma nova devolução.
 
+    Apenas consumidor é obrigatório: a entrega e a devolução podem ser
+    preenchidas depois. Sem data de devolução o registro nasce Aberto.
+    """
+    try:
         data = devolucao.model_dump()
         data["consumidor"] = data["consumidor"].strip()
         data["nota_ps"] = (data["nota_ps"] or "").strip() or None
+        data["data_entrega"] = data["data_entrega"] or None
+        data["data_devolucao"] = data["data_devolucao"] or None
         data["ativo"] = True
+
+        validar_datas(data["data_entrega"], data["data_devolucao"])
+
         response = db.table("devolucoes_celesc").insert(data).execute()
 
         if not response.data:
@@ -142,18 +164,41 @@ def cadastrar_devolucao(devolucao: DevolucaoCreate, db=Depends(get_supabase)):
 
 
 @router.put("/{devolucao_id}", response_model=DevolucaoResponse)
-def atualizar_devolucao(devolucao_id: int, devolucao: DevolucaoCreate, db=Depends(get_supabase)):
-    """Atualiza uma devolução existente. Preencher a data de devolução a fecha."""
+def atualizar_devolucao(devolucao_id: int, devolucao: DevolucaoUpdate, db=Depends(get_supabase)):
+    """Atualiza parcialmente uma devolução existente.
+
+    Somente os campos enviados são alterados, permitindo registrar o cadastro,
+    a entrega e a devolução em momentos diferentes. Preencher a data de
+    devolução fecha o registro; enviá-la como null reabre.
+    """
     try:
-        check = db.table("devolucoes_celesc").select("id").eq("id", devolucao_id).eq("ativo", True).execute()
+        check = db.table("devolucoes_celesc").select("*").eq("id", devolucao_id).eq("ativo", True).execute()
         if not check.data:
             raise HTTPException(status_code=404, detail="Devolução não encontrada")
 
-        validar_datas(devolucao.data_entrega, devolucao.data_devolucao)
+        atual = check.data[0]
+        data = devolucao.model_dump(exclude_unset=True)
 
-        data = devolucao.model_dump()
-        data["consumidor"] = data["consumidor"].strip()
-        data["nota_ps"] = (data["nota_ps"] or "").strip() or None
+        if not data:
+            raise HTTPException(status_code=400, detail="Nenhum campo para atualizar foi informado.")
+
+        if "consumidor" in data:
+            if not (data["consumidor"] or "").strip():
+                raise HTTPException(status_code=400, detail="O consumidor não pode ficar em branco.")
+            data["consumidor"] = data["consumidor"].strip()
+        if "nota_ps" in data:
+            data["nota_ps"] = (data["nota_ps"] or "").strip() or None
+        if "data_entrega" in data:
+            data["data_entrega"] = data["data_entrega"] or None
+        if "data_devolucao" in data:
+            data["data_devolucao"] = data["data_devolucao"] or None
+
+        # Valida as datas efetivas (o que foi enviado + o que já estava salvo)
+        validar_datas(
+            data.get("data_entrega", atual.get("data_entrega")),
+            data.get("data_devolucao", atual.get("data_devolucao")),
+        )
+
         response = db.table("devolucoes_celesc").update(data).eq("id", devolucao_id).execute()
 
         if not response.data:

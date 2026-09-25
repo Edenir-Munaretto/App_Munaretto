@@ -6,16 +6,21 @@
 -- O status (Aberto/Fechado) NÃO é coluna: é calculado pela API em tempo de
 -- leitura a partir de data_devolucao (nula = Aberto; preenchida = Fechado).
 
+-- Os dados chegam em etapas (cadastro -> entrega -> devolução), por isso
+-- data_entrega e data_devolucao são opcionais.
 CREATE TABLE IF NOT EXISTS devolucoes_celesc (
     id SERIAL PRIMARY KEY,
     consumidor VARCHAR(255) NOT NULL,
     nota_ps VARCHAR(100),
-    data_entrega DATE NOT NULL,
+    data_entrega DATE,
     data_devolucao DATE,
     ativo BOOLEAN DEFAULT TRUE,
     created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
 );
+
+-- Para bancos que já têm a tabela criada com data_entrega NOT NULL.
+ALTER TABLE IF EXISTS devolucoes_celesc ALTER COLUMN data_entrega DROP NOT NULL;
 
 CREATE INDEX IF NOT EXISTS idx_devol_celesc_consumidor ON devolucoes_celesc (consumidor);
 CREATE INDEX IF NOT EXISTS idx_devol_celesc_nota_ps ON devolucoes_celesc (nota_ps);
