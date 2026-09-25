@@ -11,6 +11,8 @@ import { API_URL, apiFetch, erroDaResposta } from '../api';
 import ModalConfirmacao from '../components/ModalConfirmacao';
 import ModalPendenciasSync from '../components/ModalPendenciasSync';
 import PainelObra from '../components/PainelObra';
+import PainelDesligamentos from '../components/PainelDesligamentos';
+import { abrirPdfAutenticado } from '../utils/abrirPdf';
 import { comprimirImagem, mimeFotoPermitido } from '../utils/imagem';
 import { rotuloFator, unidadeContrato } from '../utils/contratos';
 import {
@@ -1938,28 +1940,7 @@ function PainelExecucao({ osId, produtos, onFechar, recarregarLista, mostrarToas
   const podeExcluirOs = ehGestor && ['rascunho', 'concluida', 'cancelada'].includes(detalhe.status);
   const execucao = situacaoExecucao(detalhe);
 
-  const abrirPdf = async (caminho) => {
-    // Abre uma aba imediatamente (evita bloqueio de popup) e navega para o
-    // PDF gerado (o download exige o token, então usamos fetch + blob URL).
-    const janela = window.open('', '_blank');
-    try {
-      const res = await apiFetch(`${API_URL}${caminho}`);
-      if (!res.ok) {
-        janela?.close();
-        mostrarToast(erroDaResposta(await res.json().catch(() => null), 'Erro ao gerar o PDF.'), 'error');
-        return;
-      }
-      const blob = await res.blob();
-      const url = window.URL.createObjectURL(blob);
-      janela?.location.replace(url);
-      // Libera a blob URL depois de a aba nova carregar (revogar antes pode
-      // cancelar a leitura do PDF).
-      setTimeout(() => window.URL.revokeObjectURL(url), 120000);
-    } catch {
-      janela?.close();
-      mostrarToast('Erro de conexão ao gerar o PDF.', 'error');
-    }
-  };
+  const abrirPdf = (caminho) => abrirPdfAutenticado(caminho, mostrarToast);
 
   // Usuário de campo não vê o Histórico (timeline de status do gestor).
   // O.S retroativa não tem checklist (execução registrada em papel).
@@ -2964,6 +2945,8 @@ function OrdensServico({ usuarioAtual }) {
   const [modalNova, setModalNova] = useState(false);
   const [novaOSObraId, setNovaOSObraId] = useState(null); // obra travada ao criar O.S pelo PainelObra
   const [versaoResumoObra, setVersaoResumoObra] = useState(0); // refresh do resumo do PainelObra após criar O.S
+  const [desligamentoReimpressao, setDesligamentoReimpressao] = useState(null); // detalhe da O.S para reimprimir a folha
+  const [versaoDesligamentos, setVersaoDesligamentos] = useState(0); // refresh da agenda de Desligamentos
   const [modalEdicao, setModalEdicao] = useState(null); // detalhe da O.S em edição
   const [modalCancelamento, setModalCancelamento] = useState(null); // {os, destinoColuna}
   const [modalReabrir, setModalReabrir] = useState(null); // {os} — reabertura de encerrada (gestor)
@@ -3863,6 +3846,7 @@ function OrdensServico({ usuarioAtual }) {
         ...(ehGestor ? [['desempenho', 'Desempenho', BarChart3]] : []),
         ...(ehGestor ? [['obras', 'Obras', Building]] : []),
         ['quadro', 'Quadro O.S', LayoutGrid],
+        ...(ehGestor ? [['desligamentos', 'Desligamentos', CalendarClock]] : []),
         ...(ehGestor ? [['cadastros', 'Cadastros', FolderKanban]] : []),
         ...(ehGestor ? [['arquivo', 'Encerradas', Archive]] : []),
       ].map(([key, label, Icon]) => (
@@ -3888,6 +3872,24 @@ function OrdensServico({ usuarioAtual }) {
     const encerrada = os.status === 'concluida' || os.status === 'cancelada';
     setVisao(encerrada ? 'arquivo' : 'quadro');
     setOsSelecionada(os.id);
+  };
+
+  const abrirPdf = (caminho) => abrirPdfAutenticado(caminho, mostrarToast);
+
+  const abrirReimpressaoDesligamento = async (osId) => {
+    // Reimpressão pela agenda: carrega o detalhe ATUAL da O.S e abre o modal
+    // de impressão já com a Solicitação de Desligamento marcada.
+    try {
+      const res = await apiFetch(`${API_URL}/os/${osId}`);
+      const data = await res.json().catch(() => null);
+      if (!res.ok) {
+        mostrarToast(erroDaResposta(data, 'Erro ao carregar a O.S.'), 'error');
+        return;
+      }
+      setDesligamentoReimpressao(data);
+    } catch {
+      mostrarToast('Erro de conexão ao carregar a O.S.', 'error');
+    }
   };
 
   // Aba Desempenho: clicar no card da equipe abre o Quadro já filtrado por ela.
@@ -4475,6 +4477,30 @@ function OrdensServico({ usuarioAtual }) {
         <PainelCadastros
           equipes={equipes} produtos={produtos}
           recarregar={recarregarLista} mostrarToast={mostrarToast}
+        />
+      )}
+
+      {visao === 'desligamentos' && ehGestor && (
+        <PainelDesligamentos
+          equipes={equipes}
+          mostrarToast={mostrarToast}
+          abrirPdf={abrirPdf}
+          onReimprimir={abrirReimpressaoDesligamento}
+          refreshKey={versaoDesligamentos}
+        />
+      )}
+
+      {desligamentoReimpressao && (
+        <ModalImprimirOS
+          detalhe={desligamentoReimpressao}
+          equipes={equipes}
+          abrirPdf={abrirPdf}
+          mostrarToast={mostrarToast}
+          incluirDesligamentoInicial
+          onFechar={() => {
+            setDesligamentoReimpressao(null);
+            setVersaoDesligamentos(v => v + 1);
+          }}
         />
       )}
 
@@ -6032,10 +6058,11 @@ function ModalEquipeCadastro({ edicao, recarregar, mostrarToast, onFechar }) {
 // Impressão da O.S no modo gestor: permite anexar a Solicitação de
 // Desligamento (Celesc) ao PDF do modelo, escolhendo manualmente o
 // substituto entre os demais membros da equipe (nunca o encarregado).
-// Nada é gravado no sistema — a escolha vale só para esta impressão.
+// A folha fica registrada/atualizada na agenda de Desligamentos (as equipes
+// de apoio são definidas no painel da agenda, não aqui).
 // ---------------------------------------------------------------------------
-function ModalImprimirOS({ detalhe, equipes, abrirPdf, mostrarToast, onFechar }) {
-  const [incluirDesligamento, setIncluirDesligamento] = useState(false);
+function ModalImprimirOS({ detalhe, equipes, abrirPdf, mostrarToast, onFechar, incluirDesligamentoInicial = false }) {
+  const [incluirDesligamento, setIncluirDesligamento] = useState(incluirDesligamentoInicial);
   const [substitutoId, setSubstitutoId] = useState('');
 
   const equipe = (equipes || []).find(eq => String(eq.id) === String(detalhe?.equipe_id));
@@ -6085,7 +6112,8 @@ function ModalImprimirOS({ detalhe, equipes, abrirPdf, mostrarToast, onFechar })
               <span className="block text-xs font-bold text-slate-700">Incluir Solicitação de Desligamento</span>
               <span className="block text-[11px] text-slate-500 mt-0.5">
                 Anexa a folha da Celesc como última página do PDF. Puxa agência, obra, local, município,
-                data, desligar/religar, alimentador, FuChave, equipe e encarregado da O.S.
+                data, desligar/religar, alimentador, FuChave, equipe e encarregado da O.S. A folha fica
+                registrada na agenda de Desligamentos (equipes de apoio são adicionadas por lá depois).
               </span>
             </span>
           </label>

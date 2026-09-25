@@ -459,6 +459,55 @@ def _nota_ps_da_obra(db, obra: dict) -> str:
     return str(obra.get("nome") or "")
 
 
+def _desligamento_existente(db, os_id: int) -> dict | None:
+    """Registro de desligamento já emitido da O.S (ou None)."""
+    resp = db.table("os_desligamentos").select("*").eq("os_id", os_id).limit(1).execute()
+    return resp.data[0] if resp.data else None
+
+
+def _montar_snapshot_desligamento(db, os_data: dict, substituto: str | None) -> dict:
+    """Snapshot do desligamento com os MESMOS dados que saem na folha CELESC."""
+    obra_resp = db.table("obras").select("*").eq("id", os_data["obra_id"]).execute().data
+    obra = obra_resp[0] if obra_resp else {}
+    equipe_nome, equipe_numero, encarregado, _ = _dados_equipe_impressao(db, os_data.get("equipe_id"))
+    return {
+        "os_id": os_data["id"],
+        "obra_id": os_data.get("obra_id"),
+        "agencia": os_data.get("agencia"),
+        "projeto_sap": _nota_ps_da_obra(db, obra),
+        "obra": os_data.get("descricao_escopo") or obra.get("nome") or "",
+        "local": os_data.get("local_servico") or obra.get("endereco") or "",
+        "municipio": os_data.get("municipio") or obra.get("cidade") or "",
+        "data": os_data.get("data_execucao") or os_data.get("prazo_entrega"),
+        "hora_desligar": os_data.get("hora_desligar"),
+        "hora_religar": os_data.get("hora_religar"),
+        "alimentador": os_data.get("alimentador"),
+        "chave": os_data.get("chave"),
+        "servico": os_data.get("descricao_escopo"),
+        "codigo_os": os_data.get("codigo"),
+        "equipe_numero": equipe_numero,
+        "equipe_nome": equipe_nome,
+        "encarregado": encarregado,
+        "substituto": substituto,
+    }
+
+
+def _espelhar_desligamento(db, os_data: dict) -> None:
+    """Atualiza o desligamento já emitido com os dados atuais da O.S.
+
+    Preserva substituto e equipes de apoio, que só mudam no painel da agenda.
+    Best-effort: uma falha aqui não derruba a edição da O.S.
+    """
+    try:
+        existente = _desligamento_existente(db, os_data["id"])
+        if not existente:
+            return
+        snapshot = _montar_snapshot_desligamento(db, os_data, existente.get("substituto"))
+        db.table("os_desligamentos").update(snapshot).eq("id", existente["id"]).execute()
+    except Exception:
+        logger.exception("Falha ao espelhar o desligamento da O.S %s", os_data.get("id"))
+
+
 def _os_ou_404(db, os_id: int) -> dict:
     resp = db.table("ordens_servico").select("*").eq("id", os_id).execute()
     if not resp.data:
@@ -1251,7 +1300,11 @@ def editar_os(
         if not resp.data:
             raise HTTPException(status_code=500, detail="Falha ao atualizar O.S.")
 
-        return resp.data[0]
+        atualizada = resp.data[0]
+        # Mantém a agenda de desligamentos coerente com o cadastro da O.S
+        # (preserva substituto e equipes de apoio).
+        _espelhar_desligamento(db, atualizada)
+        return atualizada
     except HTTPException:
         raise
     except Exception:
@@ -2051,7 +2104,12 @@ def imprimir_os(
                     status_code=400,
                     detail="Vincule uma equipe à O.S para imprimir a Solicitação de Desligamento.",
                 )
-            substituto = _nome_substituto(membros, substituto_id) if substituto_id else ""
+            existente = _desligamento_existente(db, os_id)
+            if substituto_id:
+                substituto = _nome_substituto(membros, substituto_id)
+            else:
+                # Reimpressão sem escolher outro: preserva o substituto registrado.
+                substituto = (existente or {}).get("substituto") or ""
             from utils.modelo_os import gerar_modelo_os_com_desligamento
 
             caminho = gerar_modelo_os_com_desligamento(
@@ -2066,6 +2124,16 @@ def imprimir_os(
                 projeto_sap=_nota_ps_da_obra(db, obra),
             )
             nome_arquivo = f"{os_data['codigo']}_modelo_desligamento.pdf"
+
+            # Persiste/atualiza a agenda de desligamentos. A gravação é
+            # best-effort: a impressão da O.S não pode falhar por causa dela.
+            try:
+                snapshot = _montar_snapshot_desligamento(db, os_data, substituto)
+                snapshot["impresso_em"] = _agora().isoformat()
+                snapshot["impresso_por"] = usuario.email
+                db.table("os_desligamentos").upsert(snapshot, on_conflict="os_id").execute()
+            except Exception:
+                logger.exception("Falha ao registrar o desligamento da O.S %s", os_id)
         else:
             from utils.modelo_os import gerar_modelo_os
 

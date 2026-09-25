@@ -99,6 +99,9 @@ def _montar_dados_banco():
         "os_checklist_itens": [],
         "os_checklist_respostas": [],
         "sync_ops": [],
+        # Agenda de Desligamentos Celesc
+        "os_desligamentos": [],
+        "os_desligamento_equipes": [],
         # Documentos Diversos do módulo SST
         "sst_documentos": [],
         # Módulo Devoluções Celesc

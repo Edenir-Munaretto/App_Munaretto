@@ -15,6 +15,7 @@ from routers import (
     clientes,
     comprovantes,
     dashboard,
+    desligamentos_os,
     devolucoes_celesc,
     documentos,
     documentos_diversos,
@@ -145,6 +146,8 @@ app.include_router(devolucoes_celesc.router, prefix="/api/devolucoes-celesc", ta
 # (/obras, /equipes, /produtos) precisam ser casadas antes da rota
 # dinâmica /{os_id}.
 app.include_router(apoio_os.router, prefix="/api/os", tags=["Controle de O.S - Cadastros"])
+# A agenda de desligamentos também precisa vir antes da rota dinâmica /{os_id}.
+app.include_router(desligamentos_os.router, prefix="/api/os/desligamentos", tags=["Controle de O.S - Desligamentos"])
 app.include_router(router_os.router, prefix="/api/os", tags=["Controle de O.S"])
 
 

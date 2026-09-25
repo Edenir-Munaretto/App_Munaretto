@@ -989,6 +989,55 @@ UPDATE os_checklist_modelos SET ativo = FALSE
        '2.1','2.2','3.1','3.2','3.3','3.4','3.5','4.1'
    );
 
+-- ============================================================================
+-- TABELAS: desligamentos Celesc (agenda de acompanhamento)
+-- ============================================================================
+-- Um desligamento por O.S (UNIQUE os_id), criado/atualizado ao imprimir a O.S
+-- com a Solicitação de Desligamento. `os_desligamento_equipes` guarda as
+-- equipes de apoio, definidas no painel da agenda (não saem na folha CELESC).
+
+CREATE TABLE IF NOT EXISTS os_desligamentos (
+    id SERIAL PRIMARY KEY,
+    os_id INTEGER NOT NULL UNIQUE REFERENCES ordens_servico(id) ON DELETE CASCADE,
+    obra_id INTEGER REFERENCES obras(id) ON DELETE SET NULL,
+    agencia VARCHAR(100),
+    projeto_sap VARCHAR(255),
+    obra VARCHAR(255),
+    local TEXT,
+    municipio VARCHAR(100),
+    data DATE,
+    hora_desligar TIME,
+    hora_religar TIME,
+    alimentador VARCHAR(100),
+    chave VARCHAR(100),
+    servico TEXT,
+    codigo_os VARCHAR(20),
+    equipe_numero INTEGER,
+    equipe_nome VARCHAR(255),
+    encarregado VARCHAR(255),
+    substituto VARCHAR(255),
+    impresso_em TIMESTAMP WITH TIME ZONE,
+    impresso_por VARCHAR(255),
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE TABLE IF NOT EXISTS os_desligamento_equipes (
+    id SERIAL PRIMARY KEY,
+    desligamento_id INTEGER NOT NULL REFERENCES os_desligamentos(id) ON DELETE CASCADE,
+    equipe_id INTEGER NOT NULL REFERENCES equipes(id) ON DELETE CASCADE,
+    equipe_numero INTEGER,
+    equipe_nome VARCHAR(255),
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+    CONSTRAINT os_desligamento_equipes_unica UNIQUE (desligamento_id, equipe_id)
+);
+
+DROP TRIGGER IF EXISTS trg_update_os_desligamentos_updated_at ON os_desligamentos;
+CREATE TRIGGER trg_update_os_desligamentos_updated_at
+    BEFORE UPDATE ON os_desligamentos
+    FOR EACH ROW
+    EXECUTE FUNCTION update_updated_at_column();
+
 -- Índices de integridade/performance (FKs consultadas com frequência)
 CREATE INDEX IF NOT EXISTS idx_obras_cliente ON obras (cliente_id);
 CREATE INDEX IF NOT EXISTS idx_equipe_membros_equipe ON equipe_membros (equipe_id);
@@ -1005,6 +1054,9 @@ CREATE INDEX IF NOT EXISTS idx_os_fotos_os ON os_fotos (os_id);
 CREATE INDEX IF NOT EXISTS idx_os_checklist_itens_os ON os_checklist_itens (os_id);
 CREATE INDEX IF NOT EXISTS idx_os_checklist_resp_item ON os_checklist_respostas (item_id);
 CREATE INDEX IF NOT EXISTS idx_os_fotos_checklist ON os_fotos (checklist_item_id);
+CREATE INDEX IF NOT EXISTS idx_os_deslig_data ON os_desligamentos (data);
+CREATE INDEX IF NOT EXISTS idx_os_deslig_equipe_apoio ON os_desligamento_equipes (desligamento_id);
+CREATE INDEX IF NOT EXISTS idx_os_deslig_equipe_id ON os_desligamento_equipes (equipe_id);
 
 -- RLS: mesmo padrão dos demais módulos (service_role tem acesso pleno;
 -- anon/authenticated ficam bloqueados - o frontend só fala com a FastAPI).
@@ -1020,6 +1072,8 @@ ALTER TABLE IF EXISTS os_fotos        ENABLE ROW LEVEL SECURITY;
 ALTER TABLE IF EXISTS os_checklist_modelos   ENABLE ROW LEVEL SECURITY;
 ALTER TABLE IF EXISTS os_checklist_itens     ENABLE ROW LEVEL SECURITY;
 ALTER TABLE IF EXISTS os_checklist_respostas ENABLE ROW LEVEL SECURITY;
+ALTER TABLE IF EXISTS os_desligamentos             ENABLE ROW LEVEL SECURITY;
+ALTER TABLE IF EXISTS os_desligamento_equipes      ENABLE ROW LEVEL SECURITY;
 
 DROP POLICY IF EXISTS "service_role_full_obras" ON obras;
 CREATE POLICY "service_role_full_obras" ON obras
@@ -1067,6 +1121,14 @@ CREATE POLICY "service_role_full_os_checklist_itens" ON os_checklist_itens
 
 DROP POLICY IF EXISTS "service_role_full_os_checklist_respostas" ON os_checklist_respostas;
 CREATE POLICY "service_role_full_os_checklist_respostas" ON os_checklist_respostas
+    FOR ALL TO service_role USING (true) WITH CHECK (true);
+
+DROP POLICY IF EXISTS "service_role_full_os_desligamentos" ON os_desligamentos;
+CREATE POLICY "service_role_full_os_desligamentos" ON os_desligamentos
+    FOR ALL TO service_role USING (true) WITH CHECK (true);
+
+DROP POLICY IF EXISTS "service_role_full_os_desligamento_equipes" ON os_desligamento_equipes;
+CREATE POLICY "service_role_full_os_desligamento_equipes" ON os_desligamento_equipes
     FOR ALL TO service_role USING (true) WITH CHECK (true);
 
 -- ============================================================================
