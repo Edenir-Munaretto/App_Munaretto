@@ -7,6 +7,7 @@ export const MODULOS = [
   { id: 'documentos', label: 'Documentos' },
   { id: 'comprovantes', label: 'Contabilidade' },
   { id: 'recebimentos', label: 'Controle Recebimentos' },
+  { id: 'devolucoes_celesc', label: 'Devoluções Celesc' },
   { id: 'manutencao', label: 'Manutenção' },
   { id: 'sst', label: 'Segurança do Trabalho' },
   { id: 'os', label: 'Controle de O.S' },

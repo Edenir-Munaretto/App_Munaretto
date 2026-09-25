@@ -101,6 +101,8 @@ def _montar_dados_banco():
         "sync_ops": [],
         # Documentos Diversos do módulo SST
         "sst_documentos": [],
+        # Módulo Devoluções Celesc
+        "devolucoes_celesc": [],
     }
 
 
@@ -226,4 +228,18 @@ def os_campo_client(client, db_fake):
         "senhaCampo123",
         ["os_campo"],
         funcionario_id=10,
+    )
+
+
+@pytest.fixture
+def devolucoes_client(client, db_fake):
+    """Usuário com permissão apenas do módulo 'devolucoes_celesc'."""
+    return _criar_e_logar(
+        client,
+        db_fake,
+        93,
+        "Controle Devoluções",
+        "devolucoes@munaretto.com",
+        "senhaDevolucoes123",
+        ["devolucoes_celesc"],
     )

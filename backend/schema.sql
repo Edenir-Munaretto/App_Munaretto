@@ -355,6 +355,35 @@ CREATE TABLE IF NOT EXISTS veiculo_documentos (
 CREATE INDEX IF NOT EXISTS idx_veic_doc_veiculo ON veiculo_documentos (veiculo_id);
 
 -- ============================================================================
+-- MÓDULO: DEVOLUÇÕES CELESC
+-- ============================================================================
+-- Controle de devolução de materiais à CELESC. Enquanto a data de devolução
+-- não for preenchida, o status permanece "Aberto"; ao preencher, passa a
+-- "Fechado". O status é CALCULADO pela API em tempo de leitura (não é coluna).
+
+-- TABELA: devolucoes_celesc
+CREATE TABLE IF NOT EXISTS devolucoes_celesc (
+    id SERIAL PRIMARY KEY,
+    consumidor VARCHAR(255) NOT NULL,
+    nota_ps VARCHAR(100),
+    data_entrega DATE NOT NULL,
+    data_devolucao DATE,
+    ativo BOOLEAN DEFAULT TRUE,
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE INDEX IF NOT EXISTS idx_devol_celesc_consumidor ON devolucoes_celesc (consumidor);
+CREATE INDEX IF NOT EXISTS idx_devol_celesc_nota_ps ON devolucoes_celesc (nota_ps);
+CREATE INDEX IF NOT EXISTS idx_devol_celesc_data_devolucao ON devolucoes_celesc (data_devolucao);
+
+DROP TRIGGER IF EXISTS trg_update_devolucoes_celesc_updated_at ON devolucoes_celesc;
+CREATE TRIGGER trg_update_devolucoes_celesc_updated_at
+    BEFORE UPDATE ON devolucoes_celesc
+    FOR EACH ROW
+    EXECUTE FUNCTION update_updated_at_column();
+
+-- ============================================================================
 -- ROW LEVEL SECURITY (RLS)
 -- ============================================================================
 -- O backend acessa o Supabase com a chave de service role, que por definição
@@ -394,6 +423,7 @@ ALTER TABLE IF EXISTS manutencoes        ENABLE ROW LEVEL SECURITY;
 ALTER TABLE IF EXISTS veiculo_equipamentos ENABLE ROW LEVEL SECURITY;
 ALTER TABLE IF EXISTS equipamento_reposicoes ENABLE ROW LEVEL SECURITY;
 ALTER TABLE IF EXISTS veiculo_documentos ENABLE ROW LEVEL SECURITY;
+ALTER TABLE IF EXISTS devolucoes_celesc ENABLE ROW LEVEL SECURITY;
 
 -- ============================================================================
 -- POLÍTICAS RLS PARA service_role
@@ -487,6 +517,10 @@ CREATE POLICY "service_role_full_equipamento_reposicoes" ON equipamento_reposico
 
 DROP POLICY IF EXISTS "service_role_full_veiculo_documentos" ON veiculo_documentos;
 CREATE POLICY "service_role_full_veiculo_documentos" ON veiculo_documentos
+    FOR ALL TO service_role USING (true) WITH CHECK (true);
+
+DROP POLICY IF EXISTS "service_role_full_devolucoes_celesc" ON devolucoes_celesc;
+CREATE POLICY "service_role_full_devolucoes_celesc" ON devolucoes_celesc
     FOR ALL TO service_role USING (true) WITH CHECK (true);
 
 -- ============================================================================

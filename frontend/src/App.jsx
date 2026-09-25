@@ -18,6 +18,7 @@ import {
   Trash2,
   Wrench,
   ClipboardList,
+  PackageCheck,
 } from 'lucide-react';
 
 // Importando as páginas
@@ -29,6 +30,7 @@ import FluxoCaixa from './pages/FluxoCaixa';
 import GeradorDocumentos from './pages/GeradorDocumentos';
 import Comprovantes from './pages/Comprovantes';
 import Recebimentos from './pages/Recebimentos';
+import DevolucoesCelesc from './pages/DevolucoesCelesc';
 import Manutencao from './pages/Manutencao';
 import Sst from './pages/Sst';
 import OrdensServico from './pages/OrdensServico';
@@ -51,6 +53,7 @@ const ICONES = {
   documentos: FileText,
   comprovantes: Receipt,
   recebimentos: Banknote,
+  devolucoes_celesc: PackageCheck,
   manutencao: Wrench,
   sst: ShieldCheck,
   os: ClipboardList,
@@ -66,6 +69,7 @@ const COMPONENTES = {
   documentos: GeradorDocumentos,
   comprovantes: Comprovantes,
   recebimentos: Recebimentos,
+  devolucoes_celesc: DevolucoesCelesc,
   manutencao: Manutencao,
   sst: Sst,
   os: OrdensServico,
