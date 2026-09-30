@@ -872,6 +872,44 @@ class TestBuscaListagem:
         assert [d["id"] for d in dados] == [1]
 
 
+class TestFiltroDataListagem:
+    """Filtro do quadro pela data de execução (prazo_entrega)."""
+
+    def _seed_os_com_prazos(self, os_gestor_client, db_fake):
+        _seed_cenario(db_fake)
+        for prazo in ("2026-10-05", "2026-10-15", "2026-10-25", None):
+            resp = _criar_os(os_gestor_client, prazo_entrega=prazo)
+            assert resp.status_code == 201, resp.text
+
+    def test_data_de_filtra_a_partir_da_data(self, os_gestor_client, db_fake):
+        self._seed_os_com_prazos(os_gestor_client, db_fake)
+        resp = os_gestor_client.get("/api/os/?data_de=2026-10-15")
+        assert resp.status_code == 200
+        assert sorted(d["prazo_entrega"] for d in resp.json()) == ["2026-10-15", "2026-10-25"]
+        assert resp.headers.get("X-Total-Count") == "2"
+
+    def test_data_ate_filtra_ate_a_data(self, os_gestor_client, db_fake):
+        self._seed_os_com_prazos(os_gestor_client, db_fake)
+        resp = os_gestor_client.get("/api/os/?data_ate=2026-10-15")
+        assert resp.status_code == 200
+        assert sorted(d["prazo_entrega"] for d in resp.json()) == ["2026-10-05", "2026-10-15"]
+        assert resp.headers.get("X-Total-Count") == "2"
+
+    def test_intervalo_de_datas(self, os_gestor_client, db_fake):
+        self._seed_os_com_prazos(os_gestor_client, db_fake)
+        resp = os_gestor_client.get("/api/os/?data_de=2026-10-06&data_ate=2026-10-24")
+        assert resp.status_code == 200
+        assert [d["prazo_entrega"] for d in resp.json()] == ["2026-10-15"]
+        assert resp.headers.get("X-Total-Count") == "1"
+
+    def test_sem_data_fica_fora_do_filtro(self, os_gestor_client, db_fake):
+        self._seed_os_com_prazos(os_gestor_client, db_fake)
+        resp = os_gestor_client.get("/api/os/?data_de=2026-01-01&data_ate=2026-12-31")
+        assert resp.status_code == 200
+        assert all(d["prazo_entrega"] for d in resp.json())
+        assert len(resp.json()) == 3
+
+
 class TestEdicaoEValidacao:
     def test_editar_campos_basicos(self, os_gestor_client, db_fake):
         _seed_cenario(db_fake)

@@ -58,13 +58,17 @@ const ROTULOS_TIPO_SERVICO = Object.fromEntries(TIPOS_SERVICO_OPCOES.map(o => [o
 const TIPO_PADRAO_OS = 'construcao';
 
 // Aplica os mesmos filtros/busca do servidor sobre uma lista local (offline):
-// termo busca em código/escopo/obra/equipe + obra/equipe/prioridade/status.
-function filtrarListaLocal(lista, { busca, obra_id, equipe_id, prioridade, status }) {
+// termo busca em código/escopo/obra/equipe + obra/equipe/data de execução/status.
+function filtrarListaLocal(lista, { busca, obra_id, equipe_id, data_de, data_ate, status }) {
   const termo = String(busca || '').trim().toLowerCase();
   return lista.filter(os => {
     if (obra_id && Number(os.obra_id) !== Number(obra_id)) return false;
     if (equipe_id && Number(os.equipe_id) !== Number(equipe_id)) return false;
-    if (prioridade && os.prioridade !== prioridade) return false;
+    // Data de execução (prazo_entrega) em ISO: comparação lexicográfica basta.
+    // O.S sem data ficam de fora quando há filtro ativo.
+    const data = String(os.prazo_entrega || '').slice(0, 10);
+    if (data_de && (!data || data < data_de)) return false;
+    if (data_ate && (!data || data > data_ate)) return false;
     if (status && os.status !== status) return false;
     if (termo) {
       const alvo = [os.codigo, os.descricao_escopo, os.obras?.nome, os.equipes?.nome]
@@ -2958,7 +2962,8 @@ function OrdensServico({ usuarioAtual }) {
   const [filtroBusca, setFiltroBusca] = useState('');
   const [filtroObra, setFiltroObra] = useState('');
   const [filtroEquipe, setFiltroEquipe] = useState('');
-  const [filtroPrioridade, setFiltroPrioridade] = useState('');
+  const [filtroDataDe, setFiltroDataDe] = useState(''); // intervalo da data de execução (prazo_entrega)
+  const [filtroDataAte, setFiltroDataAte] = useState('');
   const [filtroStatus, setFiltroStatus] = useState(''); // chip do pipeline (gestor)
   const [filtroArquivo, setFiltroArquivo] = useState(''); // '' = todas; concluida | cancelada
   const [totalOs, setTotalOs] = useState(0);
@@ -3255,7 +3260,7 @@ function OrdensServico({ usuarioAtual }) {
           const visivel = ehGestor ? lista : lista.filter(o => ['aberta', 'em_andamento'].includes(o.status));
           const filtrados = filtrarListaLocal(visivel, {
             busca: buscaAplicada, obra_id: filtroObra, equipe_id: filtroEquipe,
-            prioridade: filtroPrioridade, status: filtroStatus,
+            data_de: filtroDataDe, data_ate: filtroDataAte, status: filtroStatus,
           });
           const pagina = filtrados.slice(offset, offset + LIMITE_PAGINA);
           // Catálogo local de serviços: sem ele o campo não encontra serviços
@@ -3279,7 +3284,8 @@ function OrdensServico({ usuarioAtual }) {
       if (buscaAplicada) params.set('busca', buscaAplicada);
       if (filtroObra) params.set('obra_id', filtroObra);
       if (filtroEquipe) params.set('equipe_id', filtroEquipe);
-      if (filtroPrioridade) params.set('prioridade', filtroPrioridade);
+      if (filtroDataDe) params.set('data_de', filtroDataDe);
+      if (filtroDataAte) params.set('data_ate', filtroDataAte);
       if (filtroStatus) params.set('status', filtroStatus);
       params.set('limit', String(LIMITE_PAGINA));
       params.set('offset', String(offset));
@@ -3320,7 +3326,7 @@ function OrdensServico({ usuarioAtual }) {
           const visivel = ehGestor ? lista : lista.filter(o => ['aberta', 'em_andamento'].includes(o.status));
           const filtrados = filtrarListaLocal(visivel, {
             busca: buscaAplicada, obra_id: filtroObra, equipe_id: filtroEquipe,
-            prioridade: filtroPrioridade, status: filtroStatus,
+            data_de: filtroDataDe, data_ate: filtroDataAte, status: filtroStatus,
           });
           const pagina = filtrados.slice(offset, offset + LIMITE_PAGINA);
           setTotalOs(filtrados.length);
@@ -3338,7 +3344,7 @@ function OrdensServico({ usuarioAtual }) {
     } finally {
       if (!desatualizada()) setLoading(false);
     }
-  }, [buscaAplicada, filtroObra, filtroEquipe, filtroPrioridade, filtroStatus, ehGestor, mostrarToast]);
+  }, [buscaAplicada, filtroObra, filtroEquipe, filtroDataDe, filtroDataAte, filtroStatus, ehGestor, mostrarToast]);
 
   // Listagem de Encerradas (gestor): paginação e filtros próprios.
   const carregarArquivo = useCallback(async (offset, reset) => {
@@ -3351,7 +3357,8 @@ function OrdensServico({ usuarioAtual }) {
       if (buscaAplicada) params.set('busca', buscaAplicada);
       if (filtroObra) params.set('obra_id', filtroObra);
       if (filtroEquipe) params.set('equipe_id', filtroEquipe);
-      if (filtroPrioridade) params.set('prioridade', filtroPrioridade);
+      if (filtroDataDe) params.set('data_de', filtroDataDe);
+      if (filtroDataAte) params.set('data_ate', filtroDataAte);
       params.set('status', filtroArquivo || 'concluida,cancelada');
       params.set('limit', String(LIMITE_PAGINA));
       params.set('offset', String(offset));
@@ -3371,7 +3378,7 @@ function OrdensServico({ usuarioAtual }) {
     } finally {
       if (!desatualizada()) setCarregandoArquivo(false);
     }
-  }, [buscaAplicada, filtroObra, filtroEquipe, filtroPrioridade, filtroArquivo, ehGestor, mostrarToast]);
+  }, [buscaAplicada, filtroObra, filtroEquipe, filtroDataDe, filtroDataAte, filtroArquivo, ehGestor, mostrarToast]);
 
   const carregarDados = useCallback(() => {
     if (ehGestor && visao === 'desempenho') {
@@ -3920,23 +3927,32 @@ function OrdensServico({ usuarioAtual }) {
           {equipes.map(eq => <option key={eq.id} value={eq.id}>{eq.numero ? `Nº ${eq.numero} - ${eq.nome}` : eq.nome}</option>)}
         </select>
       )}
-      <select value={filtroPrioridade} onChange={(e) => setFiltroPrioridade(e.target.value)}
-        className="px-3 py-2 rounded-xl border border-slate-200 bg-white text-sm font-semibold text-slate-600">
-        <option value="">Todas as prioridades</option>
-        {Object.entries(PRIORIDADES).map(([k, v]) => <option key={k} value={k}>{v.label}</option>)}
-      </select>
+      <div className="flex items-center gap-2">
+        <label className="flex items-center gap-1.5 text-xs font-bold text-slate-500">
+          De
+          <input type="date" value={filtroDataDe} onChange={(e) => setFiltroDataDe(e.target.value)}
+            title="Data de execução (a partir de)"
+            className="px-3 py-2 rounded-xl border border-slate-200 bg-white text-sm font-semibold text-slate-600" />
+        </label>
+        <label className="flex items-center gap-1.5 text-xs font-bold text-slate-500">
+          Até
+          <input type="date" value={filtroDataAte} onChange={(e) => setFiltroDataAte(e.target.value)}
+            title="Data de execução (até)"
+            className="px-3 py-2 rounded-xl border border-slate-200 bg-white text-sm font-semibold text-slate-600" />
+        </label>
+      </div>
       {/* Botão limpar filtros — aparece só quando há filtros ativos */}
-      {(filtroBusca || filtroObra || filtroEquipe || filtroPrioridade || filtroStatus) && (
+      {(filtroBusca || filtroObra || filtroEquipe || filtroDataDe || filtroDataAte || filtroStatus) && (
         <button
           onClick={() => {
-            setFiltroBusca(''); setBuscaAplicada(''); setFiltroObra(''); setFiltroEquipe(''); setFiltroPrioridade(''); setFiltroStatus('');
+            setFiltroBusca(''); setBuscaAplicada(''); setFiltroObra(''); setFiltroEquipe(''); setFiltroDataDe(''); setFiltroDataAte(''); setFiltroStatus('');
           }}
           className="flex items-center gap-1.5 px-3 py-2 rounded-xl bg-rose-50 border border-rose-200 text-rose-600 text-xs font-bold hover:bg-rose-100 transition-colors cursor-pointer shrink-0"
         >
           <X size={13} />
           Limpar filtros
           <span className="bg-rose-500 text-white rounded-full w-4 h-4 flex items-center justify-center text-[9px] font-black">
-            {[filtroBusca, filtroObra, filtroEquipe, filtroPrioridade, filtroStatus].filter(Boolean).length}
+            {[filtroBusca, filtroObra, filtroEquipe, filtroDataDe, filtroDataAte, filtroStatus].filter(Boolean).length}
           </span>
         </button>
       )}
@@ -3981,7 +3997,7 @@ function OrdensServico({ usuarioAtual }) {
         <span className="text-[9px] font-semibold opacity-70">({porColuna.concluida.length} concluídas · {porColuna.cancelada.length} canceladas)</span>
       </button>
       {/* Barra de proporção: só quando a lista está 100% carregada e sem filtros */}
-      {totalOs === listaOs.length && totalOs > 0 && !filtroBusca && !filtroObra && !filtroEquipe && !filtroPrioridade && !filtroStatus && (
+      {totalOs === listaOs.length && totalOs > 0 && !filtroBusca && !filtroObra && !filtroEquipe && !filtroDataDe && !filtroDataAte && !filtroStatus && (
         <div className="w-full flex h-1.5 bg-slate-100 rounded-full overflow-hidden">
           {pipelineCols.map(col => (
             porColuna[col.id].length > 0 && (

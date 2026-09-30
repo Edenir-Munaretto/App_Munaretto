@@ -835,6 +835,8 @@ def listar_os(
     obra_id: int | None = Query(None),
     equipe_id: int | None = Query(None),
     busca: str | None = Query(None, description="Busca por código, escopo, Nota PS ou nome do cliente"),
+    data_de: str | None = Query(None, description="Data de execução (prazo_entrega) a partir de (YYYY-MM-DD)"),
+    data_ate: str | None = Query(None, description="Data de execução (prazo_entrega) até (YYYY-MM-DD)"),
     limit: int = Query(100, ge=1, le=500, description="Máximo de O.S por página"),
     offset: int = Query(0, ge=0, description="Registros a pular (paginação)"),
     resumo: bool = Query(False, description="Pacote de campo: devolve só os campos usados na listagem"),
@@ -915,6 +917,10 @@ def listar_os(
                     q = q.eq("status", status)
             if prioridade:
                 q = q.eq("prioridade", prioridade)
+            if data_de:
+                q = q.gte("prazo_entrega", data_de)
+            if data_ate:
+                q = q.lte("prazo_entrega", data_ate)
             if obra_id:
                 q = q.eq("obra_id", obra_id)
             if equipe_id:
