@@ -1,8 +1,8 @@
 // Modo Campo — domínio offline do módulo de O.S.
 //
 // Fluxo:
-//   1. Na base (online), o líder baixa o "pacote de campo" (O.S da equipe +
-//      detalhes + checklist) para o dispositivo via `prepararPacoteCampo`.
+//   1. Com internet, o app baixa e mantém fresco o "pacote de campo" (O.S da
+//      equipe + detalhes + checklist) automaticamente no dispositivo.
 //   2. No campo (sem internet), o app usa os dados locais e toda ação vira
 //      uma operação na fila (`enfileirar*`) com timestamp real.
 //   3. Ao voltar, o motor de sincronização (`./sync.js`) envia fotos e depois
@@ -95,8 +95,8 @@ export function isOffline() {
 /**
  * Está conectado por Wi-Fi/ethernet (e não dados móveis)?
  *
- * Sincronizações (uploads de fotos) ficam lentas/travam em 3G/4G — por isso a
- * sincronização automática e o "Finalizar Modo Campo" só rodam no Wi-Fi.
+ * A sincronização manual (upload de fotos e fila) fica lenta/trava em 3G/4G —
+ * por isso ela só libera no Wi-Fi.
  * O `type` da Network Information API distingue; quando a API não existe
  * (ex.: iOS Safari), assume que pode sincronizar.
  */

@@ -494,7 +494,7 @@ function TabChecklist({ osDetalhe, onAtualizado, mostrarToast, podeEditar }) {
           }
         }
         if (!localAchado) {
-          mostrarToast('Checklist indisponível offline (baixe o pacote de campo).', 'error');
+          mostrarToast('Checklist indisponível offline — baixa automaticamente ao reconectar.', 'error');
         }
         return;
       }
@@ -3485,8 +3485,8 @@ function OrdensServico({ usuarioAtual }) {
       carregarDados();
       mostrarToast(
         faltantes.length
-          ? `Modo Campo pronto: ${quantidade} O.S (${faltantes.length} incompletas — completam ao reconectar).`
-          : `Modo Campo pronto: ${quantidade} O.S no dispositivo.`,
+          ? `O.S do campo baixadas: ${quantidade} (${faltantes.length} incompletas — completam ao reconectar).`
+          : `O.S do campo baixadas: ${quantidade} no aparelho.`,
         faltantes.length ? 'error' : 'success',
       );
       return true;
@@ -4085,7 +4085,7 @@ function OrdensServico({ usuarioAtual }) {
         <div className="rounded-2xl border-2 border-amber-200 bg-white p-6 max-w-lg mx-auto mt-10 text-center space-y-4">
           <WifiOff size={36} className="text-amber-500 mx-auto" />
           <div>
-            <h3 className="text-base font-extrabold text-slate-800">Modo Campo ainda não preparado</h3>
+            <h3 className="text-base font-extrabold text-slate-800">Dados do campo ainda não baixados</h3>
             <p className="text-sm text-slate-500 mt-1.5">
               Conecte-se à internet para baixar as O.S da sua equipe para este aparelho.
               O download é automático assim que houver conexão.
@@ -4195,7 +4195,7 @@ function OrdensServico({ usuarioAtual }) {
             /* Auto-preparo em andamento (primeiro acesso online do usuário) */
             <span className="flex items-center gap-2 px-4 py-2.5 rounded-xl border border-primary-200 bg-primary-50 text-primary-700 font-bold text-xs">
               <RefreshCw size={15} className="animate-spin" />
-              Preparando Modo Campo...
+              Baixando O.S do campo...
             </span>
           )}
             </div>
