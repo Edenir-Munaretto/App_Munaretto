@@ -120,7 +120,9 @@ ReactDOM.createRoot(document.getElementById('root')).render(
 
 if ('serviceWorker' in navigator && import.meta.env.PROD) {
   window.addEventListener('load', () => {
-    navigator.serviceWorker.register('/sw.js').catch((err) => {
+    // updateViaCache 'none': o navegador sempre busca o sw.js direto da rede,
+    // sem reutilizar o cache HTTP — garante que a correção chegue no deploy.
+    navigator.serviceWorker.register('/sw.js', { updateViaCache: 'none' }).catch((err) => {
       console.error('Erro ao registrar service worker:', err);
     });
   });

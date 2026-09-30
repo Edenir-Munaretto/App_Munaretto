@@ -207,6 +207,11 @@ function App() {
     }
   }, [renovando]);
 
+  // Sinal de montagem para o watchdog anti-tela-branca do index.html.
+  useEffect(() => {
+    document.documentElement.dataset.appMontado = '1';
+  }, []);
+
   // Monitora a expiração do token e RENOVA AUTOMATICAMENTE na janela de
   // 10 min antes do vencimento (silencioso, 1x/min). O banner só aparece se
   // a renovação automática falhar perto do fim (últimos 90s).

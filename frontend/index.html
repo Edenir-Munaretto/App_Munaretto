@@ -12,13 +12,110 @@
     <link rel="manifest" href="/manifest.webmanifest" />
     <link rel="apple-touch-icon" href="/pwa-192.png" />
     <title>App - Munaretto</title>
-    <!-- Fontes do Google -->
+    <!-- Fontes do Google (não bloqueantes: em rede travada o app usa a fonte
+         do sistema e renderiza mesmo assim) -->
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=Outfit:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+    <link
+      rel="preload"
+      as="style"
+      href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=Outfit:wght@400;500;600;700;800&display=swap"
+      onload="this.onload=null;this.rel='stylesheet'"
+    >
+    <noscript>
+      <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=Outfit:wght@400;500;600;700;800&display=swap">
+    </noscript>
   </head>
   <body class="bg-slate-50 text-slate-800 antialiased font-sans">
-    <div id="root"></div>
+    <div id="root">
+      <div style="min-height:100vh;display:flex;align-items:center;justify-content:center;font-family:system-ui,sans-serif;color:#64748b">
+        Carregando…
+      </div>
+    </div>
     <script type="module" src="/src/main.jsx"></script>
+    <!-- Watchdog anti-tela-branca: script clássico (roda mesmo se o bundle não
+         carregar). Se o React não marcar data-app-montado em 10s, oferece
+         recuperação com limpeza dos dados locais. -->
+    <script>
+      (function () {
+        var TEMPO_LIMITE_MS = 10000;
+
+        function limparEBRecarregar() {
+          var tarefas = [];
+          try { localStorage.clear(); } catch (e) { /* bloqueado */ }
+          try { sessionStorage.clear(); } catch (e) { /* bloqueado */ }
+          try {
+            if (navigator.serviceWorker && navigator.serviceWorker.getRegistrations) {
+              tarefas.push(
+                navigator.serviceWorker.getRegistrations().then(function (registros) {
+                  return Promise.all(registros.map(function (r) { return r.unregister(); }));
+                }),
+              );
+            }
+          } catch (e) { /* sem service worker */ }
+          try {
+            if (window.caches && caches.keys) {
+              tarefas.push(
+                caches.keys().then(function (chaves) {
+                  return Promise.all(chaves.map(function (c) { return caches.delete(c); }));
+                }),
+              );
+            }
+          } catch (e) { /* sem cache storage */ }
+          // Best-effort com teto de tempo: a página não pode ficar presa.
+          Promise.race([
+            Promise.all(tarefas).catch(function () {}),
+            new Promise(function (resolve) { setTimeout(resolve, 2000); }),
+          ]).then(function () { window.location.reload(); });
+        }
+
+        function exibirAviso() {
+          if (document.getElementById('aviso-carregamento')) return;
+          var div = document.createElement('div');
+          div.id = 'aviso-carregamento';
+          div.style.cssText =
+            'position:fixed;inset:0;z-index:99998;background:#0f172a;color:#fff;' +
+            'display:flex;align-items:center;justify-content:center;padding:24px;' +
+            'font-family:system-ui,sans-serif;';
+          var caixa = document.createElement('div');
+          caixa.style.cssText = 'max-width:420px;text-align:center;';
+          var titulo = document.createElement('div');
+          titulo.style.cssText = 'font-size:18px;font-weight:700;margin-bottom:8px;';
+          titulo.textContent = 'Não foi possível carregar o aplicativo';
+          var texto = document.createElement('p');
+          texto.style.cssText = 'font-size:14px;line-height:1.6;opacity:.9;margin:0 0 18px 0;';
+          texto.textContent =
+            'Verifique a conexão e tente novamente. Se o problema persistir, ' +
+            'limpe os dados do aplicativo.';
+          var botoes = document.createElement('div');
+          botoes.style.cssText = 'display:flex;gap:12px;justify-content:center;flex-wrap:wrap;';
+          var btnRecarregar = document.createElement('button');
+          btnRecarregar.textContent = 'Recarregar';
+          btnRecarregar.style.cssText =
+            'background:#fff;color:#0f172a;border:0;border-radius:8px;padding:10px 16px;' +
+            'font-weight:700;cursor:pointer;';
+          btnRecarregar.onclick = function () { window.location.reload(); };
+          var btnLimpar = document.createElement('button');
+          btnLimpar.textContent = 'Limpar dados e recarregar';
+          btnLimpar.style.cssText =
+            'background:transparent;color:#fff;border:1px solid rgba(255,255,255,.5);' +
+            'border-radius:8px;padding:10px 16px;font-weight:700;cursor:pointer;';
+          btnLimpar.onclick = function () {
+            btnLimpar.disabled = true;
+            btnLimpar.textContent = 'Limpando...';
+            limparEBRecarregar();
+          };
+          botoes.append(btnRecarregar, btnLimpar);
+          caixa.append(titulo, texto, botoes);
+          div.appendChild(caixa);
+          document.body.appendChild(div);
+        }
+
+        window.setTimeout(function () {
+          if (document.documentElement.dataset.appMontado) return;
+          exibirAviso();
+        }, TEMPO_LIMITE_MS);
+      })();
+    </script>
   </body>
 </html>
