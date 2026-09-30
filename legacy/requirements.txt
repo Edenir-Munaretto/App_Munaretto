@@ -1,7 +1,0 @@
-docxtpl
-fpdf2
-num2words
-pypiwin32
-docxcompose
-pyinstaller
-openpyxl

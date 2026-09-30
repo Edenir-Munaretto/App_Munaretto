@@ -9,7 +9,6 @@ frontend/dist/
 *.pyc
 .pytest_cache/
 .ruff_cache/
-legacy/
 backend/scripts/backups/
 backend/scripts/backup.log
 # Arquivos de banco / dumps locais nunca devem ser versionados (PII)
