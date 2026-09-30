@@ -27,6 +27,7 @@
   - **Navegação** (`request.mode === 'navigate'`): fetch com timeout de **3s** (orçamento ≤4s do critério de aceite) + `signal`; 2xx → responde e atualiza cache (clonar antes do `put`, só `response.ok`); **5xx, timeout ou erro de rede** → `caches.match(request, { ignoreSearch: true })` → `/index.html` → `/` → `Response.error()`; **404** → devolve a resposta da rede (não é falha de conectividade).
   - **`/assets/*.js|css`**: cache-first + revalidação em background (imutáveis). Miss → fetch normal (sem timeout; ver risco aceito em §5).
   - **Demais GET**: stale-while-revalidate; nunca devolver `index.html` para recurso que não é navegação.
+- `activate`: antes de apagar caches antigos, **migrar `/assets/*.js|css`** do cache anterior para o novo (best-effort) — evita a janela sem JS/CSS se o usuário ficar offline logo após a atualização.
 - Manter `install`/`activate`, `skipWaiting()`, `clients.claim()`; `respondWith` sempre resolve um `Response` válido.
 
 ### 2.2 `frontend/index.html` (fontes + watchdog)
@@ -46,7 +47,7 @@
 
 ### 2.3 `frontend/src/App.jsx` e `frontend/src/main.jsx`
 
-- `App.jsx`: `useEffect(() => { document.documentElement.dataset.appMontado = '1'; }, [])` — sinal de montagem para o watchdog.
+- `App.jsx`: `useEffect(() => { document.documentElement.dataset.appMontado = '1'; document.getElementById('aviso-carregamento')?.remove(); }, [])` — sinal de montagem para o watchdog e remoção do aviso caso ele já tenha aparecido (carregamento lento).
 - `main.jsx`: registrar com `{ updateViaCache: 'none' }`. O watchdog **não fica aqui**
   (não cobriria JS que nunca carrega); `limparDadosLocais()` segue só para o overlay de erros.
 

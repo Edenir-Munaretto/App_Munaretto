@@ -207,9 +207,11 @@ function App() {
     }
   }, [renovando]);
 
-  // Sinal de montagem para o watchdog anti-tela-branca do index.html.
+  // Sinal de montagem para o watchdog anti-tela-branca do index.html. Se o
+  // aviso já apareceu (rede/aparelho muito lento), remove para não cobrir o app.
   useEffect(() => {
     document.documentElement.dataset.appMontado = '1';
+    document.getElementById('aviso-carregamento')?.remove();
   }, []);
 
   // Monitora a expiração do token e RENOVA AUTOMATICAMENTE na janela de

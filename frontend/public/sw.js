@@ -20,10 +20,43 @@ self.addEventListener('install', (event) => {
   );
 });
 
+function ehAssetComHash(url) {
+  try {
+    const parsed = new URL(url);
+    return parsed.origin === self.location.origin && /^\/assets\/.+\.(js|css)$/.test(parsed.pathname);
+  } catch {
+    return false;
+  }
+}
+
+// Assets com hash são imutáveis: migrá-los do cache anterior ANTES de apagá-lo
+// evita uma janela sem JS/CSS caso o usuário volte a ficar offline logo após a
+// atualização (eles só seriam recacheados na próxima navegação com rede).
+async function migrarAssetsDoCacheAntigo() {
+  const nomes = (await caches.keys()).filter((key) => key !== CACHE);
+  if (nomes.length === 0) return;
+  const atual = await caches.open(CACHE);
+  await Promise.all(nomes.map(async (nome) => {
+    try {
+      const antigo = await caches.open(nome);
+      const requisicoes = await antigo.keys();
+      await Promise.all(requisicoes
+        .filter((req) => ehAssetComHash(req.url))
+        .map(async (req) => {
+          if (await atual.match(req)) return;
+          const resposta = await antigo.match(req);
+          if (resposta) await atual.put(req, resposta);
+        }));
+    } catch { /* migração best-effort */ } finally {
+      await caches.delete(nome).catch(() => {});
+    }
+  }));
+}
+
 self.addEventListener('activate', (event) => {
   event.waitUntil(
-    caches.keys()
-      .then((keys) => Promise.all(keys.filter((key) => key !== CACHE).map((key) => caches.delete(key))))
+    migrarAssetsDoCacheAntigo()
+      .catch(() => {})
       .then(() => self.clients.claim())
   );
 });
@@ -114,16 +147,7 @@ self.addEventListener('fetch', (event) => {
     return;
   }
 
-  let url;
-  try {
-    url = new URL(request.url);
-  } catch {
-    url = null;
-  }
-  const ehAssetDoApp = url
-    && url.origin === self.location.origin
-    && /^\/assets\/.+\.(js|css)$/.test(url.pathname);
-  if (ehAssetDoApp) {
+  if (ehAssetComHash(request.url)) {
     event.respondWith(responderAsset(request));
     return;
   }

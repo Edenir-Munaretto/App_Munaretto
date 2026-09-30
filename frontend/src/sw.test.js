@@ -1,10 +1,11 @@
 // Testes do service worker (frontend/public/sw.js).
 // Cobre a correção da tela branca: navegação network-first com timeout +
-// abort do fetch pendurado em lie-fi, fallback para o shell em cache e
-// cache-first para assets com hash.
+// abort do fetch pendurado em lie-fi, fallback para o shell em cache,
+// cache-first para assets com hash e migração dos assets no activate.
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
 const ORIGEM = 'https://app.test';
+const CACHE_ATUAL = 'munaretto-v5';
 
 function normalizar(req) {
   return typeof req === 'string' ? new URL(req, ORIGEM).href : req.url;
@@ -20,13 +21,18 @@ function respostaFalsa(corpo, { ok = true, status = 200 } = {}) {
   return resposta;
 }
 
-function criarCachesMock(iniciais = {}) {
-  const armazenamento = new Map();
-  Object.entries(iniciais).forEach(([url, resposta]) => {
-    armazenamento.set(normalizar(url), resposta);
-  });
+function criarCachesMock(cachesIniciais = {}) {
+  const armazenamentos = new Map();
 
-  function buscar(req, opcoes = {}) {
+  function criarArmazenamento(entradas = {}) {
+    const armazenamento = new Map();
+    Object.entries(entradas).forEach(([url, resposta]) => {
+      armazenamento.set(normalizar(url), resposta);
+    });
+    return armazenamento;
+  }
+
+  function buscarEm(armazenamento, req, opcoes = {}) {
     const chave = normalizar(req);
     if (armazenamento.has(chave)) return armazenamento.get(chave);
     if (opcoes.ignoreSearch) {
@@ -37,20 +43,45 @@ function criarCachesMock(iniciais = {}) {
     return undefined;
   }
 
-  const cache = {
-    put: vi.fn(async (req, resposta) => {
-      armazenamento.set(normalizar(req), resposta);
-    }),
-    match: vi.fn(async (req, opcoes) => buscar(req, opcoes)),
-  };
+  const wrappers = new Map();
+  function abrir(nome) {
+    if (!armazenamentos.has(nome)) armazenamentos.set(nome, criarArmazenamento());
+    if (!wrappers.has(nome)) {
+      const armazenamento = armazenamentos.get(nome);
+      wrappers.set(nome, {
+        put: vi.fn(async (req, resposta) => {
+          armazenamento.set(normalizar(req), resposta);
+        }),
+        match: vi.fn(async (req, opcoes) => buscarEm(armazenamento, req, opcoes)),
+        keys: vi.fn(async () => [...armazenamento.keys()].map((href) => ({ url: href }))),
+        add: vi.fn(async () => {}),
+      });
+    }
+    return wrappers.get(nome);
+  }
+
+  Object.entries(cachesIniciais).forEach(([nome, entradas]) => {
+    armazenamentos.set(nome, criarArmazenamento(entradas));
+  });
 
   return {
-    open: vi.fn(async () => cache),
-    match: vi.fn(async (req, opcoes) => buscar(req, opcoes)),
-    keys: vi.fn(async () => ['munaretto-v5']),
-    delete: vi.fn(async () => true),
-    __armazenamento: armazenamento,
-    __cache: cache,
+    open: vi.fn(async (nome) => abrir(nome)),
+    match: vi.fn(async (req, opcoes) => {
+      for (const armazenamento of armazenamentos.values()) {
+        const achado = buscarEm(armazenamento, req, opcoes);
+        if (achado) return achado;
+      }
+      return undefined;
+    }),
+    keys: vi.fn(async () => [...armazenamentos.keys()]),
+    delete: vi.fn(async (nome) => armazenamentos.delete(nome)),
+    __armazenamentos: armazenamentos,
+    get __armazenamento() {
+      return armazenamentos.get(CACHE_ATUAL);
+    },
+    get __cache() {
+      return abrir(CACHE_ATUAL);
+    },
   };
 }
 
@@ -58,9 +89,9 @@ let listeners;
 let cachesMock;
 let fetchMock;
 
-async function prepararSW({ cacheInicial = {}, fetch: fetchImpl } = {}) {
+async function prepararSW({ cacheInicial = {}, cachesIniciais = {}, fetch: fetchImpl } = {}) {
   listeners = new Map();
-  cachesMock = criarCachesMock(cacheInicial);
+  cachesMock = criarCachesMock({ [CACHE_ATUAL]: cacheInicial, ...cachesIniciais });
   fetchMock = vi.fn(fetchImpl || (() => Promise.reject(new Error('sem rede'))));
 
   vi.stubGlobal('self', {
@@ -82,6 +113,12 @@ function disparar(request) {
   let respondida;
   handler({ request, respondWith: (promessa) => { respondida = promessa; } });
   return respondida;
+}
+
+async function dispararActivate() {
+  let trabalho;
+  listeners.get('activate')({ waitUntil: (promessa) => { trabalho = promessa; } });
+  await trabalho;
 }
 
 describe('sw.js — resiliência da navegação', () => {
@@ -182,5 +219,30 @@ describe('sw.js — assets com hash', () => {
     });
 
     await expect(promessa).rejects.toThrow('sem rede');
+  });
+});
+
+describe('sw.js — activate', () => {
+  afterEach(() => {
+    vi.unstubAllGlobals();
+    vi.resetModules();
+  });
+
+  it('migra assets com hash do cache antigo antes de apagá-lo', async () => {
+    const urlAntigo = `${ORIGEM}/assets/index-velho1.js`;
+    await prepararSW({
+      cachesIniciais: {
+        'munaretto-v4': {
+          [urlAntigo]: respostaFalsa('js-antigo'),
+          '/index.html': respostaFalsa('index-antigo'),
+        },
+      },
+    });
+
+    await dispararActivate();
+
+    expect(cachesMock.__armazenamentos.has('munaretto-v4')).toBe(false);
+    expect(cachesMock.__armazenamento.has(normalizar(urlAntigo))).toBe(true);
+    expect(cachesMock.__armazenamento.has(normalizar('/index.html'))).toBe(false);
   });
 });
