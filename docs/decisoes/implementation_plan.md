@@ -1,5 +1,8 @@
 # Plano de Melhorias — App Munaretto
 
+> **Status:** histórico — parte das melhorias foi implementada (testes em
+> `../../backend/tests/test_melhorias.py`).
+
 > Análise completa do backend (FastAPI + Supabase) e frontend (React + Vite).
 > Organizado por **prioridade de impacto** × **esforço de implementação**.
 
@@ -8,7 +11,7 @@
 ## 🔴 Prioridade 1 — Performance (Alto impacto, baixo risco)
 
 ### 1.1 — Comprovantes.jsx: filtros 100% no frontend sem memoização
-**Arquivo:** [`Comprovantes.jsx`](file:///c:/Users/User/Desktop/App_Munaretto/frontend/src/pages/Comprovantes.jsx)
+**Arquivo:** [`Comprovantes.jsx`](../../frontend/src/pages/Comprovantes.jsx)
 
 | | Atual | Proposto |
 |---|---|---|
@@ -21,7 +24,7 @@
 ---
 
 ### 1.2 — Dashboard: busca sem cache, rodando a cada render
-**Arquivo:** [`Dashboard.jsx`](file:///c:/Users/User/Desktop/App_Munaretto/frontend/src/pages/Dashboard.jsx) + [`dashboard.py`](file:///c:/Users/User/Desktop/App_Munaretto/backend/routers/dashboard.py)
+**Arquivo:** [`Dashboard.jsx`](../../frontend/src/pages/Dashboard.jsx) + [`dashboard.py`](../../backend/routers/dashboard.py)
 
 O endpoint `/api/dashboard/resumo` faz **4 queries ao Supabase** a cada chamada, sem nenhum cache. No `App.jsx`, `atualizarUsuarioAtual` é chamado a cada `window.focus` — o que pode causar chamadas extras ao backend.
 
@@ -30,7 +33,7 @@ O endpoint `/api/dashboard/resumo` faz **4 queries ao Supabase** a cada chamada,
 ---
 
 ### 1.3 — App.jsx: polling e eventos desnecessários em cada foco de janela
-**Arquivo:** [`App.jsx`](file:///c:/Users/User/Desktop/App_Munaretto/frontend/src/App.jsx#L288-L298)
+**Arquivo:** [`App.jsx`](../../frontend/src/App.jsx#L288-L298)
 
 O `window.focus` dispara `atualizarUsuarioAtual` e `fetchAlerts` a cada troca de aba — mesmo que o usuário tenha acabado de usar o sistema.
 
@@ -44,7 +47,7 @@ window.addEventListener('focus', onFocus);
 ---
 
 ### 1.4 — Clientes.py: busca com N queries (uma por coluna)
-**Arquivo:** [`clientes.py`](file:///c:/Users/User/Desktop/App_Munaretto/backend/routers/clientes.py#L35-L48)
+**Arquivo:** [`clientes.py`](../../backend/routers/clientes.py#L35-L48)
 
 ```python
 # Atual: 2 queries separadas + merge em Python
@@ -57,7 +60,7 @@ for coluna in ("nome", "cpf_cnpj"):
 ---
 
 ### 1.5 — SST.py e Ferias.py: funções helper duplicadas entre módulos
-**Arquivos:** [`sst.py`](file:///c:/Users/User/Desktop/App_Munaretto/backend/routers/sst.py), [`dashboard.py`](file:///c:/Users/User/Desktop/App_Munaretto/backend/routers/dashboard.py), [`ferias.py`](file:///c:/Users/User/Desktop/App_Munaretto/backend/routers/ferias.py)
+**Arquivos:** [`sst.py`](../../backend/routers/sst.py), [`dashboard.py`](../../backend/routers/dashboard.py), [`ferias.py`](../../backend/routers/ferias.py)
 
 As funções `_hoje()`, `_parse_data()`, `_status_vencimento()` estão **copiadas em 3 arquivos diferentes**.
 
@@ -77,7 +80,7 @@ Nenhum endpoint tem `limit` / `offset` — quando a tabela crescer (centenas de 
 ---
 
 ### 2.2 — Ausência de testes automatizados nos routers críticos
-**Arquivo:** [`tests/`](file:///c:/Users/User/Desktop/App_Munaretto/backend/tests/)
+**Arquivo:** [`tests/`](../../backend/tests/)
 
 O `requirements.txt` já inclui `pytest` e `httpx`, mas a estrutura de testes está vazia ou incompleta.
 
@@ -86,7 +89,7 @@ O `requirements.txt` já inclui `pytest` e `httpx`, mas a estrutura de testes es
 ---
 
 ### 2.3 — Validação de e-mail sem formato no Pydantic
-**Arquivo:** [`usuarios.py`](file:///c:/Users/User/Desktop/App_Munaretto/backend/routers/usuarios.py#L44-L56)
+**Arquivo:** [`usuarios.py`](../../backend/routers/usuarios.py#L44-L56)
 
 ```python
 email: str = Field(..., description="E-mail de acesso")  # sem validação de formato
@@ -97,7 +100,7 @@ email: str = Field(..., description="E-mail de acesso")  # sem validação de fo
 ---
 
 ### 2.4 — `Sst.jsx` com 120 KB — componente monolítico
-**Arquivo:** [`Sst.jsx`](file:///c:/Users/User/Desktop/App_Munaretto/frontend/src/pages/Sst.jsx) (120.252 bytes, maior do projeto)
+**Arquivo:** [`Sst.jsx`](../../frontend/src/pages/Sst.jsx) (120.252 bytes, maior do projeto)
 
 Um único componente com todo o SST (treinamentos, ASO, EPIs, cargos, alertas) dificulta manutenção e causa re-renders desnecessários.
 
@@ -106,7 +109,7 @@ Um único componente com todo o SST (treinamentos, ASO, EPIs, cargos, alertas) d
 ---
 
 ### 2.5 — `Comprovantes.jsx` com 1.165 linhas sem useMemo
-**Arquivo:** [`Comprovantes.jsx`](file:///c:/Users/User/Desktop/App_Munaretto/frontend/src/pages/Comprovantes.jsx)
+**Arquivo:** [`Comprovantes.jsx`](../../frontend/src/pages/Comprovantes.jsx)
 
 O filtro por data, tipo e busca são calculados a cada render sem memoização. O componente de preview de importação também está inline.
 
@@ -124,7 +127,7 @@ Todos os módulos usam um único `loading` booleano. Se houver erro parcial (ex:
 ---
 
 ### 2.7 — `LoginRateLimiter` em memória — não persiste entre instâncias
-**Arquivo:** [`auth.py`](file:///c:/Users/User/Desktop/App_Munaretto/backend/auth.py#L132-L162)
+**Arquivo:** [`auth.py`](../../backend/auth.py#L132-L162)
 
 O rate limiter está em memória Python. Se o servidor reiniciar (comum no Render free tier) ou se houver múltiplas instâncias, o estado se perde.
 
@@ -153,7 +156,7 @@ O `window.confirm()` bloqueia a thread principal e tem aparência muito diferent
 ---
 
 ### 3.3 — Sem indicador visual de "sessão expirando em breve"
-**Arquivo:** [`auth.py`](file:///c:/Users/User/Desktop/App_Munaretto/backend/auth.py#L34) + [`App.jsx`](file:///c:/Users/User/Desktop/App_Munaretto/frontend/src/App.jsx)
+**Arquivo:** [`auth.py`](../../backend/auth.py#L34) + [`App.jsx`](../../frontend/src/App.jsx)
 
 O token JWT expira em 480 minutos (8h). Quando expira, o usuário perde o que estava fazendo. Não há aviso prévio.
 
@@ -162,7 +165,7 @@ O token JWT expira em 480 minutos (8h). Quando expira, o usuário perde o que es
 ---
 
 ### 3.4 — Módulo de Comprovantes sem exportação CSV/Excel
-**Arquivo:** [`Comprovantes.jsx`](file:///c:/Users/User/Desktop/App_Munaretto/frontend/src/pages/Comprovantes.jsx)
+**Arquivo:** [`Comprovantes.jsx`](../../frontend/src/pages/Comprovantes.jsx)
 
 O backend já tem lógica de importação de XLSX mas não tem exportação. O usuário não consegue extrair os dados filtrados.
 
@@ -182,7 +185,7 @@ Todas as tabelas renderizam todos os registros de uma vez no DOM. Com centenas d
 ## 🔵 Prioridade 4 — Segurança
 
 ### 4.1 — Refresh Token não implementado
-**Arquivo:** [`auth.py`](file:///c:/Users/User/Desktop/App_Munaretto/backend/auth.py), [`api.js`](file:///c:/Users/User/Desktop/App_Munaretto/frontend/src/api.js)
+**Arquivo:** [`auth.py`](../../backend/auth.py), [`api.js`](../../frontend/src/api.js)
 
 Não existe refresh token — quando o access token expira, o usuário é deslogado abruptamente.
 
@@ -200,7 +203,7 @@ O `logger.exception()` existe, mas não há configuração centralizada de níve
 ---
 
 ### 4.3 — Senha com hash PBKDF2 de 100.000 iterações — adequado, mas sem upgrade path
-**Arquivo:** [`usuarios.py`](file:///c:/Users/User/Desktop/App_Munaretto/backend/routers/usuarios.py#L23-L38)
+**Arquivo:** [`usuarios.py`](../../backend/routers/usuarios.py#L23-L38)
 
 O algoritmo atual é bom, mas não há mecanismo para migrar para bcrypt/argon2 no futuro sem forçar reset de senhas.
 
@@ -211,7 +214,7 @@ O algoritmo atual é bom, mas não há mecanismo para migrar para bcrypt/argon2 
 ## ⚙️ Prioridade 5 — Infraestrutura / DevOps
 
 ### 5.1 — `requirements.txt` sem versões fixas nos pacotes críticos
-**Arquivo:** [`requirements.txt`](file:///c:/Users/User/Desktop/App_Munaretto/backend/requirements.txt)
+**Arquivo:** [`requirements.txt`](../../backend/requirements.txt)
 
 `fastapi>=0.100.0` e `supabase>=1.0.0` permitem atualizações que podem quebrar a API silenciosamente.
 
@@ -220,7 +223,7 @@ O algoritmo atual é bom, mas não há mecanismo para migrar para bcrypt/argon2 
 ---
 
 ### 5.2 — Sem variável de ambiente para controle de ambiente (dev/prod)
-**Arquivo:** [`main.py`](file:///c:/Users/User/Desktop/App_Munaretto/backend/main.py), [`supabase_client.py`](file:///c:/Users/User/Desktop/App_Munaretto/backend/supabase_client.py)
+**Arquivo:** [`main.py`](../../backend/main.py), [`supabase_client.py`](../../backend/supabase_client.py)
 
 Não existe distinção entre ambiente de desenvolvimento e produção. O Swagger UI fica exposto em produção.
 
@@ -232,7 +235,7 @@ app = FastAPI(docs_url=None if ENV == "production" else "/docs")
 ---
 
 ### 5.3 — Supabase Client singleton sem reconexão automática
-**Arquivo:** [`supabase_client.py`](file:///c:/Users/User/Desktop/App_Munaretto/backend/supabase_client.py)
+**Arquivo:** [`supabase_client.py`](../../backend/supabase_client.py)
 
 O cliente é criado uma vez na inicialização. Se a conexão cair (timeout, reinício), não há retry automático.
 

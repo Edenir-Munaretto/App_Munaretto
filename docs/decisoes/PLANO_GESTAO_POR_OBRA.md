@@ -1,5 +1,8 @@
 # Plano de Execução — Gestão consolidada por Obra (Fase 1)
 
+> **Status:** implementado (Fase 1). Endpoints `obras/{id}/resumo|relatorio|servicos`
+> e o `PainelObra` estão no código.
+>
 > **Objetivo:** transformar a Obra em agregador das suas O.S — a obra passa a
 > receber resumo das O.S vinculadas, serviços consolidados (separados por
 > contrato/unidade) e 2 relatórios PDF. Sem mudança de schema.

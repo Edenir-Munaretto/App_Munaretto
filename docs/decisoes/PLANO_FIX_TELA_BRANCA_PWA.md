@@ -1,9 +1,9 @@
 # Plano — Corrigir tela branca do PWA em rede móvel instável (v2)
 
-> Status: **em execução**. Escopo aprovado: completo.
-> Arquivos previstos: `frontend/public/sw.js`, `frontend/index.html`,
-> `frontend/src/main.jsx`, `frontend/src/App.jsx` (1 linha p/ flag de montagem),
-> `frontend/src/sw.test.js` (novo). Sem mudanças de backend/banco.
+> Status: **concluído** (implementado em set/2026; SW v5, watchdog e testes).
+> Arquivos: `frontend/public/sw.js`, `frontend/index.html`,
+> `frontend/src/main.jsx`, `frontend/src/App.jsx` (flag de montagem),
+> `frontend/src/sw.test.js`. Sem mudanças de backend/banco.
 
 ## 1. Contexto e diagnóstico
 

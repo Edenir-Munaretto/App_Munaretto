@@ -115,7 +115,7 @@ online-only) · gestor edita raramente (conflitos raros).
 - Fotos antigas (não tiradas no dispositivo) podem não exibir offline — só as
   capturadas localmente ficam como Blob; possível melhoria futura: cachear
   fotos existentes no download do pacote.
-- O `README.md` e o `GUIA_RAPIDO.md` podem ganhar uma seção do Modo Campo.
+- Documentação de entrada revisada: `README.md` e `docs/` (o antigo `GUIA_RAPIDO.md` foi removido).
 
 ## Como testar o que já existe
 
@@ -236,7 +236,7 @@ online-only) · gestor edita raramente (conflitos raros).
   refresh e rótulo relativo baseado em `meta.pacote.preparado_em`).
 - **3.3 Estado "sem pacote offline"** com orientação para conectar — IMPLEMENTADO
   (card "Modo Campo ainda não preparado" com botão "Tentar baixar agora").
-- **3.4 Documentação** — IMPLEMENTADO: `DIAGRAMA_OS.md` e este documento
+- **3.4 Documentação** — IMPLEMENTADO: [`../DIAGRAMA_OS.md`](../DIAGRAMA_OS.md) e este documento
   atualizados para o modelo contínuo (o auto-upload fica **excluído** por
   decisão).
 

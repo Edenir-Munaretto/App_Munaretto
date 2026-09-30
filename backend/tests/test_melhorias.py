@@ -1,4 +1,4 @@
-"""Testes das melhorias do implementation_plan.md.
+"""Testes das melhorias do docs/decisoes/implementation_plan.md.
 
 Cobre: renovação de sessão (/api/usuarios/refresh), exportação XLSX de
 comprovantes e validação de e-mail com EmailStr.
