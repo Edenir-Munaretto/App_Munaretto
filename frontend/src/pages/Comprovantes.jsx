@@ -64,6 +64,8 @@ function Comprovantes() {
   const lista = useFetchState();
   const [toast, setToast] = useState(null);
   const fileInputRef = useRef(null);
+  const ordenacaoAnteriorRef = useRef(null); // ordenação vigente antes do modo automático de NF
+  const geracaoFetchRef = useRef(0); // descarta respostas antigas (corrida entre filtros)
   const [preview, setPreview] = useState(null); // { data, file, importing } da simulação
 
   // Modal State
@@ -104,6 +106,9 @@ function Comprovantes() {
   };
 
   const fetchComprovantes = useCallback(async (tipo = tipoFiltro, inicio = dataInicio, fim = dataFim) => {
+    // Respostas antigas (troca rápida de filtros) são descartadas: só a última
+    // requisição pode atualizar a lista.
+    const geracao = ++geracaoFetchRef.current;
     try {
       setLoading(true);
       lista.iniciar();
@@ -117,16 +122,20 @@ function Comprovantes() {
       const res = await apiFetch(`${API_URL}/comprovantes/${query}`, { retry: 2 });
       if (res.ok) {
         const data = await res.json();
+        if (geracao !== geracaoFetchRef.current) return;
         setComprovantes(data);
         lista.sucesso();
       } else {
-        lista.falhar(erroDaResposta(await res.json().catch(() => null), 'Erro ao buscar comprovantes.'));
+        const erro = erroDaResposta(await res.json().catch(() => null), 'Erro ao buscar comprovantes.');
+        if (geracao !== geracaoFetchRef.current) return;
+        lista.falhar(erro);
       }
     } catch (err) {
+      if (geracao !== geracaoFetchRef.current) return;
       console.error(err);
       lista.falhar('Erro de conexão ao buscar comprovantes.');
     } finally {
-      setLoading(false);
+      if (geracao === geracaoFetchRef.current) setLoading(false);
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [ordenarPor, tipoFiltro, dataInicio, dataFim]);
@@ -135,12 +144,21 @@ function Comprovantes() {
     fetchComprovantes();
   }, [fetchComprovantes]);
 
-  // Quando o tipo selecionado é Nota Fiscal, ordena por data de emissão automaticamente
-  useEffect(() => {
-    if (tipoFiltro === 'Nota Fiscal') {
-      setOrdenarPor('data_emissao');
+  // Ordenação automática por data de emissão SÓ enquanto o filtro "Nota Fiscal"
+  // estiver ativo; ao sair, restaura a ordenação anterior do usuário — sem isso
+  // a lista ficava "presa" na ordem por emissão ao voltar para Todos.
+  const aoMudarTipoFiltro = (novoTipo) => {
+    setTipoFiltro(novoTipo);
+    if (novoTipo === 'Nota Fiscal') {
+      if (ordenarPor !== 'data_emissao') {
+        ordenacaoAnteriorRef.current = ordenarPor;
+        setOrdenarPor('data_emissao');
+      }
+    } else if (ordenacaoAnteriorRef.current) {
+      setOrdenarPor(ordenacaoAnteriorRef.current);
+      ordenacaoAnteriorRef.current = null;
     }
-  }, [tipoFiltro]);
+  };
 
   const baixarModelo = async () => {
     try {
@@ -513,7 +531,7 @@ function Comprovantes() {
             <span className="text-xs font-bold text-slate-500 uppercase tracking-wider">Filtrar Tipo:</span>
             <select
               value={tipoFiltro}
-              onChange={(e) => setTipoFiltro(e.target.value)}
+              onChange={(e) => aoMudarTipoFiltro(e.target.value)}
               className="px-3 py-1.5 border border-slate-200 rounded-xl text-xs font-semibold focus:outline-none focus:ring-2 focus:ring-primary-500/20 focus:border-primary-500"
             >
               <option value="">Todos</option>

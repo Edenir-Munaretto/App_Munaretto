@@ -223,7 +223,8 @@ def listar_comprovantes(
     paginada internamente (em blocos de 1000) e retorna o resultado completo,
     salvo quando `limit` é informado (paginação explícita).
     Ordenação decrescente (mais recente primeiro) por `data_registro`,
-    `data_pagamento` ou `data_emissao`.
+    `data_pagamento` ou `data_emissao`; registros sem a data de ordenação
+    ficam por último.
     """
     campo_ordem = ordenar_por if ordenar_por in ("data_registro", "data_pagamento", "data_emissao") else "data_registro"
 
@@ -262,7 +263,7 @@ def listar_comprovantes(
             query = (
                 db.table("comprovantes")
                 .select("*")
-                .order(campo_ordem, desc=True)
+                .order(campo_ordem, desc=True, nullsfirst=False)
                 .range(offset_atual, offset_atual + tamanho_bloco - 1)
             )
             # Filtro por tipo de documento
