@@ -4201,30 +4201,6 @@ function OrdensServico({ usuarioAtual }) {
             </div>
           </div>
 
-      {/* Aviso de operação offline */}
-      {offline && (
-        <div className="flex items-center justify-between gap-3 rounded-xl border-2 border-amber-300 bg-amber-50 px-4 py-3">
-          <div className="flex items-center gap-2.5">
-            <WifiOff size={18} className="text-amber-600 shrink-0" />
-            <div>
-              <p className="text-xs font-extrabold text-amber-800">
-                Sem conexão — operando com o pacote local
-              </p>
-              <p className="text-[10px] font-semibold text-amber-600">
-                {pendentes.total > 0
-                  ? `${pendentes.total} item(ns) aguardando sincronização.`
-                  : 'As ações serão registradas e sincronizadas ao reconectar.'}
-              </p>
-            </div>
-          </div>
-          {modoCampo && (
-            <span className="shrink-0 text-[10px] font-bold bg-white border border-amber-200 text-amber-700 rounded-full px-3 py-1">
-              Modo Campo ativo
-            </span>
-          )}
-        </div>
-      )}
-
       {visao === 'quadro' && (
         <>
           {filtros}
