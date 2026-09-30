@@ -58,11 +58,12 @@ const ROTULOS_TIPO_SERVICO = Object.fromEntries(TIPOS_SERVICO_OPCOES.map(o => [o
 const TIPO_PADRAO_OS = 'construcao';
 
 // Aplica os mesmos filtros/busca do servidor sobre uma lista local (offline):
-// termo busca em código/escopo/obra/equipe + equipe/data de execução/status.
-function filtrarListaLocal(lista, { busca, equipe_id, data_de, data_ate, status }) {
+// termo busca em código/escopo/obra/equipe + equipe/prioridade/data de execução/status.
+function filtrarListaLocal(lista, { busca, equipe_id, prioridade, data_de, data_ate, status }) {
   const termo = String(busca || '').trim().toLowerCase();
   return lista.filter(os => {
     if (equipe_id && Number(os.equipe_id) !== Number(equipe_id)) return false;
+    if (prioridade && os.prioridade !== prioridade) return false;
     // Data de execução (prazo_entrega) em ISO: comparação lexicográfica basta.
     // O.S sem data ficam de fora quando há filtro ativo.
     const data = String(os.prazo_entrega || '').slice(0, 10);
@@ -2960,6 +2961,7 @@ function OrdensServico({ usuarioAtual }) {
 
   const [filtroBusca, setFiltroBusca] = useState('');
   const [filtroEquipe, setFiltroEquipe] = useState('');
+  const [filtroPrioridade, setFiltroPrioridade] = useState(''); // filtro do usuário de campo
   const [filtroDataDe, setFiltroDataDe] = useState(''); // intervalo da data de execução (prazo_entrega)
   const [filtroDataAte, setFiltroDataAte] = useState('');
   const [filtroStatus, setFiltroStatus] = useState(''); // chip do pipeline (gestor)
@@ -3257,7 +3259,7 @@ function OrdensServico({ usuarioAtual }) {
           // filtro do servidor para o usuário de campo).
           const visivel = ehGestor ? lista : lista.filter(o => ['aberta', 'em_andamento'].includes(o.status));
           const filtrados = filtrarListaLocal(visivel, {
-            busca: buscaAplicada, equipe_id: filtroEquipe,
+            busca: buscaAplicada, equipe_id: filtroEquipe, prioridade: filtroPrioridade,
             data_de: filtroDataDe, data_ate: filtroDataAte, status: filtroStatus,
           });
           const pagina = filtrados.slice(offset, offset + LIMITE_PAGINA);
@@ -3281,6 +3283,7 @@ function OrdensServico({ usuarioAtual }) {
       const params = new URLSearchParams();
       if (buscaAplicada) params.set('busca', buscaAplicada);
       if (filtroEquipe) params.set('equipe_id', filtroEquipe);
+      if (filtroPrioridade) params.set('prioridade', filtroPrioridade);
       if (filtroDataDe) params.set('data_de', filtroDataDe);
       if (filtroDataAte) params.set('data_ate', filtroDataAte);
       if (filtroStatus) params.set('status', filtroStatus);
@@ -3322,7 +3325,7 @@ function OrdensServico({ usuarioAtual }) {
           // filtro do servidor para o usuário de campo).
           const visivel = ehGestor ? lista : lista.filter(o => ['aberta', 'em_andamento'].includes(o.status));
           const filtrados = filtrarListaLocal(visivel, {
-            busca: buscaAplicada, equipe_id: filtroEquipe,
+            busca: buscaAplicada, equipe_id: filtroEquipe, prioridade: filtroPrioridade,
             data_de: filtroDataDe, data_ate: filtroDataAte, status: filtroStatus,
           });
           const pagina = filtrados.slice(offset, offset + LIMITE_PAGINA);
@@ -3341,7 +3344,7 @@ function OrdensServico({ usuarioAtual }) {
     } finally {
       if (!desatualizada()) setLoading(false);
     }
-  }, [buscaAplicada, filtroEquipe, filtroDataDe, filtroDataAte, filtroStatus, ehGestor, mostrarToast]);
+  }, [buscaAplicada, filtroEquipe, filtroPrioridade, filtroDataDe, filtroDataAte, filtroStatus, ehGestor, mostrarToast]);
 
   // Listagem de Encerradas (gestor): paginação e filtros próprios.
   const carregarArquivo = useCallback(async (offset, reset) => {
@@ -3916,32 +3919,40 @@ function OrdensServico({ usuarioAtual }) {
           {equipes.map(eq => <option key={eq.id} value={eq.id}>{eq.numero ? `Nº ${eq.numero} - ${eq.nome}` : eq.nome}</option>)}
         </select>
       )}
-      <div className="flex items-center gap-2">
-        <label className="flex items-center gap-1.5 text-xs font-bold text-slate-500">
-          De
-          <input type="date" value={filtroDataDe} onChange={(e) => setFiltroDataDe(e.target.value)}
-            title="Data de execução (a partir de)"
-            className="px-3 py-2 rounded-xl border border-slate-200 bg-white text-sm font-semibold text-slate-600" />
-        </label>
-        <label className="flex items-center gap-1.5 text-xs font-bold text-slate-500">
-          Até
-          <input type="date" value={filtroDataAte} onChange={(e) => setFiltroDataAte(e.target.value)}
-            title="Data de execução (até)"
-            className="px-3 py-2 rounded-xl border border-slate-200 bg-white text-sm font-semibold text-slate-600" />
-        </label>
-      </div>
+      {ehGestor ? (
+        <div className="flex items-center gap-2">
+          <label className="flex items-center gap-1.5 text-xs font-bold text-slate-500">
+            De
+            <input type="date" value={filtroDataDe} onChange={(e) => setFiltroDataDe(e.target.value)}
+              title="Data de execução (a partir de)"
+              className="px-3 py-2 rounded-xl border border-slate-200 bg-white text-sm font-semibold text-slate-600" />
+          </label>
+          <label className="flex items-center gap-1.5 text-xs font-bold text-slate-500">
+            Até
+            <input type="date" value={filtroDataAte} onChange={(e) => setFiltroDataAte(e.target.value)}
+              title="Data de execução (até)"
+              className="px-3 py-2 rounded-xl border border-slate-200 bg-white text-sm font-semibold text-slate-600" />
+          </label>
+        </div>
+      ) : (
+        <select value={filtroPrioridade} onChange={(e) => setFiltroPrioridade(e.target.value)}
+          className="px-3 py-2 rounded-xl border border-slate-200 bg-white text-sm font-semibold text-slate-600">
+          <option value="">Todas as prioridades</option>
+          {Object.entries(PRIORIDADES).map(([k, v]) => <option key={k} value={k}>{v.label}</option>)}
+        </select>
+      )}
       {/* Botão limpar filtros — aparece só quando há filtros ativos */}
-      {(filtroBusca || filtroEquipe || filtroDataDe || filtroDataAte || filtroStatus) && (
+      {(filtroBusca || filtroEquipe || filtroPrioridade || filtroDataDe || filtroDataAte || filtroStatus) && (
         <button
           onClick={() => {
-            setFiltroBusca(''); setBuscaAplicada(''); setFiltroEquipe(''); setFiltroDataDe(''); setFiltroDataAte(''); setFiltroStatus('');
+            setFiltroBusca(''); setBuscaAplicada(''); setFiltroEquipe(''); setFiltroPrioridade(''); setFiltroDataDe(''); setFiltroDataAte(''); setFiltroStatus('');
           }}
           className="flex items-center gap-1.5 px-3 py-2 rounded-xl bg-rose-50 border border-rose-200 text-rose-600 text-xs font-bold hover:bg-rose-100 transition-colors cursor-pointer shrink-0"
         >
           <X size={13} />
           Limpar filtros
           <span className="bg-rose-500 text-white rounded-full w-4 h-4 flex items-center justify-center text-[9px] font-black">
-            {[filtroBusca, filtroEquipe, filtroDataDe, filtroDataAte, filtroStatus].filter(Boolean).length}
+            {[filtroBusca, filtroEquipe, filtroPrioridade, filtroDataDe, filtroDataAte, filtroStatus].filter(Boolean).length}
           </span>
         </button>
       )}
