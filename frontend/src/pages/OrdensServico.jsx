@@ -130,6 +130,24 @@ function rotuloMes(mes) {
 const servicoServeParaTipo = (servico, tipo) =>
   !servico.tipo || servico.tipo === tipo;
 
+// Sugestões do autocompletar de serviços (lançamento na O.S): busca por nome
+// ou código (normal/especial). Retorna `{ itens, total }` — renderiza no
+// máximo `limite` itens (teto de segurança em tablets de campo, já que o
+// catálogo tem milhares de serviços), mas informa o total para a interface
+// avisar "mostrando X de Y". Sem o teto, a lista é rolável.
+export const LIMITE_SUGESTOES_SERVICO = 100;
+
+export function sugestoesServico(catalogo, termo, limite = LIMITE_SUGESTOES_SERVICO) {
+  const alvo = String(termo || '').trim().toLowerCase();
+  if (!alvo) return { itens: [], total: 0 };
+  const todas = (catalogo || []).filter(p =>
+    (p.nome || '').toLowerCase().includes(alvo) ||
+    (p.codigo || '').toLowerCase().includes(alvo) ||
+    (p.codigo_especial || '').toLowerCase().includes(alvo)
+  );
+  return { itens: todas.slice(0, limite), total: todas.length };
+}
+
 const PRIORIDADES = {
   baixa: { label: 'Baixa', cor: 'bg-slate-100 text-slate-600 border-slate-200' },
   media: { label: 'Média', cor: 'bg-blue-50 text-blue-700 border-blue-200' },
@@ -1013,18 +1031,12 @@ function TabInsumos({ osDetalhe, produtos, onAtualizado, mostrarToast, podeEdita
   }, [produtos, osDetalhe.tipo]);
 
   // Autocompletar: filtra o catálogo local pelo que foi digitado/bipado
-  // (nome, código normal OU código especial).
-  const sugestoes = useMemo(() => {
-    const termo = buscaProduto.trim().toLowerCase();
-    if (!termo) return [];
-    return catalogoDoContrato
-      .filter(p =>
-        p.nome.toLowerCase().includes(termo) ||
-        (p.codigo || '').toLowerCase().includes(termo) ||
-        (p.codigo_especial || '').toLowerCase().includes(termo)
-      )
-      .slice(0, 6);
-  }, [buscaProduto, catalogoDoContrato]);
+  // (nome, código normal OU código especial). Limita a renderização a
+  // LIMITE_SUGESTOES_SERVICO itens (com aviso do total) e rola a lista.
+  const sugestoes = useMemo(
+    () => sugestoesServico(catalogoDoContrato, buscaProduto),
+    [buscaProduto, catalogoDoContrato],
+  );
 
   const selecionado = useMemo(
     () => catalogoDoContrato.find(p => p.id === produtoSelecionadoId) || null,
@@ -1118,7 +1130,7 @@ function TabInsumos({ osDetalhe, produtos, onAtualizado, mostrarToast, podeEdita
   };
 
   const lancar = async () => {
-    const produto = selecionado || (sugestoes.length === 1 ? sugestoes[0] : null);
+    const produto = selecionado || (sugestoes.itens.length === 1 ? sugestoes.itens[0] : null);
     if (!produto) {
       mostrarToast('Selecione um serviço da lista.', 'error');
       return;
@@ -1279,32 +1291,39 @@ function TabInsumos({ osDetalhe, produtos, onAtualizado, mostrarToast, podeEdita
             <X size={14} />
           </button>
         )}
-        {!selecionado && sugestoes.length > 0 && (
+        {!selecionado && sugestoes.itens.length > 0 && (
           <div className="absolute z-20 left-0 right-0 mt-1 bg-white border border-slate-200 rounded-xl shadow-lg overflow-hidden">
-            {sugestoes.map(p => (
-              <button
-                key={p.id}
-                type="button"
-                onClick={() => selecionarProduto(p)}
-                className="w-full text-left px-3 py-2 hover:bg-primary-50 text-sm text-slate-700 flex flex-col gap-0.5 cursor-pointer"
-              >
-                <span className="flex items-center justify-between gap-2 w-full">
-                  <span className="font-semibold truncate">{p.nome}</span>
-                  <span className="text-xs text-slate-400 shrink-0">{p.unidade} · {unidadeContrato(p.tipo || osDetalhe.tipo)} {p.preco_unitario}{Number(p.qtd_usc_especial || 0) > 0 ? ` + ${p.qtd_usc_especial}` : ''}</span>
-                </span>
-                {(p.codigo || p.codigo_especial) && (
-                  <span className="text-[10px] font-semibold text-slate-400 w-full">
-                    {p.codigo ? `Cod.: ${p.codigo}` : ''}
-                    {p.codigo && p.codigo_especial ? ' · ' : ''}
-                    {p.codigo_especial ? `Esp.: ${p.codigo_especial}` : ''}
+            <div className="max-h-72 overflow-y-auto">
+              {sugestoes.itens.map(p => (
+                <button
+                  key={p.id}
+                  type="button"
+                  onClick={() => selecionarProduto(p)}
+                  className="w-full text-left px-3 py-2 hover:bg-primary-50 text-sm text-slate-700 flex flex-col gap-0.5 cursor-pointer"
+                >
+                  <span className="flex items-center justify-between gap-2 w-full">
+                    <span className="font-semibold truncate">{p.nome}</span>
+                    <span className="text-xs text-slate-400 shrink-0">{p.unidade} · {unidadeContrato(p.tipo || osDetalhe.tipo)} {p.preco_unitario}{Number(p.qtd_usc_especial || 0) > 0 ? ` + ${p.qtd_usc_especial}` : ''}</span>
                   </span>
-                )}
-              </button>
-            ))}
+                  {(p.codigo || p.codigo_especial) && (
+                    <span className="text-[10px] font-semibold text-slate-400 w-full">
+                      {p.codigo ? `Cod.: ${p.codigo}` : ''}
+                      {p.codigo && p.codigo_especial ? ' · ' : ''}
+                      {p.codigo_especial ? `Esp.: ${p.codigo_especial}` : ''}
+                    </span>
+                  )}
+                </button>
+              ))}
+            </div>
+            <p className="px-3 py-1.5 border-t border-slate-100 bg-slate-50 text-[10px] font-semibold text-slate-400">
+              {sugestoes.total > sugestoes.itens.length
+                ? `Mostrando ${sugestoes.itens.length} de ${sugestoes.total} — refine a busca para ver os demais`
+                : `${sugestoes.total} ${sugestoes.total === 1 ? 'serviço encontrado' : 'serviços encontrados'}${sugestoes.total > 5 ? ' — role a lista para ver todos' : ''}`}
+            </p>
           </div>
         )}
         {/* Feedback explícito quando não há produtos encontrados */}
-        {!selecionado && buscaProduto.trim().length >= 2 && sugestoes.length === 0 && (
+        {!selecionado && buscaProduto.trim().length >= 2 && sugestoes.total === 0 && (
           <div className="absolute z-20 left-0 right-0 mt-1 bg-white border border-slate-200 rounded-xl shadow-lg overflow-hidden">
             <p className="px-3 py-3 text-xs text-slate-400 text-center">Nenhum serviço encontrado para “{buscaProduto}”</p>
           </div>
