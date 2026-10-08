@@ -484,6 +484,176 @@ class TestMateriaisEPermissao:
         quantidades = sorted(l["quantidade_usada"] for l in lancamentos)
         assert quantidades == [6.7, 80.0]  # 10x0.67 especial e 2x40 normal
 
+    def test_listar_materiais_traz_todos_com_autor_e_produto(self, os_gestor_client, db_fake):
+        """A lista completa devolve TODOS os lançamentos (não só os últimos),
+        com produto embutido e autor, para corrigir lançamentos antigos."""
+        _seed_cenario(db_fake)
+        os_id = _criar_os(os_gestor_client).json()["id"]
+        os_gestor_client.put(f"/api/os/{os_id}/status", json={"novo_status": "aberta"})
+
+        for _ in range(12):
+            assert os_gestor_client.post(
+                f"/api/os/{os_id}/materiais", json={"produto_id": 7, "quantidade_usada": 1}
+            ).status_code == 201
+        # Datas distintas para validar a ordenação (mais recente primeiro).
+        for i, m in enumerate(db_fake._dados["os_materiais"]):
+            m["data_lancamento"] = f"2026-09-{10 + i:02d}T10:00:00Z"
+
+        resp = os_gestor_client.get(f"/api/os/{os_id}/materiais")
+        assert resp.status_code == 200, resp.text
+        dados = resp.json()
+        assert dados["total"] == 12
+        assert len(dados["lancamentos"]) == 12
+        assert dados["lancamentos"][0]["data_lancamento"] == "2026-09-21T10:00:00Z"
+        assert dados["lancamentos"][0]["produtos"]["nome"] == "Cimento CP-II 50kg"
+        assert dados["lancamentos"][0]["usuario_email"]
+
+        # O detalhe expõe o contador para o botão "Ver todos os lançamentos".
+        detalhe = os_gestor_client.get(f"/api/os/{os_id}").json()
+        assert detalhe["materiais"]["total_lancamentos"] == 12
+
+    def test_listar_materiais_campo_ve_apenas_propria_equipe(self, os_gestor_client, os_campo_client, db_fake):
+        """A lista completa é acessível ao campo na O.S da própria equipe (para
+        estornar e relançar), e bloqueada nas O.S de outra equipe."""
+        _seed_cenario(db_fake)
+        os_propria = _criar_os(os_gestor_client, equipe_id=100).json()["id"]
+        os_outra = _criar_os(os_gestor_client, equipe_id=200).json()["id"]
+        assert os_gestor_client.put(f"/api/os/{os_propria}/status", json={"novo_status": "aberta"}).status_code == 200
+        assert os_gestor_client.put(f"/api/os/{os_outra}/status", json={"novo_status": "aberta"}).status_code == 200
+        assert os_gestor_client.post(
+            f"/api/os/{os_propria}/materiais", json={"produto_id": 7, "quantidade_usada": 1}
+        ).status_code == 201
+
+        resp = os_campo_client.get(f"/api/os/{os_propria}/materiais")
+        assert resp.status_code == 200, resp.text
+        assert resp.json()["total"] == 1
+        assert resp.json()["lancamentos"][0]["produtos"]["nome"] == "Cimento CP-II 50kg"
+
+        resp_outra = os_campo_client.get(f"/api/os/{os_outra}/materiais")
+        assert resp_outra.status_code == 403
+
+    def test_editar_material_mantem_fator_registrado(self, os_gestor_client, db_fake):
+        """Corrigir peças no MESMO tipo mantém o fator registrado no lançamento
+        (mudanças posteriores no cadastro não reescrevem o já lançado)."""
+        _seed_cenario(db_fake)
+        os_id = _criar_os(os_gestor_client).json()["id"]
+        os_gestor_client.put(f"/api/os/{os_id}/status", json={"novo_status": "aberta"})
+
+        lanc = os_gestor_client.post(
+            f"/api/os/{os_id}/materiais", json={"produto_id": 7, "quantidade_usada": 2}
+        ).json()
+        assert lanc["quantidade_usada"] == 80.0
+
+        resp = os_gestor_client.patch(
+            f"/api/os/{os_id}/materiais/{lanc['id']}",
+            json={"quantidade_pecas": 3, "tipo_usc": "normal"},
+        )
+        assert resp.status_code == 200, resp.text
+        body = resp.json()
+        assert body["quantidade_usada"] == 120.0  # 3 x 40 (fator registrado)
+        assert body["quantidade_pecas"] == 3
+        assert body["fator_usc"] == 40
+        assert body["produto_nome"] == "Cimento CP-II 50kg"
+
+        item = next(
+            i for i in os_gestor_client.get(f"/api/os/{os_id}").json()["materiais"]["itens"] if i["produto_id"] == 7
+        )
+        assert item["aplicado"] == 120.0
+
+    def test_editar_material_troca_tipo_usa_fator_do_cadastro(self, os_gestor_client, db_fake):
+        """Trocar normal -> especial usa o fator vigente do cadastro para o novo
+        tipo e atualiza o snapshot do código."""
+        _seed_cenario(db_fake)
+        db_fake._dados["produtos"].append(
+            {
+                "id": 8,
+                "codigo": "GRP-01",
+                "codigo_especial": "GRP-ESP",
+                "nome": "Graparina",
+                "unidade": "pç",
+                "preco_unitario": 0.48,
+                "qtd_usc_especial": 0.67,
+                "ativo": True,
+            }
+        )
+        os_id = _criar_os(os_gestor_client).json()["id"]
+        os_gestor_client.put(f"/api/os/{os_id}/status", json={"novo_status": "aberta"})
+
+        lanc = os_gestor_client.post(
+            f"/api/os/{os_id}/materiais", json={"produto_id": 8, "quantidade_usada": 10, "tipo_usc": "normal"}
+        ).json()
+        assert lanc["quantidade_usada"] == 4.8  # 10 x 0.48
+
+        resp = os_gestor_client.patch(
+            f"/api/os/{os_id}/materiais/{lanc['id']}",
+            json={"quantidade_pecas": 10, "tipo_usc": "especial"},
+        )
+        assert resp.status_code == 200, resp.text
+        body = resp.json()
+        assert body["quantidade_usada"] == 6.7  # 10 x 0.67
+        assert body["fator_usc"] == 0.67
+        assert body["tipo_usc"] == "especial"
+        assert body["codigo_servico"] == "GRP-ESP"
+
+    def test_editar_material_especial_sem_cadastro_rejeitado(self, os_gestor_client, db_fake):
+        _seed_cenario(db_fake)
+        os_id = _criar_os(os_gestor_client).json()["id"]
+        os_gestor_client.put(f"/api/os/{os_id}/status", json={"novo_status": "aberta"})
+
+        lanc = os_gestor_client.post(
+            f"/api/os/{os_id}/materiais", json={"produto_id": 7, "quantidade_usada": 1}
+        ).json()
+        resp = os_gestor_client.patch(
+            f"/api/os/{os_id}/materiais/{lanc['id']}",
+            json={"quantidade_pecas": 1, "tipo_usc": "especial"},
+        )
+        assert resp.status_code == 400
+        assert "especial" in resp.json()["detail"].lower()
+
+    def test_editar_material_restrito_ao_gestor(self, os_gestor_client, os_campo_client, db_fake):
+        """Edição de lançamento é exclusiva do GESTOR: o campo corrige pelo
+        fluxo estornar + lançar de novo. O gestor edita em qualquer status."""
+        _seed_cenario(db_fake)
+        os_id = _criar_os(os_gestor_client, equipe_id=100).json()["id"]
+        assert os_gestor_client.put(f"/api/os/{os_id}/status", json={"novo_status": "aberta"}).status_code == 200
+        assert os_gestor_client.put(f"/api/os/{os_id}/status", json={"novo_status": "em_andamento"}).status_code == 200
+
+        lanc = os_gestor_client.post(
+            f"/api/os/{os_id}/materiais", json={"produto_id": 7, "quantidade_usada": 1}
+        ).json()
+
+        # Campo não edita NEM em O.S em execução da própria equipe (403).
+        resp_campo = os_campo_client.patch(
+            f"/api/os/{os_id}/materiais/{lanc['id']}",
+            json={"quantidade_pecas": 2, "tipo_usc": "normal"},
+        )
+        assert resp_campo.status_code == 403
+
+        # Gestor edita (inclusive em O.S já encerrada).
+        assert os_gestor_client.put(f"/api/os/{os_id}/status", json={"novo_status": "concluida"}).status_code == 200
+        resp_gestor = os_gestor_client.patch(
+            f"/api/os/{os_id}/materiais/{lanc['id']}",
+            json={"quantidade_pecas": 2, "tipo_usc": "normal"},
+        )
+        assert resp_gestor.status_code == 200, resp_gestor.text
+        assert resp_gestor.json()["quantidade_usada"] == 80.0
+
+    def test_editar_material_de_outra_os_retorna_404(self, os_gestor_client, db_fake):
+        _seed_cenario(db_fake)
+        os_a = _criar_os(os_gestor_client).json()["id"]
+        os_b = _criar_os(os_gestor_client).json()["id"]
+        os_gestor_client.put(f"/api/os/{os_a}/status", json={"novo_status": "aberta"})
+        os_gestor_client.put(f"/api/os/{os_b}/status", json={"novo_status": "aberta"})
+
+        lanc = os_gestor_client.post(
+            f"/api/os/{os_a}/materiais", json={"produto_id": 7, "quantidade_usada": 1}
+        ).json()
+        resp = os_gestor_client.patch(
+            f"/api/os/{os_b}/materiais/{lanc['id']}",
+            json={"quantidade_pecas": 2, "tipo_usc": "normal"},
+        )
+        assert resp.status_code == 404
+
     def test_resumo_detalhe_nao_muda_com_cadastro_alterado(self, os_gestor_client, db_fake):
         """O relatório usa o fator REGISTRADO no lançamento: alterar o cadastro
         do serviço depois não muda o que já foi lançado."""

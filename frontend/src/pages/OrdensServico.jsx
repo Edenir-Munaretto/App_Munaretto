@@ -957,7 +957,7 @@ function TabChecklist({ osDetalhe, onAtualizado, mostrarToast, podeEditar }) {
 // Abas compartilhadas entre o drawer do gestor e a tela de campo (mobile)
 // ---------------------------------------------------------------------------
 
-function TabInsumos({ osDetalhe, produtos, onAtualizado, mostrarToast, podeEditar, podeEstornar }) {
+function TabInsumos({ osDetalhe, produtos, onAtualizado, mostrarToast, podeEditar, podeEstornar, ehGestor = false }) {
   const [buscaProduto, setBuscaProduto] = useState('');
   const [produtoSelecionadoId, setProdutoSelecionadoId] = useState(null);
   const [qtd, setQtd] = useState(1);
@@ -967,11 +967,30 @@ function TabInsumos({ osDetalhe, produtos, onAtualizado, mostrarToast, podeEdita
   // Unidade de valor do contrato da O.S (USC construção / UMD manutenção / ULV linha viva).
   const unidade = unidadeContrato(osDetalhe.tipo);
   const rotuloUsc = (sub) => rotuloFator(osDetalhe.tipo, sub);
+  // O campo só enxerga/corrige lançamentos em O.S EM EXECUÇÃO; o gestor vê
+  // qualquer status. Editar (lápis) é exclusivo do gestor; o campo corrige
+  // pelo fluxo estornar + lançar de novo.
+  const encerrada = ['concluida', 'cancelada'].includes(osDetalhe.status);
+  const podeVerLancamentos = ehGestor || !encerrada;
 
   // Modo Campo (online ou offline): lançamentos gravam primeiro na fila local.
   // Estes registros pendentes são sobrepostos à visão do servidor para que o
   // usuário veja e possa estornar imediatamente o que ainda não sincronizou.
   const [pendentesLocais, setPendentesLocais] = useState([]);
+
+  // Lista COMPLETA de lançamentos (corrigir/excluir lançamentos antigos, que
+  // não aparecem em "Últimos lançamentos"). Carregada sob demanda do servidor;
+  // offline cai no snapshot do pacote local.
+  const [verTodosAberto, setVerTodosAberto] = useState(false);
+  const [lancamentosTodos, setLancamentosTodos] = useState([]);
+  const [lancamentosDoPacote, setLancamentosDoPacote] = useState(false); // exibindo fallback local
+  const [carregandoLancamentos, setCarregandoLancamentos] = useState(false);
+  const [buscaLancamento, setBuscaLancamento] = useState('');
+  // Edição de lançamento (mesmas permissões do estorno).
+  const [editandoLancamento, setEditandoLancamento] = useState(null);
+  const [editQtd, setEditQtd] = useState(1);
+  const [editTipo, setEditTipo] = useState('normal');
+  const [salvandoEdicao, setSalvandoEdicao] = useState(false);
 
   const carregarPendentesLocais = useCallback(async () => {
     if (!isModoCampo()) { setPendentesLocais([]); return; }
@@ -1177,6 +1196,85 @@ function TabInsumos({ osDetalhe, produtos, onAtualizado, mostrarToast, podeEdita
     }
   };
 
+  // Lista completa de lançamentos: servidor quando há conexão; offline usa o
+  // snapshot do pacote local (com aviso no modal).
+  const carregarTodosLancamentos = useCallback(async () => {
+    setCarregandoLancamentos(true);
+    try {
+      const res = await apiFetch(`${API_URL}/os/${osDetalhe.id}/materiais`);
+      const data = await res.json().catch(() => null);
+      if (res.ok && data?.lancamentos) {
+        setLancamentosTodos(data.lancamentos);
+        setLancamentosDoPacote(false);
+      } else {
+        setLancamentosTodos(osDetalhe.lancamentos || []);
+        setLancamentosDoPacote(true);
+        mostrarToast(erroDaResposta(data, 'Erro ao carregar lançamentos.'), 'error');
+      }
+    } catch {
+      setLancamentosTodos(osDetalhe.lancamentos || []);
+      setLancamentosDoPacote(true);
+    } finally {
+      setCarregandoLancamentos(false);
+    }
+  }, [osDetalhe.id, osDetalhe.lancamentos, mostrarToast]);
+
+  // Pendentes locais (campo) + lançamentos do servidor, sem duplicar.
+  const lancamentosCompletos = useMemo(() => {
+    const vistos = new Set();
+    const lista = [];
+    for (const l of [...pendentesLocais, ...lancamentosTodos]) {
+      const chave = l.id_local ? `local:${l.id_local}` : `id:${l.id}`;
+      if (vistos.has(chave)) continue;
+      vistos.add(chave);
+      lista.push(l);
+    }
+    return lista;
+  }, [pendentesLocais, lancamentosTodos]);
+
+  const lancamentosFiltrados = useMemo(() => {
+    const termo = buscaLancamento.trim().toLowerCase();
+    if (!termo) return lancamentosCompletos;
+    return lancamentosCompletos.filter(l => {
+      const p = l.produtos || {};
+      return (p.nome || l.produto_nome || '').toLowerCase().includes(termo)
+        || String(p.codigo || '').toLowerCase().includes(termo)
+        || String(p.codigo_especial || '').toLowerCase().includes(termo)
+        || String(l.codigo_servico || '').toLowerCase().includes(termo);
+    });
+  }, [lancamentosCompletos, buscaLancamento]);
+
+  const abrirEdicao = (l) => {
+    setEditandoLancamento(l);
+    setEditQtd(Number(l.quantidade_pecas || 0) || 1);
+    setEditTipo(l.tipo_usc === 'especial' ? 'especial' : 'normal');
+  };
+
+  const salvarEdicao = async () => {
+    if (!editandoLancamento || !(editQtd > 0)) return;
+    setSalvandoEdicao(true);
+    try {
+      const res = await apiFetch(`${API_URL}/os/${osDetalhe.id}/materiais/${editandoLancamento.id}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ quantidade_pecas: editQtd, tipo_usc: editTipo }),
+      });
+      const data = await res.json().catch(() => null);
+      if (res.ok) {
+        mostrarToast('Lançamento corrigido.');
+        setEditandoLancamento(null);
+        await carregarTodosLancamentos();
+        onAtualizado();
+      } else {
+        mostrarToast(erroDaResposta(data, 'Erro ao editar lançamento.'), 'error');
+      }
+    } catch {
+      mostrarToast('Erro de conexão ao editar lançamento.', 'error');
+    } finally {
+      setSalvandoEdicao(false);
+    }
+  };
+
   // Remove o lançamento pendente do snapshot local e atualiza os totais.
   const removerMaterialLocal = async (alvo) => {
     const local = await getOSLocal(osDetalhe.id);
@@ -1207,7 +1305,8 @@ function TabInsumos({ osDetalhe, produtos, onAtualizado, mostrarToast, podeEdita
     // Chamado só após confirmação no ModalConfirmacao
     setEstornandoId(null);
     const alvo = pendentesLocais.find(p => String(p.id_local) === String(id) || Number(p.id) === Number(id))
-      || (osDetalhe.lancamentos || []).find(l => Number(l.id) === Number(id) || String(l.id_local) === String(id));
+      || (osDetalhe.lancamentos || []).find(l => Number(l.id) === Number(id) || String(l.id_local) === String(id))
+      || lancamentosTodos.find(l => Number(l.id) === Number(id) || String(l.id_local) === String(id));
     // "Pendente" de verdade = operação ainda na fila local. O flag da linha
     // pode estar defasado (já sincronizou e o painel ainda não releu o
     // pacote): consultar a fila evita remover só do dispositivo e deixar o
@@ -1228,6 +1327,7 @@ function TabInsumos({ osDetalhe, produtos, onAtualizado, mostrarToast, podeEdita
         mostrarToast('Lançamento removido do dispositivo (não será sincronizado).');
         carregarPendentesLocais();
         onAtualizado();
+        if (verTodosAberto) carregarTodosLancamentos();
       } catch {
         mostrarToast('Falha ao remover o lançamento pendente.', 'error');
       }
@@ -1253,6 +1353,7 @@ function TabInsumos({ osDetalhe, produtos, onAtualizado, mostrarToast, podeEdita
       if (res.ok) {
         mostrarToast('Lançamento estornado.');
         onAtualizado();
+        if (verTodosAberto) carregarTodosLancamentos();
       } else {
         mostrarToast(erroDaResposta(await res.json().catch(() => null), 'Erro ao estornar.'), 'error');
       }
@@ -1513,7 +1614,243 @@ function TabInsumos({ osDetalhe, produtos, onAtualizado, mostrarToast, podeEdita
             <p className="text-xs text-slate-400">Sem lançamentos individuais.</p>
           )}
         </div>
+
+        {/* Lista completa: localiza lançamentos antigos para corrigir/excluir
+            (os "últimos" mostram só os 8 mais recentes). O campo acessa apenas
+            em O.S em execução; editar é exclusivo do gestor. */}
+        {podeVerLancamentos && (() => {
+          const total = Number(osDetalhe.materiais?.total_lancamentos);
+          const rotulo = Math.max(Number.isFinite(total) ? total : 0, lancamentosVisao.length);
+          return (
+            <button
+              type="button"
+              onClick={() => { setVerTodosAberto(true); setBuscaLancamento(''); carregarTodosLancamentos(); }}
+              className="mt-2 w-full h-10 rounded-xl border border-slate-200 bg-white text-slate-600 text-xs font-bold hover:bg-slate-50 transition-all cursor-pointer flex items-center justify-center gap-2"
+            >
+              <ListChecks size={14} /> Ver todos os lançamentos ({rotulo})
+            </button>
+          );
+        })()}
       </div>
+
+      {/* Modal: lista completa de lançamentos com busca, edição e estorno */}
+      {podeVerLancamentos && verTodosAberto && (
+        <div className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-2xl shadow-2xl max-w-lg w-full max-h-[85vh] flex flex-col overflow-hidden">
+            <div className="px-5 py-4 border-b border-slate-100 flex items-center justify-between gap-2">
+              <h3 className="font-extrabold text-slate-800 text-sm">
+                Lançamentos da O.S ({lancamentosCompletos.length})
+              </h3>
+              <button
+                type="button"
+                onClick={() => setVerTodosAberto(false)}
+                className="text-slate-400 hover:text-slate-600 cursor-pointer"
+                title="Fechar"
+              >
+                <X size={16} />
+              </button>
+            </div>
+            <div className="px-5 py-3 border-b border-slate-100">
+              <div className="relative">
+                <input
+                  type="text"
+                  value={buscaLancamento}
+                  onChange={(e) => setBuscaLancamento(e.target.value)}
+                  placeholder="Buscar por serviço ou código..."
+                  className="w-full pl-8 pr-3 py-2 border border-slate-200 rounded-xl text-xs focus:outline-none focus:border-primary-500"
+                />
+                <Search size={12} className="absolute left-2.5 top-3 text-slate-400" />
+              </div>
+              {lancamentosDoPacote && (
+                <p className="text-[10px] font-bold text-amber-600 mt-1.5">
+                  Sem conexão: exibindo os lançamentos do pacote local (a lista completa fica disponível conectado).
+                </p>
+              )}
+            </div>
+            <div className="flex-1 overflow-y-auto px-5 py-3 space-y-1.5">
+              {carregandoLancamentos && (
+                <p className="text-xs text-slate-400 text-center py-6">Carregando lançamentos...</p>
+              )}
+              {!carregandoLancamentos && lancamentosFiltrados.map(l => {
+                const p = l.produtos || {};
+                const pecas = Number(l.quantidade_pecas || 0);
+                const fator = Number(l.fator_usc || 0);
+                const rotuloTipo = rotuloUsc(l.tipo_usc === 'especial' ? 'especial' : 'normal');
+                const usaConta = pecas > 0 && fator > 0;
+                const nome = p.nome || l.produto_nome || 'Serviço';
+                return (
+                  <div
+                    key={l.id_local ? `local:${l.id_local}` : `id:${l.id}`}
+                    className="flex items-center justify-between gap-2 bg-slate-50 border border-slate-100 rounded-xl px-3 py-2"
+                  >
+                    <div className="min-w-0 flex-1">
+                      <p className="text-xs font-bold text-slate-700 truncate">
+                        {nome}
+                        {l.codigo_servico && (
+                          <span className="ml-1.5 font-mono text-[9px] font-bold px-1.5 py-0.5 rounded-full border border-slate-200 bg-white text-slate-500">
+                            {l.codigo_servico}
+                          </span>
+                        )}
+                        {l.tipo_usc && (
+                          <span className={`ml-1.5 text-[9px] font-bold px-1.5 py-0.5 rounded-full border ${
+                            l.tipo_usc === 'especial'
+                              ? 'bg-violet-50 text-violet-700 border-violet-200'
+                              : 'bg-primary-50 text-primary-700 border-primary-200'
+                          }`}>
+                            {rotuloTipo}
+                          </span>
+                        )}
+                        {l.pendente_local && (
+                          <span className="ml-1.5 text-[9px] font-bold px-1.5 py-0.5 rounded-full border border-amber-200 bg-amber-50 text-amber-700">
+                            não sincronizado
+                          </span>
+                        )}
+                      </p>
+                      <p className="text-[10px] text-slate-500 font-semibold mt-0.5">
+                        {fmtData(l.data_lancamento)} · {l.usuario_email || 'dispositivo'} —{' '}
+                        {usaConta
+                          ? `${pecas} × ${rotuloTipo} (${fator}) = ${l.quantidade_usada} ${unidade}`
+                          : `${l.quantidade_usada} ${unidade}`}
+                      </p>
+                    </div>
+                    {ehGestor && !l.pendente_local && (
+                      <button
+                        type="button"
+                        onClick={() => abrirEdicao(l)}
+                        title="Corrigir lançamento"
+                        className="w-8 h-8 shrink-0 flex items-center justify-center rounded-lg bg-white text-slate-500 hover:text-amber-600 border border-slate-200 transition-colors cursor-pointer"
+                      >
+                        <Pencil size={13} />
+                      </button>
+                    )}
+                    {podeEstornar && (
+                      <button
+                        type="button"
+                        onClick={() => setEstornandoId(l.id_local || l.id)}
+                        title="Estornar lançamento"
+                        className="w-8 h-8 shrink-0 flex items-center justify-center rounded-lg bg-white text-slate-500 hover:text-rose-600 border border-slate-200 transition-colors cursor-pointer"
+                      >
+                        <Trash2 size={13} />
+                      </button>
+                    )}
+                  </div>
+                );
+              })}
+              {!carregandoLancamentos && lancamentosFiltrados.length === 0 && (
+                <p className="text-xs text-slate-400 text-center py-6">Nenhum lançamento encontrado.</p>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Modal: correção de lançamento (peças e tipo de USC) — só gestor */}
+      {ehGestor && editandoLancamento && (() => {
+        const p = editandoLancamento.produtos || {};
+        const tipoAtual = editandoLancamento.tipo_usc === 'especial' ? 'especial' : 'normal';
+        const fatorNormal = Number(p.preco_unitario || 0);
+        const fatorEspecial = Number(p.qtd_usc_especial || 0);
+        // Mesmo tipo: mantém o fator registrado (igual ao backend); troca de
+        // tipo: usa o fator vigente do cadastro para o novo tipo.
+        const fatorPreview = editTipo === tipoAtual
+          ? Number(editandoLancamento.fator_usc || 0)
+          : (editTipo === 'especial' ? fatorEspecial : fatorNormal);
+        const totalPreview = fatorPreview > 0 ? Number((editQtd * fatorPreview).toFixed(3)) : editQtd;
+        return (
+          <div className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center z-50 p-4">
+            <div className="bg-white rounded-2xl shadow-2xl max-w-sm w-full overflow-hidden">
+              <div className="px-5 py-4 border-b border-slate-100">
+                <h3 className="font-extrabold text-slate-800 text-sm">Corrigir lançamento</h3>
+                <p className="text-xs text-slate-500 font-semibold mt-0.5 truncate">
+                  {p.nome || editandoLancamento.produto_nome || 'Serviço'}
+                </p>
+              </div>
+              <div className="p-5 space-y-4">
+                <div>
+                  <label className="block text-xs font-bold text-slate-700 mb-1.5">Peças aplicadas</label>
+                  <div className="flex items-center justify-center gap-3">
+                    <button
+                      type="button"
+                      onClick={() => setEditQtd(q => Math.max(0.5, Number((q - (q > 1 ? 1 : 0.5)).toFixed(2))))}
+                      className="w-11 h-11 shrink-0 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-700 text-xl font-black flex items-center justify-center cursor-pointer"
+                    >
+                      −
+                    </button>
+                    <input
+                      type="number"
+                      min="0"
+                      step="0.5"
+                      value={editQtd}
+                      onChange={(e) => setEditQtd(Number(e.target.value))}
+                      className="w-24 h-11 text-center text-lg font-bold border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-primary-500/20"
+                    />
+                    <button
+                      type="button"
+                      onClick={() => setEditQtd(q => Number((q + (q < 1 ? 0.5 : 1)).toFixed(2)))}
+                      className="w-11 h-11 shrink-0 rounded-xl bg-primary-600 hover:bg-primary-700 text-white text-xl font-black flex items-center justify-center cursor-pointer"
+                    >
+                      +
+                    </button>
+                  </div>
+                </div>
+                {(fatorNormal > 0 || fatorEspecial > 0 || tipoAtual === 'especial') && (
+                  <div>
+                    <label className="block text-xs font-bold text-slate-700 mb-1.5">Tipo de {unidade}</label>
+                    <div className="flex gap-2">
+                      <button
+                        type="button"
+                        onClick={() => setEditTipo('normal')}
+                        className={`flex-1 py-2.5 rounded-xl text-xs font-bold border transition-all cursor-pointer ${
+                          editTipo === 'normal'
+                            ? 'bg-primary-600 text-white border-primary-600'
+                            : 'bg-white text-slate-600 border-slate-200 hover:border-primary-300'
+                        }`}
+                      >
+                        {rotuloUsc('normal')}{fatorNormal > 0 ? ` · ${fatorNormal}` : ''}
+                      </button>
+                      {(fatorEspecial > 0 || tipoAtual === 'especial') && (
+                        <button
+                          type="button"
+                          onClick={() => setEditTipo('especial')}
+                          className={`flex-1 py-2.5 rounded-xl text-xs font-bold border transition-all cursor-pointer ${
+                            editTipo === 'especial'
+                              ? 'bg-violet-600 text-white border-violet-600'
+                              : 'bg-white text-slate-600 border-slate-200 hover:border-violet-300'
+                          }`}
+                        >
+                          {rotuloUsc('especial')}{fatorEspecial > 0 ? ` · ${fatorEspecial}` : ''}
+                        </button>
+                      )}
+                    </div>
+                  </div>
+                )}
+                <p className="text-[11px] font-semibold text-slate-500 bg-slate-50 border border-slate-100 rounded-xl px-3 py-2">
+                  {editQtd} × {rotuloUsc(editTipo)} {fatorPreview > 0 ? `(${fatorPreview})` : '(sem fator)'} ={' '}
+                  <b className="text-slate-700">{totalPreview} {unidade}</b>
+                </p>
+              </div>
+              <div className="px-5 py-4 border-t border-slate-100 flex justify-end gap-2">
+                <button
+                  type="button"
+                  onClick={() => setEditandoLancamento(null)}
+                  disabled={salvandoEdicao}
+                  className="px-4 py-2 border border-slate-200 text-slate-600 rounded-xl text-sm font-semibold hover:bg-slate-50 cursor-pointer disabled:opacity-40"
+                >
+                  Cancelar
+                </button>
+                <button
+                  type="button"
+                  onClick={salvarEdicao}
+                  disabled={salvandoEdicao || !(editQtd > 0)}
+                  className="px-5 py-2 bg-emerald-600 text-white rounded-xl text-sm font-semibold hover:bg-emerald-700 cursor-pointer disabled:opacity-40"
+                >
+                  {salvandoEdicao ? 'Salvando...' : 'Salvar correção'}
+                </button>
+              </div>
+            </div>
+          </div>
+        );
+      })()}
 
       {/* Confirmação de estorno */}
       <ModalConfirmacao
@@ -2036,6 +2373,7 @@ function PainelExecucao({ osId, produtos, onFechar, recarregarLista, mostrarToas
           mostrarToast={mostrarToast}
           podeEditar={podeLancarServico}
           podeEstornar={podeEstornar}
+          ehGestor={ehGestor}
         />
       )}
       {aba === 'evidencias' && (

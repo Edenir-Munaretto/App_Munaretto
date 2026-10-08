@@ -237,6 +237,17 @@ class MaterialLancamento(BaseModel):
     observacao: str | None = None
 
 
+class MaterialEdicao(BaseModel):
+    """Correção de um lançamento: peças digitadas e tipo de USC.
+
+    Mesmo tipo: mantém o fator registrado no lançamento (preserva o histórico).
+    Troca de tipo: usa o fator atual do cadastro do produto para o novo tipo.
+    """
+
+    quantidade_pecas: float = Field(..., gt=0, description="Peças aplicadas (sem conversão)")
+    tipo_usc: str = Field("normal", description="'normal' (Qtd USC) ou 'especial' (Qtd USC especial)")
+
+
 class ApontamentoAcao(BaseModel):
     acao: str = Field(..., description="'play' para iniciar ou 'pause' para encerrar o bloco")
 
@@ -720,6 +731,7 @@ def _resumo_materiais(db, os_id: int) -> dict:
     return {
         "itens": itens,
         "total_aplicado": round(sum(i["aplicado"] for i in itens), 3),
+        "total_lancamentos": len(aplicacoes.data or []),
     }
 
 
@@ -1240,7 +1252,7 @@ def _obter_detalhe_os(db, usuario: UsuarioAutenticado, os_id: int) -> dict:
         db.table("os_materiais")
         .select(
             "id, produto_id, quantidade_usada, quantidade_pecas, fator_usc, tipo_usc, codigo_servico, "
-            "data_lancamento, produtos(nome, unidade)"
+            "data_lancamento, usuario_email, produtos(nome, unidade)"
         )
         .eq("os_id", os_id)
         .order("data_lancamento", desc=True)
@@ -2358,6 +2370,145 @@ def estornar_material(
     except Exception:
         logger.exception("Erro ao estornar lançamento %s da O.S %s", lancamento_id, os_id)
         raise HTTPException(status_code=500, detail="Erro ao estornar lançamento.") from None
+
+
+@router.get("/{os_id}/materiais", summary="Lista todos os lançamentos de serviço da O.S")
+def listar_materiais(os_id: int, usuario: UsuarioAutenticado = Depends(get_current_user), db=Depends(get_supabase)):
+    """Lista COMPLETA dos lançamentos (para corrigir lançamentos antigos, que
+    não aparecem nos "últimos lançamentos" do detalhe da O.S).
+
+    Traz o autor (usuario_email) e o produto embutido; a busca é feita no
+    cliente sobre esta lista.
+    """
+    try:
+        os_data = _os_ou_404(db, os_id)
+        _garantir_acesso_os(db, usuario, os_data)
+        lancamentos = _ler_paginado(
+            db.table("os_materiais")
+            .select(
+                "id, produto_id, quantidade_usada, quantidade_pecas, fator_usc, tipo_usc, codigo_servico, "
+                "data_lancamento, usuario_email, observacao"
+            )
+            .eq("os_id", os_id)
+            .order("data_lancamento", desc=True)
+        )
+        # Catálogo dos produtos envolvidos (consulta única, sem depender de
+        # embedded resources do PostgREST — mesmo padrão do _resumo_materiais).
+        ids = sorted({m["produto_id"] for m in lancamentos})
+        catalogo = {}
+        if ids:
+            resp_prod = (
+                db.table("produtos")
+                .select("id, nome, unidade, codigo, codigo_especial, preco_unitario, qtd_usc_especial")
+                .in_("id", ids)
+                .execute()
+            )
+            catalogo = {p["id"]: p for p in resp_prod.data or []}
+        for m in lancamentos:
+            m["produtos"] = catalogo.get(m["produto_id"]) or {}
+        return {"lancamentos": lancamentos, "total": len(lancamentos)}
+    except HTTPException:
+        raise
+    except Exception:
+        logger.exception("Erro ao listar serviços da O.S %s", os_id)
+        raise HTTPException(status_code=500, detail="Erro ao listar serviços da O.S.") from None
+
+
+@router.patch("/{os_id}/materiais/{lancamento_id}", summary="Edita um lançamento de material")
+def editar_material(
+    os_id: int,
+    lancamento_id: int,
+    payload: MaterialEdicao,
+    usuario: UsuarioAutenticado = Depends(get_current_user),
+    db=Depends(get_supabase),
+):
+    """Corrige as peças/tipo de um lançamento SEM apagar/relançar.
+
+    Restrito ao GESTOR de O.S (em qualquer status): o usuário de campo corrige
+    pelo fluxo estornar + lançar de novo (o estorno por ele segue permitido em
+    O.S em execução). Mesmo tipo de USC mantém o fator registrado no lançamento
+    (preserva o histórico); trocar de tipo usa o fator vigente do cadastro para
+    o novo tipo.
+    """
+    try:
+        _exigir_gestor(usuario)
+        os_data = _os_ou_404(db, os_id)
+        _garantir_acesso_os(db, usuario, os_data)
+
+        tipo_usc = (payload.tipo_usc or "normal").strip().lower()
+        if tipo_usc not in ("normal", "especial"):
+            raise HTTPException(status_code=400, detail="Tipo de fator inválido. Use 'normal' ou 'especial'.")
+
+        registro = (
+            db.table("os_materiais")
+            .select("*")
+            .eq("id", lancamento_id)
+            .eq("os_id", os_id)
+            .execute()
+            .data
+        )
+        if not registro:
+            raise HTTPException(status_code=404, detail="Lançamento não encontrado nesta O.S.")
+        atual = registro[0]
+
+        produto_resp = db.table("produtos").select("*").eq("id", atual["produto_id"]).execute().data
+        produto = produto_resp[0] if produto_resp else None
+        if produto is None:
+            raise HTTPException(status_code=404, detail="O serviço deste lançamento não está mais cadastrado.")
+
+        fator = float(atual.get("fator_usc") or 0)
+        if tipo_usc != (atual.get("tipo_usc") or "normal"):
+            # Troca de tipo: fator vigente do cadastro para o novo tipo.
+            if tipo_usc == "especial":
+                fator = float(produto.get("qtd_usc_especial") or 0)
+                if fator <= 0:
+                    unidade = unidade_contrato(os_data.get("tipo"))
+                    raise HTTPException(
+                        status_code=400,
+                        detail=f"O serviço '{produto['nome']}' não possui Qtd {unidade} especial cadastrada.",
+                    )
+            else:
+                fator = float(produto.get("preco_unitario") or 0)
+
+        if fator > 0:
+            quantidade = round(payload.quantidade_pecas * fator, 3)
+        else:
+            quantidade = payload.quantidade_pecas
+        if quantidade <= 0:
+            raise HTTPException(
+                status_code=400,
+                detail="A quantidade resultante é zero após o arredondamento. Informe um valor maior.",
+            )
+
+        if tipo_usc == "especial":
+            codigo_servico = produto.get("codigo_especial") or produto.get("codigo")
+        else:
+            codigo_servico = produto.get("codigo") or produto.get("codigo_especial")
+        codigo_servico = (codigo_servico or "").strip() or None
+
+        resp = (
+            db.table("os_materiais")
+            .update(
+                {
+                    "quantidade_usada": quantidade,
+                    "quantidade_pecas": payload.quantidade_pecas,
+                    "fator_usc": round(fator, 3),
+                    "tipo_usc": tipo_usc,
+                    "codigo_servico": codigo_servico,
+                }
+            )
+            .eq("id", lancamento_id)
+            .eq("os_id", os_id)
+            .execute()
+        )
+        if not resp.data:
+            raise HTTPException(status_code=500, detail="Falha ao editar o lançamento.")
+        return {**resp.data[0], "produto_nome": produto["nome"]}
+    except HTTPException:
+        raise
+    except Exception:
+        logger.exception("Erro ao editar lançamento %s da O.S %s", lancamento_id, os_id)
+        raise HTTPException(status_code=500, detail="Erro ao editar lançamento.") from None
 
 
 @router.get("/{os_id}/resumo", summary="Materiais aplicados + custo de M.O")
