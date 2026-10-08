@@ -1251,6 +1251,20 @@ function TabInsumos({ osDetalhe, produtos, onAtualizado, mostrarToast, podeEdita
     setEditTipo(l.tipo_usc === 'especial' ? 'especial' : 'normal');
   };
 
+  // Modo Campo conectado: relê o detalhe do servidor e atualiza o pacote
+  // local depois de corrigir/estornar um lançamento (o painel lê o pacote
+  // local). Não sobrescreve o espelho quando há material pendente na fila
+  // (protege as linhas "não sincronizado" — mesma regra do atualizarPacote).
+  const sincronizarDetalheLocal = async () => {
+    if (!isModoCampo()) return;
+    try {
+      const ops = await lancamentosPendentesDaFila(osDetalhe.id);
+      if (ops.length) return;
+      const res = await apiFetch(`${API_URL}/os/${osDetalhe.id}`);
+      if (res.ok) await salvarDetalheLocal(await res.json());
+    } catch { /* best-effort: o refresh contínuo do pacote corrige depois */ }
+  };
+
   const salvarEdicao = async () => {
     if (!editandoLancamento || !(editQtd > 0)) return;
     setSalvandoEdicao(true);
@@ -1264,6 +1278,7 @@ function TabInsumos({ osDetalhe, produtos, onAtualizado, mostrarToast, podeEdita
       if (res.ok) {
         mostrarToast('Lançamento corrigido.');
         setEditandoLancamento(null);
+        await sincronizarDetalheLocal();
         await carregarTodosLancamentos();
         onAtualizado();
       } else {
@@ -1353,6 +1368,7 @@ function TabInsumos({ osDetalhe, produtos, onAtualizado, mostrarToast, podeEdita
       const res = await apiFetch(`${API_URL}/os/${osDetalhe.id}/materiais/${idServidor}`, { method: 'DELETE' });
       if (res.ok) {
         mostrarToast('Lançamento estornado.');
+        await sincronizarDetalheLocal();
         onAtualizado();
         if (verTodosAberto) carregarTodosLancamentos();
       } else {

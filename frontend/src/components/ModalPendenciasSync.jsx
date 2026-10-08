@@ -57,6 +57,22 @@ function ehConflito(item) {
   return !!item && item.classificacao === 'conflito';
 }
 
+/**
+ * Itens em erro RETRYÁVEL (não-conflito) prontos para descarte em massa, no
+ * formato {tipo, item} aceito por `descartarPendente`. Sem o empacotamento o
+ * loop de descarte não encontrava `item.id_local` e não removia nada.
+ */
+export function itensDescartaveis(fotos = [], operacoes = []) {
+  return [
+    ...(fotos || [])
+      .filter(f => f?.status === 'erro' && !ehConflito(f))
+      .map(f => ({ tipo: 'foto', item: f })),
+    ...(operacoes || [])
+      .filter(op => op?.status === 'erro' && !ehConflito(op))
+      .map(op => ({ tipo: 'operacao', item: op })),
+  ];
+}
+
 function BadgeEstado({ item }) {
   if (ehConflito(item)) {
     return (
@@ -210,9 +226,7 @@ function ModalPendenciasSync({
   const temPendentes = fotos.length + operacoes.length > 0;
   const totalFalhas = (resumo?.falhas?.length || 0) + (resumo?.conflitos?.length || 0);
   const temConflitos = conflitos.length > 0;
-  const errosRetryaveis = [...fotos, ...operacoes].filter(
-    (i) => i.status === 'erro' && !ehConflito(i),
-  );
+  const errosDescartaveis = itensDescartaveis(fotos, operacoes);
 
   const mensagemDescarte = confirmarDescarte?.tipo === 'foto'
     ? 'Esta foto é a evidência do serviço e ainda não foi sincronizada. Descartar remove do dispositivo SEM enviar ao servidor — se ela for a única cópia, a evidência será perdida.'
@@ -429,24 +443,24 @@ function ModalPendenciasSync({
             </span>
           )}
           <div className="flex items-center gap-2 flex-wrap">
-            {errosRetryaveis.length > 0 && !sincronizando && !offline && (
+            {errosDescartaveis.length > 0 && !sincronizando && !offline && (
               <button
                 type="button"
                 onClick={reenviarComErro}
                 className="px-4 py-2 bg-amber-500 text-white rounded-xl text-sm font-semibold hover:bg-amber-600 transition-all shadow-md cursor-pointer flex items-center gap-2"
               >
                 <RefreshCw size={14} />
-                Reenviar {errosRetryaveis.length} com erro
+                Reenviar {errosDescartaveis.length} com erro
               </button>
             )}
-            {errosRetryaveis.length > 0 && !sincronizando && (
+            {errosDescartaveis.length > 0 && !sincronizando && (
               <button
                 type="button"
                 onClick={() => setConfirmarDescarte({ tipo: 'erros' })}
                 className="px-4 py-2 border border-rose-200 text-rose-600 rounded-xl text-sm font-semibold hover:bg-rose-50 transition-all cursor-pointer flex items-center gap-2"
               >
                 <Trash2 size={14} />
-                Descartar {errosRetryaveis.length} com erro
+                Descartar {errosDescartaveis.length} com erro
               </button>
             )}
             {temConflitos && !sincronizando && !offline && (
@@ -486,7 +500,7 @@ function ModalPendenciasSync({
         titulo={confirmarDescarte?.tipo === 'todos'
           ? 'Descartar todos os conflitos'
           : confirmarDescarte?.tipo === 'erros'
-            ? `Descartar ${errosRetryaveis.length} itens com erro`
+            ? `Descartar ${errosDescartaveis.length} itens com erro`
             : confirmarDescarte?.tipo === 'foto'
               ? 'Descartar evidência fotográfica?'
               : 'Descartar operação?'}
@@ -499,7 +513,7 @@ function ModalPendenciasSync({
         onConfirmar={confirmarDescarte?.tipo === 'todos'
           ? () => descartarEmMassa(conflitos)
           : confirmarDescarte?.tipo === 'erros'
-            ? () => descartarEmMassa(errosRetryaveis)
+            ? () => descartarEmMassa(errosDescartaveis)
             : confirmarDescarteItem}
         onCancelar={() => setConfirmarDescarte(null)}
       />
