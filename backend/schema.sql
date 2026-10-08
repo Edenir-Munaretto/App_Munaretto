@@ -818,6 +818,13 @@ ALTER TABLE IF EXISTS os_materiais ADD COLUMN IF NOT EXISTS fator_usc NUMERIC(12
 -- lançamento; mudanças futuras no cadastro não alteram lançamentos gravados.
 ALTER TABLE IF EXISTS os_materiais ADD COLUMN IF NOT EXISTS codigo_servico VARCHAR(50);
 
+-- Chave de idempotência do sync offline ("dispositivo:id_local"): quando um
+-- claim de sincronização travado é retomado (reclaim), o lançamento já gravado
+-- é devolvido em vez de duplicar o material. NULO = lançamento online/gestor.
+ALTER TABLE IF EXISTS os_materiais ADD COLUMN IF NOT EXISTS sync_id_local VARCHAR(96);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_os_materiais_sync_id_local
+    ON os_materiais (sync_id_local) WHERE sync_id_local IS NOT NULL;
+
 -- TABELA: os_apontamentos (H.H.: Play/Pause por membro da equipe)
 -- Cada linha é um bloco de trabalho: `inicio` no Play, `fim`/`minutos` no Pause.
 -- Custo Real de M.O. = SUM(minutos) x funcionarios.valor_hora / 60.
@@ -1212,6 +1219,14 @@ CREATE INDEX IF NOT EXISTS idx_sync_ops_os ON sync_ops (os_id, criado_servidor);
 -- Dono da entrega (usuário autenticado que enviou a operação): o reenvio só
 -- devolve a resposta gravada ao dono (evita vazar dados de outra equipe).
 ALTER TABLE IF EXISTS sync_ops ADD COLUMN IF NOT EXISTS usuario_id INTEGER REFERENCES usuarios(id) ON DELETE SET NULL;
+
+-- Momento em que a operação foi "reivindicada" (status processando). Um claim
+-- sem conclusão (processo reiniciado/timeout da plataforma/falha ao gravar o
+-- resultado) é retomado depois de alguns minutos em vez de travar o reenvio
+-- para sempre com 409 "já está sendo processada".
+ALTER TABLE IF EXISTS sync_ops ADD COLUMN IF NOT EXISTS processando_em TIMESTAMP WITH TIME ZONE;
+UPDATE sync_ops SET processando_em = criado_servidor
+    WHERE status = 'processando' AND processando_em IS NULL;
 
 -- FK do os_id (era apenas BIGINT): com a exclusão da O.S o registro de
 -- entrega órfão deixa de apontar para linha inexistente. Só é criada quando

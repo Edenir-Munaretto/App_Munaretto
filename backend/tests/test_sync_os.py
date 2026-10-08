@@ -815,7 +815,7 @@ def test_sync_reenvio_enquanto_pendente_nao_duplica(os_gestor_client, os_campo_c
     os_id = _criar_os(os_gestor_client, equipe_id=100).json()["id"]
     assert os_campo_client.put(f"/api/os/{os_id}/status", json={"novo_status": "aberta"}).status_code == 200
 
-    def _registro(id_local, status):
+    def _registro(id_local, status, processando_em=None):
         return {
             "id": len(db_fake._dados["sync_ops"]) + 1,
             "dispositivo": "tablet-campo-1",
@@ -825,6 +825,7 @@ def test_sync_reenvio_enquanto_pendente_nao_duplica(os_gestor_client, os_campo_c
             "criado_em": "2026-08-28T09:00:00Z",
             "payload": {"produto_id": 7, "quantidade_usada": 1},
             "status": status,
+            "processando_em": processando_em,
             "usuario_id": 92,
         }
 
@@ -843,11 +844,113 @@ def test_sync_reenvio_enquanto_pendente_nao_duplica(os_gestor_client, os_campo_c
     assert resultado["ok"] is True and resultado["duplicada"] is True
     assert len(db_fake._dados["os_materiais"]) == 1
 
-    # Entrega ainda 'processando' (outra requisição venceu o claim): 409.
-    db_fake._dados["sync_ops"].append(_registro("m2", "processando"))
+    # Entrega ainda 'processando' RECENTE (outra requisição venceu o claim):
+    # 409 — o reclaim só retoma claims órfãos após SYNC_CLAIM_ESPERA.
+    from datetime import UTC, datetime
+
+    db_fake._dados["sync_ops"].append(_registro("m2", "processando", datetime.now(UTC).isoformat()))
     ops2 = [_op("m2", "material", os_id, {"produto_id": 7, "quantidade_usada": 1}, "2026-08-28T09:00:00Z")]
     r3 = os_campo_client.post("/api/os/sincronizar", json={"operacoes": ops2, "dispositivo": "tablet-campo-1"})
     resultado3 = r3.json()["resultados"][0]
     assert resultado3["ok"] is False
     assert resultado3["status"] == 409
+    assert "não concluiu" in resultado3["erro"]
     assert len(db_fake._dados["os_materiais"]) == 1
+
+
+def _registro_claim(os_id, id_local, status="processando", processando_em=None, usuario_id=92):
+    return {
+        "id_local": id_local,
+        "dispositivo": "tablet-campo-1",
+        "os_id": os_id,
+        "tipo": "material",
+        "criado_em": "2026-08-28T09:00:00Z",
+        "payload": {"produto_id": 7, "quantidade_usada": 1},
+        "status": status,
+        "processando_em": processando_em,
+        "usuario_id": usuario_id,
+    }
+
+
+def test_sync_claim_orfao_e_retomado_e_aplicado_uma_vez(os_gestor_client, os_campo_client, db_fake):
+    """Claim 'processando' antigo (processo reiniciado/deploy/timeout) é
+    retomado após SYNC_CLAIM_ESPERA em vez de travar o reenvio para sempre."""
+    from datetime import UTC, datetime, timedelta
+
+    from tests.test_os import _criar_os, _seed_cenario
+
+    _seed_cenario(db_fake)
+    os_id = _criar_os(os_gestor_client, equipe_id=100).json()["id"]
+    assert os_campo_client.put(f"/api/os/{os_id}/status", json={"novo_status": "aberta"}).status_code == 200
+
+    antigo = (datetime.now(UTC) - timedelta(minutes=10)).isoformat()
+    db_fake._dados["sync_ops"].append(_registro_claim(os_id, "m1", processando_em=antigo))
+
+    ops = [_op("m1", "material", os_id, {"produto_id": 7, "quantidade_usada": 1}, "2026-08-28T09:00:00Z")]
+    corpo = {"operacoes": ops, "dispositivo": "tablet-campo-1"}
+    r1 = os_campo_client.post("/api/os/sincronizar", json=corpo)
+    resultado = r1.json()["resultados"][0]
+    assert resultado["ok"] is True, resultado
+    assert len(db_fake._dados["os_materiais"]) == 1
+
+    # Reenvio normal encontra 'ok': duplicada, sem novo lançamento.
+    r2 = os_campo_client.post("/api/os/sincronizar", json=corpo)
+    resultado2 = r2.json()["resultados"][0]
+    assert resultado2["ok"] is True and resultado2["duplicada"] is True
+    assert len(db_fake._dados["os_materiais"]) == 1
+
+
+def test_sync_claim_sem_timestamp_e_tratado_como_orfao(os_gestor_client, os_campo_client, db_fake):
+    """Linhas 'processando' legadas (sem processando_em) não podem travar o
+    reenvio: são retomadas como claim órfão."""
+    from tests.test_os import _criar_os, _seed_cenario
+
+    _seed_cenario(db_fake)
+    os_id = _criar_os(os_gestor_client, equipe_id=100).json()["id"]
+    assert os_campo_client.put(f"/api/os/{os_id}/status", json={"novo_status": "aberta"}).status_code == 200
+
+    db_fake._dados["sync_ops"].append(_registro_claim(os_id, "m1", processando_em=None))
+
+    ops = [_op("m1", "material", os_id, {"produto_id": 7, "quantidade_usada": 1}, "2026-08-28T09:00:00Z")]
+    resp = os_campo_client.post("/api/os/sincronizar", json={"operacoes": ops, "dispositivo": "tablet-campo-1"})
+    resultado = resp.json()["resultados"][0]
+    assert resultado["ok"] is True, resultado
+    assert len(db_fake._dados["os_materiais"]) == 1
+
+
+def test_sync_reclaim_nao_duplica_material_ja_gravado(os_gestor_client, os_campo_client, db_fake):
+    """Material aplicado cujo resultado se perdeu (linha órfã): o reclaim
+    devolve o lançamento existente pela chave sync_id_local — sem duplicar."""
+    from datetime import UTC, datetime, timedelta
+
+    from tests.test_os import _criar_os, _seed_cenario
+
+    _seed_cenario(db_fake)
+    os_id = _criar_os(os_gestor_client, equipe_id=100).json()["id"]
+    assert os_campo_client.put(f"/api/os/{os_id}/status", json={"novo_status": "aberta"}).status_code == 200
+
+    # Lançamento já gravado pelo claim anterior (resultado perdido).
+    db_fake._dados["os_materiais"].append(
+        {
+            "id": 999,
+            "os_id": os_id,
+            "produto_id": 7,
+            "quantidade_usada": 40.0,
+            "quantidade_pecas": 1,
+            "fator_usc": 40,
+            "tipo_usc": "normal",
+            "codigo_servico": None,
+            "usuario_email": "campo@teste",
+            "observacao": None,
+            "sync_id_local": "tablet-campo-1:m1",
+        }
+    )
+    antigo = (datetime.now(UTC) - timedelta(minutes=10)).isoformat()
+    db_fake._dados["sync_ops"].append(_registro_claim(os_id, "m1", processando_em=antigo))
+
+    ops = [_op("m1", "material", os_id, {"produto_id": 7, "quantidade_usada": 1}, "2026-08-28T09:00:00Z")]
+    resp = os_campo_client.post("/api/os/sincronizar", json={"operacoes": ops, "dispositivo": "tablet-campo-1"})
+    resultado = resp.json()["resultados"][0]
+    assert resultado["ok"] is True, resultado
+    assert resultado["dados"]["id"] == 999  # devolveu o lançamento existente
+    assert len(db_fake._dados["os_materiais"]) == 1  # não duplicou

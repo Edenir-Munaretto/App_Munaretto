@@ -254,6 +254,11 @@ TIPOS_SYNC_VALIDOS = {
     "material",
 }
 
+# Claim ('processando') sem conclusão por este tempo é considerado órfão
+# (processo reiniciado/deploy, timeout da plataforma, falha ao gravar o
+# resultado) e pode ser retomado por um novo reenvio.
+SYNC_CLAIM_ESPERA = timedelta(minutes=3)
+
 
 class OperacaoSyncIn(BaseModel):
     id_local: str = Field(..., max_length=64, description="Identificador local único da operação (uuid do tablet)")
@@ -1864,15 +1869,36 @@ def sincronizar(
             # é definido de forma ATÔMICA (pendente -> processando). Quem não
             # vencer o claim não aplica a operação — evita a aplicação em dobro
             # quando a resposta da primeira entrega se perdeu na rede.
-            assumiu = (
-                db.table("sync_ops")
-                .update({"status": "processando"})
-                .eq("dispositivo", dispositivo)
-                .eq("id_local", op.id_local)
-                .eq("status", "pendente")
-                .execute()
-            )
-            if not assumiu.data:
+            agora_iso = _agora().isoformat()
+            assumiu = None
+            if registrado.get("status") == "pendente":
+                assumiu = (
+                    db.table("sync_ops")
+                    .update({"status": "processando", "processando_em": agora_iso})
+                    .eq("dispositivo", dispositivo)
+                    .eq("id_local", op.id_local)
+                    .eq("status", "pendente")
+                    .execute()
+                )
+            else:
+                # Claim órfão (processo reiniciado/deploy, timeout da
+                # plataforma ou falha ao gravar o resultado): retoma após
+                # SYNC_CLAIM_ESPERA. Claim recente permanece exclusivo (409)
+                # para não reaplicar a operação em dobro.
+                corte = (_agora() - SYNC_CLAIM_ESPERA).isoformat()
+                consulta = (
+                    db.table("sync_ops")
+                    .update({"processando_em": agora_iso})
+                    .eq("dispositivo", dispositivo)
+                    .eq("id_local", op.id_local)
+                    .eq("status", "processando")
+                )
+                if registrado.get("processando_em") is None:
+                    # Linhas antigas/pré-migração sem timestamp: claim órfão.
+                    assumiu = consulta.is_("processando_em", "null").execute()
+                else:
+                    assumiu = consulta.lte("processando_em", corte).execute()
+            if not assumiu or not assumiu.data:
                 relido = _consulta_sync_op(db, dispositivo, op.id_local)
                 if relido and relido.get("status") == "ok" and relido.get("usuario_id") == usuario.id:
                     resultados.append(
@@ -1884,7 +1910,10 @@ def sincronizar(
                             "id_local": op.id_local,
                             "ok": False,
                             "status": 409,
-                            "erro": "Operação já está sendo processada por outra sincronização. Reenvie o lote.",
+                            "erro": (
+                                "A sincronização anterior desta operação não concluiu. "
+                                "Aguarde alguns minutos e reenvie."
+                            ),
                         }
                     )
                 continue
@@ -1966,7 +1995,7 @@ def sincronizar(
                     else:
                         raise
             elif op.tipo == "material":
-                dados = lancar_material(
+                dados = _lancar_material(
                     op.os_id,
                     MaterialLancamento(
                         produto_id=op.payload.get("produto_id"),
@@ -1975,6 +2004,8 @@ def sincronizar(
                     ),
                     usuario,
                     db,
+                    # Chave de idempotência do lançamento: reclaim não duplica.
+                    sync_id_local=f"{dispositivo}:{op.id_local}",
                 )
             else:
                 dados = _apontar_hora(
@@ -2179,9 +2210,40 @@ def lancar_material(
     usuario: UsuarioAutenticado = Depends(get_current_user),
     db=Depends(get_supabase),
 ):
+    return _lancar_material(os_id, payload, usuario, db)
+
+
+def _lancar_material(
+    os_id: int,
+    payload: MaterialLancamento,
+    usuario: UsuarioAutenticado,
+    db,
+    sync_id_local: str | None = None,
+):
     try:
         os_data = _os_ou_404(db, os_id)
         _garantir_acesso_os(db, usuario, os_data)
+
+        # Idempotência do sync offline: um claim órfão retomado (reclaim) pode
+        # reenviar a operação; se o lançamento já foi gravado, devolve o
+        # existente em vez de duplicar o material. NULO fora do sync.
+        if sync_id_local:
+            existente = (
+                db.table("os_materiais")
+                .select("*")
+                .eq("sync_id_local", sync_id_local)
+                .execute()
+            )
+            if existente.data:
+                nome = (
+                    db.table("produtos")
+                    .select("nome")
+                    .eq("id", existente.data[0]["produto_id"])
+                    .execute()
+                    .data
+                )
+                return {**existente.data[0], "produto_nome": (nome[0]["nome"] if nome else None)}
+
         # O campo lança em O.S em execução (aberta/em andamento); o gestor
         # também em O.S encerrada (ajustes pós-conclusão). Rascunho permanece
         # bloqueado para todos.
@@ -2250,6 +2312,7 @@ def lancar_material(
                     "codigo_servico": codigo_servico,
                     "usuario_email": usuario.email,
                     "observacao": payload.observacao,
+                    "sync_id_local": sync_id_local,
                 }
             )
             .execute()

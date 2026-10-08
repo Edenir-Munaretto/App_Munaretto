@@ -11,7 +11,7 @@ vi.mock('../api', () => ({
 
 import { apiFetch } from '../api';
 import { dbDel, dbGet, dbPut, limparTudoLocal } from './db';
-import { sincronizar } from './sync';
+import { ehConflito, sincronizar } from './sync';
 
 const resposta = (json, status = 200) => ({ ok: status < 400, status, json: async () => json });
 
@@ -193,5 +193,28 @@ describe('sincronizar', () => {
     expect(linha.id_local).toBe('op-mat-1');
     expect(linha.pendente_local).toBeUndefined();
     expect(linha.codigo_servico).toBe('ROCA-01');
+  });
+});
+
+describe('ehConflito', () => {
+  it('classifica qualquer 4xx como definitivo (inclusive 403/404/413)', () => {
+    expect(ehConflito(400)).toBe(true);
+    expect(ehConflito(403)).toBe(true); // O.S reatribuída a outra equipe
+    expect(ehConflito(404)).toBe(true); // O.S/item removido no servidor
+    expect(ehConflito(409, 'A O.S foi alterada por outra pessoa.')).toBe(true);
+    expect(ehConflito(413, 'Arquivo excede o limite de 15 MB.')).toBe(true);
+    expect(ehConflito(422)).toBe(true);
+  });
+
+  it('claim de sincronização (409) segue transitório nas duas mensagens', () => {
+    expect(ehConflito(409, 'A sincronização anterior desta operação não concluiu. Aguarde alguns minutos e reenvie.')).toBe(false);
+    expect(ehConflito(409, 'Operação já está sendo processada por outra sincronização. Reenviar o lote.')).toBe(false);
+  });
+
+  it('sessão/timeout/limite e 5xx continuam retryáveis', () => {
+    expect(ehConflito(401)).toBe(false);
+    expect(ehConflito(408)).toBe(false);
+    expect(ehConflito(429)).toBe(false);
+    expect(ehConflito(500)).toBe(false);
   });
 });

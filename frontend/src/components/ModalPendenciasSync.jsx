@@ -167,11 +167,11 @@ function ModalPendenciasSync({
     onItemSincronizado?.();
   };
 
-  const descartarTodosOsConflitos = async () => {
+  const descartarEmMassa = async (itens) => {
     setConfirmarDescarte(null);
     setErroAcao(null);
     let falhas = 0;
-    for (const { tipo, item } of conflitos) {
+    for (const { tipo, item } of itens) {
       if (!item?.id_local) { falhas += 1; continue; }
       try {
         await descartarPendente(tipo, item.id_local);
@@ -439,6 +439,16 @@ function ModalPendenciasSync({
                 Reenviar {errosRetryaveis.length} com erro
               </button>
             )}
+            {errosRetryaveis.length > 0 && !sincronizando && (
+              <button
+                type="button"
+                onClick={() => setConfirmarDescarte({ tipo: 'erros' })}
+                className="px-4 py-2 border border-rose-200 text-rose-600 rounded-xl text-sm font-semibold hover:bg-rose-50 transition-all cursor-pointer flex items-center gap-2"
+              >
+                <Trash2 size={14} />
+                Descartar {errosRetryaveis.length} com erro
+              </button>
+            )}
             {temConflitos && !sincronizando && !offline && (
               <button
                 type="button"
@@ -475,14 +485,22 @@ function ModalPendenciasSync({
         aberto={confirmarDescarte != null}
         titulo={confirmarDescarte?.tipo === 'todos'
           ? 'Descartar todos os conflitos'
-          : confirmarDescarte?.tipo === 'foto'
-            ? 'Descartar evidência fotográfica?'
-            : 'Descartar operação?'}
+          : confirmarDescarte?.tipo === 'erros'
+            ? `Descartar ${errosRetryaveis.length} itens com erro`
+            : confirmarDescarte?.tipo === 'foto'
+              ? 'Descartar evidência fotográfica?'
+              : 'Descartar operação?'}
         mensagem={confirmarDescarte?.tipo === 'todos'
           ? 'Todas as operações/fotos em conflito serão removidas do dispositivo e NUNCA serão aplicadas no servidor. Esta ação não pode ser desfeita.'
-          : mensagemDescarte}
+          : confirmarDescarte?.tipo === 'erros'
+            ? 'Os itens com erro serão removidos do dispositivo e NÃO serão aplicados no servidor. Use isto apenas quando a causa não puder ser corrigida (ex.: foto antiga com problema). Esta ação não pode ser desfeita.'
+            : mensagemDescarte}
         confirmarTexto="Descartar"
-        onConfirmar={confirmarDescarte?.tipo === 'todos' ? descartarTodosOsConflitos : confirmarDescarteItem}
+        onConfirmar={confirmarDescarte?.tipo === 'todos'
+          ? () => descartarEmMassa(conflitos)
+          : confirmarDescarte?.tipo === 'erros'
+            ? () => descartarEmMassa(errosRetryaveis)
+            : confirmarDescarteItem}
         onCancelar={() => setConfirmarDescarte(null)}
       />
     </div>

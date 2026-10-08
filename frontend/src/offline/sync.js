@@ -23,7 +23,7 @@ import { API_URL, apiFetch, erroDaResposta } from '../api';
 import { dbDel, dbGet, dbGetAll, dbPut } from './db';
 import { contarPendentes, dispositivoId } from './offline';
 
-const TAMANHO_LOTE = 200;
+const TAMANHO_LOTE = 50;
 const ATRASO_RETRY_TRANSITORIO_MS = 1200;
 
 const esperar = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
@@ -61,11 +61,17 @@ async function confirmarMaterialLocal(op, dados) {
 }
 
 // Erros DEFINITIVOS (não adianta reenviar) = conflito para revisão/descarte.
-// Exceção: o 409 transitório "já está sendo processada por outra sincronização"
-// é uma corrida entre dois envios — deve continuar como erro retryável.
-function ehConflito(status, erro = '') {
-  if (status === 409 && /sendo processada por outra sincroniza/i.test(String(erro))) return false;
-  return status === 400 || status === 409 || status === 422;
+// Qualquer 4xx é definitivo (ex.: 403 sem acesso à O.S, 404 O.S/item removido,
+// 413 foto grande) — antes só 400/409/422 viravam conflito e o restante ficava
+// "retryável" para sempre, exigindo descarte item a item no modal.
+// Exceções transitórias: 401 (sessão/logout), 408/429 (timeout/limite) e o 409
+// de claim ("não concluiu"), que o backend retoma sozinho após alguns minutos.
+export function ehConflito(status, erro = '') {
+  if (status === 401 || status === 408 || status === 429) return false;
+  if (status === 409 && /não concluiu|sendo processada por outra sincroniza/i.test(String(erro))) {
+    return false;
+  }
+  return status >= 400 && status < 500;
 }
 
 // 1) Fotos pendentes (filtradas pelo seletor, se informado).
@@ -149,7 +155,7 @@ async function enviarOperacoes(ops, mapaFotos, resumo, onProgress, dispositivo) 
     try {
       const res = await apiFetch(`${API_URL}/os/sincronizar`, {
         method: 'POST',
-        signal: AbortSignal.timeout(30000),
+        signal: AbortSignal.timeout(60000),
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           operacoes: fatia.map(op => ({
