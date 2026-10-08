@@ -136,4 +136,62 @@ describe('sincronizar', () => {
     expect(item.status).toBe('erro');
     expect(item.classificacao).toBe('conflito');
   });
+
+  it('material sincronizado recebe o id do servidor e deixa de ser pendente', async () => {
+    await dbPut('fila', {
+      id_local: 'op-mat-1',
+      tipo: 'material',
+      os_id: 7,
+      criado_em: '2026-09-24T10:00:00Z',
+      payload: { produto_id: 3, quantidade_usada: 1, tipo_usc: 'normal' },
+      status: 'pendente',
+      tentativas: 0,
+    });
+    await dbPut('os', {
+      os_id: 7,
+      id: 7,
+      ultimos_lancamentos: [
+        {
+          id: 1750000000000, // id local provisório (substituído pelo do servidor)
+          id_local: 'op-mat-1',
+          pendente_local: true,
+          produto_id: 3,
+          quantidade_usada: 6.66,
+        },
+      ],
+    });
+
+    apiFetch.mockImplementation(async (url) => {
+      if (String(url).includes('/os/sincronizar')) {
+        return resposta({
+          resultados: [
+            {
+              id_local: 'op-mat-1',
+              ok: true,
+              dados: {
+                id: 99,
+                quantidade_usada: 6.66,
+                quantidade_pecas: 1,
+                fator_usc: 6.66,
+                tipo_usc: 'normal',
+                codigo_servico: 'ROCA-01',
+              },
+            },
+          ],
+        });
+      }
+      return resposta({ resultados: [] });
+    });
+
+    const r = await sincronizar();
+    expect(r.operacoesEnviadas).toBe(1);
+    expect(await dbGet('fila', 'op-mat-1')).toBeUndefined();
+
+    const osLocal = await dbGet('os', 7);
+    const linha = osLocal.ultimos_lancamentos[0];
+    expect(linha.id).toBe(99);
+    expect(linha.id_local).toBe('op-mat-1');
+    expect(linha.pendente_local).toBeUndefined();
+    expect(linha.codigo_servico).toBe('ROCA-01');
+  });
 });

@@ -975,22 +975,13 @@ function TabInsumos({ osDetalhe, produtos, onAtualizado, mostrarToast, podeEdita
     return () => clearInterval(t);
   }, [pendentesLocais.length, carregarPendentesLocais]);
 
-  const porProdutoDelta = useMemo(() => {
-    const mapa = new Map();
-    for (const l of pendentesLocais) {
-      const produtoId = Number(l.produto_id);
-      mapa.set(produtoId, (mapa.get(produtoId) || 0) + Number(l.quantidade_usada || 0));
-    }
-    return mapa;
-  }, [pendentesLocais]);
-
-  // Agregado "Serviços aplicados": itens do servidor + pendências locais
-  // (cria linha virtual quando o serviço ainda não chegou ao servidor).
+  // Agregado "Serviços aplicados". No Modo Campo o detalhe exibido JÁ é o
+  // pacote local e `refletirMaterialLocal` soma o lançamento pendente em
+  // `materiais` — somar as pendências de novo aqui dobraria o valor. A linha
+  // virtual abaixo cobre só o estado inconsistente (fila com pendência sem
+  // item espelhado no pacote local).
   const itensVisao = useMemo(() => {
-    const base = (osDetalhe.materiais?.itens || []).map(it => {
-      const delta = porProdutoDelta.get(Number(it.produto_id)) || 0;
-      return delta ? { ...it, aplicado: Number((Number(it.aplicado || 0) + delta).toFixed(3)) } : it;
-    });
+    const base = [...(osDetalhe.materiais?.itens || [])];
     for (const l of pendentesLocais) {
       if (base.some(it => Number(it.produto_id) === Number(l.produto_id))) continue;
       base.push({
@@ -1001,7 +992,7 @@ function TabInsumos({ osDetalhe, produtos, onAtualizado, mostrarToast, podeEdita
       });
     }
     return base;
-  }, [osDetalhe.materiais, pendentesLocais, porProdutoDelta, unidade]);
+  }, [osDetalhe.materiais, pendentesLocais, unidade]);
 
   // Últimos lançamentos: servidor + linhas pendentes da fila local.
   const lancamentosVisao = useMemo(() => {
@@ -1205,9 +1196,20 @@ function TabInsumos({ osDetalhe, produtos, onAtualizado, mostrarToast, podeEdita
     setEstornandoId(null);
     const alvo = pendentesLocais.find(p => String(p.id_local) === String(id) || Number(p.id) === Number(id))
       || (osDetalhe.lancamentos || []).find(l => Number(l.id) === Number(id) || String(l.id_local) === String(id));
+    // "Pendente" de verdade = operação ainda na fila local. O flag da linha
+    // pode estar defasado (já sincronizou e o painel ainda não releu o
+    // pacote): consultar a fila evita remover só do dispositivo e deixar o
+    // lançamento vivo no servidor.
+    let aindaPendente = false;
+    if (alvo?.id_local) {
+      const ops = await lancamentosPendentesDaFila(osDetalhe.id);
+      aindaPendente = ops.some(op => String(op.id_local) === String(alvo.id_local));
+    } else if (alvo?.pendente_local) {
+      aindaPendente = true;
+    }
     // Lançamento pendente no dispositivo (ainda não sincronizado): remove da
     // fila e do snapshot local — não existe no servidor ainda.
-    if (alvo?.pendente_local) {
+    if (aindaPendente) {
       try {
         if (alvo.id_local) await descartarPendente('operacao', alvo.id_local);
         await removerMaterialLocal(alvo);
@@ -1219,8 +1221,23 @@ function TabInsumos({ osDetalhe, produtos, onAtualizado, mostrarToast, podeEdita
       }
       return;
     }
+    // Já sincronizado: usa o id do servidor. O sync grava esse id na linha
+    // espelhada; relê o pacote local porque a tela pode estar com o id local.
+    let idServidor = alvo?.id;
+    if (alvo?.id_local) {
+      try {
+        const local = await getOSLocal(osDetalhe.id);
+        const linha = (local?.ultimos_lancamentos || [])
+          .find(l => String(l.id_local) === String(alvo.id_local));
+        if (linha?.id != null) idServidor = linha.id;
+      } catch { /* usa o id exibido */ }
+    }
+    if (idServidor == null) {
+      mostrarToast('Não foi possível identificar o lançamento para estorno.', 'error');
+      return;
+    }
     try {
-      const res = await apiFetch(`${API_URL}/os/${osDetalhe.id}/materiais/${id}`, { method: 'DELETE' });
+      const res = await apiFetch(`${API_URL}/os/${osDetalhe.id}/materiais/${idServidor}`, { method: 'DELETE' });
       if (res.ok) {
         mostrarToast('Lançamento estornado.');
         onAtualizado();
@@ -4570,6 +4587,9 @@ function OrdensServico({ usuarioAtual }) {
         onItemSincronizado={async () => {
           const p = await contarPendentes();
           setPendentes(p);
+          // O painel aberto precisa reler o pacote local: o item sincronizado
+          // deixa de ser pendente (id do servidor gravado na linha).
+          setVersaoPainel(v => v + 1);
         }}
       />
     </div>

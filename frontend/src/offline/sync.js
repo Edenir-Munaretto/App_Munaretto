@@ -39,6 +39,27 @@ async function atualizarSeExistir(store, chave, campos) {
   return true;
 }
 
+// Lançamento de material confirmado pelo servidor: a linha espelhada no pacote
+// local deixa de ser "pendente" e recebe o id real do lançamento. Sem isto a
+// linha continuaria marcada como não sincronizada até o próximo download do
+// pacote, e o ESTORNO tentaria removê-la apenas do dispositivo, deixando o
+// lançamento vivo no servidor.
+async function confirmarMaterialLocal(op, dados) {
+  const osLocal = await dbGet('os', Number(op.os_id));
+  if (!osLocal) return;
+  const linha = (osLocal.ultimos_lancamentos || [])
+    .find(l => l && String(l.id_local) === String(op.id_local));
+  if (!linha) return;
+  if (dados?.id != null) linha.id = dados.id;
+  if (dados?.quantidade_usada != null) linha.quantidade_usada = dados.quantidade_usada;
+  if (dados?.quantidade_pecas != null) linha.quantidade_pecas = dados.quantidade_pecas;
+  if (dados?.fator_usc != null) linha.fator_usc = dados.fator_usc;
+  if (dados?.tipo_usc != null) linha.tipo_usc = dados.tipo_usc;
+  if (dados?.codigo_servico !== undefined) linha.codigo_servico = dados.codigo_servico;
+  delete linha.pendente_local;
+  await dbPut('os', osLocal);
+}
+
 // Erros DEFINITIVOS (não adianta reenviar) = conflito para revisão/descarte.
 // Exceção: o 409 transitório "já está sendo processada por outra sincronização"
 // é uma corrida entre dois envios — deve continuar como erro retryável.
@@ -168,12 +189,15 @@ async function enviarOperacoes(ops, mapaFotos, resumo, onProgress, dispositivo) 
         return false;
       }
       for (const r of dados.resultados) {
+        const opOriginal = ops.find(op => op.id_local === r.id_local);
         if (r.ok) {
           resumo.operacoesEnviadas += 1;
+          if (opOriginal?.tipo === 'material') {
+            await confirmarMaterialLocal(opOriginal, r.dados).catch(() => { /* best-effort */ });
+          }
           await dbDel('fila', r.id_local);
         } else {
           const erro = r.erro || 'Erro ao aplicar operação.';
-          const opOriginal = ops.find(op => op.id_local === r.id_local);
           const conflito = ehConflito(r.status, erro);
           const falha = { id_local: r.id_local, tipo: 'operacao', opTipo: opOriginal?.tipo, erro };
           resumo.falhas.push(falha);
