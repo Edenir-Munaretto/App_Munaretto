@@ -627,8 +627,8 @@ CREATE POLICY "service_role_full_sst_documentos" ON sst_documentos
 --   rascunho     -> aberta | cancelada
 --   aberta       -> em_andamento | cancelada
 --   em_andamento -> concluida | cancelada
---   concluida    -> (reabertura -> aberta, gestor)
---   cancelada    -> (reabertura -> aberta, gestor)
+--   concluida    -> (encerrada; NÃO volta ao funil — reabertura desativada)
+--   cancelada    -> (encerrada; NÃO volta ao funil — reabertura desativada)
 -- Regra crítica: transição para 'cancelada' EXIGE justificativa (>= 5
 -- caracteres); a foto de evidência é opcional.
 

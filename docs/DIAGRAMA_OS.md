@@ -64,8 +64,6 @@ stateDiagram-v2
     Aberta --> Cancelada: cancelar (justificativa)
     EmAndamento --> Concluida: checklist 100%
     EmAndamento --> Cancelada: cancelar (justificativa)
-    Concluida --> Aberta: reabrir (gestor)
-    Cancelada --> Aberta: reabrir (gestor)
     Concluida --> [*]
     Cancelada --> [*]
 ```
@@ -144,12 +142,14 @@ flowchart TD
     · Cronômetro ─► PLAY abre bloco de H.H. (só 1 aberto por pessoa/O.S);
                     PAUSE fecha e calcula minutos; cancelada/concluída não aponta
     · Serviços   ─► lançar serviços com seletor USC normal/especial
-                    (peças x fator do cadastro, ex.: 0.48/0.67); estorno só gestor
+                    (peças x fator do cadastro, ex.: 0.48/0.67); estorno: gestor
+                    em qualquer status, campo em O.S em execução; editar é do gestor
     · Evidências ─► fotos (câmera/galeria) no S3; excluir só gestor
     · Timeline   ─► histórico de transições (quem/quando/GPS)
 
  5. CANCELAMENTO (se necessário): justificativa ≥5 → cancelada (sai do
-    quadro do campo; fica na visão Encerradas do gestor, que pode reabrir)
+    quadro do campo; fica na visão Encerradas do gestor — reabertura desativada:
+    correções são feitas por edição/estorno de serviços, sem reabrir)
 
  6. CONCLUSÃO: checklist 100% → concluída → encerra cronômetros esquecidos,
     registra data_fim e notifica o criador

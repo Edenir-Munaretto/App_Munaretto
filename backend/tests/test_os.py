@@ -965,9 +965,9 @@ class TestMateriaisEPermissao:
         corpo = resp.json()
         assert corpo["transicoes"]["rascunho"] == ["aberta", "cancelada"]
         assert corpo["transicoes"]["em_andamento"] == ["cancelada", "concluida"]
-        # Reabertura pelo gestor: encerradas podem voltar para 'aberta'.
-        assert corpo["transicoes"]["concluida"] == ["aberta"]
-        assert corpo["transicoes"]["cancelada"] == ["aberta"]
+        # Reabertura desativada: encerradas não voltam ao funil.
+        assert corpo["transicoes"]["concluida"] == []
+        assert corpo["transicoes"]["cancelada"] == []
         assert "em_andamento" in corpo["status_validos"]
         assert "impedida" not in corpo["status_validos"]
         assert "linha_viva" in corpo["tipos"]
@@ -2230,10 +2230,11 @@ def test_equipe_mudanca_de_membros_aplica_diferenca_sem_recriar(os_gestor_client
     assert r2.status_code == 200, r2.text
     assert {m["funcionario_id"] for m in db_fake._dados["equipe_membros"] if m["equipe_id"] == eq_id} == {11}
 
-class TestReaberturaOs:
-    """Reabertura de O.S concluida/cancelada pelo gestor (decisão nº 2)."""
+class TestReaberturaDesativada:
+    """Reabertura de O.S encerrada foi DESATIVADA: encerradas não voltam ao
+    funil; o gestor corrige lançamentos/estornos em qualquer status."""
 
-    def test_gestor_reabre_os_concluida_com_justificativa(self, os_gestor_client, db_fake):
+    def test_reabertura_de_concluida_bloqueada(self, os_gestor_client, db_fake):
         _seed_cenario(db_fake)
         os_id = _criar_os_aberta_em_andamento(os_gestor_client)
         assert os_gestor_client.put(f"/api/os/{os_id}/status", json={"novo_status": "concluida"}).status_code == 200
@@ -2242,18 +2243,11 @@ class TestReaberturaOs:
             f"/api/os/{os_id}/status",
             json={"novo_status": "aberta", "justificativa": "Cliente pediu retorno da equipe para acabamento."},
         )
-        assert resp.status_code == 200, resp.text
-        detalhe = os_gestor_client.get(f"/api/os/{os_id}").json()
-        assert detalhe["status"] == "aberta"
-        assert detalhe["data_fim"] is None  # voltou ao funil sem data de encerramento
+        assert resp.status_code == 422
+        assert "Transição inválida" in resp.json()["detail"]
+        assert os_gestor_client.get(f"/api/os/{os_id}").json()["status"] == "concluida"
 
-        evento = next(
-            h for h in db_fake._dados["os_historico"]
-            if h["os_id"] == os_id and h["status_anterior"] == "concluida" and h["status_novo"] == "aberta"
-        )
-        assert "acabamento" in (evento["justificativa"] or "")
-
-    def test_reabrir_cancelada_tambem_volta_ao_funil(self, os_gestor_client, db_fake):
+    def test_reabertura_de_cancelada_bloqueada(self, os_gestor_client, db_fake):
         _seed_cenario(db_fake)
         os_id = _criar_os(os_gestor_client).json()["id"]
         assert (
@@ -2267,34 +2261,13 @@ class TestReaberturaOs:
             f"/api/os/{os_id}/status",
             json={"novo_status": "aberta", "justificativa": "Cancelamento indevido; O.S volta para análise."},
         )
-        assert resp.status_code == 200, resp.text
-        assert os_gestor_client.get(f"/api/os/{os_id}").json()["status"] == "aberta"
-
-    def test_reabertura_exige_gestor(self, os_gestor_client, os_campo_client, db_fake):
-        _seed_cenario(db_fake)
-        os_id = _criar_os(os_gestor_client, equipe_id=100).json()["id"]
-        assert (
-            os_gestor_client.put(
-                f"/api/os/{os_id}/status",
-                json={"novo_status": "cancelada", "justificativa": "Cliente desistiu do serviço nesta obra."},
-            ).status_code
-            == 200
-        )
-        resp = os_campo_client.put(
-            f"/api/os/{os_id}/status",
-            json={"novo_status": "aberta", "justificativa": "Campo tentando reabrir a O.S."},
-        )
-        assert resp.status_code == 403
-
-    def test_reabertura_exige_justificativa(self, os_gestor_client, db_fake):
-        _seed_cenario(db_fake)
-        os_id = _criar_os_aberta_em_andamento(os_gestor_client)
-        assert os_gestor_client.put(f"/api/os/{os_id}/status", json={"novo_status": "concluida"}).status_code == 200
-
-        resp = os_gestor_client.put(f"/api/os/{os_id}/status", json={"novo_status": "aberta", "justificativa": "curta"})
         assert resp.status_code == 422
-        assert "justificativa" in resp.json()["detail"]
-        assert os_gestor_client.get(f"/api/os/{os_id}").json()["status"] == "concluida"
+        assert os_gestor_client.get(f"/api/os/{os_id}").json()["status"] == "cancelada"
+
+    def test_transicoes_nao_oferecem_reabertura(self, os_gestor_client):
+        transicoes = os_gestor_client.get("/api/os/transicoes").json()["transicoes"]
+        assert transicoes["concluida"] == []
+        assert transicoes["cancelada"] == []
 
 
 def test_editar_os_parcial_nao_zera_campos_omissos(os_gestor_client, db_fake):

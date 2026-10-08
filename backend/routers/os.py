@@ -120,14 +120,14 @@ def _validar_servico_do_contrato(db, produto_id: int, tipo_os: str) -> dict:
 
 # Máquina de estados: origem -> destinos permitidos. Qualquer transição fora
 # deste mapa é rejeitada com 422 (evita saltos como Rascunho -> Concluída).
-# O.S concluída/cancelada podem ser REABERTAS pelo gestor (-> aberta) com
-# justificativa registrada no histórico (decisão de negócio nº 2).
+# O.S encerradas NÃO voltam ao funil (reabertura desativada): o gestor corrige
+# lançamentos/serviços em qualquer status (edição/estorno), sem reabrir.
 TRANSICOES_STATUS = {
     "rascunho": {"aberta", "cancelada"},
     "aberta": {"em_andamento", "cancelada"},
     "em_andamento": {"concluida", "cancelada"},
-    "concluida": {"aberta"},
-    "cancelada": {"aberta"},
+    "concluida": set(),
+    "cancelada": set(),
 }
 
 MIN_JUSTIFICATIVA_CANCELADA = 5
@@ -1358,20 +1358,9 @@ def alterar_status(
                 detail=f"Transição inválida: '{atual}' -> '{novo}'. Destinos permitidos: {', '.join(destinos)}.",
             )
 
-        # Reabertura (concluida/cancelada -> aberta) é decisão de gestão com
-        # justificativa registrada no histórico (auditoria) — decisão nº 2.
-        reabertura = novo == "aberta" and atual in ("concluida", "cancelada")
-        if reabertura:
-            _exigir_gestor(usuario)
-            texto_reabertura = (payload.justificativa or "").strip()
-            if len(texto_reabertura) < MIN_REABERTURA_CARACTERES:
-                raise HTTPException(
-                    status_code=422,
-                    detail=(
-                        "Para reabrir uma O.S encerrada é obrigatória uma justificativa "
-                        f"descritiva com no mínimo {MIN_REABERTURA_CARACTERES} caracteres."
-                    ),
-                )
+        # Reabertura desativada: O.S encerradas não voltam ao funil (o gestor
+        # corrige lançamentos/estornos em qualquer status). Transições para
+        # 'aberta' a partir de encerradas nem chegam aqui (mapa as rejeita).
 
         # Regra 2 (crítica): cancelamento exige justificativa >= 5 caracteres
         # (foto de evidência é opcional). Campo e gestor podem cancelar O.S
@@ -1416,13 +1405,10 @@ def alterar_status(
                 updates["data_fim"] = meio_dia_fuso_brasil(data_execucao).isoformat()
             else:
                 updates["data_fim"] = _agora().isoformat()
-        if reabertura:
-            # Volta ao funil: sem data de encerramento (limpa a do ciclo antigo).
-            updates["data_fim"] = None
-        # Abertura = quando a O.S passa a ser executada (rascunho -> aberta ou
-        # reabertura). Antes ficava a data de CRIAÇÃO do rascunho, distorcendo
+        # Abertura = quando a O.S passa a ser executada (rascunho -> aberta).
+        # Antes ficava a data de CRIAÇÃO do rascunho, distorcendo
         # resumo/relatórios/PDFs quando a O.S abria dias depois de criada.
-        if (atual == "rascunho" and novo == "aberta") or reabertura:
+        if atual == "rascunho" and novo == "aberta":
             updates["data_abertura"] = _agora().isoformat()
 
         # Update atômico: a condição de estado impede que duas solicitações

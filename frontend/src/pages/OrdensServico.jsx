@@ -83,12 +83,13 @@ function filtrarListaLocal(lista, { busca, equipe_id, prioridade, data_de, data_
 
 // Espelha a máquina de estados do backend — usada como FALLBACK enquanto o
 // endpoint /os/transicoes (fonte única) não é carregado.
+// O.S encerradas não voltam ao funil (reabertura desativada).
 const TRANSICOES_STATUS = {
   rascunho:    new Set(['aberta', 'cancelada']),
   aberta:      new Set(['em_andamento', 'cancelada']),
   em_andamento: new Set(['concluida', 'cancelada']),
-  concluida:   new Set(['aberta']),
-  cancelada:   new Set(['aberta']),
+  concluida:   new Set(),
+  cancelada:   new Set(),
 };
 
 const LIMITE_PAGINA = 100;
@@ -2191,7 +2192,7 @@ function AcoesStatus({ detalhe, podeEditar, mudarStatus, aoAplicado, transicoesM
   );
 }
 
-function PainelExecucao({ osId, produtos, onFechar, recarregarLista, mostrarToast, ehMobile, mudarStatus, ehGestor, onEditar, onExcluir, transicoes, onPedirCancelamento, onReabrir, versaoPainel, equipes = [] }) {
+function PainelExecucao({ osId, produtos, onFechar, recarregarLista, mostrarToast, ehMobile, mudarStatus, ehGestor, onEditar, onExcluir, transicoes, onPedirCancelamento, versaoPainel, equipes = [] }) {
   const [detalhe, setDetalhe] = useState(null);
   const [erro, setErro] = useState('');
   const [aba, setAba] = useState('insumos');
@@ -2514,15 +2515,6 @@ function PainelExecucao({ osId, produtos, onFechar, recarregarLista, mostrarToas
             >
               <ListChecks size={14} /> Checklist PDF
             </button>
-            {['concluida', 'cancelada'].includes(detalhe.status) && (
-              <button
-                type="button"
-                onClick={() => onReabrir(detalhe)}
-                className="h-11 rounded-xl border border-amber-200 bg-amber-50 text-amber-700 text-xs font-bold flex items-center justify-center gap-1.5 hover:bg-amber-100 cursor-pointer col-span-2"
-              >
-                <RefreshCw size={14} /> Reabrir O.S (exige justificativa)
-              </button>
-            )}
             {podeExcluirOs && (
               <button type="button" onClick={() => onExcluir(detalhe)} className="h-11 rounded-xl border border-rose-200 bg-rose-50 text-rose-600 text-xs font-bold flex items-center justify-center gap-1.5 hover:bg-rose-100 cursor-pointer col-span-2">
                 <Trash2 size={14} /> Excluir O.S
@@ -3327,7 +3319,6 @@ function OrdensServico({ usuarioAtual }) {
   const [versaoDesligamentos, setVersaoDesligamentos] = useState(0); // refresh da agenda de Desligamentos
   const [modalEdicao, setModalEdicao] = useState(null); // detalhe da O.S em edição
   const [modalCancelamento, setModalCancelamento] = useState(null); // {os, destinoColuna}
-  const [modalReabrir, setModalReabrir] = useState(null); // {os} — reabertura de encerrada (gestor)
   const [confirmacaoEncerrar, setConfirmacaoEncerrar] = useState(null); // {os, destino}
   const [confirmacaoExcluir, setConfirmacaoExcluir] = useState(null); // {os} — exclusão definitiva
   const [processando, setProcessando] = useState(false);
@@ -4146,24 +4137,6 @@ function OrdensServico({ usuarioAtual }) {
     if (ok) setModalCancelamento(null);
   };
 
-  // Reabertura de O.S encerrada (gestor): justificativa registrada no histórico.
-  const confirmarReabertura = async (justificativa) => {
-    const os = modalReabrir;
-    if (!os) return;
-    setProcessando(true);
-    try {
-      const ok = await mudarStatus(os, 'aberta', { justificativa });
-      if (ok) {
-        setModalReabrir(null);
-        mostrarToast(`O.S ${os.codigo} reaberta.`);
-      } else {
-        mostrarToast('Não foi possível reabrir a O.S. Confira a mensagem acima.', 'error');
-      }
-    } finally {
-      setProcessando(false);
-    }
-  };
-
   // --- Agrupamento do Kanban ---------------------------------------------------
 
   // Colunas visíveis: gestor vê todas; o campo vê as em execução.
@@ -4673,7 +4646,6 @@ function OrdensServico({ usuarioAtual }) {
               onEditar={(detalhe) => setModalEdicao(detalhe)}
               onExcluir={(detalhe) => setConfirmacaoExcluir({ os: detalhe })}
               onPedirCancelamento={(detalhe) => setModalCancelamento({ os: detalhe })}
-              onReabrir={(detalhe) => setModalReabrir(detalhe)}
               transicoes={transicoes}
             />
           )}
@@ -4822,7 +4794,6 @@ function OrdensServico({ usuarioAtual }) {
               onEditar={(detalhe) => setModalEdicao(detalhe)}
               onExcluir={(detalhe) => setConfirmacaoExcluir({ os: detalhe })}
               onPedirCancelamento={(detalhe) => setModalCancelamento({ os: detalhe })}
-              onReabrir={(detalhe) => setModalReabrir(detalhe)}
               transicoes={transicoes}
             />
           )}
@@ -4894,14 +4865,6 @@ function OrdensServico({ usuarioAtual }) {
         onConfirmar={confirmarCancelamento}
         onCancelar={() => setModalCancelamento(null)}
         mostrarToast={mostrarToast}
-      />
-
-      <ModalReabrirOS
-        aberto={!!modalReabrir}
-        os={modalReabrir}
-        processando={processando}
-        onConfirmar={confirmarReabertura}
-        onCancelar={() => setModalReabrir(null)}
       />
 
 
@@ -6968,81 +6931,6 @@ function MembrosEquipePicker({ membros, lider, onChange }) {
           </div>
         ))}
         {!funcs.length && <p className="text-xs text-slate-400 px-2.5 py-2">Nenhum funcionário cadastrado.</p>}
-      </div>
-    </div>
-  );
-}
-
-// Reabertura de O.S concluída/cancelada (gestor): pede justificativa, que fica
-// registrada no histórico como auditoria (decisão de negócio nº 2).
-function ModalReabrirOS({ aberto, os, processando, onConfirmar, onCancelar }) {
-  const [justificativa, setJustificativa] = useState('');
-
-  useEffect(() => {
-    if (aberto) setJustificativa('');
-  }, [aberto]);
-
-  if (!aberto) return null;
-  const valido = justificativa.trim().length >= 10;
-
-  return (
-    <div className="fixed inset-0 bg-slate-900/40 backdrop-blur-sm flex items-center justify-center z-[60] p-4">
-      <div className="bg-white rounded-2xl shadow-2xl max-w-md w-full border border-slate-100 overflow-hidden animate-in fade-in zoom-in duration-200">
-        <div className="bg-slate-900 text-white p-5 flex items-center justify-between">
-          <h3 className="font-bold text-base flex items-center gap-2">
-            <RefreshCw size={18} className="text-amber-400" />
-            Reabrir O.S {os?.codigo || ''}
-          </h3>
-          <button
-            onClick={onCancelar}
-            disabled={processando}
-            className="text-slate-400 hover:text-white text-xl font-bold p-1 cursor-pointer disabled:opacity-40"
-          >
-            <X size={20} />
-          </button>
-        </div>
-        <div className="p-6">
-          <p className="text-sm text-slate-600 mb-3">
-            A O.S volta para o quadro como <b>aberta</b>. Informe o motivo da reabertura
-            (fica registrado no histórico).
-          </p>
-          <textarea
-            value={justificativa}
-            onChange={(e) => setJustificativa(e.target.value)}
-            rows={3}
-            maxLength={500}
-            placeholder="Motivo da reabertura (mínimo 10 caracteres)..."
-            className="w-full px-3.5 py-2.5 border border-slate-200 rounded-xl text-sm font-semibold focus:outline-none focus:border-amber-500 resize-none"
-          />
-          <p className="text-[10px] font-semibold text-slate-400 mt-1">
-            {justificativa.trim().length}/10 caracteres mínimos
-          </p>
-          <div className="flex justify-end gap-3 pt-5 border-t border-slate-100 mt-5">
-            <button
-              type="button"
-              onClick={onCancelar}
-              disabled={processando}
-              className="px-4 py-2 border border-slate-200 text-slate-600 rounded-xl text-sm font-semibold hover:bg-slate-50 transition-all cursor-pointer disabled:opacity-40"
-            >
-              Cancelar
-            </button>
-            <button
-              type="button"
-              onClick={() => onConfirmar(justificativa.trim())}
-              disabled={!valido || processando}
-              className="px-5 py-2 bg-amber-600 hover:bg-amber-700 text-white rounded-xl text-sm font-semibold transition-all shadow-md cursor-pointer disabled:opacity-40 flex items-center gap-2"
-            >
-              {processando ? (
-                <>
-                  <span className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />
-                  Aguarde...
-                </>
-              ) : (
-                'Reabrir O.S'
-              )}
-            </button>
-          </div>
-        </div>
       </div>
     </div>
   );
