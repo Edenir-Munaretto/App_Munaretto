@@ -3621,6 +3621,26 @@ function OrdensServico({ usuarioAtual }) {
 
   const capturarGps = useCallback(async () => capturarGeolocalizacao(), []);
 
+  // Catálogos de apoio (produtos/obras/equipes) usados por filtros e painéis.
+  // Ficam fora do fluxo de paginação para que abas que não passam por
+  // buscarPagina (ex.: Encerradas) também os tenham ao abrir.
+  const carregarCatalogos = useCallback(async (estaDesatualizada = () => false) => {
+    if (usarLocal()) return;
+    try {
+      const [resProdutos, resObras, resEquipes] = await Promise.all([
+        apiFetch(`${API_URL}/os/produtos`, { retry: 2 }),
+        ehGestor ? apiFetch(`${API_URL}/os/obras`, { retry: 2 }) : Promise.resolve(null),
+        ehGestor ? apiFetch(`${API_URL}/os/equipes`, { retry: 2 }) : Promise.resolve(null),
+      ]);
+      if (estaDesatualizada()) return;
+      if (resProdutos.ok) setProdutos(await resProdutos.json());
+      if (ehGestor && resObras?.ok) setObras(await resObras.json());
+      if (ehGestor && resEquipes?.ok) setEquipes(await resEquipes.json());
+    } catch {
+      // Catálogos são apoio (filtros/painéis): falha não invalida a listagem.
+    }
+  }, [ehGestor]);
+
   // Geração da listagem: respostas antigas (filtro/visão trocados, "Carregar
   // mais" repetido) são descartadas antes de tocar o estado (A7).
   const geracaoListagem = useRef(0);
@@ -3686,15 +3706,7 @@ function OrdensServico({ usuarioAtual }) {
       // Catálogos de serviços/obras/equipes apenas na primeira página (ou ao
       // trocar filtros): "Carregar mais" não precisa redownloadar.
       if (!reset) return;
-      const [resProdutos, resObras, resEquipes] = await Promise.all([
-        apiFetch(`${API_URL}/os/produtos`, { retry: 2 }),
-        ehGestor ? apiFetch(`${API_URL}/os/obras`, { retry: 2 }) : Promise.resolve(null),
-        ehGestor ? apiFetch(`${API_URL}/os/equipes`, { retry: 2 }) : Promise.resolve(null),
-      ]);
-      if (desatualizada()) return;
-      if (resProdutos.ok) setProdutos(await resProdutos.json());
-      if (ehGestor && resObras?.ok) setObras(await resObras.json());
-      if (ehGestor && resEquipes?.ok) setEquipes(await resEquipes.json());
+      await carregarCatalogos(desatualizada);
     } catch {
       // Sem internet real (WiFi sem dados): usa o pacote local no Modo Campo.
       registrarFalhaDeRede();
@@ -3725,7 +3737,7 @@ function OrdensServico({ usuarioAtual }) {
     } finally {
       if (!desatualizada()) setLoading(false);
     }
-  }, [buscaAplicada, filtroEquipe, filtroPrioridade, filtroDataDe, filtroDataAte, filtroStatus, ehGestor, mostrarToast]);
+  }, [buscaAplicada, filtroEquipe, filtroPrioridade, filtroDataDe, filtroDataAte, filtroStatus, ehGestor, mostrarToast, carregarCatalogos]);
 
   // Listagem de Encerradas (gestor): paginação e filtros próprios.
   const carregarArquivo = useCallback(async (offset, reset) => {
@@ -3767,9 +3779,13 @@ function OrdensServico({ usuarioAtual }) {
       setLoading(false);
       return;
     }
-    if (ehGestor && visao === 'arquivo') carregarArquivo(0, true);
-    else buscarPagina(0, true);
-  }, [buscarPagina, carregarArquivo, ehGestor, visao]);
+    if (ehGestor && visao === 'arquivo') {
+      carregarArquivo(0, true);
+      // Encerradas não passa por buscarPagina: garante equipes/obras/produtos
+      // para o filtro e para o painel de detalhes já na primeira abertura.
+      carregarCatalogos();
+    } else buscarPagina(0, true);
+  }, [buscarPagina, carregarArquivo, carregarCatalogos, ehGestor, visao]);
 
   // Aba Desempenho (gestor): resumo por equipe do mês selecionado.
   const carregarDesempenho = useCallback(async () => {
