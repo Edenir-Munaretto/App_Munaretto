@@ -357,9 +357,19 @@ function BarraMateriais({ os }) {
 // Card da O.S (usado no Kanban e na lista mobile)
 // ---------------------------------------------------------------------------
 
+// Endereço da obra para exibição: o campo da O.S é preenchido a partir da obra
+// na criação, mas pode ser editado/limpo — por isso o fallback para o cadastro
+// da obra (mesma convenção dos PDFs em modelo_os.py).
+export function enderecoOS(os) {
+  const local = os.local_servico || os.obras?.endereco || '';
+  const cidade = os.municipio || os.obras?.cidade || '';
+  return `${local}${local && cidade ? ' · ' : ''}${cidade}`;
+}
+
 function CardOS({ os, onClick, draggableProps = {}, ehGestor = true }) {
   const execucao = situacaoExecucao(os);
   const cliente = os.obras?.clientes?.nome || os.obras?.cliente_celesc || '';
+  const endereco = enderecoOS(os);
   const classeCard = `bg-white rounded-xl border shadow-sm hover:shadow-md transition-all p-3 cursor-pointer ${
     execucao?.urgente ? 'border-l-4 border-l-rose-500 border-y-slate-300 border-r-slate-300' : 'border-slate-300'
   }`;
@@ -439,6 +449,12 @@ function CardOS({ os, onClick, draggableProps = {}, ehGestor = true }) {
       </div>
       <p className="text-sm font-bold text-slate-800 mt-1 truncate">{os.obras?.nome || 'Obra'}</p>
       <p className="text-xs text-slate-400">{cliente}</p>
+      {endereco && (
+        <p className="text-xs text-slate-400 mt-0.5 flex items-start gap-1 min-w-0" title={endereco}>
+          <MapPin size={11} className="text-slate-400 mt-0.5 shrink-0" />
+          <span className="truncate min-w-0">{endereco}</span>
+        </p>
+      )}
 
       <div className="flex items-center gap-1.5 mt-2 flex-wrap">
         {chipExecucao}
@@ -4778,6 +4794,12 @@ function OrdensServico({ usuarioAtual }) {
                         <BadgePrioridade prioridade={os.prioridade} />
                       </span>
                       <span className="block text-xs font-semibold text-slate-700 truncate mt-1">{os.obras?.nome || '—'}</span>
+                      {enderecoOS(os) && (
+                        <span className="flex items-center gap-1 text-[10px] text-slate-400 mt-0.5 min-w-0">
+                          <MapPin size={10} className="shrink-0" />
+                          <span className="truncate">{enderecoOS(os)}</span>
+                        </span>
+                      )}
                       <span className="block text-[10px] text-slate-400 truncate">
                         Equipe: {os.equipes?.numero ? `Nº ${os.equipes.numero} - ` : ''}{os.equipes?.nome || 'sem equipe'}
                       </span>

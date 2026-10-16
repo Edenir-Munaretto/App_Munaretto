@@ -2,7 +2,7 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import {
-  LIMITE_SUGESTOES_SERVICO, mensagemChecklistInicio, situacaoExecucao, sugestoesServico,
+  LIMITE_SUGESTOES_SERVICO, enderecoOS, mensagemChecklistInicio, situacaoExecucao, sugestoesServico,
 } from './OrdensServico';
 
 const os = (over = {}) => ({ status: 'aberta', prazo_entrega: '2026-09-23', ...over });
@@ -60,6 +60,41 @@ describe('situacaoExecucao', () => {
     expect(situacaoExecucao(os({ status: 'cancelada' }))).toBeNull();
     expect(situacaoExecucao(os({ prazo_entrega: null }))).toBeNull();
     expect(situacaoExecucao(os({ prazo_entrega: '2026-09' }))).toBeNull();
+  });
+});
+
+describe('enderecoOS', () => {
+  it('usa o endereço da obra quando a O.S não tem campos próprios', () => {
+    expect(enderecoOS({ obras: { endereco: 'Rua A, 123', cidade: 'Florianópolis' } }))
+      .toBe('Rua A, 123 · Florianópolis');
+  });
+
+  it('prioriza os campos da O.S (editáveis) sobre o cadastro da obra', () => {
+    expect(enderecoOS({
+      local_servico: 'Rua B, 456', municipio: 'São José',
+      obras: { endereco: 'Rua A, 123', cidade: 'Florianópolis' },
+    })).toBe('Rua B, 456 · São José');
+  });
+
+  it('combina campo da O.S com fallback da obra por campo', () => {
+    expect(enderecoOS({
+      local_servico: 'Rua B, 456',
+      obras: { endereco: 'Rua A, 123', cidade: 'Florianópolis' },
+    })).toBe('Rua B, 456 · Florianópolis');
+    expect(enderecoOS({
+      municipio: 'São José',
+      obras: { cidade: 'Florianópolis' },
+    })).toBe('São José');
+  });
+
+  it('exibe apenas o campo disponível, sem separador solto', () => {
+    expect(enderecoOS({ local_servico: 'Rua B, 456' })).toBe('Rua B, 456');
+    expect(enderecoOS({ obras: { cidade: 'Florianópolis' } })).toBe('Florianópolis');
+  });
+
+  it('retorna vazio sem obra e sem campos da O.S', () => {
+    expect(enderecoOS({})).toBe('');
+    expect(enderecoOS({ obras: { endereco: null, cidade: null } })).toBe('');
   });
 });
 

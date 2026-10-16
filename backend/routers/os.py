@@ -962,7 +962,10 @@ def listar_os(
             db.table("ordens_servico").select(
                 CAMPOS_RESUMO_OS
                 if resumo
-                else "*, obras(id, nome, cliente_id, cliente_celesc, clientes(nome)), equipes(id, nome)"
+                else (
+                    "*, obras(id, nome, cliente_id, cliente_celesc, endereco, cidade, "
+                    "clientes(nome)), equipes(id, nome)"
+                )
             )
         )
         # Listagem de encerradas (multi-status): ordena pela data de encerramento
