@@ -32,6 +32,7 @@ Sistema web de gestão do escritório Munaretto — clientes e contratos, funcio
 - **Contabilidade** (comprovantes) — importação de planilhas e conciliação.
 - **Controle de Recebimentos**.
 - **Devoluções Celesc**.
+- **Materiais por Cliente** — cadastro isolado de materiais (cabos, postes e trafos) com impressão da lista.
 - **Manutenção** — veículos, equipamentos, reposições e documentos.
 - **SST** — treinamentos, matriz, ASO, EPIs e documentos.
 - **Controle de O.S** — Kanban, checklist, H.H., materiais, fotos e PDFs; **O.S (Campo)** opera offline com pacote local (IndexedDB) e sincronização.

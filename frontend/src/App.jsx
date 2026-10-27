@@ -18,6 +18,7 @@ import {
   Trash2,
   Wrench,
   ClipboardList,
+  Package,
   PackageCheck,
 } from 'lucide-react';
 
@@ -31,6 +32,7 @@ import GeradorDocumentos from './pages/GeradorDocumentos';
 import Comprovantes from './pages/Comprovantes';
 import Recebimentos from './pages/Recebimentos';
 import DevolucoesCelesc from './pages/DevolucoesCelesc';
+import MateriaisPorCliente from './pages/MateriaisPorCliente';
 import Manutencao from './pages/Manutencao';
 import Sst from './pages/Sst';
 import OrdensServico from './pages/OrdensServico';
@@ -54,6 +56,7 @@ const ICONES = {
   comprovantes: Receipt,
   recebimentos: Banknote,
   devolucoes_celesc: PackageCheck,
+  materiais: Package,
   manutencao: Wrench,
   sst: ShieldCheck,
   os: ClipboardList,
@@ -70,6 +73,7 @@ const COMPONENTES = {
   comprovantes: Comprovantes,
   recebimentos: Recebimentos,
   devolucoes_celesc: DevolucoesCelesc,
+  materiais: MateriaisPorCliente,
   manutencao: Manutencao,
   sst: Sst,
   os: OrdensServico,

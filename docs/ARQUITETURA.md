@@ -83,7 +83,7 @@ render.yaml          Blueprint do backend (Docker) no Render
 ## 5. Autorização e permissões
 
 - Backend (`auth.py`): `get_current_user`, `require_permissao(modulo)` e `require_qualquer_permissao(modulos)` — a validação real acontece no servidor, rota a rota.
-- Frontend: `src/modules.js` define os ids de módulo exibidos no menu (`dashboard`, `clientes`, `funcionarios`, `ferias`, `fluxo`, `documentos`, `comprovantes`, `recebimentos`, `devolucoes_celesc`, `manutencao`, `sst`, `os`, `os_campo`, `configuracoes`).
+- Frontend: `src/modules.js` define os ids de módulo exibidos no menu (`dashboard`, `clientes`, `funcionarios`, `ferias`, `fluxo`, `documentos`, `comprovantes`, `recebimentos`, `devolucoes_celesc`, `materiais`, `manutencao`, `sst`, `os`, `os_campo`, `configuracoes`).
 - Perfis usuais: **gestor** (permissão `os`, edição geral) e **campo** (`os_campo`, executa as O.S das equipes em que atua). O vínculo usuário → funcionário/equipe é feito em **Configurações → Usuários**.
 
 ## 6. Módulos da API
@@ -99,6 +99,7 @@ render.yaml          Blueprint do backend (Docker) no Render
 | Contabilidade | `Comprovantes.jsx` | `comprovantes.py` (`/api/comprovantes`) | `comprovantes` |
 | Recebimentos | `Recebimentos.jsx` | `recebimentos.py` (`/api/recebimentos`) | `controle_recebimentos` |
 | Devoluções Celesc | `DevolucoesCelesc.jsx` | `devolucoes_celesc.py` | `devolucoes_celesc` |
+| Materiais por Cliente | `MateriaisPorCliente.jsx` | `materiais.py` (`/api/materiais`) | `materiais` (isolada, sem FK) |
 | Manutenção | `Manutencao.jsx` | `manutencao.py` (`/api/manutencao`) | `veiculos`, `manutencoes`, `veiculo_equipamentos`, `equipamento_reposicoes`, `veiculo_documentos` |
 | SST | `Sst.jsx` | `sst.py` + `documentos_diversos.py` (`/api/sst`) | `treinamentos`, `matriz_treinamentos`, `funcionario_treinamentos`, `aso`, `epis`, `funcionario_epis`, `sst_documentos` |
 | O.S (gestor) | `OrdensServico.jsx` | `os.py` + `apoio_os.py` + `desligamentos_os.py` (`/api/os`) | `ordens_servico`, `os_checklist_*`, `os_apontamentos`, `os_materiais`, `os_fotos`, `os_historico`, `obras`, `equipes`, `equipe_membros`, `produtos`, `os_desligamentos` |

@@ -106,6 +106,8 @@ def _montar_dados_banco():
         "sst_documentos": [],
         # Módulo Devoluções Celesc
         "devolucoes_celesc": [],
+        # Módulo Materiais por Cliente (isolado)
+        "materiais": [],
     }
 
 
@@ -245,4 +247,18 @@ def devolucoes_client(client, db_fake):
         "devolucoes@munaretto.com",
         "senhaDevolucoes123",
         ["devolucoes_celesc"],
+    )
+
+
+@pytest.fixture
+def materiais_client(client, db_fake):
+    """Usuário com permissão apenas do módulo 'materiais'."""
+    return _criar_e_logar(
+        client,
+        db_fake,
+        94,
+        "Controle Materiais",
+        "materiais@munaretto.com",
+        "senhaMateriais123",
+        ["materiais"],
     )
