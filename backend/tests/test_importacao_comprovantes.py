@@ -374,3 +374,88 @@ def test_listagem_ordena_por_data_emissao(comprovante_client, db_fake):
     data = resp.json()
     assert data[0]["id"] == 2  # emissão mais recente primeiro
     assert data[1]["id"] == 1
+
+
+def test_importar_folha_pagamento_e_aliases(comprovante_client, db_fake):
+    """Folha Pag. é aceita na importação, inclusive com variações do nome."""
+    buffer = _montar_planilha(
+        [
+            [
+                "Folha Pag.",
+                None,
+                None,
+                None,
+                None,
+                None,
+                "05/08/2026",
+                "Folha de agosto",
+                None,
+                None,
+                None,
+                None,
+                None,
+                "2500,00",
+                "0,00",
+                None,
+                "boleto",
+            ],
+            [
+                "Folha de Pagamento",
+                None,
+                None,
+                None,
+                None,
+                None,
+                "05/09/2026",
+                "Folha de setembro",
+                None,
+                None,
+                None,
+                None,
+                None,
+                "2600,00",
+                "0,00",
+                None,
+                "pix",
+            ],
+        ]
+    )
+    resp = comprovante_client.post(
+        "/api/comprovantes/importar",
+        files={"file": ("planilha.xlsx", buffer, "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")},
+    )
+    assert resp.status_code == 200, resp.text
+    data = resp.json()
+    assert data["importados"] == 2
+    assert data["erros"] == []
+
+    tipos = [registro["tipo_documento"] for registro in db_fake._dados["comprovantes"]]
+    assert tipos == ["Folha Pag.", "Folha Pag."]
+
+
+def test_filtrar_folha_pagamento(comprovante_client, db_fake):
+    """O filtro por tipo devolve apenas os lançamentos de Folha Pag."""
+    db_fake._dados["comprovantes"] = [
+        {
+            "id": 1,
+            "tipo_documento": "Folha Pag.",
+            "descricao": "Folha de agosto",
+            "valor_pago": 2500.0,
+            "data_pagamento": "2026-08-05",
+            "data_registro": "2026-08-05T10:00:00Z",
+        },
+        {
+            "id": 2,
+            "tipo_documento": "Boleto",
+            "descricao": "Conta de energia",
+            "valor_pago": 1500.0,
+            "data_pagamento": "2026-08-06",
+            "data_registro": "2026-08-06T10:00:00Z",
+        },
+    ]
+
+    resp = comprovante_client.get("/api/comprovantes/?tipo_documento=Folha%20Pag.")
+    assert resp.status_code == 200, resp.text
+    data = resp.json()
+    assert [registro["id"] for registro in data] == [1]
+    assert data[0]["tipo_documento"] == "Folha Pag."

@@ -40,7 +40,7 @@ CAMPOS_MODELO = [
     ("forma_pagamento", "Forma de Pagamento"),
 ]
 
-TIPOS_VALIDOS = ["Nota Fiscal", "Boleto", "Pix", "Diversas", "Aluguel", "Imposto"]
+TIPOS_VALIDOS = ["Nota Fiscal", "Boleto", "Pix", "Diversas", "Aluguel", "Imposto", "Folha Pag."]
 
 # Apelidos de cabeçalho (normalizados) -> nome do campo no banco.
 ALIASES_COLUNA = {
@@ -167,12 +167,14 @@ def _normalizar_tipo(valor):
             return tipo
     if norm in ("nota", "nf", "nfs", "nfe"):
         return "Nota Fiscal"
+    if norm in ("folha pag", "folha pagamento", "folha de pagamento", "folha pagto", "folha de pagto", "folha"):
+        return "Folha Pag."
     return None
 
 
 class ComprovanteCreate(BaseModel):
     tipo_documento: str = Field(
-        ..., description="Tipo do documento: Nota Fiscal, Boleto, Pix, Diversas, Aluguel, Imposto"
+        ..., description="Tipo do documento: Nota Fiscal, Boleto, Pix, Diversas, Aluguel, Imposto, Folha Pag."
     )
 
     # Campos Nota Fiscal
@@ -207,7 +209,7 @@ def listar_comprovantes(
         "data_registro", description="Campo de ordenação: data_registro, data_pagamento ou data_emissao"
     ),
     tipo_documento: str | None = Query(
-        None, description="Filtrar por tipo: Nota Fiscal, Boleto, Pix, Diversas, Aluguel, Imposto"
+        None, description="Filtrar por tipo: Nota Fiscal, Boleto, Pix, Diversas, Aluguel, Imposto, Folha Pag."
     ),
     data_inicio: str | None = Query(
         None, description="Data início do filtro (YYYY-MM-DD) — filtra data_emissao ou data_pagamento"
@@ -300,7 +302,7 @@ def exportar_comprovantes(
         "data_registro", description="Campo de ordenação: data_registro, data_pagamento ou data_emissao"
     ),
     tipo_documento: str | None = Query(
-        None, description="Filtrar por tipo: Nota Fiscal, Boleto, Pix, Diversas, Aluguel, Imposto"
+        None, description="Filtrar por tipo: Nota Fiscal, Boleto, Pix, Diversas, Aluguel, Imposto, Folha Pag."
     ),
     data_inicio: str | None = Query(None, description="Data início do filtro (YYYY-MM-DD)"),
     data_fim: str | None = Query(None, description="Data fim do filtro (YYYY-MM-DD)"),
@@ -456,7 +458,7 @@ def baixar_modelo_importacao():
             "3. Preencha apenas as colunas que fizerem sentido. Colunas vazias são ignoradas.",
             "4. Datas: use o formato dd/mm/aaaa (ex.: 15/08/2026).",
             "5. Valores: use vírgula como separador decimal (ex.: 1.500,00 ou 1500,00).",
-            "6. Tipo do Documento aceita: Nota Fiscal, Boleto, Pix, Diversas, Aluguel, Imposto.",
+            "6. Tipo do Documento aceita: Nota Fiscal, Boleto, Pix, Diversas, Aluguel, Imposto, Folha Pag..",
             "7. Forma de Pagamento aceita: boleto, dda ou pix.",
             "8. Para Nota Fiscal, os campos Nome, CNPJ e Data de Emissão são obrigatórios.",
             "9. Para os demais tipos, são obrigatórios: Descrição e Valor Pago.",

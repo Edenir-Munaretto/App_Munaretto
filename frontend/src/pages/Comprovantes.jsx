@@ -11,6 +11,16 @@ const NUMERIC_FIELDS = [
   'valor_pago', 'valor_juros'
 ];
 
+const TIPOS_DOCUMENTO = [
+  'Nota Fiscal',
+  'Boleto',
+  'Pix',
+  'Diversas',
+  'Aluguel',
+  'Imposto',
+  'Folha Pag.',
+];
+
 const FORM_INICIAL = {
   numero_nf: '',
   data_emissao: '',
@@ -535,12 +545,9 @@ function Comprovantes() {
               className="px-3 py-1.5 border border-slate-200 rounded-xl text-xs font-semibold focus:outline-none focus:ring-2 focus:ring-primary-500/20 focus:border-primary-500"
             >
               <option value="">Todos</option>
-              <option value="Nota Fiscal">Nota Fiscal</option>
-              <option value="Boleto">Boleto</option>
-              <option value="Pix">Pix</option>
-              <option value="Diversas">Diversas</option>
-              <option value="Aluguel">Aluguel</option>
-              <option value="Imposto">Imposto</option>
+              {TIPOS_DOCUMENTO.map((tipo) => (
+                <option key={tipo} value={tipo}>{tipo}</option>
+              ))}
             </select>
             <span className="text-xs font-bold text-slate-500 uppercase tracking-wider">Ordenar:</span>
             <select
@@ -830,6 +837,7 @@ const ComprovanteCard = React.memo(({ c, onEditar, onExcluir }) => {
     c.tipo_documento === 'Pix' ? 'border-l-teal-500' :
     c.tipo_documento === 'Aluguel' ? 'border-l-purple-500' :
     c.tipo_documento === 'Imposto' ? 'border-l-rose-500' :
+    c.tipo_documento === 'Folha Pag.' ? 'border-l-indigo-500' :
     'border-l-slate-400';
 
   const badgeColor =
@@ -838,6 +846,7 @@ const ComprovanteCard = React.memo(({ c, onEditar, onExcluir }) => {
     c.tipo_documento === 'Pix' ? 'bg-teal-50 text-teal-700 border-teal-100' :
     c.tipo_documento === 'Aluguel' ? 'bg-purple-50 text-purple-700 border-purple-100' :
     c.tipo_documento === 'Imposto' ? 'bg-rose-50 text-rose-700 border-rose-100' :
+    c.tipo_documento === 'Folha Pag.' ? 'bg-indigo-50 text-indigo-700 border-indigo-100' :
     'bg-slate-50 text-slate-700 border-slate-100';
 
   return (
@@ -1122,17 +1131,15 @@ function ModalLancamento({ aberto, comprovante, onFechar, onSalvo, mostrarToast 
                   'Diversas': 'boleto',
                   'Aluguel': 'boleto',
                   'Imposto': 'boleto',
+                  'Folha Pag.': 'boleto',
                 };
                 setFormData(prev => ({ ...prev, forma_pagamento: formaPorTipo[tipo] || 'boleto' }));
               }}
               className="w-full px-3.5 py-2.5 border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-primary-500/20 focus:border-primary-500 text-sm font-semibold"
             >
-              <option value="Nota Fiscal">Nota Fiscal</option>
-              <option value="Boleto">Boleto</option>
-              <option value="Pix">Pix</option>
-              <option value="Diversas">Diversas</option>
-              <option value="Aluguel">Aluguel</option>
-              <option value="Imposto">Imposto</option>
+              {TIPOS_DOCUMENTO.map((tipo) => (
+                <option key={tipo} value={tipo}>{tipo}</option>
+              ))}
             </select>
           </div>
 
