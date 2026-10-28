@@ -10,6 +10,8 @@ import hashlib
 
 import pytest
 
+from routers.documentos import _mesclar_dados_obra_cliente
+
 
 def _hash_senha(senha: str) -> str:
     salt = "0123456789abcdef"
@@ -67,3 +69,77 @@ def test_gerar_modelo_de_os_bloqueado(documentos_client):
 def test_sem_permissao_nao_lista(client):
     resp = client.get("/api/documentos/templates")
     assert resp.status_code in (401, 403)
+
+
+def test_mesclar_dados_da_obra_adicional():
+    cliente = {
+        "id": 1,
+        "nome": "Cliente Teste",
+        "cpf_cnpj": "12345678901",
+        "endereco": "Rua antiga, 100",
+        "cidade": "Cidade antiga",
+        "cep": "00000-000",
+        "nota_ps": "PS-LEGADO",
+        "valor_da_obra": "10.000,00",
+        "valor_de_devolucao": "100,00",
+    }
+    obra = {
+        "nome": "Obra Nova",
+        "nota_ps": "PS-NOVA",
+        "endereco": "Nova rua, 200",
+        "cidade": "Nova cidade",
+        "cep": "89600-000",
+        "valor_da_obra": "40.000,00",
+        "valor_de_devolucao": "1.000,00",
+    }
+
+    dados = _mesclar_dados_obra_cliente(cliente, obra)
+    assert dados["nome"] == "Cliente Teste"
+    assert dados["cpf_cnpj"] == "12345678901"
+    assert dados["endereco"] == "Nova rua, 200"
+    assert dados["cidade"] == "Nova cidade"
+    assert dados["cep"] == "89600-000"
+    assert dados["nota_ps"] == "PS-NOVA"
+    assert dados["valor_da_obra"] == "40.000,00"
+    assert dados["valor_de_devolucao"] == "1.000,00"
+
+
+def test_mesclar_obra_sem_dados_mantem_cadastro_do_cliente():
+    cliente = {
+        "nome": "Cliente Teste",
+        "cpf_cnpj": "12345678901",
+        "endereco": "Rua antiga, 100",
+        "cidade": "Cidade antiga",
+        "nota_ps": "",
+        "valor_da_obra": "10.000,00",
+    }
+    obra = {
+        "nome": "Obra Sem Dados",
+        "nota_ps": None,
+        "endereco": None,
+        "cidade": None,
+        "valor_da_obra": None,
+    }
+
+    dados = _mesclar_dados_obra_cliente(cliente, obra)
+    assert dados["endereco"] == "Rua antiga, 100"
+    assert dados["cidade"] == "Cidade antiga"
+    assert dados["nota_ps"] == ""
+    assert dados["valor_da_obra"] == "10.000,00"
+
+
+def test_gerar_com_obra_adicional_de_outro_cliente_retorna_404(documentos_client, db_fake):
+    db_fake._dados.setdefault("obras_cliente", []).append(
+        {"id": 99, "cliente_id": 2, "nome": "Obra de outro cliente", "ativo": True}
+    )
+
+    resp = documentos_client.post(
+        "/api/documentos/gerar",
+        data={
+            "cliente_id": 1,
+            "template_name": "CONTRATO",
+            "formato": "word",
+            "obra_cliente_id": 99,
+        },
+    )
+    assert resp.status_code == 404

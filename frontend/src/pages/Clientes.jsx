@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Search, Plus, Edit2, Trash2, Check, AlertTriangle, Users, ChevronLeft, ChevronRight } from 'lucide-react';
+import { Search, Plus, Edit2, Trash2, Check, AlertTriangle, Users, ChevronLeft, ChevronRight, Building2, MapPin } from 'lucide-react';
 import { API_URL, apiFetch, erroDaResposta } from '../api';
 import ModalConfirmacao from '../components/ModalConfirmacao';
 import ErroCarregamento from '../components/ErroCarregamento';
@@ -30,6 +30,9 @@ function Clientes() {
   // Exclusão com confirmação customizada
   const [excluindo, setExcluindo] = useState(null); // { id, nome }
   const [deleting, setDeleting] = useState(false);
+
+  // Obras adicionais do cliente
+  const [clienteObras, setClienteObras] = useState(null);
 
   // Paginação visual (50 por página)
   const REGISTROS_POR_PAGINA = 50;
@@ -172,7 +175,7 @@ function Clientes() {
 
       {/* Toast Notification */}
       {toast && (
-        <div className={`fixed top-4 right-4 z-50 p-4 rounded-xl shadow-xl flex items-center gap-3 border text-sm max-w-sm animate-in slide-in-from-top-4 duration-300 ${
+        <div className={`fixed top-4 right-4 z-[70] p-4 rounded-xl shadow-xl flex items-center gap-3 border text-sm max-w-sm animate-in slide-in-from-top-4 duration-300 ${
           toast.type === 'error'
             ? 'bg-rose-50 border-rose-200 text-rose-800'
             : 'bg-emerald-50 border-emerald-200 text-emerald-800'
@@ -260,6 +263,13 @@ function Clientes() {
                     <td className="px-3 py-3 md:px-6 md:py-4">
                       <div className="flex justify-center items-center gap-2">
                         <button
+                          onClick={() => setClienteObras(c)}
+                          className="w-11 h-11 flex items-center justify-center p-0 rounded bg-slate-50 hover:bg-primary-50 text-slate-500 hover:text-primary-700 border border-slate-100 transition-colors"
+                          title="Obras adicionais"
+                        >
+                          <Building2 size={15} />
+                        </button>
+                        <button
                           onClick={() => openEditModal(c)}
                           className="w-11 h-11 flex items-center justify-center p-0 rounded bg-slate-50 hover:bg-amber-50 text-slate-500 hover:text-amber-700 border border-slate-100 transition-colors"
                           title="Editar"
@@ -314,6 +324,13 @@ function Clientes() {
                   </div>
                 </div>
                 <div className="flex items-center gap-2 shrink-0">
+                  <button
+                    onClick={() => setClienteObras(c)}
+                    className="w-11 h-11 flex items-center justify-center rounded bg-slate-50 hover:bg-primary-50 text-slate-500 hover:text-primary-700 border border-slate-100 transition-colors"
+                    title="Obras adicionais"
+                  >
+                    <Building2 size={15} />
+                  </button>
                   <button
                     onClick={() => openEditModal(c)}
                     className="w-11 h-11 flex items-center justify-center rounded bg-slate-50 hover:bg-amber-50 text-slate-500 hover:text-amber-700 border border-slate-100 transition-colors"
@@ -549,6 +566,352 @@ function Clientes() {
         onCancelar={() => setExcluindo(null)}
       />
 
+      {clienteObras && (
+        <ModalObrasCliente
+          cliente={clienteObras}
+          onFechar={() => setClienteObras(null)}
+          showToast={showToast}
+        />
+      )}
+
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Obras adicionais do cliente (tabela `obras_cliente`).
+// A primeira obra continua no cadastro do cliente; aqui ficam as seguintes.
+// ---------------------------------------------------------------------------
+const OBRA_CLIENTE_VAZIA = {
+  nome: '',
+  nota_ps: '',
+  endereco: '',
+  cidade: '',
+  cep: '',
+  valor_da_obra: '',
+  valor_de_devolucao: ''
+};
+
+function ModalObrasCliente({ cliente, onFechar, showToast }) {
+  const [obras, setObras] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [erro, setErro] = useState('');
+  const [formAberto, setFormAberto] = useState(false);
+  const [editandoId, setEditandoId] = useState(null);
+  const [salvando, setSalvando] = useState(false);
+  const [excluindo, setExcluindo] = useState(null);
+  const [deletando, setDeletando] = useState(false);
+  const [formData, setFormData] = useState(OBRA_CLIENTE_VAZIA);
+
+  const carregarObras = async () => {
+    setLoading(true);
+    setErro('');
+    try {
+      const res = await apiFetch(`${API_URL}/clientes/${cliente.id}/obras`);
+      if (!res.ok) {
+        setErro(erroDaResposta(await res.json().catch(() => null), 'Erro ao buscar obras.'));
+        return;
+      }
+      setObras(await res.json());
+    } catch {
+      setErro('Erro de conexão ao buscar obras.');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    carregarObras();
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [cliente.id]);
+
+  const abrirNovaObra = () => {
+    setEditandoId(null);
+    setFormData(OBRA_CLIENTE_VAZIA);
+    setFormAberto(true);
+  };
+
+  const abrirEdicao = (obra) => {
+    setEditandoId(obra.id);
+    setFormData({
+      nome: obra.nome || '',
+      nota_ps: obra.nota_ps || '',
+      endereco: obra.endereco || '',
+      cidade: obra.cidade || '',
+      cep: obra.cep || '',
+      valor_da_obra: obra.valor_da_obra || '',
+      valor_de_devolucao: obra.valor_de_devolucao || ''
+    });
+    setFormAberto(true);
+  };
+
+  const salvarObra = async (e) => {
+    e.preventDefault();
+    if (!formData.nome.trim()) {
+      showToast('Informe a identificação da obra.', 'error');
+      return;
+    }
+    try {
+      setSalvando(true);
+      const url = editandoId
+        ? `${API_URL}/clientes/${cliente.id}/obras/${editandoId}`
+        : `${API_URL}/clientes/${cliente.id}/obras`;
+      const res = await apiFetch(url, {
+        method: editandoId ? 'PUT' : 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(formData)
+      });
+      const dados = await res.json().catch(() => null);
+      if (!res.ok) {
+        showToast(erroDaResposta(dados, 'Erro ao salvar obra.'), 'error');
+        return;
+      }
+      showToast(editandoId ? 'Obra atualizada com sucesso!' : 'Obra cadastrada com sucesso!');
+      setFormAberto(false);
+      setEditandoId(null);
+      setFormData(OBRA_CLIENTE_VAZIA);
+      carregarObras();
+    } catch {
+      showToast('Erro de conexão ao salvar obra.', 'error');
+    } finally {
+      setSalvando(false);
+    }
+  };
+
+  const confirmarExclusao = async () => {
+    if (!excluindo) return;
+    try {
+      setDeletando(true);
+      const res = await apiFetch(
+        `${API_URL}/clientes/${cliente.id}/obras/${excluindo.id}`,
+        { method: 'DELETE' }
+      );
+      if (!res.ok) {
+        showToast(erroDaResposta(await res.json().catch(() => null), 'Erro ao excluir obra.'), 'error');
+        return;
+      }
+      showToast('Obra excluída com sucesso.');
+      setExcluindo(null);
+      carregarObras();
+    } catch {
+      showToast('Erro de conexão ao excluir obra.', 'error');
+    } finally {
+      setDeletando(false);
+    }
+  };
+
+  return (
+    <div className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center z-50 p-4">
+      <div className="bg-white rounded-2xl shadow-2xl max-w-3xl w-full max-h-[92vh] overflow-hidden flex flex-col animate-in fade-in zoom-in duration-200">
+        <div className="bg-slate-900 text-white px-6 py-4 flex items-center justify-between shrink-0">
+          <div>
+            <h3 className="font-bold text-lg flex items-center gap-2">
+              <Building2 size={18} /> Obras de {cliente.nome}
+            </h3>
+            <p className="text-[11px] text-slate-400 mt-0.5">
+              A primeira obra fica no cadastro do cliente. Aqui ficam as obras adicionais.
+            </p>
+          </div>
+          <button
+            onClick={onFechar}
+            className="text-slate-400 hover:text-white cursor-pointer text-xl font-bold"
+            title="Fechar"
+          >
+            &times;
+          </button>
+        </div>
+
+        <div className="p-5 overflow-y-auto space-y-4">
+          {!formAberto && (
+            <div className="flex justify-end">
+              <button
+                onClick={abrirNovaObra}
+                className="flex items-center gap-2 px-4 py-2 bg-primary-600 text-white rounded-xl text-xs font-bold hover:bg-primary-700 transition-all shadow-sm cursor-pointer"
+              >
+                <Plus size={14} /> Nova obra
+              </button>
+            </div>
+          )}
+
+          {formAberto && (
+            <form onSubmit={salvarObra} className="bg-slate-50 border border-slate-200 rounded-2xl p-4 space-y-3">
+              <div className="flex items-center justify-between">
+                <h4 className="text-xs font-extrabold text-slate-700 uppercase tracking-wider">
+                  {editandoId ? 'Editar obra' : 'Nova obra'}
+                </h4>
+                <button
+                  type="button"
+                  onClick={() => { setFormAberto(false); setEditandoId(null); }}
+                  className="text-slate-400 hover:text-slate-700 cursor-pointer"
+                  title="Cancelar"
+                >
+                  &times;
+                </button>
+              </div>
+
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                <div className="md:col-span-2">
+                  <label className="block text-[11px] font-bold text-slate-600 mb-1">Identificação da Obra *</label>
+                  <input
+                    type="text"
+                    value={formData.nome}
+                    onChange={e => setFormData({ ...formData, nome: e.target.value })}
+                    required
+                    placeholder="Ex: Obra Residencial Centro"
+                    className="w-full px-3 py-2 border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-primary-500/20 focus:border-primary-500"
+                  />
+                </div>
+                <div>
+                  <label className="block text-[11px] font-bold text-slate-600 mb-1">Nota PS / Projeto</label>
+                  <input
+                    type="text"
+                    value={formData.nota_ps}
+                    onChange={e => setFormData({ ...formData, nota_ps: e.target.value })}
+                    placeholder="Ex: 400774969"
+                    className="w-full px-3 py-2 border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-primary-500/20 focus:border-primary-500"
+                  />
+                </div>
+                <div>
+                  <label className="block text-[11px] font-bold text-slate-600 mb-1">CEP</label>
+                  <input
+                    type="text"
+                    value={formData.cep}
+                    onChange={e => setFormData({ ...formData, cep: e.target.value })}
+                    placeholder="Ex: 89600-000"
+                    className="w-full px-3 py-2 border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-primary-500/20 focus:border-primary-500"
+                  />
+                </div>
+                <div className="md:col-span-2">
+                  <label className="block text-[11px] font-bold text-slate-600 mb-1">Endereço da Obra</label>
+                  <input
+                    type="text"
+                    value={formData.endereco}
+                    onChange={e => setFormData({ ...formData, endereco: e.target.value })}
+                    placeholder="Rua, Número, Bairro"
+                    className="w-full px-3 py-2 border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-primary-500/20 focus:border-primary-500"
+                  />
+                </div>
+                <div>
+                  <label className="block text-[11px] font-bold text-slate-600 mb-1">Cidade</label>
+                  <input
+                    type="text"
+                    value={formData.cidade}
+                    onChange={e => setFormData({ ...formData, cidade: e.target.value })}
+                    placeholder="Ex: Joaçaba"
+                    className="w-full px-3 py-2 border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-primary-500/20 focus:border-primary-500"
+                  />
+                </div>
+                <div>
+                  <label className="block text-[11px] font-bold text-slate-600 mb-1">Valor da Obra (R$)</label>
+                  <input
+                    type="text"
+                    value={formData.valor_da_obra}
+                    onChange={e => setFormData({ ...formData, valor_da_obra: e.target.value })}
+                    placeholder="Ex: 25.000,00"
+                    className="w-full px-3 py-2 border border-slate-200 rounded-xl text-sm font-semibold text-emerald-700 focus:outline-none focus:ring-2 focus:ring-primary-500/20 focus:border-primary-500"
+                  />
+                </div>
+                <div>
+                  <label className="block text-[11px] font-bold text-slate-600 mb-1">Valor de Devolução (R$)</label>
+                  <input
+                    type="text"
+                    value={formData.valor_de_devolucao}
+                    onChange={e => setFormData({ ...formData, valor_de_devolucao: e.target.value })}
+                    placeholder="Ex: 500,00"
+                    className="w-full px-3 py-2 border border-slate-200 rounded-xl text-sm font-semibold text-amber-700 focus:outline-none focus:ring-2 focus:ring-primary-500/20 focus:border-primary-500"
+                  />
+                </div>
+              </div>
+
+              <div className="flex justify-end gap-2 pt-2 border-t border-slate-200">
+                <button
+                  type="button"
+                  onClick={() => { setFormAberto(false); setEditandoId(null); }}
+                  className="px-3 py-2 border border-slate-200 text-slate-600 rounded-xl text-xs font-bold hover:bg-slate-100 transition-all cursor-pointer"
+                >
+                  Cancelar
+                </button>
+                <button
+                  type="submit"
+                  disabled={salvando}
+                  className="px-4 py-2 bg-primary-600 text-white rounded-xl text-xs font-bold hover:bg-primary-700 transition-all disabled:opacity-50 flex items-center gap-2 cursor-pointer"
+                >
+                  {salvando ? 'Salvando...' : editandoId ? 'Salvar Alterações' : 'Cadastrar Obra'}
+                </button>
+              </div>
+            </form>
+          )}
+
+          {loading ? (
+            <div className="flex flex-col items-center justify-center gap-3 py-12 text-slate-400">
+              <div className="w-8 h-8 border-4 border-primary-500 border-t-transparent rounded-full animate-spin" />
+              <p className="text-xs">Buscando obras...</p>
+            </div>
+          ) : erro ? (
+            <ErroCarregamento mensagem={erro} onTentarNovamente={carregarObras} />
+          ) : obras.length === 0 ? (
+            <div className="text-center py-12 text-slate-400">
+              <Building2 className="mx-auto mb-3 text-slate-300" size={40} />
+              <p className="font-semibold">Nenhuma obra adicional cadastrada.</p>
+              <p className="text-xs mt-1">Use “Nova obra” para cadastrar a segunda obra deste cliente.</p>
+            </div>
+          ) : (
+            <div className="space-y-2">
+              {obras.map((obra) => (
+                <div key={obra.id} className="border border-slate-200 rounded-2xl p-4 hover:border-primary-200 transition-colors">
+                  <div className="flex items-start justify-between gap-3">
+                    <div className="min-w-0">
+                      <p className="font-bold text-slate-900 text-sm truncate">{obra.nome}</p>
+                      {obra.nota_ps && (
+                        <p className="text-[11px] text-slate-500 font-mono mt-0.5">Nota PS: {obra.nota_ps}</p>
+                      )}
+                      {(obra.endereco || obra.cidade) && (
+                        <p className="flex items-start gap-1 text-[11px] text-slate-500 mt-1">
+                          <MapPin size={11} className="mt-0.5 shrink-0" />
+                          <span>{[obra.endereco, obra.cidade].filter(Boolean).join(' · ')}</span>
+                        </p>
+                      )}
+                      <div className="flex flex-wrap gap-x-4 gap-y-1 mt-2 text-[11px]">
+                        <span className="text-emerald-700 font-bold">
+                          Valor: {obra.valor_da_obra ? `R$ ${obra.valor_da_obra}` : '-'}
+                        </span>
+                        <span className="text-amber-700 font-bold">
+                          Devolução: {obra.valor_de_devolucao ? `R$ ${obra.valor_de_devolucao}` : '-'}
+                        </span>
+                      </div>
+                    </div>
+                    <div className="flex items-center gap-2 shrink-0">
+                      <button
+                        onClick={() => abrirEdicao(obra)}
+                        className="w-10 h-10 flex items-center justify-center rounded bg-slate-50 hover:bg-amber-50 text-slate-500 hover:text-amber-700 border border-slate-100 transition-colors cursor-pointer"
+                        title="Editar obra"
+                      >
+                        <Edit2 size={14} />
+                      </button>
+                      <button
+                        onClick={() => setExcluindo(obra)}
+                        className="w-10 h-10 flex items-center justify-center rounded bg-slate-50 hover:bg-rose-50 text-slate-500 hover:text-rose-700 border border-slate-100 transition-colors cursor-pointer"
+                        title="Excluir obra"
+                      >
+                        <Trash2 size={14} />
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      </div>
+
+      <ModalConfirmacao
+        aberto={excluindo != null}
+        titulo="Excluir obra"
+        mensagem={excluindo ? `Tem certeza que deseja excluir a obra "${excluindo.nome}"?` : ''}
+        loading={deletando}
+        onConfirmar={confirmarExclusao}
+        onCancelar={() => setExcluindo(null)}
+      />
     </div>
   );
 }

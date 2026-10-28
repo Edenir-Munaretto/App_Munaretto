@@ -91,7 +91,7 @@ render.yaml          Blueprint do backend (Docker) no Render
 | Módulo | Página (`src/pages`) | Router (prefixo) | Tabelas principais |
 |---|---|---|---|
 | Dashboard | `Dashboard.jsx` | `dashboard.py` (`/api/dashboard`) | agrega vários módulos |
-| Clientes | `Clientes.jsx` | `clientes.py` (`/api/clientes`) | `clientes`, `documentos_gerados` |
+| Clientes | `Clientes.jsx` | `clientes.py` (`/api/clientes`) | `clientes`, `obras_cliente`, `documentos_gerados` |
 | Funcionários | `Funcionarios.jsx` | `funcionarios.py` (`/api/funcionarios`) | `funcionarios`, `cargos` |
 | Gestão Férias | `Ferias.jsx` | `ferias.py` (`/api/ferias`) | `gestao_ferias` |
 | Gestão Usinas | `FluxoCaixa.jsx` | `fluxo_caixa.py` (`/api/fluxo-caixa`) | `fluxo_caixa` |
@@ -113,6 +113,7 @@ render.yaml          Blueprint do backend (Docker) no Render
 - Fonte da verdade: [`backend/schema.sql`](../backend/schema.sql) — cria tabelas, índices, gatilhos, RLS e é **idempotente**; rode novamente em todo deploy que mexer no schema.
 - O RLS habilita acesso apenas com a chave `service_role` (usada só pelo backend). A chave `anon` **não funciona**.
 - Convenções: `id` serial/bigint; datas em timestamptz; status como texto controlado no backend (máquinas de estado); PII fora do git.
+- **Obras adicionais do cliente:** `obras_cliente` é uma tabela isolada do módulo O.S (que continua usando apenas `obras`). A primeira obra fica nos campos do cadastro do cliente; as demais ficam em `obras_cliente` e podem ser escolhidas no Gerador de Documentos.
 
 ## 8. Arquivos e geração de documentos
 

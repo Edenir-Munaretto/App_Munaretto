@@ -18,6 +18,26 @@ CREATE TABLE IF NOT EXISTS clientes (
     ativo BOOLEAN DEFAULT TRUE
 );
 
+-- TABELA: obras_cliente (obras adicionais do cadastro de clientes)
+-- Separada de `obras` (módulo O.S) de propósito: o O.S não enxerga estes
+-- registros. A primeira obra continua nos campos do próprio cliente e as
+-- demais ficam aqui, com seus próprios dados de projeto e valores.
+CREATE TABLE IF NOT EXISTS obras_cliente (
+    id SERIAL PRIMARY KEY,
+    cliente_id INTEGER NOT NULL REFERENCES clientes(id) ON DELETE CASCADE,
+    nome VARCHAR(255) NOT NULL,
+    nota_ps TEXT,
+    endereco TEXT,
+    cidade VARCHAR(100),
+    cep VARCHAR(20),
+    valor_da_obra VARCHAR(100),
+    valor_de_devolucao VARCHAR(100),
+    ativo BOOLEAN DEFAULT TRUE,
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE INDEX IF NOT EXISTS idx_obras_cliente_cliente ON obras_cliente (cliente_id);
+
 -- TABELA: documentos_gerados
 CREATE TABLE IF NOT EXISTS documentos_gerados (
     id SERIAL PRIMARY KEY,
@@ -409,6 +429,7 @@ CREATE TRIGGER trg_update_devolucoes_celesc_updated_at
 
 -- Habilita RLS em todas as tabelas (idempotente se repetido).
 ALTER TABLE IF EXISTS clientes           ENABLE ROW LEVEL SECURITY;
+ALTER TABLE IF EXISTS obras_cliente      ENABLE ROW LEVEL SECURITY;
 ALTER TABLE IF EXISTS documentos_gerados ENABLE ROW LEVEL SECURITY;
 ALTER TABLE IF EXISTS fluxo_caixa        ENABLE ROW LEVEL SECURITY;
 ALTER TABLE IF EXISTS gestao_ferias      ENABLE ROW LEVEL SECURITY;
@@ -443,6 +464,10 @@ ALTER TABLE IF EXISTS devolucoes_celesc ENABLE ROW LEVEL SECURITY;
 
 DROP POLICY IF EXISTS "service_role_full_clientes" ON clientes;
 CREATE POLICY "service_role_full_clientes" ON clientes
+    FOR ALL TO service_role USING (true) WITH CHECK (true);
+
+DROP POLICY IF EXISTS "service_role_full_obras_cliente" ON obras_cliente;
+CREATE POLICY "service_role_full_obras_cliente" ON obras_cliente
     FOR ALL TO service_role USING (true) WITH CHECK (true);
 
 DROP POLICY IF EXISTS "service_role_full_documentos_gerados" ON documentos_gerados;

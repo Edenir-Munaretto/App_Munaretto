@@ -7,6 +7,8 @@ function GeradorDocumentos() {
   const [selectedClienteId, setSelectedClienteId] = useState('');
   const [clientSearch, setClientSearch] = useState('');
   const [showClientDropdown, setShowClientDropdown] = useState(false);
+  const [obrasCliente, setObrasCliente] = useState([]);
+  const [selectedObraClienteId, setSelectedObraClienteId] = useState('');
 
   const [templates, setTemplates] = useState({ word: [], excel: [] });
   const [selectedTemplate, setSelectedTemplate] = useState('');
@@ -72,6 +74,28 @@ function GeradorDocumentos() {
     setShowClientDropdown(false);
   };
 
+  // Obras adicionais do cliente (tabela isolada do módulo O.S). O select é
+  // opcional: sem escolha, o documento mantém o comportamento atual.
+  useEffect(() => {
+    if (!selectedClienteId) {
+      setObrasCliente([]);
+      setSelectedObraClienteId('');
+      return;
+    }
+    let ativo = true;
+    apiFetch(`${API_URL}/clientes/${selectedClienteId}/obras`, { retry: 1 })
+      .then(res => (res.ok ? res.json() : []))
+      .then(lista => {
+        if (!ativo) return;
+        setObrasCliente(lista);
+        setSelectedObraClienteId('');
+      })
+      .catch(() => {
+        if (ativo) setObrasCliente([]);
+      });
+    return () => { ativo = false; };
+  }, [selectedClienteId]);
+
   const handleFormatChange = (e) => {
     setFormato(e.target.value);
   };
@@ -93,6 +117,7 @@ function GeradorDocumentos() {
       formData.append('cliente_id', selectedClienteId);
       formData.append('template_name', selectedTemplate);
       formData.append('formato', formato);
+      if (selectedObraClienteId) formData.append('obra_cliente_id', selectedObraClienteId);
 
       const res = await apiFetch(`${API_URL}/documentos/gerar`, {
         method: 'POST',
@@ -238,6 +263,27 @@ function GeradorDocumentos() {
                 </div>
               )}
             </div>
+
+            {selectedClienteId && obrasCliente.length > 0 && (
+              <div>
+                <label className="block text-xs font-bold text-slate-700 mb-1.5">Obra/Projeto (opcional)</label>
+                <select
+                  value={selectedObraClienteId}
+                  onChange={(e) => setSelectedObraClienteId(e.target.value)}
+                  className="w-full px-3.5 py-2.5 border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-primary-500/20 focus:border-primary-500 text-sm font-semibold bg-white"
+                >
+                  <option value="">Obra principal (dados do cadastro)</option>
+                  {obrasCliente.map((obra) => (
+                    <option key={obra.id} value={obra.id}>
+                      {obra.nome}{obra.nota_ps ? ` — Nota PS ${obra.nota_ps}` : ''}
+                    </option>
+                  ))}
+                </select>
+                <p className="text-[10px] text-slate-400 mt-1">
+                  Sem seleção, o documento usa os dados atuais do cadastro do cliente.
+                </p>
+              </div>
+            )}
 
             {/* Template Selection Grid */}
             <div className="space-y-2">

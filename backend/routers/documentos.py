@@ -116,11 +116,25 @@ def upload_modelo(file: UploadFile = File(...)):
         raise HTTPException(status_code=500, detail="Erro ao salvar arquivo de template.") from None
 
 
+def _mesclar_dados_obra_cliente(cliente: dict, obra: dict) -> dict:
+    """Usa os dados de projeto da obra adicional, mantendo a identidade do cliente."""
+    dados = dict(cliente)
+    for campo in ("endereco", "cidade", "cep", "valor_da_obra", "valor_de_devolucao"):
+        valor = obra.get(campo)
+        if valor not in (None, ""):
+            dados[campo] = valor
+
+    if obra.get("nota_ps"):
+        dados["nota_ps"] = obra["nota_ps"]
+    return dados
+
+
 @router.post("/gerar")
 def gerar_documento(
     cliente_id: int = Form(...),
     template_name: str = Form(...),
     formato: str = Form(..., description="Formato desejado: word, pdf ou excel"),
+    obra_cliente_id: int | None = Form(None, description="Obra adicional do cliente (opcional)"),
     db=Depends(get_supabase),
 ):
     """Gera um documento personalizado para o cliente e inicia o download diretamente no navegador."""
@@ -140,6 +154,22 @@ def gerar_documento(
         raise HTTPException(status_code=404, detail="Cliente não encontrado")
 
     cliente = cliente_resp.data[0]
+
+    # 2.1. Obra adicional opcional (módulo Clientes). Sem ela, o documento usa
+    # os dados atuais do cadastro do cliente, como sempre.
+    if obra_cliente_id is not None:
+        obra_resp = (
+            db.table("obras_cliente")
+            .select("*")
+            .eq("id", obra_cliente_id)
+            .eq("cliente_id", cliente_id)
+            .eq("ativo", True)
+            .execute()
+        )
+        if not obra_resp.data:
+            raise HTTPException(status_code=404, detail="Obra não encontrada para este cliente.")
+        cliente = _mesclar_dados_obra_cliente(cliente, obra_resp.data[0])
+
     temp_dir = tempfile.gettempdir()
     caminho_gerado = None
     media_type = "application/octet-stream"

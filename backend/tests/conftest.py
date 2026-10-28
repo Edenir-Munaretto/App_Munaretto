@@ -205,6 +205,20 @@ def _criar_e_logar(client, db_fake, uid, nome, email, senha, permissoes, funcion
 
 
 @pytest.fixture
+def clientes_client(client, db_fake):
+    """Usuário com permissão apenas do módulo 'clientes'."""
+    return _criar_e_logar(
+        client,
+        db_fake,
+        90,
+        "Cadastro Clientes",
+        "clientes@munaretto.com",
+        "senhaClientes123",
+        ["clientes"],
+    )
+
+
+@pytest.fixture
 def os_gestor_client(client, db_fake):
     """Gestor: permissão 'os' + 'dashboard' (visão completa do módulo)."""
     return _criar_e_logar(
