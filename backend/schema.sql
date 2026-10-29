@@ -233,6 +233,23 @@ ALTER TABLE IF EXISTS funcionarios ADD COLUMN IF NOT EXISTS cargo_id_2 INTEGER R
 -- possam somar apenas ativos + inativos sem considerar os excluídos.
 ALTER TABLE IF EXISTS funcionarios ADD COLUMN IF NOT EXISTS excluido BOOLEAN DEFAULT FALSE;
 
+-- Desligamento: o cadastro e o histórico são preservados. `desligado` separa
+-- o desligamento definitivo de uma inativação temporária (afastamento).
+ALTER TABLE IF EXISTS funcionarios ADD COLUMN IF NOT EXISTS desligado BOOLEAN DEFAULT FALSE;
+ALTER TABLE IF EXISTS funcionarios ADD COLUMN IF NOT EXISTS data_desligamento DATE;
+ALTER TABLE IF EXISTS funcionarios ADD COLUMN IF NOT EXISTS motivo_desligamento VARCHAR(100);
+ALTER TABLE IF EXISTS funcionarios ADD COLUMN IF NOT EXISTS observacao_desligamento TEXT;
+ALTER TABLE IF EXISTS funcionarios ADD COLUMN IF NOT EXISTS desligado_por VARCHAR(255);
+
+UPDATE funcionarios SET desligado = FALSE WHERE desligado IS NULL;
+
+CREATE INDEX IF NOT EXISTS idx_funcionarios_status ON funcionarios (ativo, desligado, excluido);
+
+-- Vínculo do login ao funcionário (responsável de equipe). A coluna já era
+-- usada pelo backend; documentada aqui para instalações novas.
+ALTER TABLE IF EXISTS usuarios ADD COLUMN IF NOT EXISTS funcionario_id INTEGER;
+CREATE INDEX IF NOT EXISTS idx_usuarios_funcionario ON usuarios (funcionario_id);
+
 -- TABELA: funcionario_treinamentos (cursos realizados pelos funcionários)
 CREATE TABLE IF NOT EXISTS funcionario_treinamentos (
     id SERIAL PRIMARY KEY,

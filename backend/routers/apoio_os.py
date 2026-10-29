@@ -291,13 +291,22 @@ def _validar_membros_existem(db, membro_ids: list[int]) -> None:
     ids = list(dict.fromkeys(membro_ids or []))
     if not ids:
         return
-    encontrados = db.table("funcionarios").select("id").in_("id", ids).execute().data or []
-    existentes = {f["id"] for f in encontrados}
+    encontrados = (
+        db.table("funcionarios")
+        .select("id, ativo, desligado")
+        .in_("id", ids)
+        .execute()
+        .data
+        or []
+    )
+    existentes = {
+        f["id"] for f in encontrados if f.get("ativo", True) and not f.get("desligado")
+    }
     ausentes = [fid for fid in ids if fid not in existentes]
     if ausentes:
         raise HTTPException(
             status_code=400,
-            detail=f"Funcionário(s) não encontrado(s): {', '.join(map(str, ausentes))}.",
+            detail=f"Funcionário(s) não encontrado(s) ou inativo(s): {', '.join(map(str, ausentes))}.",
         )
 
 
@@ -316,13 +325,22 @@ def _gravar_membros(db, equipe_id: int, membro_ids: list[int], lider_id: int | N
         raise HTTPException(status_code=400, detail="O líder deve ser um membro da equipe.")
 
     if membro_ids:
-        encontrados = db.table("funcionarios").select("id").in_("id", membro_ids).execute().data or []
-        existentes = {f["id"] for f in encontrados}
+        encontrados = (
+            db.table("funcionarios")
+            .select("id, ativo, desligado")
+            .in_("id", membro_ids)
+            .execute()
+            .data
+            or []
+        )
+        existentes = {
+            f["id"] for f in encontrados if f.get("ativo", True) and not f.get("desligado")
+        }
         ausentes = [fid for fid in membro_ids if fid not in existentes]
         if ausentes:
             raise HTTPException(
                 status_code=400,
-                detail=f"Funcionário(s) não encontrado(s): {', '.join(map(str, ausentes))}.",
+                detail=f"Funcionário(s) não encontrado(s) ou inativo(s): {', '.join(map(str, ausentes))}.",
             )
 
     atuais = db.table("equipe_membros").select("id, funcionario_id").eq("equipe_id", equipe_id).execute().data or []
@@ -357,19 +375,24 @@ def _membros_da_equipe(db, equipe_id: int) -> list[dict]:
     """Retorna os membros da equipe com nome resolvido via join manual."""
     resp = (
         db.table("equipe_membros")
-        .select("id, funcionario_id, lider, funcionarios(nome, cpf)")
+        .select("id, funcionario_id, lider, funcionarios(nome, cpf, ativo, desligado)")
         .eq("equipe_id", equipe_id)
         .execute()
     )
-    return [
-        {
-            "id": m["id"],
-            "funcionario_id": m["funcionario_id"],
-            "nome": (m.get("funcionarios") or {}).get("nome"),
-            "lider": m.get("lider", False),
-        }
-        for m in resp.data
-    ]
+    membros = []
+    for m in resp.data:
+        func = m.get("funcionarios") or {}
+        if not func.get("ativo", True) or func.get("desligado"):
+            continue
+        membros.append(
+            {
+                "id": m["id"],
+                "funcionario_id": m["funcionario_id"],
+                "nome": func.get("nome"),
+                "lider": m.get("lider", False),
+            }
+        )
+    return membros
 
 
 # ---------------------------------------------------------------------------
@@ -797,7 +820,7 @@ def listar_equipes(db=Depends(get_supabase)):
         # Membros de TODAS as equipes em UMA consulta (era 1 query por equipe).
         vinculos = (
             db.table("equipe_membros")
-            .select("id, equipe_id, funcionario_id, lider, funcionarios(nome, cpf)")
+            .select("id, equipe_id, funcionario_id, lider, funcionarios(nome, cpf, ativo, desligado)")
             .in_("equipe_id", [e["id"] for e in equipes])
             .order("id")
             .execute()
@@ -806,6 +829,8 @@ def listar_equipes(db=Depends(get_supabase)):
         por_equipe: dict[int, list[dict]] = {e["id"]: [] for e in equipes}
         for v in vinculos or []:
             func = v.get("funcionarios") or {}
+            if not func.get("ativo", True) or func.get("desligado"):
+                continue
             por_equipe.setdefault(v["equipe_id"], []).append(
                 {
                     "id": v["id"],

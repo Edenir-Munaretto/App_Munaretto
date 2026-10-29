@@ -246,6 +246,49 @@ def _contar_admins_ativos(db, excluir_id: int | None = None) -> int:
     )
 
 
+def _usuarios_ativos_vinculados(db, funcionario_id: int) -> list[dict]:
+    """Logins ativos vinculados ao funcionário (responsáveis de equipe)."""
+    resp = (
+        db.table("usuarios")
+        .select("id, nome, email, ativo, permissoes")
+        .eq("funcionario_id", funcionario_id)
+        .eq("ativo", True)
+        .execute()
+    )
+    return resp.data or []
+
+
+def usuarios_vinculados_para_desligamento(db, funcionario_id: int) -> tuple[list[dict], str | None]:
+    """Valida a desativação dos logins vinculados antes do desligamento.
+
+    Retorna os usuários que serão desativados e, quando houver, o bloqueio
+    (o sistema nunca pode ficar sem administrador ativo).
+    """
+    usuarios = _usuarios_ativos_vinculados(db, funcionario_id)
+    admins_vinculados = [u for u in usuarios if _eh_admin(u)]
+    if admins_vinculados and _contar_admins_ativos(db) <= len(admins_vinculados):
+        return (
+            usuarios,
+            "Não é possível desligar: o login vinculado é o último administrador ativo. "
+            "Crie ou ative outro administrador antes de continuar.",
+        )
+    return usuarios, None
+
+
+def desativar_usuarios_vinculados(db, funcionario_id: int) -> list[int]:
+    """Desativa os logins vinculados ao funcionário e invalida o cache de auth.
+
+    Levanta HTTPException quando a operação deixaria o sistema sem administrador.
+    """
+    usuarios, bloqueio = usuarios_vinculados_para_desligamento(db, funcionario_id)
+    if bloqueio:
+        raise HTTPException(status_code=400, detail=bloqueio)
+    for usuario in usuarios:
+        db.table("usuarios").update({"ativo": False}).eq("id", usuario["id"]).execute()
+        limpar_cache_usuarios(usuario["id"])
+    return [u["id"] for u in usuarios]
+
+
 # ---------------------------------------------------------------------------
 # Endpoints
 # ---------------------------------------------------------------------------

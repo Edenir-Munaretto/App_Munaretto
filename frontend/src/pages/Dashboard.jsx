@@ -33,7 +33,7 @@ function Dashboard({ alerts }) {
       const cursos = data.cursos || {};
 
       setStats({
-        funcionarios: data.funcionarios?.total ?? 0,
+        funcionarios: data.funcionarios?.ativos ?? data.funcionarios?.total ?? 0,
         ferias: data.ferias?.ativas ?? 0,
         asoVencidos: asos['Vencido'] || 0,
         asoProximos: asos['Próximo ao Vencimento'] || 0,
@@ -55,7 +55,7 @@ function Dashboard({ alerts }) {
 
   const statCards = [
     {
-      title: 'Colaboradores Cadastrados',
+      title: 'Colaboradores Ativos',
       value: stats.funcionarios,
       desc: 'Funcionários ativos no sistema',
       icon: Users,

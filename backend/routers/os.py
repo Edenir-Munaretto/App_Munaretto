@@ -415,7 +415,13 @@ def _dados_equipe_impressao(db, equipe_id: int | None) -> tuple[str | None, str 
     func_ids = sorted({v["funcionario_id"] for v in vinculos})
     funcs = {}
     if func_ids:
-        resp = db.table("funcionarios").select("id, nome, cargo_id").in_("id", func_ids).execute().data
+        resp = (
+            db.table("funcionarios")
+            .select("id, nome, cargo_id, ativo, desligado")
+            .in_("id", func_ids)
+            .execute()
+            .data
+        )
         funcs = {f["id"]: f for f in resp}
     cargos = {}
     cargo_ids = sorted({f.get("cargo_id") for f in funcs.values() if f.get("cargo_id")})
@@ -426,7 +432,7 @@ def _dados_equipe_impressao(db, equipe_id: int | None) -> tuple[str | None, str 
     for v in vinculos:
         func = funcs.get(v["funcionario_id"]) or {}
         nome = func.get("nome")
-        if not nome:
+        if not nome or not func.get("ativo", True) or func.get("desligado"):
             continue
         membros.append(
             {
@@ -1709,13 +1715,18 @@ def relatorio_checklist(os_id: int, usuario: UsuarioAutenticado = Depends(get_cu
                 db.table("equipe_membros")
                 # 'cargos' tem DOIS relacionamentos com funcionarios (cargo_id e
                 # cargo_id_2): o PostgREST precisa do FK explícito para embutir.
-                .select("funcionario_id, lider, funcionarios(id, nome, cargo_id, cargos!funcionarios_cargo_id_fkey(nome))")
+                .select(
+                    "funcionario_id, lider, "
+                    "funcionarios(id, nome, cargo_id, ativo, desligado, cargos!funcionarios_cargo_id_fkey(nome))"
+                )
                 .eq("equipe_id", equipe_id)
                 .execute()
                 .data
             )
             for m in rel or []:
                 func = _emb(m.get("funcionarios"))
+                if not func.get("ativo", True) or func.get("desligado"):
+                    continue
                 cargos = _emb(func.get("cargos"))
                 nome = func.get("nome") or "-"
                 cargo = cargos.get("nome") if isinstance(cargos, dict) else ""

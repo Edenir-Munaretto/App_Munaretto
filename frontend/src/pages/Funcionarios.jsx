@@ -1,13 +1,36 @@
 import React, { useState, useEffect } from 'react';
-import { Search, Plus, Edit2, Trash2, X, Check, AlertTriangle, Contact, Users, UserCheck, UserX, Power, RotateCcw } from 'lucide-react';
+import { Search, Plus, Edit2, X, Check, AlertTriangle, Contact, Users, UserCheck, UserX, Power, RotateCcw, LogOut, CalendarDays } from 'lucide-react';
 import { API_URL, apiFetch, erroDaResposta } from '../api';
 import ModalConfirmacao from '../components/ModalConfirmacao';
 import ErroCarregamento from '../components/ErroCarregamento';
 import { useFetchState } from '../hooks/useFetchState';
 
+const MOTIVOS_DESLIGAMENTO = [
+  'Pedido de demissão',
+  'Dispensa sem justa causa',
+  'Dispensa por justa causa',
+  'Fim de contrato',
+  'Aposentadoria',
+  'Abandono de emprego',
+  'Falecimento',
+  'Outro',
+];
+
+const hojeISO = () => {
+  const agora = new Date();
+  agora.setMinutes(agora.getMinutes() - agora.getTimezoneOffset());
+  return agora.toISOString().slice(0, 10);
+};
+
+const formatarData = (valor) => {
+  if (!valor) return '';
+  const [ano, mes, dia] = String(valor).slice(0, 10).split('-');
+  return ano && mes && dia ? `${dia}/${mes}/${ano}` : String(valor);
+};
+
 function Funcionarios({ usuarioAtual }) {
   const [funcionarios, setFuncionarios] = useState([]);
-  const [stats, setStats] = useState({ total: 0, ativos: 0, inativos: 0 });
+  const [stats, setStats] = useState({ total: 0, ativos: 0, inativos: 0, desligados: 0 });
   const [filtroStatus, setFiltroStatus] = useState('ativos');
   const [busca, setBusca] = useState('');
   const [loading, setLoading] = useState(true);
@@ -20,8 +43,24 @@ function Funcionarios({ usuarioAtual }) {
   const [form, setForm] = useState({ nome: '', cpf: '', cargo_id: '', cargo_id_2: '' });
   const [cargos, setCargos] = useState([]);
   const [confirmarAcao, setConfirmarAcao] = useState(null);
+  const [processando, setProcessando] = useState(false);
+
+  // Desligamento
+  const [showDesligamentoModal, setShowDesligamentoModal] = useState(false);
+  const [desligamentoAlvo, setDesligamentoAlvo] = useState(null);
+  const [desligamentoForm, setDesligamentoForm] = useState({
+    data_desligamento: hojeISO(),
+    motivo_desligamento: '',
+    observacao_desligamento: '',
+  });
+  const [checklistDesligamento, setChecklistDesligamento] = useState(null);
+  const [carregandoChecklist, setCarregandoChecklist] = useState(false);
+  const [erroChecklist, setErroChecklist] = useState('');
 
   const temSst = (usuarioAtual?.permissoes || []).includes('sst');
+  const podeGerirFuncionarios = (usuarioAtual?.permissoes || []).some(
+    (p) => p === 'funcionarios' || p === 'configuracoes'
+  );
 
   useEffect(() => {
     fetchFuncionarios();
@@ -145,61 +184,126 @@ function Funcionarios({ usuarioAtual }) {
     setConfirmarAcao({ tipo: 'toggle', funcionario: f, novoStatus: !f.ativo });
   };
 
-  const handleDelete = (id, nome) => {
-    setConfirmarAcao({ tipo: 'delete', id, nome });
+  const abrirDesligamento = async (f) => {
+    setDesligamentoAlvo(f);
+    setDesligamentoForm({
+      data_desligamento: f.data_desligamento ? String(f.data_desligamento).slice(0, 10) : hojeISO(),
+      motivo_desligamento: f.motivo_desligamento || '',
+      observacao_desligamento: f.observacao_desligamento || '',
+    });
+    setChecklistDesligamento(null);
+    setErroChecklist('');
+    setShowDesligamentoModal(true);
+    setCarregandoChecklist(true);
+    try {
+      const res = await apiFetch(`${API_URL}/funcionarios/${f.id}/desligamento/checklist`, { retry: 2 });
+      if (res.ok) {
+        setChecklistDesligamento(await res.json());
+      } else {
+        setErroChecklist(erroDaResposta(await res.json().catch(() => null), 'Erro ao carregar pendências do desligamento.'));
+      }
+    } catch (err) {
+      console.error(err);
+      setErroChecklist('Erro de conexão ao carregar pendências do desligamento.');
+    } finally {
+      setCarregandoChecklist(false);
+    }
+  };
+
+  const handleDesligamentoChange = (e) => {
+    const { name, value } = e.target;
+    setDesligamentoForm((prev) => ({ ...prev, [name]: value }));
+  };
+
+  const enviarDesligamento = (e) => {
+    e.preventDefault();
+    if (!desligamentoForm.data_desligamento || !desligamentoForm.motivo_desligamento) {
+      showToast('Informe a data e o motivo do desligamento.', 'error');
+      return;
+    }
+    if (checklistDesligamento?.bloqueios?.length) {
+      showToast(checklistDesligamento.bloqueios.join(' '), 'error');
+      return;
+    }
+    setConfirmarAcao({
+      tipo: 'desligamento',
+      funcionario: desligamentoAlvo,
+      payload: { ...desligamentoForm },
+    });
   };
 
   const confirmarExecucao = async () => {
     if (!confirmarAcao) return;
-    if (confirmarAcao.tipo === 'toggle') {
-      const f = confirmarAcao.funcionario;
-      const novoStatus = confirmarAcao.novoStatus;
-      try {
+    setProcessando(true);
+    try {
+      if (confirmarAcao.tipo === 'toggle') {
+        const f = confirmarAcao.funcionario;
+        const novoStatus = confirmarAcao.novoStatus;
         const res = await apiFetch(`${API_URL}/funcionarios/${f.id}/status`, {
           method: 'PATCH',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ ativo: novoStatus })
         });
+        const data = await res.json().catch(() => null);
         if (res.ok) {
           showToast(novoStatus ? 'Funcionário reativado com sucesso!' : 'Funcionário inativado com sucesso!');
           fetchFuncionarios();
           fetchStats();
         } else {
-          showToast('Erro ao alterar o status do funcionário.', 'error');
+          showToast(erroDaResposta(data, 'Erro ao alterar o status do funcionário.'), 'error');
         }
-      } catch (err) {
-        console.error(err);
-        showToast('Erro de conexão ao alterar o status do funcionário.', 'error');
-      }
-    } else {
-      const { id } = confirmarAcao;
-      try {
-        const res = await apiFetch(`${API_URL}/funcionarios/${id}`, { method: 'DELETE' });
+      } else if (confirmarAcao.tipo === 'desligamento') {
+        const { funcionario, payload } = confirmarAcao;
+        const res = await apiFetch(`${API_URL}/funcionarios/${funcionario.id}/desligamento`, {
+          method: 'PATCH',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(payload)
+        });
+        const data = await res.json().catch(() => null);
         if (res.ok) {
-          showToast('Funcionário excluído com sucesso.');
+          const partes = [
+            funcionario.desligado
+              ? 'Dados do desligamento atualizados com sucesso.'
+              : 'Funcionário desligado com sucesso.'
+          ];
+          if (data?.usuarios_desativados) {
+            partes.push(`${data.usuarios_desativados} login(s) desativado(s).`);
+          }
+          if (data?.equipes_removidas?.length) {
+            partes.push(`Removido de ${data.equipes_removidas.length} equipe(s).`);
+          }
+          if (data?.avisos?.length) {
+            partes.push(data.avisos.join(' '));
+          }
+          showToast(partes.join(' '));
+          setShowDesligamentoModal(false);
           fetchFuncionarios();
           fetchStats();
         } else {
-          showToast('Erro ao excluir funcionário.', 'error');
+          showToast(erroDaResposta(data, 'Erro ao registrar desligamento.'), 'error');
         }
-      } catch (err) {
-        console.error(err);
-        showToast('Erro de conexão ao excluir funcionário.', 'error');
       }
+    } catch (err) {
+      console.error(err);
+      showToast('Erro de conexão ao concluir a operação.', 'error');
+    } finally {
+      setProcessando(false);
+      setConfirmarAcao(null);
     }
-    setConfirmarAcao(null);
   };
 
   const filtros = [
     { key: 'ativos', label: 'Ativos', icon: UserCheck },
     { key: 'inativos', label: 'Inativos', icon: UserX },
+    { key: 'desligados', label: 'Desligados', icon: LogOut },
     { key: 'todos', label: 'Todos', icon: Users },
   ];
 
   const statCards = [
     { title: 'Funcionários Cadastrados', value: stats.total, icon: Users, color: 'from-blue-500 to-primary-600', iconColor: 'text-blue-500' },
     { title: 'Ativos', value: stats.ativos, icon: UserCheck, color: 'from-emerald-500 to-teal-600', iconColor: 'text-emerald-500' },
-    { title: 'Inativos', value: stats.inativos, icon: UserX, color: 'from-rose-500 to-orange-500', iconColor: 'text-rose-500' },
+    { title: 'Inativos', value: stats.inativos, icon: UserX, color: 'from-amber-500 to-orange-600', iconColor: 'text-amber-500' },
+    { title: 'Desligados', value: stats.desligados, icon: LogOut, color: 'from-rose-500 to-rose-700', iconColor: 'text-rose-500' },
   ];
 
   return (
@@ -219,7 +323,7 @@ function Funcionarios({ usuarioAtual }) {
       )}
 
       {/* Stats Cards */}
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+      <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-4">
         {statCards.map((card, idx) => {
           const Icon = card.icon;
           return (
@@ -254,8 +358,8 @@ function Funcionarios({ usuarioAtual }) {
           />
         </div>
 
-        <div className="flex items-center gap-2">
-          <div className="flex bg-slate-100 rounded-xl p-1">
+        <div className="flex flex-wrap items-center justify-center gap-2">
+          <div className="flex flex-wrap bg-slate-100 rounded-xl p-1">
             {filtros.map((f) => {
               const Icon = f.icon;
               return (
@@ -351,9 +455,19 @@ function Funcionarios({ usuarioAtual }) {
                           <span className="w-1.5 h-1.5 rounded-full bg-emerald-500" />
                           Ativo
                         </span>
+                      ) : f.desligado ? (
+                        <div className="space-y-1">
+                          <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-rose-50 text-rose-700 border border-rose-100 text-[10px] font-bold">
+                            <span className="w-1.5 h-1.5 rounded-full bg-rose-500" />
+                            Desligado{f.data_desligamento ? ` em ${formatarData(f.data_desligamento)}` : ''}
+                          </span>
+                          {f.motivo_desligamento && (
+                            <p className="text-[10px] text-slate-400 font-semibold">{f.motivo_desligamento}</p>
+                          )}
+                        </div>
                       ) : (
-                        <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-rose-50 text-rose-700 border border-rose-100 text-[10px] font-bold">
-                          <span className="w-1.5 h-1.5 rounded-full bg-rose-500" />
+                        <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-amber-50 text-amber-700 border border-amber-100 text-[10px] font-bold">
+                          <span className="w-1.5 h-1.5 rounded-full bg-amber-500" />
                           Inativo
                         </span>
                       )}
@@ -378,13 +492,15 @@ function Funcionarios({ usuarioAtual }) {
                         >
                           {f.ativo ? <Power size={15} /> : <RotateCcw size={15} />}
                         </button>
-                        <button
-                          onClick={() => handleDelete(f.id, f.nome)}
-                          className="w-11 h-11 flex items-center justify-center p-0 rounded bg-slate-50 hover:bg-rose-50 text-slate-500 hover:text-rose-700 border border-slate-100 transition-colors"
-                          title="Excluir"
-                        >
-                          <Trash2 size={15} />
-                        </button>
+                        {podeGerirFuncionarios && (
+                          <button
+                            onClick={() => abrirDesligamento(f)}
+                            className="w-11 h-11 flex items-center justify-center p-0 rounded bg-slate-50 hover:bg-violet-50 text-slate-500 hover:text-violet-700 border border-slate-100 transition-colors"
+                            title={f.desligado ? 'Editar desligamento' : 'Registrar desligamento'}
+                          >
+                            <LogOut size={15} />
+                          </button>
+                        )}
                       </div>
                     </td>
                   </tr>
@@ -435,9 +551,19 @@ function Funcionarios({ usuarioAtual }) {
                         <span className="w-1.5 h-1.5 rounded-full bg-emerald-500" />
                         Ativo
                       </span>
+                    ) : f.desligado ? (
+                      <div className="space-y-1">
+                        <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-rose-50 text-rose-700 border border-rose-100 text-[10px] font-bold">
+                          <span className="w-1.5 h-1.5 rounded-full bg-rose-500" />
+                          Desligado{f.data_desligamento ? ` em ${formatarData(f.data_desligamento)}` : ''}
+                        </span>
+                        {f.motivo_desligamento && (
+                          <p className="text-[10px] text-slate-400 font-semibold">{f.motivo_desligamento}</p>
+                        )}
+                      </div>
                     ) : (
-                      <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-rose-50 text-rose-700 border border-rose-100 text-[10px] font-bold">
-                        <span className="w-1.5 h-1.5 rounded-full bg-rose-500" />
+                      <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-amber-50 text-amber-700 border border-amber-100 text-[10px] font-bold">
+                        <span className="w-1.5 h-1.5 rounded-full bg-amber-500" />
                         Inativo
                       </span>
                     )}
@@ -462,13 +588,15 @@ function Funcionarios({ usuarioAtual }) {
                   >
                     {f.ativo ? <Power size={15} /> : <RotateCcw size={15} />}
                   </button>
-                  <button
-                    onClick={() => handleDelete(f.id, f.nome)}
-                    className="w-11 h-11 flex items-center justify-center rounded bg-slate-50 hover:bg-rose-50 text-slate-500 hover:text-rose-700 border border-slate-100 transition-colors"
-                    title="Excluir"
-                  >
-                    <Trash2 size={15} />
-                  </button>
+                  {podeGerirFuncionarios && (
+                    <button
+                      onClick={() => abrirDesligamento(f)}
+                      className="w-11 h-11 flex items-center justify-center rounded bg-slate-50 hover:bg-violet-50 text-slate-500 hover:text-violet-700 border border-slate-100 transition-colors"
+                      title={f.desligado ? 'Editar desligamento' : 'Registrar desligamento'}
+                    >
+                      <LogOut size={15} />
+                    </button>
+                  )}
                 </div>
               </div>
             ))
@@ -575,16 +703,211 @@ function Funcionarios({ usuarioAtual }) {
         </div>
       )}
 
+      {showDesligamentoModal && desligamentoAlvo && (
+        <div className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-2xl shadow-2xl max-w-lg w-full overflow-hidden animate-in fade-in zoom-in duration-200 max-h-[92vh] flex flex-col">
+            <div className="bg-slate-900 text-white px-3 py-3 md:px-6 md:py-4 flex items-center justify-between shrink-0">
+              <h3 className="font-bold text-lg flex items-center gap-2">
+                <LogOut className="text-rose-400" size={20} />
+                {desligamentoAlvo.desligado ? 'Editar Desligamento' : 'Registrar Desligamento'}
+              </h3>
+              <button
+                onClick={() => setShowDesligamentoModal(false)}
+                className="text-slate-400 hover:text-white text-xl font-bold cursor-pointer"
+              >
+                <X size={20} />
+              </button>
+            </div>
+
+            <form onSubmit={enviarDesligamento} className="p-6 space-y-4 overflow-y-auto">
+              <div>
+                <p className="font-bold text-slate-900">{desligamentoAlvo.nome}</p>
+                <p className="font-mono text-xs text-slate-500">{desligamentoAlvo.cpf}</p>
+              </div>
+
+              <div className="bg-amber-50 border border-amber-200 rounded-xl p-3 text-xs text-amber-800 font-semibold flex gap-2">
+                <AlertTriangle size={16} className="shrink-0 mt-0.5" />
+                <span>
+                  O cadastro e todo o histórico serão mantidos. O login vinculado será desativado e o
+                  funcionário sairá das equipes atuais. Para afastamento temporário, use “Inativar”.
+                </span>
+              </div>
+
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-xs font-bold text-slate-700 mb-1.5">Data do Desligamento *</label>
+                  <div className="relative">
+                    <CalendarDays size={16} className="absolute left-3 top-2.5 text-slate-400" />
+                    <input
+                      type="date"
+                      name="data_desligamento"
+                      value={desligamentoForm.data_desligamento}
+                      onChange={handleDesligamentoChange}
+                      max={hojeISO()}
+                      required
+                      className="w-full pl-9 pr-3 py-2 border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-primary-500/20 focus:border-primary-500 text-sm"
+                    />
+                  </div>
+                </div>
+                <div>
+                  <label className="block text-xs font-bold text-slate-700 mb-1.5">Motivo *</label>
+                  <select
+                    name="motivo_desligamento"
+                    value={desligamentoForm.motivo_desligamento}
+                    onChange={handleDesligamentoChange}
+                    required
+                    className="w-full px-3.5 py-2.5 border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-primary-500/20 focus:border-primary-500 text-sm font-semibold"
+                  >
+                    <option value="">Selecione o motivo...</option>
+                    {MOTIVOS_DESLIGAMENTO.map((motivo) => (
+                      <option key={motivo} value={motivo}>{motivo}</option>
+                    ))}
+                  </select>
+                </div>
+              </div>
+
+              <div>
+                <label className="block text-xs font-bold text-slate-700 mb-1.5">Observação</label>
+                <textarea
+                  name="observacao_desligamento"
+                  value={desligamentoForm.observacao_desligamento}
+                  onChange={handleDesligamentoChange}
+                  rows={2}
+                  placeholder="Informações complementares (opcional)"
+                  className="w-full px-3.5 py-2 border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-primary-500/20 focus:border-primary-500 text-sm resize-none"
+                />
+              </div>
+
+              <div className="rounded-xl border border-slate-200 p-3 space-y-2">
+                <p className="text-xs font-bold text-slate-700 uppercase tracking-wide">Conferência do desligamento</p>
+
+                {carregandoChecklist ? (
+                  <div className="flex items-center gap-2 text-xs text-slate-400 py-2">
+                    <div className="w-4 h-4 border-2 border-primary-500 border-t-transparent rounded-full animate-spin" />
+                    Carregando pendências...
+                  </div>
+                ) : erroChecklist ? (
+                  <p className="text-xs text-rose-700 font-semibold">{erroChecklist}</p>
+                ) : checklistDesligamento && (
+                  <div className="space-y-2 text-xs">
+                    {checklistDesligamento.bloqueios?.length > 0 && (
+                      <div className="bg-rose-50 border border-rose-200 rounded-lg p-2.5 text-rose-800 font-semibold space-y-1">
+                        {checklistDesligamento.bloqueios.map((bloqueio, idx) => (
+                          <p key={idx}>{bloqueio}</p>
+                        ))}
+                      </div>
+                    )}
+
+                    {checklistDesligamento.usuarios_vinculados?.length > 0 && (
+                      <p className="text-slate-600">
+                        <span className="font-bold">
+                          {desligamentoAlvo.desligado ? 'Login(s) vinculado(s):' : 'Login(s) que serão desativados:'}
+                        </span>{' '}
+                        {checklistDesligamento.usuarios_vinculados.map((u) => u.nome || u.email).join(', ')}
+                      </p>
+                    )}
+
+                    {checklistDesligamento.equipes?.length > 0 && (
+                      <p className="text-slate-600">
+                        <span className="font-bold">
+                          {desligamentoAlvo.desligado ? 'Equipe(s) vinculada(s):' : 'Sairá da(s) equipe(s):'}
+                        </span>{' '}
+                        {checklistDesligamento.equipes.map((e) => e.nome).join(', ')}
+                      </p>
+                    )}
+
+                    {desligamentoAlvo.desligado && checklistDesligamento.usuarios_vinculados?.length > 0 && (
+                      <p className="text-rose-700 font-semibold">
+                        Há login ativo vinculado a este funcionário desligado. Desative o acesso em Configurações.
+                      </p>
+                    )}
+
+                    {desligamentoAlvo.desligado && checklistDesligamento.equipes?.length > 0 && (
+                      <p className="text-amber-700 font-semibold">
+                        Este funcionário ainda aparece em equipe(s). Ajuste a composição em O.S → Equipes.
+                      </p>
+                    )}
+
+                    {checklistDesligamento.epis_em_uso > 0 && (
+                      <p className="text-amber-700 font-semibold">
+                        {checklistDesligamento.epis_em_uso} EPI(s) sem devolução registrada.
+                      </p>
+                    )}
+
+                    {!checklistDesligamento.aso_demissional_registrado && (
+                      <p className="text-amber-700 font-semibold">Nenhum ASO demissional registrado.</p>
+                    )}
+
+                    {!checklistDesligamento.bloqueios?.length &&
+                      !checklistDesligamento.usuarios_vinculados?.length &&
+                      !checklistDesligamento.equipes?.length &&
+                      checklistDesligamento.epis_em_uso === 0 &&
+                      checklistDesligamento.aso_demissional_registrado && (
+                        <p className="text-emerald-700 font-semibold">Nenhuma pendência encontrada.</p>
+                      )}
+                  </div>
+                )}
+              </div>
+
+              {desligamentoAlvo.desligado && (
+                <p className="text-[11px] text-slate-500 font-semibold">
+                  Este funcionário já está desligado. Salvar alterações não repete a desativação de logins
+                  nem a saída das equipes.
+                </p>
+              )}
+
+              <div className="flex justify-end gap-3 pt-4 border-t border-slate-100">
+                <button
+                  type="button"
+                  onClick={() => setShowDesligamentoModal(false)}
+                  className="px-4 py-2 border border-slate-200 text-slate-600 rounded-xl text-sm font-semibold hover:bg-slate-50 transition-all cursor-pointer"
+                >
+                  Cancelar
+                </button>
+                <button
+                  type="submit"
+                  disabled={carregandoChecklist || checklistDesligamento?.bloqueios?.length > 0}
+                  className="px-5 py-2 bg-rose-600 text-white rounded-xl text-sm font-semibold hover:bg-rose-700 transition-all shadow-md shadow-rose-900/10 cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed"
+                >
+                  {desligamentoAlvo.desligado ? 'Salvar Desligamento' : 'Registrar Desligamento'}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
       <ModalConfirmacao
         aberto={confirmarAcao != null}
-        titulo={confirmarAcao?.tipo === 'toggle'
-          ? (confirmarAcao?.novoStatus ? 'Reativar funcionário' : 'Inativar funcionário')
-          : 'Excluir funcionário'}
-        mensagem={confirmarAcao?.tipo === 'toggle'
-          ? `Tem certeza que deseja ${confirmarAcao?.novoStatus ? 'reativar' : 'inativar'} o funcionário "${confirmarAcao?.funcionario?.nome || ''}"?`
-          : `Tem certeza que deseja excluir o funcionário "${confirmarAcao?.nome || ''}"? Esta ação não pode ser desfeita.`}
-        confirmarTexto={confirmarAcao?.tipo === 'toggle' ? (confirmarAcao?.novoStatus ? 'Reativar' : 'Inativar') : 'Excluir'}
-        perigo={confirmarAcao?.tipo !== 'toggle'}
+        titulo={
+          confirmarAcao?.tipo === 'toggle'
+            ? (confirmarAcao?.novoStatus ? 'Reativar funcionário' : 'Inativar funcionário')
+            : confirmarAcao?.funcionario?.desligado
+              ? 'Editar desligamento'
+              : 'Registrar desligamento'
+        }
+        mensagem={
+          confirmarAcao?.tipo === 'toggle'
+            ? `Tem certeza que deseja ${confirmarAcao?.novoStatus ? 'reativar' : 'inativar'} o funcionário "${confirmarAcao?.funcionario?.nome || ''}"?`
+            : confirmarAcao?.tipo === 'desligamento'
+              ? `Confirma o desligamento de "${confirmarAcao?.funcionario?.nome || ''}" em ${formatarData(confirmarAcao?.payload?.data_desligamento)}?${
+                  confirmarAcao?.funcionario?.desligado
+                    ? ' Apenas os dados do desligamento serão atualizados.'
+                    : ' O cadastro e o histórico serão mantidos; o login vinculado será desativado e o funcionário sairá das equipes.'
+                }`
+              : ''
+        }
+        confirmarTexto={
+          confirmarAcao?.tipo === 'toggle'
+            ? (confirmarAcao?.novoStatus ? 'Reativar' : 'Inativar')
+            : 'Confirmar'
+        }
+        perigo={
+          confirmarAcao?.tipo === 'toggle'
+            ? !confirmarAcao?.novoStatus
+            : true
+        }
+        loading={processando}
         onConfirmar={confirmarExecucao}
         onCancelar={() => setConfirmarAcao(null)}
       />

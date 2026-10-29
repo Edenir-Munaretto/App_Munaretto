@@ -1242,19 +1242,42 @@ def obter_alertas(db=Depends(get_supabase)):
         if _CACHE_ALERTAS["data"] is not None and (agora - _CACHE_ALERTAS["ts"]) < _CACHE_ALERTAS_TTL:
             return _CACHE_ALERTAS["data"]
 
+        # Alertas operacionais: apenas funcionários ativos. O histórico de
+        # treinamentos/ASO de desligados permanece no banco, mas não gera mais
+        # cobrança de vencimento.
+        funcionarios_ativos = (
+            db.table("funcionarios")
+            .select("id")
+            .eq("excluido", False)
+            .eq("ativo", True)
+            .execute()
+            .data
+        )
+        ids_ativos = {f["id"] for f in (funcionarios_ativos or [])}
+
         # Colunas explícitas: antes vinha a linha inteira de cada tabela.
-        treinos = (
-            db.table("funcionario_treinamentos")
-            .select("id, funcionario_id, funcionario_nome, treinamento_id, treinamento_nome, data_validade")
-            .execute()
-            .data
-        )
-        asos = (
-            db.table("aso")
-            .select("id, funcionario_id, funcionario_nome, data_validade, tipo_exame, data_exame")
-            .execute()
-            .data
-        )
+        treinos = [
+            t
+            for t in (
+                db.table("funcionario_treinamentos")
+                .select("id, funcionario_id, funcionario_nome, treinamento_id, treinamento_nome, data_validade")
+                .execute()
+                .data
+                or []
+            )
+            if t.get("funcionario_id") in ids_ativos
+        ]
+        asos = [
+            a
+            for a in (
+                db.table("aso")
+                .select("id, funcionario_id, funcionario_nome, data_validade, tipo_exame, data_exame")
+                .execute()
+                .data
+                or []
+            )
+            if a.get("funcionario_id") in ids_ativos
+        ]
         epis = (
             db.table("epis")
             .select("id, nome, ca_numero, ca_validade")

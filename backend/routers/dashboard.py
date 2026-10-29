@@ -130,11 +130,17 @@ def resumo_dashboard(db=Depends(get_supabase)):
     try:
         # Todas as leituras são paginadas: com mais de ~1000 registros o
         # PostgREST trunca a resposta e os totais ficariam errados em silêncio.
-        # Funcionários: só o total (count exato no banco; sem baixar as linhas).
+        # Funcionários: total (count exato no banco; sem baixar as linhas) e
+        # ids dos ativos, usados para não contabilizar ASO/cursos de
+        # funcionários inativos ou desligados.
         resp_func = (
             db.table("funcionarios").select("id", count="exact").eq("excluido", False).limit(1).execute()
         )
         total_funcionarios = int(resp_func.count or 0)
+        funcionarios_ativos = _ler_paginado(
+            db.table("funcionarios").select("id").eq("excluido", False).eq("ativo", True)
+        )
+        ids_ativos = {f["id"] for f in funcionarios_ativos}
 
         # Férias: contagem de registros Agendado/Em Férias e alertas de prazo
         ferias = _ler_paginado(
@@ -145,8 +151,12 @@ def resumo_dashboard(db=Depends(get_supabase)):
         ferias_ativas = sum(1 for f in ferias if f.get("status") in STATUS_FERIAS_ATIVAS)
         alertas_ferias = _alertas_ferias(ferias)
 
-        # ASO: classificação por vencimento
-        asos = _ler_paginado(db.table("aso").select("funcionario_id", "data_validade"))
+        # ASO: classificação por vencimento (somente funcionários ativos).
+        asos = [
+            a
+            for a in _ler_paginado(db.table("aso").select("funcionario_id", "data_validade"))
+            if a.get("funcionario_id") in ids_ativos
+        ]
         for a in asos:
             a["status"] = _status_vencimento(a.get("data_validade"))
         aso_resumo = _contar_status(asos)
@@ -155,11 +165,15 @@ def resumo_dashboard(db=Depends(get_supabase)):
         # AUTORIZAÇÃO NR10 E NR35) usam o vencimento derivado dos pré-requisitos.
         # Colunas explícitas: o resumo só precisa destes campos (antes vinha a
         # linha inteira de cada treinamento).
-        treinos = _ler_paginado(
-            db.table("funcionario_treinamentos").select(
-                "id, funcionario_id, funcionario_nome, treinamento_id, treinamento_nome, data_validade"
+        treinos = [
+            t
+            for t in _ler_paginado(
+                db.table("funcionario_treinamentos").select(
+                    "id, funcionario_id, funcionario_nome, treinamento_id, treinamento_nome, data_validade"
+                )
             )
-        )
+            if t.get("funcionario_id") in ids_ativos
+        ]
         catalogo = _ler_paginado(db.table("treinamentos").select("id", "nome"))
         aplicar_documentos_vinculados(treinos, catalogo, asos)
         for t in treinos:
@@ -168,7 +182,7 @@ def resumo_dashboard(db=Depends(get_supabase)):
         cursos_resumo = _contar_status(treinos)
 
         resultado = {
-            "funcionarios": {"total": total_funcionarios},
+            "funcionarios": {"total": total_funcionarios, "ativos": len(ids_ativos)},
             "ferias": {"ativas": ferias_ativas},
             "asos": aso_resumo,
             "cursos": cursos_resumo,

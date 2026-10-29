@@ -40,7 +40,7 @@ function Configuracoes({ usuarioAtual, onUsuarioAtualizado }) {
 
   const fetchFuncionarios = async () => {
     try {
-      const res = await apiFetch(`${API_URL}/funcionarios/`, { retry: 2 });
+      const res = await apiFetch(`${API_URL}/funcionarios/?status=todos`, { retry: 2 });
       if (res.ok) setFuncionarios(await res.json());
     } catch (err) {
       console.error('Erro ao buscar funcionários:', err);
@@ -189,9 +189,14 @@ function Configuracoes({ usuarioAtual, onUsuarioAtualizado }) {
       (u.email || '').toLowerCase().includes(searchLower);
   });
 
+  const funcionarioVinculado = (id) => {
+    if (!id) return null;
+    return funcionarios.find(f => f.id === id) || null;
+  };
+
   const nomeFuncionario = (id) => {
     if (!id) return null;
-    const f = funcionarios.find(f => f.id === id);
+    const f = funcionarioVinculado(id);
     return f ? f.nome : 'Funcionário removido';
   };
 
@@ -284,6 +289,11 @@ function Configuracoes({ usuarioAtual, onUsuarioAtualizado }) {
                       {nomeFuncionario(u.funcionario_id) ? (
                         <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-amber-50 text-amber-700 border border-amber-100 text-[10px] font-bold">
                           {nomeFuncionario(u.funcionario_id)}
+                          {funcionarioVinculado(u.funcionario_id) && !funcionarioVinculado(u.funcionario_id).ativo && (
+                            <span className="ml-1 px-1.5 py-0.5 rounded-full bg-rose-100 text-rose-700 border border-rose-200 text-[9px]">
+                              {funcionarioVinculado(u.funcionario_id).desligado ? 'Desligado' : 'Inativo'}
+                            </span>
+                          )}
                         </span>
                       ) : (
                         <span className="text-slate-300">—</span>
@@ -391,15 +401,18 @@ function Configuracoes({ usuarioAtual, onUsuarioAtualizado }) {
                   >
                     <option value="">Nenhum (somente gestor)</option>
                     {funcionarios.map(f => (
-                      <option key={f.id} value={f.id}>{f.nome}</option>
+                      <option key={f.id} value={f.id} disabled={!f.ativo}>
+                        {f.nome}{!f.ativo ? (f.desligado ? ' (desligado)' : ' (inativo)') : ''}
+                      </option>
                     ))}
                   </select>
                   <p className="text-[10px] text-slate-400 mt-1 font-semibold">
                     Responsável de equipe: vincula o login ao funcionário para acessar as O.S da equipe.
+                    Apenas funcionários ativos podem ser vinculados.
                   </p>
-                  {funcionarios.length === 0 && (
+                  {funcionarios.filter(f => f.ativo).length === 0 && (
                     <p className="text-[10px] text-rose-500 mt-1 font-bold">
-                      Nenhum funcionário cadastrado — cadastre em Funcionários para poder vincular.
+                      Nenhum funcionário ativo — cadastre em Funcionários para poder vincular.
                     </p>
                   )}
                 </div>
