@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useMemo, useCallback, useRef } from 'react';
-import { Search, Plus, Edit2, Trash2, Check, AlertTriangle, Printer, FileCheck2, FileX2, Undo2, Wallet, ChevronLeft, ChevronRight } from 'lucide-react';
+import { Search, Plus, Edit2, Trash2, Check, AlertTriangle, Printer, FileCheck2, FileX2, Undo2, Wallet, ChevronLeft, ChevronRight, Building2 } from 'lucide-react';
 import { API_URL, apiFetch, erroDaResposta } from '../api';
 import ModalConfirmacao from '../components/ModalConfirmacao';
 import ErroCarregamento from '../components/ErroCarregamento';
@@ -27,6 +27,9 @@ function Recebimentos() {
   const [submitting, setSubmitting] = useState(false);
   const [buscaCliente, setBuscaCliente] = useState('');
   const [sugestoesAbertas, setSugestoesAbertas] = useState(false);
+  const [clienteSelecionadoId, setClienteSelecionadoId] = useState(null);
+  const [obrasCliente, setObrasCliente] = useState({ clienteId: null, lista: [] });
+  const [obraSelecionadaId, setObraSelecionadaId] = useState('');
   const [formData, setFormData] = useState({
     nome_cliente: '',
     data_inicio: '',
@@ -72,6 +75,25 @@ function Recebimentos() {
     return () => { if (retryTimer.current) clearTimeout(retryTimer.current); };
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  // Obras adicionais do cliente selecionado (mesma fonte usada no Gerador de
+  // Documentos). Só importa quando o cliente tem mais de uma obra.
+  useEffect(() => {
+    if (!clienteSelecionadoId) {
+      setObrasCliente({ clienteId: null, lista: [] });
+      return;
+    }
+    let ativo = true;
+    apiFetch(`${API_URL}/clientes/${clienteSelecionadoId}/obras`, { retry: 1 })
+      .then(res => (res.ok ? res.json() : []))
+      .then(lista => {
+        if (ativo) setObrasCliente({ clienteId: clienteSelecionadoId, lista });
+      })
+      .catch(() => {
+        if (ativo) setObrasCliente({ clienteId: clienteSelecionadoId, lista: [] });
+      });
+    return () => { ativo = false; };
+  }, [clienteSelecionadoId]);
 
 
   const showToast = (message, type = 'success') => {
@@ -136,9 +158,13 @@ function Recebimentos() {
     ? clientes.filter(c => c.nome.toLowerCase().includes(buscaCliente.toLowerCase())).slice(0, 8)
     : [];
 
+  const obrasDoCliente = obrasCliente.clienteId === clienteSelecionadoId ? obrasCliente.lista : [];
+
   const selecionarCliente = (cliente) => {
     setBuscaCliente(cliente.nome);
     setSugestoesAbertas(false);
+    setClienteSelecionadoId(cliente.id);
+    setObraSelecionadaId('');
     setFormData(prev => ({
       ...prev,
       nome_cliente: cliente.nome || '',
@@ -148,10 +174,37 @@ function Recebimentos() {
     }));
   };
 
+  // Mescla os dados da obra escolhida com os do cliente (mesma regra do
+  // Gerador de Documentos: campos vazios da obra mantêm os do cadastro).
+  const selecionarObra = (obraId) => {
+    setObraSelecionadaId(obraId);
+    const obra = obrasDoCliente.find(o => String(o.id) === String(obraId));
+    const cliente = clientes.find(c => c.id === clienteSelecionadoId);
+    if (obra) {
+      setFormData(prev => ({
+        ...prev,
+        valor_da_obra: parseDecimalBR(obra.valor_da_obra || cliente?.valor_da_obra),
+        valor_de_devolucao: parseDecimalBR(obra.valor_de_devolucao || cliente?.valor_de_devolucao),
+        nota_ps: obra.nota_ps || cliente?.nota_ps || ''
+      }));
+      return;
+    }
+    if (cliente) {
+      setFormData(prev => ({
+        ...prev,
+        valor_da_obra: parseDecimalBR(cliente.valor_da_obra),
+        valor_de_devolucao: parseDecimalBR(cliente.valor_de_devolucao),
+        nota_ps: cliente.nota_ps || ''
+      }));
+    }
+  };
+
   const openAddModal = () => {
     setEditingId(null);
     setBuscaCliente('');
     setSugestoesAbertas(false);
+    setClienteSelecionadoId(null);
+    setObraSelecionadaId('');
     setFormData({
       nome_cliente: '',
       data_inicio: '',
@@ -166,6 +219,15 @@ function Recebimentos() {
   };
 
   const openEditModal = (r) => {
+    // O recebimento guarda apenas o nome do cliente. Para exibir a seleção de
+    // obras ao editar, vincula pelo nome somente quando a correspondência for
+    // inequívoca; os valores atuais só mudam se o usuário escolher uma obra.
+    const nomeNormalizado = (r.nome_cliente || '').trim().toLowerCase();
+    const clientesComNome = nomeNormalizado
+      ? clientes.filter(c => (c.nome || '').trim().toLowerCase() === nomeNormalizado)
+      : [];
+    setClienteSelecionadoId(clientesComNome.length === 1 ? clientesComNome[0].id : null);
+    setObraSelecionadaId('');
     setEditingId(r.id);
     setBuscaCliente(r.nome_cliente || '');
     setSugestoesAbertas(false);
@@ -833,6 +895,44 @@ function Recebimentos() {
                     Digite o nome e selecione a sugestão para preencher nome, valor da obra e valor de devolução automaticamente.
                   </p>
                 </div>
+
+                {obrasDoCliente.length > 0 && (
+                  <div className="col-span-1 md:col-span-2 rounded-2xl border-2 border-primary-200 bg-gradient-to-br from-primary-50 via-white to-amber-50 p-4 shadow-sm">
+                    <div className="flex items-start gap-3">
+                      <div className="p-2.5 rounded-xl bg-primary-600 text-white shadow-md shadow-primary-900/20 shrink-0">
+                        <Building2 size={18} />
+                      </div>
+                      <div className="flex-1 min-w-0 space-y-2">
+                        <div className="flex flex-wrap items-center justify-between gap-2">
+                          <div>
+                            <p className="text-xs font-extrabold text-primary-900 uppercase tracking-wider">
+                              Obra do lançamento
+                            </p>
+                            <p className="text-[11px] text-slate-600">
+                              Este cliente possui mais de uma obra. Escolha qual delas será usada para preencher os valores.
+                            </p>
+                          </div>
+                          <span className="px-2.5 py-1 rounded-full bg-white border border-primary-200 text-[10px] font-bold text-primary-700 whitespace-nowrap">
+                            {obrasDoCliente.length + 1} opção(ões)
+                          </span>
+                        </div>
+
+                        <select
+                          value={obraSelecionadaId}
+                          onChange={(e) => selecionarObra(e.target.value)}
+                          className="w-full px-3.5 py-2.5 border-2 border-primary-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-primary-500/20 focus:border-primary-500 text-sm font-semibold bg-white"
+                        >
+                          <option value="">Obra principal (dados do cadastro)</option>
+                          {obrasDoCliente.map((obra) => (
+                            <option key={obra.id} value={obra.id}>
+                              {obra.nome}{obra.nota_ps ? ` — Nota PS ${obra.nota_ps}` : ''}
+                            </option>
+                          ))}
+                        </select>
+                      </div>
+                    </div>
+                  </div>
+                )}
 
                 <div className="col-span-1 md:col-span-2">
                   <label className="block text-xs font-bold text-slate-700 mb-1.5">Nome do Cliente *</label>
