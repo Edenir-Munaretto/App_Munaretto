@@ -459,3 +459,126 @@ def test_filtrar_folha_pagamento(comprovante_client, db_fake):
     data = resp.json()
     assert [registro["id"] for registro in data] == [1]
     assert data[0]["tipo_documento"] == "Folha Pag."
+
+
+def test_importar_nf_recalcula_liquido_divergente(comprovante_client, db_fake):
+    """O líquido da NF é sempre recalculado e a divergência vira aviso."""
+    buffer = _montar_planilha(
+        [
+            [
+                "Nota Fiscal",
+                "Fornecedor Ltda",
+                "12.345.678/0001-90",
+                "12345",
+                "10/08/2026",
+                None,
+                None,
+                None,
+                "5000,00",
+                "5000,00",
+                "550,00",
+                "250,00",
+                "4000,00",
+                None,
+                None,
+                "São Paulo/SP",
+                None,
+            ],
+        ]
+    )
+    resp = comprovante_client.post(
+        "/api/comprovantes/importar",
+        files={"file": ("planilha.xlsx", buffer, "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")},
+    )
+    assert resp.status_code == 200, resp.text
+    data = resp.json()
+    assert data["importados"] == 1
+    assert len(data["avisos"]) == 1
+    assert "ajustado" in data["avisos"][0]["mensagem"]
+
+    registro = db_fake._dados["comprovantes"][0]
+    assert registro["valor_liquido"] == 4200.0
+
+
+def test_filtrar_nota_fiscal_usa_somente_data_emissao(comprovante_client, db_fake):
+    """NF com pagamento no período, mas emissão fora, não entra no filtro."""
+    base = {"tipo_documento": "Nota Fiscal", "data_registro": "2026-08-01T10:00:00Z"}
+    db_fake._dados["comprovantes"] = [
+        {**base, "id": 1, "data_emissao": "2026-08-10", "data_pagamento": "2026-10-01"},
+        {**base, "id": 2, "data_emissao": "2026-07-01", "data_pagamento": "2026-08-15"},
+        {**base, "id": 3, "data_emissao": "2026-09-01", "data_pagamento": None},
+    ]
+
+    resp = comprovante_client.get(
+        "/api/comprovantes/?tipo_documento=Nota%20Fiscal&data_inicio=2026-08-01&data_fim=2026-08-31"
+    )
+    assert resp.status_code == 200, resp.text
+    assert [registro["id"] for registro in resp.json()] == [1]
+
+
+def test_atualizar_nf_calcula_liquido_quando_ausente(comprovante_client, db_fake):
+    """PUT sem valor_liquido calcula Total - INSS - ISS."""
+    db_fake._dados["comprovantes"] = [
+        {
+            "id": 1,
+            "tipo_documento": "Nota Fiscal",
+            "nome": "Fornecedor",
+            "cnpj": "12.345.678/0001-90",
+            "data_emissao": "2026-08-10",
+            "data_registro": "2026-08-10T10:00:00Z",
+            "valor_total": 0.0,
+            "valor_inss": 0.0,
+            "valor_iss": 0.0,
+            "valor_liquido": 0.0,
+        }
+    ]
+
+    resp = comprovante_client.put(
+        "/api/comprovantes/1",
+        json={
+            "tipo_documento": "Nota Fiscal",
+            "nome": "Fornecedor",
+            "cnpj": "12.345.678/0001-90",
+            "data_emissao": "2026-08-10",
+            "valor_total": 1000,
+            "valor_inss": 100,
+            "valor_iss": 50,
+        },
+    )
+    assert resp.status_code == 200, resp.text
+    assert resp.json()["valor_liquido"] == 850.0
+    assert db_fake._dados["comprovantes"][0]["valor_liquido"] == 850.0
+
+
+def test_atualizar_nf_preserva_liquido_manual(comprovante_client, db_fake):
+    """Líquido informado explicitamente (ajuste manual) é preservado."""
+    db_fake._dados["comprovantes"] = [
+        {
+            "id": 1,
+            "tipo_documento": "Nota Fiscal",
+            "nome": "Fornecedor",
+            "cnpj": "12.345.678/0001-90",
+            "data_emissao": "2026-08-10",
+            "data_registro": "2026-08-10T10:00:00Z",
+            "valor_total": 0.0,
+            "valor_inss": 0.0,
+            "valor_iss": 0.0,
+            "valor_liquido": 0.0,
+        }
+    ]
+
+    resp = comprovante_client.put(
+        "/api/comprovantes/1",
+        json={
+            "tipo_documento": "Nota Fiscal",
+            "nome": "Fornecedor",
+            "cnpj": "12.345.678/0001-90",
+            "data_emissao": "2026-08-10",
+            "valor_total": 1000,
+            "valor_inss": 100,
+            "valor_iss": 50,
+            "valor_liquido": 800,
+        },
+    )
+    assert resp.status_code == 200, resp.text
+    assert resp.json()["valor_liquido"] == 800.0
