@@ -172,21 +172,6 @@ def _normalizar_tipo(valor):
     return None
 
 
-def _calcular_valor_liquido_nf(payload):
-    """Líquido da Nota Fiscal = Valor Total - INSS - ISS (com 2 casas)."""
-    total = payload.get("valor_total") or 0
-    inss = payload.get("valor_inss") or 0
-    iss = payload.get("valor_iss") or 0
-    return round(total - inss - iss, 2)
-
-
-def _normalizar_liquido_nf(payload):
-    """Calcula o líquido da NF quando não foi informado explicitamente."""
-    if payload.get("tipo_documento") == "Nota Fiscal" and payload.get("valor_liquido") is None:
-        payload["valor_liquido"] = _calcular_valor_liquido_nf(payload)
-    return payload
-
-
 class ComprovanteCreate(BaseModel):
     tipo_documento: str = Field(
         ..., description="Tipo do documento: Nota Fiscal, Boleto, Pix, Diversas, Aluguel, Imposto, Folha Pag."
@@ -202,7 +187,7 @@ class ComprovanteCreate(BaseModel):
     base_calculo: float | None = 0.0
     valor_inss: float | None = 0.0
     valor_iss: float | None = 0.0
-    valor_liquido: float | None = None
+    valor_liquido: float | None = 0.0
 
     # Outros tipos (Boleto, Pix, Diversas, Aluguel)
     data_pagamento: str | None = None
@@ -286,25 +271,17 @@ def listar_comprovantes(
             # Filtro por tipo de documento
             if tipo_documento:
                 query = query.eq("tipo_documento", tipo_documento)
-            # Filtro por período. Nota Fiscal usa somente a emissão (mesma
-            # regra da tela e do relatório); os demais tipos casam emissão OU
-            # pagamento dentro do intervalo.
+            # Filtro por período: casa data_emissao OU data_pagamento dentro do intervalo
             if data_inicio or data_fim:
-                if tipo_documento == "Nota Fiscal":
+                condicoes = []
+                for campo in ("data_emissao", "data_pagamento"):
+                    partes = []
                     if data_inicio:
-                        query = query.gte("data_emissao", data_inicio)
+                        partes.append(f"{campo}.gte.{data_inicio}")
                     if data_fim:
-                        query = query.lte("data_emissao", data_fim)
-                else:
-                    condicoes = []
-                    for campo in ("data_emissao", "data_pagamento"):
-                        partes = []
-                        if data_inicio:
-                            partes.append(f"{campo}.gte.{data_inicio}")
-                        if data_fim:
-                            partes.append(f"{campo}.lte.{data_fim}")
-                        condicoes.append("and(" + ",".join(partes) + ")")
-                    query = query.or_(",".join(condicoes))
+                        partes.append(f"{campo}.lte.{data_fim}")
+                    condicoes.append("and(" + ",".join(partes) + ")")
+                query = query.or_(",".join(condicoes))
 
             response = query.execute()
             if not response.data:
@@ -484,9 +461,8 @@ def baixar_modelo_importacao():
             "6. Tipo do Documento aceita: Nota Fiscal, Boleto, Pix, Diversas, Aluguel, Imposto, Folha Pag..",
             "7. Forma de Pagamento aceita: boleto, dda ou pix.",
             "8. Para Nota Fiscal, os campos Nome, CNPJ e Data de Emissão são obrigatórios.",
-            "9. O Valor Líquido da Nota Fiscal é recalculado como Valor Total - INSS - ISS.",
-            "10. Para os demais tipos, são obrigatórios: Descrição e Valor Pago.",
-            "11. Ao finalizar, vá em 'Importar' na tela de Comprovantes e envie este arquivo.",
+            "9. Para os demais tipos, são obrigatórios: Descrição e Valor Pago.",
+            "10. Ao finalizar, vá em 'Importar' na tela de Comprovantes e envie este arquivo.",
         ]
         for i, texto in enumerate(linhas, start=1):
             ws_instrucoes.cell(row=i, column=1, value=texto)
@@ -557,7 +533,6 @@ def importar_planilha(
     dados = linhas[1:]
     importados = 0
     erros = []
-    avisos = []
     total = 0
     ignoradas = 0
 
@@ -618,21 +593,6 @@ def importar_planilha(
                 erros.append({"linha": num, "mensagem": f"{tipo} exige: {', '.join(faltantes)}."})
                 continue
 
-        if tipo == "Nota Fiscal" and payload.get("valor_total") is not None:
-            calculado = _calcular_valor_liquido_nf(payload)
-            informado = payload.get("valor_liquido")
-            if informado is not None and abs(informado - calculado) > 0.005:
-                avisos.append(
-                    {
-                        "linha": num,
-                        "mensagem": (
-                            f"Valor Líquido ajustado de {informado:.2f} para {calculado:.2f} "
-                            "(Valor Total - INSS - ISS)."
-                        ),
-                    }
-                )
-            payload["valor_liquido"] = calculado
-
         try:
             if simular:
                 importados += 1
@@ -649,7 +609,6 @@ def importar_planilha(
     return {
         "importados": importados,
         "erros": erros,
-        "avisos": avisos,
         "total": total,
         "ignoradas": ignoradas,
         "simular": simular,
@@ -680,7 +639,6 @@ def criar_comprovante(comprovante: ComprovanteCreate, db=Depends(get_supabase)):
         for key, value in list(payload.items()):
             if value == "":
                 payload[key] = None
-        _normalizar_liquido_nf(payload)
         response = db.table("comprovantes").insert(payload).execute()
         if not response.data:
             raise HTTPException(status_code=500, detail="Falha ao salvar comprovante.")
@@ -703,7 +661,6 @@ def atualizar_comprovante(comprovante_id: int, comprovante: ComprovanteCreate, d
         for key, value in list(payload.items()):
             if value == "":
                 payload[key] = None
-        _normalizar_liquido_nf(payload)
         response = db.table("comprovantes").update(payload).eq("id", comprovante_id).execute()
         if not response.data:
             raise HTTPException(status_code=500, detail="Falha ao atualizar comprovante.")

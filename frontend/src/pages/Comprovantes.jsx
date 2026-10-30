@@ -5,7 +5,6 @@ import ModalConfirmacao from '../components/ModalConfirmacao';
 import ErroCarregamento from '../components/ErroCarregamento';
 import { useFetchState } from '../hooks/useFetchState';
 import { parseDecimalBR } from '../utils/numeros';
-import { calcularValorLiquido, precisaAjusteManualLiquido, somarTotais } from '../utils/comprovantes';
 
 const NUMERIC_FIELDS = [
   'valor_total', 'base_calculo', 'valor_inss', 'valor_iss', 'valor_liquido',
@@ -358,14 +357,25 @@ function Comprovantes() {
       // Filtro por tipo
       if (tipoFiltro && c.tipo_documento !== tipoFiltro) return false;
 
+      // Filtragem por período
+      const itemDate = c.tipo_documento === 'Nota Fiscal' ? c.data_emissao : c.data_pagamento || c.data_vencimento;
+      if (dataInicio && itemDate && itemDate < dataInicio) return false;
+      if (dataFim && itemDate && itemDate > dataFim) return false;
       return true;
     });
-  }, [comprovantes, busca, tipoFiltro]);
+  }, [comprovantes, busca, tipoFiltro, dataInicio, dataFim]);
 
   // Totais do tipo filtrado (somente quando um tipo específico está selecionado)
   const totaisTipo = useMemo(() => {
     if (!tipoFiltro) return null;
-    return somarTotais(filteredComprovantes);
+    return filteredComprovantes.reduce((acc, c) => ({
+      base_calculo: acc.base_calculo + (c.base_calculo || 0),
+      valor_inss: acc.valor_inss + (c.valor_inss || 0),
+      valor_iss: acc.valor_iss + (c.valor_iss || 0),
+      valor_liquido: acc.valor_liquido + (c.valor_liquido || 0),
+      valor_pago: acc.valor_pago + (c.valor_pago || 0),
+      valor_juros: acc.valor_juros + (c.valor_juros || 0),
+    }), { base_calculo: 0, valor_inss: 0, valor_iss: 0, valor_liquido: 0, valor_pago: 0, valor_juros: 0 });
   }, [tipoFiltro, filteredComprovantes]);
 
   // Paginação visual: corta a lista filtrada em páginas de 50 registros
@@ -641,18 +651,18 @@ function Comprovantes() {
       )}
 
       {/* Totais do Tipo Filtrado */}
-      {!loading && totaisTipo && filteredComprovantes.length > 0 && (
+      {totaisTipo && filteredComprovantes.length > 0 && (
         <div className="bg-white p-5 rounded-2xl border border-slate-100 shadow-sm print-full-width print:break-inside-avoid print:p-3">
           <div className="flex items-center justify-between border-b border-slate-100 pb-2.5 mb-3">
             <h3 className="font-bold text-slate-800 text-sm uppercase tracking-wider">Totais {tipoFiltro}</h3>
-            <span className="text-xs text-slate-400 font-semibold">{filteredComprovantes.length} registro(s) filtrado(s)</span>
+            <span className="text-xs text-slate-400 font-semibold">{filteredComprovantes.length} registro(s)</span>
           </div>
           {tipoFiltro === 'Nota Fiscal' ? (
-            <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-x-4 gap-y-2 text-xs">
-              <div>
-                <span className="block text-[9px] text-slate-400 font-bold uppercase tracking-wider">Valor Total</span>
-                <span className="font-bold text-slate-750">{formatCurrency(totaisTipo.valor_total)}</span>
-              </div>
+            <div className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-8 gap-x-4 gap-y-2 text-xs">
+              <div className="hidden lg:block"></div>
+              <div className="hidden lg:block"></div>
+              <div className="hidden lg:block"></div>
+              <div className="hidden lg:block"></div>
               <div>
                 <span className="block text-[9px] text-slate-400 font-bold uppercase tracking-wider">Base de Cálculo</span>
                 <span className="font-bold text-slate-750">{formatCurrency(totaisTipo.base_calculo)}</span>
@@ -754,22 +764,6 @@ function Comprovantes() {
                       <li key={i} className="text-xs text-rose-800 flex gap-2">
                         <span className="font-bold shrink-0">Linha {erro.linha}:</span>
                         <span>{erro.mensagem}</span>
-                      </li>
-                    ))}
-                  </ul>
-                </div>
-              )}
-
-              {(preview.data.avisos || []).length > 0 && (
-                <div className="bg-amber-50 border border-amber-100 rounded-xl p-4">
-                  <p className="text-xs font-bold text-amber-700 uppercase tracking-wider mb-2 flex items-center gap-1.5">
-                    <AlertTriangle size={14} /> Ajustes automáticos
-                  </p>
-                  <ul className="space-y-1.5 max-h-40 overflow-y-auto">
-                    {(preview.data.avisos || []).map((aviso, i) => (
-                      <li key={i} className="text-xs text-amber-800 flex gap-2">
-                        <span className="font-bold shrink-0">Linha {aviso.linha}:</span>
-                        <span>{aviso.mensagem}</span>
                       </li>
                     ))}
                   </ul>
@@ -984,20 +978,11 @@ function ModalLancamento({ aberto, comprovante, onFechar, onSalvo, mostrarToast 
   const [formData, setFormData] = useState(FORM_INICIAL);
   const [erros, setErros] = useState({});
   const [submitting, setSubmitting] = useState(false);
-  const [ajusteManualLiquido, setAjusteManualLiquido] = useState(false);
 
   useEffect(() => {
     if (!aberto) return;
     if (comprovante) {
       setTipoDocumento(comprovante.tipo_documento);
-      setAjusteManualLiquido(
-        precisaAjusteManualLiquido(
-          comprovante.valor_liquido,
-          comprovante.valor_total,
-          comprovante.valor_inss,
-          comprovante.valor_iss
-        )
-      );
       setFormData({
         numero_nf: comprovante.numero_nf || '',
         data_emissao: comprovante.data_emissao || '',
@@ -1019,15 +1004,9 @@ function ModalLancamento({ aberto, comprovante, onFechar, onSalvo, mostrarToast 
     } else {
       setTipoDocumento('Nota Fiscal');
       setFormData(FORM_INICIAL);
-      setAjusteManualLiquido(false);
     }
     setErros({});
   }, [aberto, comprovante]);
-
-  const valorLiquidoCalculado = useMemo(
-    () => calcularValorLiquido(formData.valor_total, formData.valor_inss, formData.valor_iss),
-    [formData.valor_total, formData.valor_inss, formData.valor_iss]
-  );
 
   if (!aberto) return null;
 
@@ -1086,10 +1065,6 @@ function ModalLancamento({ aberto, comprovante, onFechar, onSalvo, mostrarToast 
       }
       dataSanitizada[key] = v;
     });
-
-    if (tipoDocumento === 'Nota Fiscal' && !ajusteManualLiquido) {
-      dataSanitizada.valor_liquido = valorLiquidoCalculado;
-    }
 
     const payload = {
       tipo_documento: tipoDocumento,
@@ -1270,38 +1245,15 @@ function ModalLancamento({ aberto, comprovante, onFechar, onSalvo, mostrarToast 
                 />
               </div>
               <div className="space-y-1.5 sm:col-span-2">
-                <div className="flex items-center justify-between gap-3">
-                  <label className="block text-xs font-bold text-slate-750">
-                    Valor Líquido {!ajusteManualLiquido && <span className="text-primary-600 font-semibold">(automático)</span>}
-                  </label>
-                  <label className="flex items-center gap-1.5 text-[10px] font-bold text-slate-500 uppercase tracking-wider cursor-pointer">
-                    <input
-                      type="checkbox"
-                      checked={ajusteManualLiquido}
-                      onChange={(e) => {
-                        const manual = e.target.checked;
-                        setAjusteManualLiquido(manual);
-                        if (manual) {
-                          setFormData(prev => ({ ...prev, valor_liquido: valorLiquidoCalculado }));
-                        }
-                      }}
-                      className="cursor-pointer"
-                    />
-                    Ajustar manualmente
-                  </label>
-                </div>
+                <label className="block text-xs font-bold text-slate-750">Valor Líquido</label>
                 <input
                   type="number"
                   step="0.01"
                   name="valor_liquido"
-                  value={ajusteManualLiquido ? formData.valor_liquido : valorLiquidoCalculado}
+                  value={formData.valor_liquido}
                   onChange={handleInputChange}
-                  disabled={!ajusteManualLiquido}
-                  className="w-full px-3.5 py-2 border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-primary-500/20 focus:border-primary-500 text-sm font-semibold font-bold text-primary-700 bg-primary-50/20 disabled:opacity-80"
+                  className="w-full px-3.5 py-2 border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-primary-500/20 focus:border-primary-500 text-sm font-semibold font-bold text-primary-700 bg-primary-50/20"
                 />
-                {!ajusteManualLiquido && (
-                  <p className="text-[10px] text-slate-400 font-semibold">Calculado como Valor Total - INSS - ISS.</p>
-                )}
               </div>
             </div>
           ) : (
