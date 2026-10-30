@@ -5,7 +5,7 @@ import ModalConfirmacao from '../components/ModalConfirmacao';
 import ErroCarregamento from '../components/ErroCarregamento';
 import { useFetchState } from '../hooks/useFetchState';
 import { parseDecimalBR } from '../utils/numeros';
-import { calcularOutrosDescontos, somarTotais } from '../utils/comprovantes';
+import { calcularOutrosIbsCbs, somarTotais, temImpostoNaoDescontado } from '../utils/comprovantes';
 
 const NUMERIC_FIELDS = [
   'valor_total', 'base_calculo', 'valor_inss', 'valor_iss', 'valor_liquido',
@@ -368,6 +368,11 @@ function Comprovantes() {
     return somarTotais(filteredComprovantes);
   }, [tipoFiltro, filteredComprovantes]);
 
+  const nfsComImpostoNaoDescontado = useMemo(
+    () => (tipoFiltro === 'Nota Fiscal' ? filteredComprovantes.filter(temImpostoNaoDescontado).length : 0),
+    [tipoFiltro, filteredComprovantes]
+  );
+
   // Paginação visual: corta a lista filtrada em páginas de 50 registros
   const totalPaginas = Math.max(1, Math.ceil(filteredComprovantes.length / REGISTROS_POR_PAGINA));
   const paginaAtualSegura = Math.min(paginaAtual, totalPaginas);
@@ -648,14 +653,10 @@ function Comprovantes() {
             <span className="text-xs text-slate-400 font-semibold">{filteredComprovantes.length} registro(s) filtrado(s)</span>
           </div>
           {tipoFiltro === 'Nota Fiscal' ? (
-            <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-x-4 gap-y-2 text-xs">
+            <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-x-4 gap-y-2 text-xs">
               <div>
                 <span className="block text-[9px] text-slate-400 font-bold uppercase tracking-wider">Valor Total</span>
                 <span className="font-bold text-slate-750">{formatCurrency(totaisTipo.valor_total)}</span>
-              </div>
-              <div>
-                <span className="block text-[9px] text-slate-400 font-bold uppercase tracking-wider">Base de Cálculo</span>
-                <span className="font-bold text-slate-750">{formatCurrency(totaisTipo.base_calculo)}</span>
               </div>
               <div>
                 <span className="block text-[9px] text-slate-400 font-bold uppercase tracking-wider">Total INSS</span>
@@ -666,13 +667,8 @@ function Comprovantes() {
                 <span className="font-bold text-slate-750">{formatCurrency(totaisTipo.valor_iss)}</span>
               </div>
               <div>
-                <span className="block text-[9px] text-slate-400 font-bold uppercase tracking-wider">Outros Descontos</span>
-                <span
-                  className={`font-bold ${totaisTipo.outros_descontos < 0 ? 'text-amber-600' : 'text-slate-750'}`}
-                  title={totaisTipo.outros_descontos < 0 ? 'Valor negativo: acréscimo ou imposto não descontado' : undefined}
-                >
-                  {formatCurrency(totaisTipo.outros_descontos)}
-                </span>
+                <span className="block text-[9px] text-slate-400 font-bold uppercase tracking-wider">Outros/IBS/CBS</span>
+                <span className="font-bold text-slate-750">{formatCurrency(totaisTipo.outros_ibs_cbs)}</span>
               </div>
               <div className="bg-primary-50/20 px-2 py-0.5 rounded border border-primary-50 print:bg-transparent print:border-none print:px-0">
                 <span className="block text-[9px] text-primary-600 font-bold uppercase tracking-wider print:text-slate-400">Valor Líquido</span>
@@ -706,6 +702,11 @@ function Comprovantes() {
               </div>
               <div className="hidden lg:block"></div>
             </div>
+          )}
+          {tipoFiltro === 'Nota Fiscal' && nfsComImpostoNaoDescontado > 0 && (
+            <p className="text-[10px] font-bold text-amber-600 mt-2">
+              {nfsComImpostoNaoDescontado} NF(s) com ISS não descontado.
+            </p>
           )}
         </div>
       )}
@@ -885,7 +886,7 @@ const ComprovanteCard = React.memo(({ c, onEditar, onExcluir }) => {
 
       {/* Grid de Campos Específicos para o Tipo: Nota Fiscal */}
       {isNF ? (
-        <div className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-9 gap-x-4 gap-y-2 text-xs pt-2 border-t border-slate-50 print:gap-y-0.5 print:pt-1 print:text-[10px]">
+        <div className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-8 gap-x-4 gap-y-2 text-xs pt-2 border-t border-slate-50 print:gap-y-0.5 print:pt-1 print:text-[10px]">
           <div>
             <span className="block text-[9px] text-slate-400 font-bold uppercase tracking-wider">CNPJ</span>
             <span className="font-semibold font-mono text-slate-750">{c.cnpj || '-'}</span>
@@ -905,10 +906,6 @@ const ComprovanteCard = React.memo(({ c, onEditar, onExcluir }) => {
             <span className="font-bold text-slate-750">{formatCurrency(c.valor_total)}</span>
           </div>
           <div>
-            <span className="block text-[9px] text-slate-400 font-bold uppercase tracking-wider">Base Cálculo</span>
-            <span className="font-semibold text-slate-700">{formatCurrency(c.base_calculo)}</span>
-          </div>
-          <div>
             <span className="block text-[9px] text-slate-400 font-bold uppercase tracking-wider">INSS</span>
             <span className="font-semibold text-slate-700">{formatCurrency(c.valor_inss)}</span>
           </div>
@@ -917,13 +914,13 @@ const ComprovanteCard = React.memo(({ c, onEditar, onExcluir }) => {
             <span className="font-semibold text-slate-700">{formatCurrency(c.valor_iss)}</span>
           </div>
           <div>
-            <span className="block text-[9px] text-slate-400 font-bold uppercase tracking-wider">Outros Descontos</span>
-            <span
-              className={`font-semibold ${calcularOutrosDescontos(c) < 0 ? 'text-amber-600' : 'text-slate-700'}`}
-              title={calcularOutrosDescontos(c) < 0 ? 'Valor negativo: acréscimo ou imposto não descontado' : undefined}
-            >
-              {formatCurrency(calcularOutrosDescontos(c))}
-            </span>
+            <span className="block text-[9px] text-slate-400 font-bold uppercase tracking-wider">Outros/IBS/CBS</span>
+            <span className="font-semibold text-slate-700">{formatCurrency(calcularOutrosIbsCbs(c))}</span>
+            {temImpostoNaoDescontado(c) && (
+              <span className="block text-[8px] text-amber-600 font-bold uppercase tracking-wider mt-0.5">
+                ISS não descontado
+              </span>
+            )}
           </div>
           <div className="bg-primary-50/20 px-2 py-0.5 rounded border border-primary-50 print:bg-transparent print:border-none print:px-0">
             <span className="block text-[9px] text-primary-600 font-bold uppercase tracking-wider print:text-slate-400">Valor Líquido</span>
@@ -1016,8 +1013,18 @@ function ModalLancamento({ aberto, comprovante, onFechar, onSalvo, mostrarToast 
     setErros({});
   }, [aberto, comprovante]);
 
-  const outrosDescontosForm = useMemo(
-    () => calcularOutrosDescontos({
+  const outrosIbsCbsForm = useMemo(
+    () => calcularOutrosIbsCbs({
+      valor_total: formData.valor_total,
+      valor_inss: formData.valor_inss,
+      valor_iss: formData.valor_iss,
+      valor_liquido: formData.valor_liquido,
+    }),
+    [formData.valor_total, formData.valor_inss, formData.valor_iss, formData.valor_liquido]
+  );
+
+  const impostoNaoDescontadoForm = useMemo(
+    () => temImpostoNaoDescontado({
       valor_total: formData.valor_total,
       valor_inss: formData.valor_inss,
       valor_iss: formData.valor_iss,
@@ -1230,17 +1237,6 @@ function ModalLancamento({ aberto, comprovante, onFechar, onSalvo, mostrarToast 
                 />
               </div>
               <div className="space-y-1.5">
-                <label className="block text-xs font-bold text-slate-750">Base de Cálculo</label>
-                <input
-                  type="number"
-                  step="0.01"
-                  name="base_calculo"
-                  value={formData.base_calculo}
-                  onChange={handleInputChange}
-                  className="w-full px-3.5 py-2 border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-primary-500/20 focus:border-primary-500 text-sm font-semibold"
-                />
-              </div>
-              <div className="space-y-1.5">
                 <label className="block text-xs font-bold text-slate-750">Valor INSS</label>
                 <input
                   type="number"
@@ -1273,11 +1269,14 @@ function ModalLancamento({ aberto, comprovante, onFechar, onSalvo, mostrarToast 
                   className="w-full px-3.5 py-2 border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-primary-500/20 focus:border-primary-500 text-sm font-semibold font-bold text-primary-700 bg-primary-50/20"
                 />
                 <p className="text-[10px] text-slate-400 font-semibold">
-                  Informe o Valor Líquido da nota. Outros descontos = Total - INSS - ISS - Líquido.
+                  Informe o Valor Líquido da nota. Outros/IBS/CBS = Total - INSS - ISS - Líquido (mínimo 0).
                 </p>
-                {outrosDescontosForm !== 0 && (
-                  <p className={`text-[10px] font-bold ${outrosDescontosForm < 0 ? 'text-amber-600' : 'text-slate-500'}`}>
-                    Outros descontos: {formatCurrency(outrosDescontosForm)}
+                <p className="text-[10px] text-slate-500 font-bold">
+                  Outros/IBS/CBS: {formatCurrency(outrosIbsCbsForm)}
+                </p>
+                {impostoNaoDescontadoForm && (
+                  <p className="text-[10px] font-bold text-amber-600">
+                    ISS não descontado neste lançamento.
                   </p>
                 )}
               </div>

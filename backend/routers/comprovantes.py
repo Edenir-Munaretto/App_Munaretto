@@ -172,13 +172,13 @@ def _normalizar_tipo(valor):
     return None
 
 
-def _calcular_outros_descontos(payload):
-    """Outros descontos = Valor Total - INSS - ISS - Valor Líquido."""
+def _calcular_outros_ibs_cbs(payload):
+    """Outros/IBS/CBS = max(0, Valor Total - INSS - ISS - Valor Líquido)."""
     total = payload.get("valor_total") or 0
     inss = payload.get("valor_inss") or 0
     iss = payload.get("valor_iss") or 0
     liquido = payload.get("valor_liquido") or 0
-    return round(total - inss - iss - liquido, 2)
+    return max(0.0, round(total - inss - iss - liquido, 2))
 
 
 class ComprovanteCreate(BaseModel):
@@ -355,7 +355,7 @@ def exportar_comprovantes(
         ("valor_inss", "Valor INSS"),
         ("valor_iss", "Valor ISS"),
         ("valor_liquido", "Valor Líquido"),
-        ("outros_descontos", "Outros Descontos"),
+        ("outros_ibs_cbs", "Outros/IBS/CBS"),
         ("valor_pago", "Valor Pago"),
         ("valor_juros", "Valor Juros"),
         ("local_servico", "Local de Serviço"),
@@ -376,8 +376,8 @@ def exportar_comprovantes(
 
     for i, reg in enumerate(registros, start=2):
         for col, (campo, _) in enumerate(colunas, start=1):
-            if campo == "outros_descontos":
-                valor = _calcular_outros_descontos(reg) if reg.get("tipo_documento") == "Nota Fiscal" else None
+            if campo == "outros_ibs_cbs":
+                valor = _calcular_outros_ibs_cbs(reg) if reg.get("tipo_documento") == "Nota Fiscal" else None
             else:
                 valor = reg.get(campo)
             celula = ws.cell(row=i, column=col, value=valor)

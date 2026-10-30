@@ -10,7 +10,7 @@ import io
 import pytest
 from openpyxl import Workbook
 
-from routers.comprovantes import _calcular_outros_descontos
+from routers.comprovantes import _calcular_outros_ibs_cbs
 
 
 def _hash_senha(senha: str) -> str:
@@ -463,9 +463,9 @@ def test_filtrar_folha_pagamento(comprovante_client, db_fake):
     assert data[0]["tipo_documento"] == "Folha Pag."
 
 
-def test_calcular_outros_descontos():
+def test_calcular_outros_ibs_cbs():
     assert (
-        _calcular_outros_descontos(
+        _calcular_outros_ibs_cbs(
             {
                 "valor_total": 5000.0,
                 "valor_inss": 550.0,
@@ -474,6 +474,17 @@ def test_calcular_outros_descontos():
             }
         )
         == 200.0
+    )
+    assert (
+        _calcular_outros_ibs_cbs(
+            {
+                "valor_total": 1000.0,
+                "valor_inss": 0.0,
+                "valor_iss": 50.0,
+                "valor_liquido": 1000.0,
+            }
+        )
+        == 0.0
     )
 
 

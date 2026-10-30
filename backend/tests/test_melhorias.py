@@ -96,7 +96,7 @@ def test_exportar_comprovantes_xlsx(client, db_fake):
 
     wb = load_workbook(io.BytesIO(resp.content))
     cabecalhos = [celula.value for celula in wb.active[1]]
-    assert "Outros Descontos" in cabecalhos
+    assert "Outros/IBS/CBS" in cabecalhos
 
 
 def test_email_invalido_rejeitado(client, db_fake):

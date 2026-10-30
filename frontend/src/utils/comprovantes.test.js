@@ -1,10 +1,15 @@
 import { describe, expect, it } from 'vitest';
-import { calcularOutrosDescontos, somarTotais } from './comprovantes';
+import {
+  calcularDiferencaOutrosImpostos,
+  calcularOutrosIbsCbs,
+  somarTotais,
+  temImpostoNaoDescontado,
+} from './comprovantes';
 
-describe('calcularOutrosDescontos', () => {
-  it('calcula descontos além de INSS e ISS', () => {
+describe('calcularDiferencaOutrosImpostos', () => {
+  it('calcula a diferença positiva além de INSS e ISS', () => {
     expect(
-      calcularOutrosDescontos({
+      calcularDiferencaOutrosImpostos({
         valor_total: 5000,
         valor_inss: 550,
         valor_iss: 250,
@@ -15,7 +20,7 @@ describe('calcularOutrosDescontos', () => {
 
   it('retorna negativo quando o líquido é maior que total - impostos', () => {
     expect(
-      calcularOutrosDescontos({
+      calcularDiferencaOutrosImpostos({
         valor_total: 1000,
         valor_inss: 0,
         valor_iss: 50,
@@ -23,14 +28,62 @@ describe('calcularOutrosDescontos', () => {
       })
     ).toBe(-50);
   });
+});
+
+describe('calcularOutrosIbsCbs', () => {
+  it('mantém o valor positivo quando há outros impostos', () => {
+    expect(
+      calcularOutrosIbsCbs({
+        valor_total: 5000,
+        valor_inss: 550,
+        valor_iss: 250,
+        valor_liquido: 4000,
+      })
+    ).toBe(200);
+  });
+
+  it('zera quando a diferença é negativa', () => {
+    expect(
+      calcularOutrosIbsCbs({
+        valor_total: 1000,
+        valor_inss: 0,
+        valor_iss: 50,
+        valor_liquido: 1000,
+      })
+    ).toBe(0);
+  });
 
   it('trata campos vazios como zero', () => {
-    expect(calcularOutrosDescontos({})).toBe(0);
+    expect(calcularOutrosIbsCbs({})).toBe(0);
+  });
+});
+
+describe('temImpostoNaoDescontado', () => {
+  it('sinaliza quando o líquido é maior que total - impostos', () => {
+    expect(
+      temImpostoNaoDescontado({
+        valor_total: 1000,
+        valor_inss: 0,
+        valor_iss: 50,
+        valor_liquido: 1000,
+      })
+    ).toBe(true);
+  });
+
+  it('não sinaliza quando há outros impostos positivos', () => {
+    expect(
+      temImpostoNaoDescontado({
+        valor_total: 5000,
+        valor_inss: 550,
+        valor_iss: 250,
+        valor_liquido: 4000,
+      })
+    ).toBe(false);
   });
 });
 
 describe('somarTotais', () => {
-  it('soma os campos e os outros descontos derivados', () => {
+  it('soma os campos e os outros IBS/CBS positivos', () => {
     const totais = somarTotais([
       {
         valor_total: 5000,
@@ -60,8 +113,23 @@ describe('somarTotais', () => {
       valor_liquido: 4800.5,
       valor_pago: 850.5,
       valor_juros: 10,
-      outros_descontos: 250,
+      outros_ibs_cbs: 250,
     });
+  });
+
+  it('não deixa os outros IBS/CBS ficarem negativos', () => {
+    const totais = somarTotais([
+      {
+        valor_total: 1000,
+        valor_inss: 0,
+        valor_iss: 50,
+        valor_liquido: 1000,
+        valor_pago: 0,
+        valor_juros: 0,
+      },
+    ]);
+
+    expect(totais.outros_ibs_cbs).toBe(0);
   });
 
   it('ignora campos nulos ou ausentes nos totais brutos', () => {
@@ -72,6 +140,6 @@ describe('somarTotais', () => {
 
     expect(totais.valor_total).toBe(150);
     expect(totais.valor_liquido).toBe(50);
-    expect(totais.outros_descontos).toBe(100);
+    expect(totais.outros_ibs_cbs).toBe(100);
   });
 });
