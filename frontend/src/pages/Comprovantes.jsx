@@ -5,6 +5,7 @@ import ModalConfirmacao from '../components/ModalConfirmacao';
 import ErroCarregamento from '../components/ErroCarregamento';
 import { useFetchState } from '../hooks/useFetchState';
 import { parseDecimalBR } from '../utils/numeros';
+import { calcularOutrosDescontos, somarTotais } from '../utils/comprovantes';
 
 const NUMERIC_FIELDS = [
   'valor_total', 'base_calculo', 'valor_inss', 'valor_iss', 'valor_liquido',
@@ -357,25 +358,14 @@ function Comprovantes() {
       // Filtro por tipo
       if (tipoFiltro && c.tipo_documento !== tipoFiltro) return false;
 
-      // Filtragem por período
-      const itemDate = c.tipo_documento === 'Nota Fiscal' ? c.data_emissao : c.data_pagamento || c.data_vencimento;
-      if (dataInicio && itemDate && itemDate < dataInicio) return false;
-      if (dataFim && itemDate && itemDate > dataFim) return false;
       return true;
     });
-  }, [comprovantes, busca, tipoFiltro, dataInicio, dataFim]);
+  }, [comprovantes, busca, tipoFiltro]);
 
   // Totais do tipo filtrado (somente quando um tipo específico está selecionado)
   const totaisTipo = useMemo(() => {
     if (!tipoFiltro) return null;
-    return filteredComprovantes.reduce((acc, c) => ({
-      base_calculo: acc.base_calculo + (c.base_calculo || 0),
-      valor_inss: acc.valor_inss + (c.valor_inss || 0),
-      valor_iss: acc.valor_iss + (c.valor_iss || 0),
-      valor_liquido: acc.valor_liquido + (c.valor_liquido || 0),
-      valor_pago: acc.valor_pago + (c.valor_pago || 0),
-      valor_juros: acc.valor_juros + (c.valor_juros || 0),
-    }), { base_calculo: 0, valor_inss: 0, valor_iss: 0, valor_liquido: 0, valor_pago: 0, valor_juros: 0 });
+    return somarTotais(filteredComprovantes);
   }, [tipoFiltro, filteredComprovantes]);
 
   // Paginação visual: corta a lista filtrada em páginas de 50 registros
@@ -651,18 +641,18 @@ function Comprovantes() {
       )}
 
       {/* Totais do Tipo Filtrado */}
-      {totaisTipo && filteredComprovantes.length > 0 && (
+      {!loading && totaisTipo && filteredComprovantes.length > 0 && (
         <div className="bg-white p-5 rounded-2xl border border-slate-100 shadow-sm print-full-width print:break-inside-avoid print:p-3">
           <div className="flex items-center justify-between border-b border-slate-100 pb-2.5 mb-3">
             <h3 className="font-bold text-slate-800 text-sm uppercase tracking-wider">Totais {tipoFiltro}</h3>
-            <span className="text-xs text-slate-400 font-semibold">{filteredComprovantes.length} registro(s)</span>
+            <span className="text-xs text-slate-400 font-semibold">{filteredComprovantes.length} registro(s) filtrado(s)</span>
           </div>
           {tipoFiltro === 'Nota Fiscal' ? (
-            <div className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-8 gap-x-4 gap-y-2 text-xs">
-              <div className="hidden lg:block"></div>
-              <div className="hidden lg:block"></div>
-              <div className="hidden lg:block"></div>
-              <div className="hidden lg:block"></div>
+            <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-x-4 gap-y-2 text-xs">
+              <div>
+                <span className="block text-[9px] text-slate-400 font-bold uppercase tracking-wider">Valor Total</span>
+                <span className="font-bold text-slate-750">{formatCurrency(totaisTipo.valor_total)}</span>
+              </div>
               <div>
                 <span className="block text-[9px] text-slate-400 font-bold uppercase tracking-wider">Base de Cálculo</span>
                 <span className="font-bold text-slate-750">{formatCurrency(totaisTipo.base_calculo)}</span>
@@ -674,6 +664,15 @@ function Comprovantes() {
               <div>
                 <span className="block text-[9px] text-slate-400 font-bold uppercase tracking-wider">Total ISS</span>
                 <span className="font-bold text-slate-750">{formatCurrency(totaisTipo.valor_iss)}</span>
+              </div>
+              <div>
+                <span className="block text-[9px] text-slate-400 font-bold uppercase tracking-wider">Outros Descontos</span>
+                <span
+                  className={`font-bold ${totaisTipo.outros_descontos < 0 ? 'text-amber-600' : 'text-slate-750'}`}
+                  title={totaisTipo.outros_descontos < 0 ? 'Valor negativo: acréscimo ou imposto não descontado' : undefined}
+                >
+                  {formatCurrency(totaisTipo.outros_descontos)}
+                </span>
               </div>
               <div className="bg-primary-50/20 px-2 py-0.5 rounded border border-primary-50 print:bg-transparent print:border-none print:px-0">
                 <span className="block text-[9px] text-primary-600 font-bold uppercase tracking-wider print:text-slate-400">Valor Líquido</span>
@@ -886,7 +885,7 @@ const ComprovanteCard = React.memo(({ c, onEditar, onExcluir }) => {
 
       {/* Grid de Campos Específicos para o Tipo: Nota Fiscal */}
       {isNF ? (
-        <div className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-8 gap-x-4 gap-y-2 text-xs pt-2 border-t border-slate-50 print:gap-y-0.5 print:pt-1 print:text-[10px]">
+        <div className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-9 gap-x-4 gap-y-2 text-xs pt-2 border-t border-slate-50 print:gap-y-0.5 print:pt-1 print:text-[10px]">
           <div>
             <span className="block text-[9px] text-slate-400 font-bold uppercase tracking-wider">CNPJ</span>
             <span className="font-semibold font-mono text-slate-750">{c.cnpj || '-'}</span>
@@ -916,6 +915,15 @@ const ComprovanteCard = React.memo(({ c, onEditar, onExcluir }) => {
           <div>
             <span className="block text-[9px] text-slate-400 font-bold uppercase tracking-wider">ISS</span>
             <span className="font-semibold text-slate-700">{formatCurrency(c.valor_iss)}</span>
+          </div>
+          <div>
+            <span className="block text-[9px] text-slate-400 font-bold uppercase tracking-wider">Outros Descontos</span>
+            <span
+              className={`font-semibold ${calcularOutrosDescontos(c) < 0 ? 'text-amber-600' : 'text-slate-700'}`}
+              title={calcularOutrosDescontos(c) < 0 ? 'Valor negativo: acréscimo ou imposto não descontado' : undefined}
+            >
+              {formatCurrency(calcularOutrosDescontos(c))}
+            </span>
           </div>
           <div className="bg-primary-50/20 px-2 py-0.5 rounded border border-primary-50 print:bg-transparent print:border-none print:px-0">
             <span className="block text-[9px] text-primary-600 font-bold uppercase tracking-wider print:text-slate-400">Valor Líquido</span>
@@ -1007,6 +1015,16 @@ function ModalLancamento({ aberto, comprovante, onFechar, onSalvo, mostrarToast 
     }
     setErros({});
   }, [aberto, comprovante]);
+
+  const outrosDescontosForm = useMemo(
+    () => calcularOutrosDescontos({
+      valor_total: formData.valor_total,
+      valor_inss: formData.valor_inss,
+      valor_iss: formData.valor_iss,
+      valor_liquido: formData.valor_liquido,
+    }),
+    [formData.valor_total, formData.valor_inss, formData.valor_iss, formData.valor_liquido]
+  );
 
   if (!aberto) return null;
 
@@ -1254,6 +1272,14 @@ function ModalLancamento({ aberto, comprovante, onFechar, onSalvo, mostrarToast 
                   onChange={handleInputChange}
                   className="w-full px-3.5 py-2 border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-primary-500/20 focus:border-primary-500 text-sm font-semibold font-bold text-primary-700 bg-primary-50/20"
                 />
+                <p className="text-[10px] text-slate-400 font-semibold">
+                  Informe o Valor Líquido da nota. Outros descontos = Total - INSS - ISS - Líquido.
+                </p>
+                {outrosDescontosForm !== 0 && (
+                  <p className={`text-[10px] font-bold ${outrosDescontosForm < 0 ? 'text-amber-600' : 'text-slate-500'}`}>
+                    Outros descontos: {formatCurrency(outrosDescontosForm)}
+                  </p>
+                )}
               </div>
             </div>
           ) : (

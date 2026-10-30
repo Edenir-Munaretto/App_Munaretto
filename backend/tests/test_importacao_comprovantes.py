@@ -10,6 +10,8 @@ import io
 import pytest
 from openpyxl import Workbook
 
+from routers.comprovantes import _calcular_outros_descontos
+
 
 def _hash_senha(senha: str) -> str:
     salt = "0123456789abcdef"
@@ -459,3 +461,85 @@ def test_filtrar_folha_pagamento(comprovante_client, db_fake):
     data = resp.json()
     assert [registro["id"] for registro in data] == [1]
     assert data[0]["tipo_documento"] == "Folha Pag."
+
+
+def test_calcular_outros_descontos():
+    assert (
+        _calcular_outros_descontos(
+            {
+                "valor_total": 5000.0,
+                "valor_inss": 550.0,
+                "valor_iss": 250.0,
+                "valor_liquido": 4000.0,
+            }
+        )
+        == 200.0
+    )
+
+
+def test_importar_nota_fiscal_preserva_liquido_informado(comprovante_client, db_fake):
+    """O líquido da nota é mantido mesmo quando há outros descontos."""
+    buffer = _montar_planilha(
+        [
+            [
+                "Nota Fiscal",
+                "Fornecedor Ltda",
+                "12.345.678/0001-90",
+                "12345",
+                "10/08/2026",
+                None,
+                None,
+                None,
+                "5000,00",
+                "5000,00",
+                "550,00",
+                "250,00",
+                "4000,00",
+                None,
+                None,
+                "São Paulo/SP",
+                None,
+            ],
+        ]
+    )
+    resp = comprovante_client.post(
+        "/api/comprovantes/importar",
+        files={"file": ("planilha.xlsx", buffer, "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")},
+    )
+    assert resp.status_code == 200, resp.text
+    assert resp.json()["importados"] == 1
+    registro = db_fake._dados["comprovantes"][0]
+    assert registro["valor_liquido"] == 4000.0
+
+
+def test_filtrar_nota_fiscal_usa_somente_data_emissao(comprovante_client, db_fake):
+    """Nota Fiscal filtra pela emissão; pagamento fora do período é ignorado."""
+    db_fake._dados["comprovantes"] = [
+        {
+            "id": 1,
+            "tipo_documento": "Nota Fiscal",
+            "nome": "Dentro do período",
+            "data_emissao": "2026-08-10",
+            "data_pagamento": "2026-09-10",
+            "data_registro": "2026-08-10T10:00:00Z",
+            "valor_total": 100.0,
+            "valor_liquido": 100.0,
+        },
+        {
+            "id": 2,
+            "tipo_documento": "Nota Fiscal",
+            "nome": "Fora do período",
+            "data_emissao": "2026-07-10",
+            "data_pagamento": "2026-08-15",
+            "data_registro": "2026-07-10T10:00:00Z",
+            "valor_total": 200.0,
+            "valor_liquido": 200.0,
+        },
+    ]
+
+    resp = comprovante_client.get(
+        "/api/comprovantes/?tipo_documento=Nota%20Fiscal&data_inicio=2026-08-01&data_fim=2026-08-31"
+    )
+    assert resp.status_code == 200, resp.text
+    data = resp.json()
+    assert [registro["id"] for registro in data] == [1]

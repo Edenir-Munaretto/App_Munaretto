@@ -5,6 +5,9 @@ comprovantes e validação de e-mail com EmailStr.
 """
 
 import hashlib
+import io
+
+from openpyxl import load_workbook
 
 
 def _hash_senha(senha: str) -> str:
@@ -90,6 +93,10 @@ def test_exportar_comprovantes_xlsx(client, db_fake):
     assert resp.status_code == 200, resp.text
     assert resp.content[:2] == b"PK"  # assinatura ZIP/xlsx
     assert "comprovantes.xlsx" in resp.headers.get("content-disposition", "")
+
+    wb = load_workbook(io.BytesIO(resp.content))
+    cabecalhos = [celula.value for celula in wb.active[1]]
+    assert "Outros Descontos" in cabecalhos
 
 
 def test_email_invalido_rejeitado(client, db_fake):
