@@ -902,8 +902,18 @@ CREATE TABLE IF NOT EXISTS os_fotos (
     mime_type VARCHAR(100) NOT NULL,
     bucket_key TEXT NOT NULL UNIQUE,
     enviado_por VARCHAR(255),
-    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+    capturado_em TIMESTAMP WITH TIME ZONE
 );
+
+-- Data/hora REAL da captura da foto (EXIF do dispositivo), independente do
+-- momento em que o arquivo foi enviado/sincronizado. NULL nas fotos antigas;
+-- relatórios nesse caso usam created_at como fallback.
+ALTER TABLE IF EXISTS os_fotos
+    ADD COLUMN IF NOT EXISTS capturado_em TIMESTAMP WITH TIME ZONE;
+
+COMMENT ON COLUMN os_fotos.capturado_em IS
+    'Data/hora real da captura (EXIF do dispositivo); created_at continua sendo o registro no servidor.';
 
 -- Vínculo opcional de fotos com itens do checklist de execução (coluna nova).
 -- Obs.: criada após os_checklist_itens (mais abaixo) por causa da FK.

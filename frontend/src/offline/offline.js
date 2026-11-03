@@ -187,7 +187,21 @@ export async function cachearFotosChecklist(osId, itens) {
       if (restantes <= 0) return;
       if (foto?.id == null) continue;
       try {
-        if (await dbGet('fotos_cache', foto.id)) continue; // já em cache
+        const existente = await dbGet('fotos_cache', foto.id);
+        if (existente) {
+          // Já em cache: atualiza só os metadados (fotos antigas do cache
+          // podem não ter capturado_em/created_at).
+          const capturado = foto.capturado_em || null;
+          const criado = foto.created_at || null;
+          if (existente.capturado_em !== capturado || existente.created_at !== criado) {
+            await dbPut('fotos_cache', {
+              ...existente,
+              capturado_em: capturado,
+              created_at: criado,
+            });
+          }
+          continue;
+        }
       } catch {
         continue;
       }
@@ -204,6 +218,8 @@ export async function cachearFotosChecklist(osId, itens) {
           blob,
           mime_type: foto.mime_type || blob.type || 'image/jpeg',
           nome_original: foto.nome_original || 'foto',
+          capturado_em: foto.capturado_em || null,
+          created_at: foto.created_at || null,
           em: Date.now(),
         });
       } catch {
@@ -730,7 +746,7 @@ export async function enfileirarOperacao({ tipo, os_id, payload }) {
   return op;
 }
 
-export async function enfileirarFoto({ os_id, checklist_item_id, arquivo, geolocalizacao }) {
+export async function enfileirarFoto({ os_id, checklist_item_id, arquivo, geolocalizacao, capturado_em }) {
   const foto = {
     id_local: novoId('foto'),
     os_id: Number(os_id),
@@ -741,6 +757,9 @@ export async function enfileirarFoto({ os_id, checklist_item_id, arquivo, geoloc
       blob: arquivo, // File/Blob são armazenáveis no IndexedDB
     },
     geolocalizacao: geolocalizacao || null,
+    // Data/hora REAL da captura (EXIF) lida no dispositivo; preservada até o
+    // sync, que pode acontecer horas/dias depois.
+    capturado_em: capturado_em || new Date().toISOString(),
     criado_em: new Date().toISOString(),
     status: 'pendente',
     erro: null,
@@ -777,14 +796,21 @@ function _revogarUrlFotoPendente(foto) {
 
 /** Guarda a foto no dispositivo e a anexa ao item do checklist local como
  * PREVIEW (`pendente: true`). Retorna {foto, entrada}. */
-export async function registrarFotoItemLocal({ os_id, item_id, arquivo, geolocalizacao }) {
-  const foto = await enfileirarFoto({ os_id, checklist_item_id: item_id, arquivo, geolocalizacao });
+export async function registrarFotoItemLocal({ os_id, item_id, arquivo, geolocalizacao, capturado_em }) {
+  const foto = await enfileirarFoto({
+    os_id,
+    checklist_item_id: item_id,
+    arquivo,
+    geolocalizacao,
+    capturado_em,
+  });
   const entrada = {
     id: foto.id_local,
     id_local: foto.id_local,
     url_temporaria: _urlFotoPendente(foto),
     nome_original: arquivo.name || 'foto.jpg',
     mime_type: arquivo.type || 'image/jpeg',
+    capturado_em: foto.capturado_em,
     pendente: true,
   };
   await anexarFotoLocalAoItem(os_id, item_id, entrada);
@@ -826,6 +852,7 @@ export async function hidratarFotosPendentes(dados) {
       url_temporaria: _urlFotoPendente(p),
       nome_original: p.arquivo.nome,
       mime_type: p.arquivo.tipo,
+      capturado_em: p.capturado_em,
       pendente: true,
     }));
     return { ...item, fotos: [...reais, ...locais] };
@@ -904,6 +931,8 @@ export async function getFotosCacheLocal(osId) {
       id: f.id,
       nome_original: f.nome_original,
       mime_type: f.mime_type,
+      capturado_em: f.capturado_em || null,
+      created_at: f.created_at || null,
       url_temporaria: _urlFotoCache(f),
     }));
 }

@@ -1252,7 +1252,11 @@ def _obter_detalhe_os(db, usuario: UsuarioAutenticado, os_id: int) -> dict:
         db.table("os_historico").select("*").eq("os_id", os_id).order("criado_em", desc=False).execute().data
     )
     fotos = (
-        db.table("os_fotos").select("id, nome_original, mime_type, created_at").eq("os_id", os_id).execute().data
+        db.table("os_fotos")
+        .select("id, nome_original, mime_type, created_at, capturado_em")
+        .eq("os_id", os_id)
+        .execute()
+        .data
     )
     apontamento_aberto = (
         db.table("os_apontamentos").select("id, inicio").eq("os_id", os_id).is_("fim", "null").execute().data
@@ -1575,6 +1579,7 @@ async def enviar_foto_checklist(
     geolocalizacao: str | None = Query(None, max_length=100),
     id_local: str | None = Form(None, max_length=120, description="Id local da foto no dispositivo offline"),
     dispositivo: str | None = Form(None, max_length=120, description="Identificador do dispositivo offline"),
+    capturado_em: str | None = Form(None, max_length=40, description="Data/hora real da captura (ISO 8601)"),
     usuario: UsuarioAutenticado = Depends(get_current_user),
     db=Depends(get_supabase),
 ):
@@ -1600,6 +1605,7 @@ async def enviar_foto_checklist(
             mensagem_limite="Arquivo excede o limite de 15 MB.",
         )
         _validar_magia_imagem(mime, conteudo)
+        capturado = _capturado_em_ou_none(capturado_em)
 
         s3 = get_s3_client()
         ref = _ref_sync(dispositivo, id_local)
@@ -1645,6 +1651,7 @@ async def enviar_foto_checklist(
                         "mime_type": mime,
                         "bucket_key": bucket_key,
                         "enviado_por": usuario.email,
+                        "capturado_em": capturado,
                     }
                 )
                 .execute()
@@ -2570,6 +2577,34 @@ def _validar_timestamp_nao_futuro(dt: datetime, detalhe: str) -> None:
         raise HTTPException(status_code=400, detail=detalhe)
 
 
+def _capturado_em_ou_none(valor: str | None) -> str | None:
+    """Data/hora REAL da captura informada pelo dispositivo (ISO 8601).
+
+    É independente de `created_at` (momento do upload/sincronização): o Modo
+    Campo pode enviar a foto horas/dias depois. Ausente/vazio => None, para
+    manter compatibilidade com clientes antigos (relatórios usam created_at).
+
+    Data no futuro (relógio do tablet adiantado) NÃO bloqueia a evidência:
+    grava None e o relatório cai para created_at. Rejeitar com 4xx deixaria a
+    foto presa como "conflito" na fila offline, interrompendo o trabalho.
+    """
+    if not valor:
+        return None
+    dt = _parse_ts(valor)
+    if dt is None:
+        raise HTTPException(
+            status_code=400,
+            detail="Data/hora de captura inválida. Use o formato ISO 8601.",
+        )
+    if dt > _agora() + timedelta(seconds=TOLERANCIA_RELOGIO_SEGUNDOS):
+        logger.warning(
+            "Data/hora de captura no futuro ignorada (relógio do dispositivo): %s",
+            valor,
+        )
+        return None
+    return dt.isoformat()
+
+
 def _apontar_hora(
     os_id: int,
     payload: ApontamentoAcao,
@@ -2754,6 +2789,7 @@ async def enviar_foto(
     arquivo: UploadFile = File(...),
     id_local: str | None = Form(None, max_length=120, description="Id local da foto no dispositivo offline"),
     dispositivo: str | None = Form(None, max_length=120, description="Identificador do dispositivo offline"),
+    capturado_em: str | None = Form(None, max_length=40, description="Data/hora real da captura (ISO 8601)"),
     usuario: UsuarioAutenticado = Depends(get_current_user),
     db=Depends(get_supabase),
 ):
@@ -2777,6 +2813,7 @@ async def enviar_foto(
             mensagem_limite="Foto excede o limite de 15 MB.",
         )
         _validar_magia_imagem(mime, conteudo)
+        capturado = _capturado_em_ou_none(capturado_em)
 
         s3 = get_s3_client()
         ref = _ref_sync(dispositivo, id_local)
@@ -2804,6 +2841,7 @@ async def enviar_foto(
                         "mime_type": mime,
                         "bucket_key": bucket_key,
                         "enviado_por": usuario.email,
+                        "capturado_em": capturado,
                     }
                 )
                 .execute()

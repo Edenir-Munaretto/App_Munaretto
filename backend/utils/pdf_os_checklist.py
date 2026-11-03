@@ -380,7 +380,10 @@ def _paginas_fotos(pdf: _PdfChecklist, itens: list, baixar_foto):
         pdf.multi_cell(larg_celula, 4, f"{item.get('classificacao', '')} {_txt(item.get('pergunta', ''))}", align="L")
         pdf.set_font("Arial", "", 7.5)
         pdf.set_text_color(100, 116, 139)
-        data = _fmt_data(foto.get("created_at")) + " " + _fmt_hora(foto.get("created_at"))
+        # Data/hora REAL da captura; fotos antigas (sem o campo) usam o
+        # registro no servidor como fallback.
+        data_foto = foto.get("capturado_em") or foto.get("created_at")
+        data = _fmt_data(data_foto) + " " + _fmt_hora(data_foto)
         gps = resp.get("geolocalizacao") or ""
         pdf.set_xy(x, y + alt_foto + 2 + 9)
         pdf.multi_cell(larg_celula, 4, f"{data}{f'  ·  GPS {gps}' if gps else ''}", align="L")

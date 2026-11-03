@@ -2304,6 +2304,27 @@ def test_enviar_foto_normaliza_nome_do_arquivo(os_gestor_client, db_fake, monkey
     assert gravada["nome_original"] == "x.jpg"  # basename, sem navegar diretórios
 
 
+def test_enviar_foto_persiste_data_real_da_captura(os_gestor_client, db_fake, monkeypatch):
+    """Upload genérico (evidências/cancelamento) também grava capturado_em."""
+    from tests.test_checklist_os import _FakeS3
+
+    _seed_cenario(db_fake)
+    os_id = _criar_os(os_gestor_client, equipe_id=100).json()["id"]
+
+    fake = _FakeS3()
+    monkeypatch.setattr("routers.os.get_s3_client", lambda: fake)
+    monkeypatch.setattr("routers.os.bucket", lambda: "bucket-teste")
+
+    resp = os_gestor_client.post(
+        f"/api/os/{os_id}/fotos",
+        files={"arquivo": ("foto.jpg", b"\xff\xd8\xff\xe0 fake jpeg", "image/jpeg")},
+        data={"capturado_em": "2026-05-10T08:15:30-03:00"},
+    )
+    assert resp.status_code == 201, resp.text
+    assert resp.json()["capturado_em"] == "2026-05-10T08:15:30-03:00"
+    assert db_fake._dados["os_fotos"][-1]["capturado_em"] == "2026-05-10T08:15:30-03:00"
+
+
 def test_snapshot_respeita_o_tipo_da_os(os_gestor_client, db_fake):
     """Modelos específicos de um contrato não entram na O.S de outro tipo."""
     _seed_cenario(db_fake)

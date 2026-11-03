@@ -14,6 +14,7 @@ import PainelObra from '../components/PainelObra';
 import PainelDesligamentos from '../components/PainelDesligamentos';
 import { abrirPdfAutenticado } from '../utils/abrirPdf';
 import { comprimirImagem, mimeFotoPermitido } from '../utils/imagem';
+import { dataCapturaDaFoto } from '../utils/fotoData';
 import { rotuloFator, unidadeContrato } from '../utils/contratos';
 import {
   isModoCampo, setModoCampo, isOffline, usarLocal,
@@ -650,6 +651,8 @@ function TabChecklist({ osDetalhe, onAtualizado, mostrarToast, podeEditar }) {
     setFotoAlvo(null);
     if (!item || !files?.length) return;
     setEnviandoFoto(item.id);
+    // Lê o EXIF ANTES da compressão (o canvas descarta os metadados).
+    const capturadoEm = await dataCapturaDaFoto(files[0]);
     const arquivo = await comprimirImagem(files[0]);
     // Formato fora da lista do backend (ex.: HEIC não decodificável): avisa na
     // hora e NÃO enfileira — evita virar conflito 400 na sincronização.
@@ -669,6 +672,7 @@ function TabChecklist({ osDetalhe, onAtualizado, mostrarToast, podeEditar }) {
           item_id: item.id,
           arquivo,
           geolocalizacao: gps,
+          capturado_em: capturadoEm,
         });
         refletirFotoLocal(item.id, entrada);
         carregar();
@@ -683,6 +687,7 @@ function TabChecklist({ osDetalhe, onAtualizado, mostrarToast, podeEditar }) {
 
     const fd = new FormData();
     fd.append('arquivo', arquivo);
+    fd.append('capturado_em', capturadoEm);
     try {
       const qs = gps ? `?geolocalizacao=${encodeURIComponent(gps)}` : '';
       const res = await apiFetch(`${API_URL}/os/${osDetalhe.id}/checklist/${item.id}/foto${qs}`, {
@@ -898,16 +903,24 @@ function TabChecklist({ osDetalhe, onAtualizado, mostrarToast, podeEditar }) {
                                     <img src={f.url_temporaria} alt={f.nome_original || 'foto'}
                                       className="w-16 h-16 rounded-lg object-cover border border-slate-200" loading="lazy" />
                                   );
+                                  const quandoCapturada = f.capturado_em || f.created_at;
                                   return (
-                                    <div key={f.id} className="relative w-16 h-16">
-                                      {f.url_temporaria ? (
-                                        <a href={f.url_temporaria} target="_blank" rel="noopener noreferrer" title="Abrir foto">
-                                          {img}
-                                        </a>
-                                      ) : img}
-                                      {f.pendente && (
-                                        <span className="absolute -bottom-1 right-0 text-[8px] font-bold px-1 py-0.5 rounded-full bg-amber-100 text-amber-700 border border-amber-200">
-                                          sincronizando…
+                                    <div key={f.id} className="flex flex-col items-center gap-0.5">
+                                      <div className="relative w-16 h-16">
+                                        {f.url_temporaria ? (
+                                          <a href={f.url_temporaria} target="_blank" rel="noopener noreferrer" title="Abrir foto">
+                                            {img}
+                                          </a>
+                                        ) : img}
+                                        {f.pendente && (
+                                          <span className="absolute -bottom-1 right-0 text-[8px] font-bold px-1 py-0.5 rounded-full bg-amber-100 text-amber-700 border border-amber-200">
+                                            sincronizando…
+                                          </span>
+                                        )}
+                                      </div>
+                                      {quandoCapturada && (
+                                        <span className="text-[8px] leading-none text-slate-400 font-semibold" title="Data/hora da captura">
+                                          {fmtData(quandoCapturada)}
                                         </span>
                                       )}
                                     </div>
@@ -1932,6 +1945,7 @@ function TabEvidencias({ osDetalhe, onAtualizado, mostrarToast, podeEditar, pode
     setEnviando(true);
     let ok = 0;
     for (const original of files) {
+      const capturadoEm = await dataCapturaDaFoto(original);
       const arquivo = await comprimirImagem(original);
       if (!mimeFotoPermitido(arquivo?.type)) {
         mostrarToast(`Formato não suportado: ${original?.name || 'foto'}. Use JPG, PNG ou WEBP.`, 'error');
@@ -1939,6 +1953,7 @@ function TabEvidencias({ osDetalhe, onAtualizado, mostrarToast, podeEditar, pode
       }
       const fd = new FormData();
       fd.append('arquivo', arquivo);
+      fd.append('capturado_em', capturadoEm);
       try {
         const res = await apiFetch(`${API_URL}/os/${osDetalhe.id}/fotos`, {
           method: 'POST',
@@ -2022,20 +2037,28 @@ function TabEvidencias({ osDetalhe, onAtualizado, mostrarToast, podeEditar, pode
       </div>
 
       <div className="grid grid-cols-3 sm:grid-cols-4 gap-2">
-        {fotos.map(f => (
-          <div key={f.id} className="relative group aspect-square rounded-xl overflow-hidden border border-slate-200 bg-slate-50">
-            <img src={f.url_temporaria} alt={f.nome_original} className="w-full h-full object-cover" loading="lazy" />
-            {podeExcluir && (
-              <button
-                onClick={() => setFotoParaExcluir(f.id)}
-                className="absolute top-1 right-1 w-7 h-7 rounded-full bg-black/60 text-white flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity cursor-pointer"
-                title="Excluir"
-              >
-                <X size={14} />
-              </button>
-            )}
-          </div>
-        ))}
+        {fotos.map(f => {
+          const quandoCapturada = f.capturado_em || f.created_at;
+          return (
+            <div key={f.id} className="relative group aspect-square rounded-xl overflow-hidden border border-slate-200 bg-slate-50">
+              <img src={f.url_temporaria} alt={f.nome_original} className="w-full h-full object-cover" loading="lazy" />
+              {quandoCapturada && (
+                <span className="absolute inset-x-0 bottom-0 bg-gradient-to-t from-black/75 to-transparent text-white text-[9px] font-semibold px-1.5 pt-3 pb-1 leading-none pointer-events-none">
+                  {fmtData(quandoCapturada)}
+                </span>
+              )}
+              {podeExcluir && (
+                <button
+                  onClick={() => setFotoParaExcluir(f.id)}
+                  className="absolute top-1 right-1 w-7 h-7 rounded-full bg-black/60 text-white flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity cursor-pointer"
+                  title="Excluir"
+                >
+                  <X size={14} />
+                </button>
+              )}
+            </div>
+          );
+        })}
         {!fotos.length && (
           <div className="col-span-full text-center py-6 text-xs text-slate-400 flex flex-col items-center gap-1">
             <ImageIcon size={22} />
@@ -3170,6 +3193,7 @@ function ModalCancelamento({ aberto, osAlvo, onConfirmar, onCancelar, processand
     setEnviandoFoto(true);
     let novosFotoIds = [...fotos];
     for (const original of files) {
+      const capturadoEm = await dataCapturaDaFoto(original);
       const arquivo = await comprimirImagem(original);
       if (!mimeFotoPermitido(arquivo?.type)) {
         mostrarToast(`Formato não suportado: ${original?.name || 'foto'}. Use JPG, PNG ou WEBP.`, 'error');
@@ -3182,7 +3206,13 @@ function ModalCancelamento({ aberto, osAlvo, onConfirmar, onCancelar, processand
       if (isModoCampo() || usarLocal()) {
         try {
           const gps = await capturarGeolocalizacao();
-          const foto = await enfileirarFoto({ os_id: osAlvo.id, checklist_item_id: null, arquivo, geolocalizacao: gps });
+          const foto = await enfileirarFoto({
+            os_id: osAlvo.id,
+            checklist_item_id: null,
+            arquivo,
+            geolocalizacao: gps,
+            capturado_em: capturadoEm,
+          });
           novosFotoIds = [...novosFotoIds, foto.id_local];
         } catch { /* continua */ }
         continue;
@@ -3190,6 +3220,7 @@ function ModalCancelamento({ aberto, osAlvo, onConfirmar, onCancelar, processand
 
       const fd = new FormData();
       fd.append('arquivo', arquivo);
+      fd.append('capturado_em', capturadoEm);
       try {
         const res = await apiFetch(`${API_URL}/os/${osAlvo.id}/fotos`, {
           method: 'POST',
@@ -3208,7 +3239,13 @@ function ModalCancelamento({ aberto, osAlvo, onConfirmar, onCancelar, processand
           registrarFalhaDeRede();
           try {
             const gps = await capturarGeolocalizacao();
-            const foto = await enfileirarFoto({ os_id: osAlvo.id, checklist_item_id: null, arquivo, geolocalizacao: gps });
+            const foto = await enfileirarFoto({
+              os_id: osAlvo.id,
+              checklist_item_id: null,
+              arquivo,
+              geolocalizacao: gps,
+              capturado_em: capturadoEm,
+            });
             novosFotoIds = [...novosFotoIds, foto.id_local];
           } catch { /* continua */ }
         }

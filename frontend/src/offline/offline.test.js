@@ -14,6 +14,7 @@ import {
   atualizarPacoteCampo,
   cachearFotosChecklist,
   donoPacote,
+  enfileirarFoto,
   getListaLocal,
   prepararPacoteCampo,
   recalcularResumo,
@@ -251,6 +252,24 @@ describe('fila de operações (sequência local)', () => {
   });
 });
 
+describe('enfileirarFoto', () => {
+  beforeEach(async () => {
+    await limparTudoLocal();
+  });
+
+  it('persiste a data/hora REAL da captura junto da foto pendente', async () => {
+    const foto = await enfileirarFoto({
+      os_id: 1,
+      checklist_item_id: 2,
+      arquivo: new Blob(['x'], { type: 'image/jpeg' }),
+      capturado_em: '2026-05-10T11:15:30.000Z',
+    });
+
+    expect(foto.capturado_em).toBe('2026-05-10T11:15:30.000Z');
+    expect((await dbGet('fotos', foto.id_local)).capturado_em).toBe('2026-05-10T11:15:30.000Z');
+  });
+});
+
 describe('cachearFotosChecklist', () => {
   beforeEach(async () => {
     await limparTudoLocal();
@@ -264,11 +283,40 @@ describe('cachearFotosChecklist', () => {
       }
       return { ok: false, json: async () => null };
     });
-    await cachearFotosChecklist(1, [{ id: 10, fotos: [{ id: 10, mime_type: 'image/jpeg' }] }]);
-    expect(await dbGet('fotos_cache', 10)).toMatchObject({ id: 10, os_id: 1, mime_type: 'image/jpeg' });
+    await cachearFotosChecklist(1, [{
+      id: 10,
+      fotos: [{ id: 10, mime_type: 'image/jpeg', capturado_em: '2026-05-10T11:15:30.000Z' }],
+    }]);
+    expect(await dbGet('fotos_cache', 10)).toMatchObject({
+      id: 10,
+      os_id: 1,
+      mime_type: 'image/jpeg',
+      capturado_em: '2026-05-10T11:15:30.000Z',
+    });
 
     const chamadas = apiFetch.mock.calls.length;
     await cachearFotosChecklist(1, [{ id: 10, fotos: [{ id: 10, mime_type: 'image/jpeg' }] }]);
     expect(apiFetch.mock.calls.length).toBe(chamadas);
+  });
+
+  it('atualiza metadados de captura de uma foto já cacheada (sem rebaixar)', async () => {
+    await dbPut('fotos_cache', {
+      id: 11,
+      os_id: 1,
+      blob: new Blob(['x'], { type: 'image/jpeg' }),
+      mime_type: 'image/jpeg',
+      em: Date.now(),
+    });
+
+    await cachearFotosChecklist(1, [{
+      id: 10,
+      fotos: [{ id: 11, mime_type: 'image/jpeg', capturado_em: '2026-05-10T11:15:30.000Z', created_at: '2026-05-11T09:00:00Z' }],
+    }]);
+
+    expect(await dbGet('fotos_cache', 11)).toMatchObject({
+      capturado_em: '2026-05-10T11:15:30.000Z',
+      created_at: '2026-05-11T09:00:00Z',
+    });
+    expect(apiFetch).not.toHaveBeenCalled();
   });
 });

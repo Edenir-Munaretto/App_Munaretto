@@ -1,7 +1,7 @@
 // Testes do motor de sincronização do Modo Campo: single-flight (toque
 // duplo não dispara dois envios), anti-zumbi (item já removido pelo envio
 // vencedor não volta para a fila) e retry automático de erros transitórios.
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 vi.mock('../api', () => ({
   API_URL: 'http://api.teste/api',
@@ -32,6 +32,10 @@ describe('sincronizar', () => {
   beforeEach(async () => {
     await limparTudoLocal();
     apiFetch.mockReset();
+  });
+
+  afterEach(() => {
+    vi.unstubAllGlobals();
   });
 
   it('coalesce o toque duplo em UMA sincronização', async () => {
@@ -137,6 +141,42 @@ describe('sincronizar', () => {
     expect(item.classificacao).toBe('conflito');
   });
 
+  it('envia a data/hora REAL de captura da foto pendente', async () => {
+    // O fake-indexeddb do jsdom não preserva Blob; o FormData é stubado para
+    // inspecionar os campos enviados (o fluxo real é testado no navegador).
+    class FormDataFake {
+      constructor() { this.campos = {}; }
+
+      append(chave, valor) { this.campos[chave] = valor; }
+
+      get(chave) { return this.campos[chave]; }
+    }
+    vi.stubGlobal('FormData', FormDataFake);
+
+    await dbPut('fotos', {
+      id_local: 'foto-1',
+      os_id: 1,
+      checklist_item_id: 10,
+      arquivo: { nome: 'foto.jpg', tipo: 'image/jpeg', blob: { tamanho: 4 } },
+      capturado_em: '2026-05-10T11:15:30.000Z',
+      status: 'pendente',
+      tentativas: 0,
+    });
+
+    apiFetch.mockImplementation(async (url) => {
+      if (String(url).includes('/checklist/10/foto')) return resposta({ id: 55 });
+      if (String(url).includes('/os/sincronizar')) return resposta({ resultados: [] });
+      return resposta([]);
+    });
+
+    const r = await sincronizar();
+    expect(r.fotosEnviadas).toBe(1);
+
+    const chamada = apiFetch.mock.calls.find((c) => String(c[0]).includes('/checklist/10/foto'));
+    expect(chamada).toBeTruthy();
+    expect(chamada[1].body.get('capturado_em')).toBe('2026-05-10T11:15:30.000Z');
+  });
+
   it('material sincronizado recebe o id do servidor e deixa de ser pendente', async () => {
     await dbPut('fila', {
       id_local: 'op-mat-1',
@@ -218,3 +258,4 @@ describe('ehConflito', () => {
     expect(ehConflito(500)).toBe(false);
   });
 });
+

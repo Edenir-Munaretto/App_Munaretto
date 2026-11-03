@@ -92,6 +92,8 @@ async function enviarFotos(fotos, resumo, mapaFotos, onProgress, dispositivo) {
       // duplicar a evidência quando o upload expira e é reenviado.
       fd.append('id_local', String(foto.id_local));
       if (dispositivo) fd.append('dispositivo', String(dispositivo));
+      // Data/hora REAL da captura, preservada desde a fila offline.
+      if (foto.capturado_em) fd.append('capturado_em', String(foto.capturado_em));
       const qs = foto.geolocalizacao ? `?geolocalizacao=${encodeURIComponent(foto.geolocalizacao)}` : '';
       // Evidências de item do checklist usam o endpoint do item; as do
       // cancelamento (sem item) usam o endpoint genérico de fotos da O.S.

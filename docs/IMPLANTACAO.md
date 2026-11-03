@@ -14,7 +14,7 @@ Arquitetura e detalhes técnicos: [ARQUITETURA.md](ARQUITETURA.md).
 3. Guarde, em **Project Settings → API**:
    - `SUPABASE_URL` — URL do projeto;
    - `SUPABASE_KEY` — a chave **`service_role`** (a `anon` não funciona: o RLS bloqueia).
-4. Sempre que o `schema.sql` mudar em um deploy, **rode novamente** no SQL Editor (os comandos são idempotentes).
+4. Sempre que o `schema.sql` mudar em um deploy, **rode novamente** no SQL Editor (os comandos são idempotentes). Nas fotos de O.S, a coluna `capturado_em` guarda a data/hora real da captura (EXIF) e precisa existir **antes** do deploy do backend novo.
 
 > Migração de dados do app desktop antigo já foi concluída e os scripts não existem mais no repositório.
 

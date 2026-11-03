@@ -126,7 +126,7 @@ render.yaml          Blueprint do backend (Docker) no Render
 - **Armazenamento:** `src/utils/storage.js` (nunca `localStorage` direto).
 - **Erros:** `ErrorBoundary` (App) + overlay global em `main.jsx` + watchdog no `index.html` (com "Limpar dados e recarregar").
 - **PWA/service worker** (`public/sw.js`, v5): navegação network-first com timeout de 3 s e fallback do shell em cache; assets com hash em cache-first; demais GET em stale-while-revalidate; migração de assets no `activate`. Contexto e critérios: [decisoes/PLANO_FIX_TELA_BRANCA_PWA.md](decisoes/PLANO_FIX_TELA_BRANCA_PWA.md).
-- **Modo Campo** (`src/offline/`): `db.js` = IndexedDB (`os`, `checklist`, `os_lista`, `fila`, `fotos`, `fotos_cache`, `meta`); `offline.js` = pacote/refresh/fila/leituras; `sync.js` = envio (fotos primeiro, depois lote) com idempotência (`sync_ops`). Fluxo em [DIAGRAMA_OS.md](DIAGRAMA_OS.md).
+- **Modo Campo** (`src/offline/`): `db.js` = IndexedDB (`os`, `checklist`, `os_lista`, `fila`, `fotos`, `fotos_cache`, `meta`); `offline.js` = pacote/refresh/fila/leituras; `sync.js` = envio (fotos primeiro, depois lote) com idempotência (`sync_ops`). Fotos guardam `capturado_em` (EXIF, lido antes da compressão) na fila local e o backend persiste esse horário real, separado do `created_at` do upload; data no futuro (relógio adiantado) é ignorada para não travar a fila. Fluxo em [DIAGRAMA_OS.md](DIAGRAMA_OS.md).
 
 ## 10. Banco, schema e ambientes
 

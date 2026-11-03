@@ -480,6 +480,68 @@ def test_upload_foto_item(os_gestor_client, db_fake, monkeypatch):
     assert len(fake.objetos) == 1
 
 
+def test_upload_foto_item_persiste_data_real_da_captura(os_gestor_client, db_fake, monkeypatch):
+    """A foto guarda o horário real informado pelo dispositivo, separado do created_at."""
+    from tests.test_os import _criar_os, _seed_cenario
+
+    _seed_cenario(db_fake)
+    _seed_modelos(db_fake)
+    os_id = _criar_os(os_gestor_client).json()["id"]
+    item = next(i for i in _itens(os_gestor_client, os_id) if i["exige_foto"])
+
+    fake = _FakeS3()
+    monkeypatch.setattr("routers.os.get_s3_client", lambda: fake)
+    monkeypatch.setattr("routers.os.bucket", lambda: "bucket-teste")
+
+    resp = os_gestor_client.post(
+        f"/api/os/{os_id}/checklist/{item['id']}/foto",
+        files={"arquivo": ("foto.png", _png_bytes(), "image/png")},
+        data={"capturado_em": "2026-05-10T08:15:30-03:00"},
+    )
+    assert resp.status_code == 201, resp.text
+    assert resp.json()["capturado_em"] == "2026-05-10T08:15:30-03:00"
+
+    gravada = db_fake._dados["os_fotos"][-1]
+    assert gravada["capturado_em"] == "2026-05-10T08:15:30-03:00"
+    assert gravada.get("created_at") != gravada["capturado_em"]
+
+
+def test_upload_foto_item_data_futura_nao_bloqueia_a_evidencia(os_gestor_client, db_fake, monkeypatch):
+    """Relógio adiantado no tablet não pode travar a fila offline como conflito.
+
+    Formato inválido continua 400; data no futuro é ignorada (NULL) e o
+    relatório usa created_at como fallback.
+    """
+    from tests.test_os import _criar_os, _seed_cenario
+
+    _seed_cenario(db_fake)
+    _seed_modelos(db_fake)
+    os_id = _criar_os(os_gestor_client).json()["id"]
+    item = next(i for i in _itens(os_gestor_client, os_id) if i["exige_foto"])
+
+    fake = _FakeS3()
+    monkeypatch.setattr("routers.os.get_s3_client", lambda: fake)
+    monkeypatch.setattr("routers.os.bucket", lambda: "bucket-teste")
+    url = f"/api/os/{os_id}/checklist/{item['id']}/foto"
+
+    invalida = os_gestor_client.post(
+        url,
+        files={"arquivo": ("foto.png", _png_bytes(), "image/png")},
+        data={"capturado_em": "ontem às 10h"},
+    )
+    assert invalida.status_code == 400, invalida.text
+    assert db_fake._dados["os_fotos"] == []
+
+    futura = os_gestor_client.post(
+        url,
+        files={"arquivo": ("foto.png", _png_bytes(), "image/png")},
+        data={"capturado_em": "2999-01-01T00:00:00Z"},
+    )
+    assert futura.status_code == 201, futura.text
+    assert futura.json()["capturado_em"] is None
+    assert db_fake._dados["os_fotos"][-1]["capturado_em"] is None
+
+
 def test_reenvio_da_mesma_foto_offline_nao_duplica(os_gestor_client, db_fake, monkeypatch):
     """Reenvio com o mesmo (dispositivo, id_local) devolve a MESMA evidência —
     sem linha duplicada (idempotência do upload de foto do checklist)."""
@@ -724,6 +786,73 @@ def test_relatorio_pdf_com_foto_no_item(os_gestor_client, db_fake, monkeypatch):
     resp = os_gestor_client.get(f"/api/os/{os_id}/checklist/report")
     assert resp.status_code == 200, resp.text
     assert resp.content.startswith(b"%PDF")
+
+
+def test_relatorio_pdf_usa_data_real_da_captura(os_gestor_client, db_fake, monkeypatch):
+    """A legenda da foto usa capturado_em (horário da câmera), não o upload."""
+    import pymupdf
+
+    from tests.test_os import _criar_os, _seed_cenario
+
+    _seed_cenario(db_fake)
+    _seed_modelos(db_fake)
+    os_id = _criar_os(os_gestor_client, equipe_id=100).json()["id"]
+    itens = _itens(os_gestor_client, os_id)
+
+    fake = _FakeS3()
+    monkeypatch.setattr("routers.os.get_s3_client", lambda: fake)
+    monkeypatch.setattr("routers.os.bucket", lambda: "bucket-teste")
+
+    item = next(i for i in itens if i["exige_foto"])
+    resp = os_gestor_client.post(
+        f"/api/os/{os_id}/checklist/{item['id']}/foto",
+        files={"arquivo": ("foto.png", _png_bytes(), "image/png")},
+        data={"capturado_em": "2026-05-10T08:15:30-03:00"},
+    )
+    assert resp.status_code == 201, resp.text
+    for item_check in itens:
+        _responder(os_gestor_client, os_id, item_check, "sim")
+
+    resp = os_gestor_client.get(f"/api/os/{os_id}/checklist/report")
+    assert resp.status_code == 200, resp.text
+    doc = pymupdf.open(stream=resp.content, filetype="pdf")
+    texto = "\n".join(page.get_text() for page in doc)
+    assert "10/05/2026 08:15" in texto
+
+
+def test_relatorio_pdf_foto_sem_data_real_usa_created_at(os_gestor_client, db_fake, monkeypatch):
+    """Fotos antigas (capturado_em NULL) mantêm o fallback para created_at."""
+    import pymupdf
+
+    from tests.test_os import _criar_os, _seed_cenario
+
+    _seed_cenario(db_fake)
+    _seed_modelos(db_fake)
+    os_id = _criar_os(os_gestor_client, equipe_id=100).json()["id"]
+    itens = _itens(os_gestor_client, os_id)
+
+    fake = _FakeS3()
+    monkeypatch.setattr("routers.os.get_s3_client", lambda: fake)
+    monkeypatch.setattr("routers.os.bucket", lambda: "bucket-teste")
+
+    item = next(i for i in itens if i["exige_foto"])
+    resp = os_gestor_client.post(
+        f"/api/os/{os_id}/checklist/{item['id']}/foto",
+        files={"arquivo": ("foto.png", _png_bytes(), "image/png")},
+    )
+    assert resp.status_code == 201, resp.text
+    # Fake não aplica DEFAULT do banco: simula a linha antiga manualmente.
+    db_fake._dados["os_fotos"][-1]["created_at"] = "2026-06-01T12:00:00-03:00"
+    db_fake._dados["os_fotos"][-1]["capturado_em"] = None
+
+    for item_check in itens:
+        _responder(os_gestor_client, os_id, item_check, "sim")
+
+    resp = os_gestor_client.get(f"/api/os/{os_id}/checklist/report")
+    assert resp.status_code == 200, resp.text
+    doc = pymupdf.open(stream=resp.content, filetype="pdf")
+    texto = "\n".join(page.get_text() for page in doc)
+    assert "01/06/2026 12:00" in texto
 
 
 def test_relatorio_pdf_sem_pagina_entre_tabela_e_fotos(os_gestor_client, db_fake, monkeypatch):
