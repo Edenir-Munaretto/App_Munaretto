@@ -172,11 +172,25 @@ def _normalizar_tipo(valor):
     return None
 
 
+def _somente_digitos(valor):
+    """Remove máscara de CPF/CNPJ (pontos, traços, barras e espaços)."""
+    return re.sub(r"\D", "", str(valor or ""))
+
+
+def _eh_pessoa_fisica(payload):
+    """CPF tem 11 dígitos; CNPJ (pessoa jurídica) tem 14."""
+    return len(_somente_digitos(payload.get("cnpj"))) == 11
+
+
 def _calcular_outros_ibs_cbs(payload):
-    """Outros/IBS/CBS = max(0, Valor Total - INSS - ISS - Valor Líquido)."""
+    """Outros/IBS/CBS = max(0, Total - INSS - ISS efetivo - Líquido).
+
+    Em Nota Fiscal de pessoa física o ISS é apenas informativo (não é
+    descontado): o CPF (11 dígitos) zera o ISS na composição.
+    """
     total = payload.get("valor_total") or 0
     inss = payload.get("valor_inss") or 0
-    iss = payload.get("valor_iss") or 0
+    iss = 0 if _eh_pessoa_fisica(payload) else (payload.get("valor_iss") or 0)
     liquido = payload.get("valor_liquido") or 0
     return max(0.0, round(total - inss - iss - liquido, 2))
 

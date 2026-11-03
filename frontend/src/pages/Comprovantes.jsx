@@ -5,7 +5,10 @@ import ModalConfirmacao from '../components/ModalConfirmacao';
 import ErroCarregamento from '../components/ErroCarregamento';
 import { useFetchState } from '../hooks/useFetchState';
 import { parseDecimalBR } from '../utils/numeros';
-import { calcularOutrosIbsCbs, somarTotais, temImpostoNaoDescontado } from '../utils/comprovantes';
+import {
+  calcularDivergencia, calcularOutrosIbsCbs, ehPessoaFisica,
+  issNaoDescontado, somarTotais, temDivergencia,
+} from '../utils/comprovantes';
 
 const NUMERIC_FIELDS = [
   'valor_total', 'base_calculo', 'valor_inss', 'valor_iss', 'valor_liquido',
@@ -368,8 +371,8 @@ function Comprovantes() {
     return somarTotais(filteredComprovantes);
   }, [tipoFiltro, filteredComprovantes]);
 
-  const nfsComImpostoNaoDescontado = useMemo(
-    () => (tipoFiltro === 'Nota Fiscal' ? filteredComprovantes.filter(temImpostoNaoDescontado).length : 0),
+  const nfsComDivergencia = useMemo(
+    () => (tipoFiltro === 'Nota Fiscal' ? filteredComprovantes.filter(temDivergencia).length : 0),
     [tipoFiltro, filteredComprovantes]
   );
 
@@ -653,7 +656,7 @@ function Comprovantes() {
             <span className="text-xs text-slate-400 font-semibold">{filteredComprovantes.length} registro(s) filtrado(s)</span>
           </div>
           {tipoFiltro === 'Nota Fiscal' ? (
-            <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-x-4 gap-y-2 text-xs">
+            <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-x-4 gap-y-2 text-xs">
               <div>
                 <span className="block text-[9px] text-slate-400 font-bold uppercase tracking-wider">Valor Total</span>
                 <span className="font-bold text-slate-750">{formatCurrency(totaisTipo.valor_total)}</span>
@@ -663,8 +666,12 @@ function Comprovantes() {
                 <span className="font-bold text-slate-750">{formatCurrency(totaisTipo.valor_inss)}</span>
               </div>
               <div>
-                <span className="block text-[9px] text-slate-400 font-bold uppercase tracking-wider">Total ISS</span>
-                <span className="font-bold text-slate-750">{formatCurrency(totaisTipo.valor_iss)}</span>
+                <span className="block text-[9px] text-slate-400 font-bold uppercase tracking-wider">ISS Descontado</span>
+                <span className="font-bold text-slate-750">{formatCurrency(totaisTipo.iss_descontado)}</span>
+              </div>
+              <div>
+                <span className="block text-[9px] text-slate-400 font-bold uppercase tracking-wider">ISS Não Descontado (PF)</span>
+                <span className="font-bold text-slate-500">{formatCurrency(totaisTipo.iss_nao_descontado)}</span>
               </div>
               <div>
                 <span className="block text-[9px] text-slate-400 font-bold uppercase tracking-wider">Outros/IBS/CBS</span>
@@ -703,9 +710,10 @@ function Comprovantes() {
               <div className="hidden lg:block"></div>
             </div>
           )}
-          {tipoFiltro === 'Nota Fiscal' && nfsComImpostoNaoDescontado > 0 && (
+          {tipoFiltro === 'Nota Fiscal' && nfsComDivergencia > 0 && (
             <p className="text-[10px] font-bold text-amber-600 mt-2">
-              {nfsComImpostoNaoDescontado} NF(s) com ISS não descontado.
+              {nfsComDivergencia} NF(s) com divergência entre total, impostos, outros e líquido
+              {totaisTipo.divergencia_abs > 0 && ` (${formatCurrency(totaisTipo.divergencia_abs)} em valores absolutos)`}.
             </p>
           )}
         </div>
@@ -830,6 +838,7 @@ function Comprovantes() {
 const ComprovanteCard = React.memo(({ c, onEditar, onExcluir }) => {
   const isNF = c.tipo_documento === 'Nota Fiscal';
   const isImposto = c.tipo_documento === 'Imposto';
+  const pessoaFisica = ehPessoaFisica(c);
 
   const borderLeftColor =
     c.tipo_documento === 'Nota Fiscal' ? 'border-l-blue-500' :
@@ -859,6 +868,11 @@ const ComprovanteCard = React.memo(({ c, onEditar, onExcluir }) => {
           <span className={`px-2 py-0.5 text-[9px] font-bold rounded-full border ${badgeColor}`}>
             {c.tipo_documento}
           </span>
+          {isNF && pessoaFisica && (
+            <span className="px-2 py-0.5 text-[9px] font-bold rounded-full border bg-slate-50 text-slate-600 border-slate-200">
+              PF
+            </span>
+          )}
           <h4 className="font-bold text-slate-800 text-sm print:text-xs print:leading-tight">
             {isNF ? c.nome : c.descricao}
           </h4>
@@ -888,7 +902,7 @@ const ComprovanteCard = React.memo(({ c, onEditar, onExcluir }) => {
       {isNF ? (
         <div className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-8 gap-x-4 gap-y-2 text-xs pt-2 border-t border-slate-50 print:gap-y-0.5 print:pt-1 print:text-[10px]">
           <div>
-            <span className="block text-[9px] text-slate-400 font-bold uppercase tracking-wider">CNPJ</span>
+            <span className="block text-[9px] text-slate-400 font-bold uppercase tracking-wider">CPF/CNPJ</span>
             <span className="font-semibold font-mono text-slate-750">{c.cnpj || '-'}</span>
           </div>
           <div>
@@ -910,15 +924,22 @@ const ComprovanteCard = React.memo(({ c, onEditar, onExcluir }) => {
             <span className="font-semibold text-slate-700">{formatCurrency(c.valor_inss)}</span>
           </div>
           <div>
-            <span className="block text-[9px] text-slate-400 font-bold uppercase tracking-wider">ISS</span>
+            <span className="block text-[9px] text-slate-400 font-bold uppercase tracking-wider">
+              ISS{pessoaFisica ? ' (não descontado)' : ''}
+            </span>
             <span className="font-semibold text-slate-700">{formatCurrency(c.valor_iss)}</span>
+            {pessoaFisica && Number(c.valor_iss) > 0 && (
+              <span className="block text-[8px] text-slate-400 font-semibold uppercase tracking-wider mt-0.5">
+                informativo (PF)
+              </span>
+            )}
           </div>
           <div>
             <span className="block text-[9px] text-slate-400 font-bold uppercase tracking-wider">Outros/IBS/CBS</span>
             <span className="font-semibold text-slate-700">{formatCurrency(calcularOutrosIbsCbs(c))}</span>
-            {temImpostoNaoDescontado(c) && (
+            {temDivergencia(c) && (
               <span className="block text-[8px] text-amber-600 font-bold uppercase tracking-wider mt-0.5">
-                ISS não descontado
+                Divergência: {formatCurrency(calcularDivergencia(c))}
               </span>
             )}
           </div>
@@ -1013,24 +1034,39 @@ function ModalLancamento({ aberto, comprovante, onFechar, onSalvo, mostrarToast 
     setErros({});
   }, [aberto, comprovante]);
 
-  const outrosIbsCbsForm = useMemo(
-    () => calcularOutrosIbsCbs({
-      valor_total: formData.valor_total,
-      valor_inss: formData.valor_inss,
-      valor_iss: formData.valor_iss,
-      valor_liquido: formData.valor_liquido,
-    }),
-    [formData.valor_total, formData.valor_inss, formData.valor_iss, formData.valor_liquido]
+  const pessoaFisicaForm = useMemo(
+    () => ehPessoaFisica(formData.cnpj),
+    [formData.cnpj]
   );
 
-  const impostoNaoDescontadoForm = useMemo(
-    () => temImpostoNaoDescontado({
+  const outrosIbsCbsForm = useMemo(
+    () => calcularOutrosIbsCbs({
+      cnpj: formData.cnpj,
       valor_total: formData.valor_total,
       valor_inss: formData.valor_inss,
       valor_iss: formData.valor_iss,
       valor_liquido: formData.valor_liquido,
     }),
-    [formData.valor_total, formData.valor_inss, formData.valor_iss, formData.valor_liquido]
+    [formData.cnpj, formData.valor_total, formData.valor_inss, formData.valor_iss, formData.valor_liquido]
+  );
+
+  const divergenciaForm = useMemo(
+    () => calcularDivergencia({
+      cnpj: formData.cnpj,
+      valor_total: formData.valor_total,
+      valor_inss: formData.valor_inss,
+      valor_iss: formData.valor_iss,
+      valor_liquido: formData.valor_liquido,
+    }),
+    [formData.cnpj, formData.valor_total, formData.valor_inss, formData.valor_iss, formData.valor_liquido]
+  );
+
+  const issNaoDescontadoForm = useMemo(
+    () => issNaoDescontado({
+      cnpj: formData.cnpj,
+      valor_iss: formData.valor_iss,
+    }),
+    [formData.cnpj, formData.valor_iss]
   );
 
   if (!aberto) return null;
@@ -1204,13 +1240,13 @@ function ModalLancamento({ aberto, comprovante, onFechar, onSalvo, mostrarToast 
                 {msgErro('nome')}
               </div>
               <div className="space-y-1.5">
-                <label className="block text-xs font-bold text-slate-750">CNPJ *</label>
+                <label className="block text-xs font-bold text-slate-750">CPF/CNPJ *</label>
                 <input
                   type="text"
                   name="cnpj"
                   value={formData.cnpj}
                   onChange={handleInputChange}
-                  placeholder="00.000.000/0000-00"
+                  placeholder="CPF ou CNPJ"
                   className={`w-full px-3.5 py-2 border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-primary-500/20 focus:border-primary-500 text-sm font-semibold${erroCampo('cnpj')}`}
                 />
                 {msgErro('cnpj')}
@@ -1248,7 +1284,9 @@ function ModalLancamento({ aberto, comprovante, onFechar, onSalvo, mostrarToast 
                 />
               </div>
               <div className="space-y-1.5">
-                <label className="block text-xs font-bold text-slate-750">Valor ISS</label>
+                <label className="block text-xs font-bold text-slate-750">
+                  Valor ISS{pessoaFisicaForm ? ' (não descontado)' : ''}
+                </label>
                 <input
                   type="number"
                   step="0.01"
@@ -1257,6 +1295,16 @@ function ModalLancamento({ aberto, comprovante, onFechar, onSalvo, mostrarToast 
                   onChange={handleInputChange}
                   className="w-full px-3.5 py-2 border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-primary-500/20 focus:border-primary-500 text-sm font-semibold"
                 />
+                {pessoaFisicaForm && (
+                  <p className="text-[10px] text-slate-400 font-semibold">
+                    Pessoa física: o ISS é apenas informativo e não é descontado do líquido.
+                  </p>
+                )}
+                {issNaoDescontadoForm > 0 && (
+                  <p className="text-[10px] text-slate-500 font-bold">
+                    ISS não descontado: {formatCurrency(issNaoDescontadoForm)}
+                  </p>
+                )}
               </div>
               <div className="space-y-1.5 sm:col-span-2">
                 <label className="block text-xs font-bold text-slate-750">Valor Líquido</label>
@@ -1269,14 +1317,17 @@ function ModalLancamento({ aberto, comprovante, onFechar, onSalvo, mostrarToast 
                   className="w-full px-3.5 py-2 border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-primary-500/20 focus:border-primary-500 text-sm font-semibold font-bold text-primary-700 bg-primary-50/20"
                 />
                 <p className="text-[10px] text-slate-400 font-semibold">
-                  Informe o Valor Líquido da nota. Outros/IBS/CBS = Total - INSS - ISS - Líquido (mínimo 0).
+                  Informe o Valor Líquido da nota.{' '}
+                  {pessoaFisicaForm
+                    ? 'PF: Outros/IBS/CBS = Total - INSS - Líquido (ISS não entra).'
+                    : 'Outros/IBS/CBS = Total - INSS - ISS - Líquido (mínimo 0).'}
                 </p>
                 <p className="text-[10px] text-slate-500 font-bold">
-                  Outros/IBS/CBS: {formatCurrency(outrosIbsCbsForm)}
+                  Outros/IBS/CBS calculado: {formatCurrency(outrosIbsCbsForm)}
                 </p>
-                {impostoNaoDescontadoForm && (
+                {Math.abs(divergenciaForm) > 0.005 && (
                   <p className="text-[10px] font-bold text-amber-600">
-                    ISS não descontado neste lançamento.
+                    Divergência: {formatCurrency(divergenciaForm)} — Total - INSS - ISS descontado - Outros ≠ Líquido.
                   </p>
                 )}
               </div>

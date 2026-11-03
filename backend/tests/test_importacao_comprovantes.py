@@ -8,7 +8,7 @@ import hashlib
 import io
 
 import pytest
-from openpyxl import Workbook
+from openpyxl import Workbook, load_workbook
 
 from routers.comprovantes import _calcular_outros_ibs_cbs
 
@@ -486,6 +486,59 @@ def test_calcular_outros_ibs_cbs():
         )
         == 0.0
     )
+    # Pessoa física (CPF): ISS destacado não é descontado.
+    assert (
+        _calcular_outros_ibs_cbs(
+            {
+                "cnpj": "123.456.789-00",
+                "valor_total": 1000.0,
+                "valor_inss": 0.0,
+                "valor_iss": 50.0,
+                "valor_liquido": 1000.0,
+            }
+        )
+        == 0.0
+    )
+    # Pessoa física com desconto real além do ISS.
+    assert (
+        _calcular_outros_ibs_cbs(
+            {
+                "cnpj": "123.456.789-00",
+                "valor_total": 1000.0,
+                "valor_inss": 0.0,
+                "valor_iss": 50.0,
+                "valor_liquido": 900.0,
+            }
+        )
+        == 100.0
+    )
+
+
+def test_exportar_nota_fiscal_pf_nao_desconta_iss(comprovante_client, db_fake):
+    """A planilha exportada usa a mesma regra da tela: PF não desconta ISS."""
+    db_fake._dados["comprovantes"] = [
+        {
+            "id": 1,
+            "tipo_documento": "Nota Fiscal",
+            "nome": "Pessoa Física",
+            "cnpj": "123.456.789-00",
+            "data_emissao": "2026-10-01",
+            "data_registro": "2026-10-01T10:00:00Z",
+            "valor_total": 1000.0,
+            "valor_inss": 0.0,
+            "valor_iss": 50.0,
+            "valor_liquido": 1000.0,
+        }
+    ]
+
+    resp = comprovante_client.get("/api/comprovantes/exportar?tipo_documento=Nota%20Fiscal")
+    assert resp.status_code == 200, resp.text
+
+    wb = load_workbook(io.BytesIO(resp.content))
+    ws = wb.active
+    cabecalhos = [celula.value for celula in ws[1]]
+    coluna = cabecalhos.index("Outros/IBS/CBS") + 1
+    assert ws.cell(row=2, column=coluna).value == 0
 
 
 def test_importar_nota_fiscal_preserva_liquido_informado(comprovante_client, db_fake):
