@@ -240,7 +240,7 @@ function Ferias({ fetchAlerts, fetchNotifications, usuarioAtual }) {
             </h3>
           </div>
 
-          <form onSubmit={handleAddVacation} className="space-y-4">
+          <form onSubmit={handleAddVacation} className="space-y-4" autoComplete="off">
             
             {/* Nome Colaborador */}
             <div>
@@ -248,20 +248,30 @@ function Ferias({ fetchAlerts, fetchNotifications, usuarioAtual }) {
               <div className="relative">
                 <input
                   type="text"
-                  name="nome"
                   value={formData.nome}
                   onChange={(e) => {
-                    handleInputChange(e);
+                    setFormData(prev => ({ ...prev, nome: e.target.value }));
                     setSugestoesAbertas(true);
                   }}
                   onFocus={() => setSugestoesAbertas(true)}
                   onBlur={() => setTimeout(() => setSugestoesAbertas(false), 150)}
                   required
+                  autoComplete="off"
+                  spellCheck={false}
+                  autoCorrect="off"
+                  role="combobox"
+                  aria-autocomplete="list"
+                  aria-expanded={sugestoesAbertas && formData.nome.trim() !== '' && sugestoes.length > 0}
+                  aria-controls="sugestoes-colaborador"
                   placeholder="Ex: João da Silva"
                   className="w-full px-3.5 py-2 border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-primary-500/20 focus:border-primary-500 text-sm"
                 />
                 {sugestoesAbertas && formData.nome.trim() !== '' && sugestoes.length > 0 && (
-                  <div className="absolute z-20 mt-1 w-full bg-white border border-slate-200 rounded-xl shadow-lg max-h-52 overflow-y-auto">
+                  <div
+                    id="sugestoes-colaborador"
+                    role="listbox"
+                    className="absolute z-20 mt-1 w-full bg-white border border-slate-200 rounded-xl shadow-lg max-h-52 overflow-y-auto"
+                  >
                     {sugestoes.map((f) => (
                       <button
                         key={f.id}
