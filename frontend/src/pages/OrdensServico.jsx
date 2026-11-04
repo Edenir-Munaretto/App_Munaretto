@@ -6206,6 +6206,19 @@ function PainelCadastros({ equipes, produtos, recarregar, mostrarToast }) {
 }
 
 // ---------------------------------------------------------------------------
+// Dados da obra do O.S preenchidos a partir de uma obra adicional do cadastro
+// do cliente. Campos vazios da obra mantêm os dados do cliente (mesma
+// convenção do Gerador de Documentos e do Controle de Recebimentos).
+// ---------------------------------------------------------------------------
+export function dadosObraClienteParaOS(obra, cliente) {
+  return {
+    nome: obra?.nota_ps || obra?.nome || cliente?.nota_ps || '',
+    cidade: obra?.cidade || cliente?.cidade || '',
+    endereco: obra?.endereco || cliente?.endereco || '',
+  };
+}
+
+// ---------------------------------------------------------------------------
 // Cadastro de Obra em MODAL (padrão dos demais módulos): abre sobre a lista,
 // carrega os clientes ao abrir (autocomplete) e vincula automaticamente o
 // cliente ao digitar a Nota PS (preenche cidade/endereço do cadastro).
@@ -6224,6 +6237,8 @@ function ModalObraCadastro({ edicao, recarregar, mostrarToast, onFechar }) {
   const [obraCelesc, setObraCelesc] = useState(!!(edicao && edicao.cliente_celesc && !edicao.cliente_id));
   const [listaClientes, setListaClientes] = useState([]);
   const [clienteAuto, setClienteAuto] = useState(null); // cliente encontrado pela Nota PS
+  const [obrasCliente, setObrasCliente] = useState([]);
+  const [obraClienteSelecionadaId, setObraClienteSelecionadaId] = useState('');
   const [salvando, setSalvando] = useState(false);
 
   useEffect(() => {
@@ -6233,9 +6248,39 @@ function ModalObraCadastro({ edicao, recarregar, mostrarToast, onFechar }) {
       .catch(() => setListaClientes([]));
   }, []);
 
+  // Obras adicionais do cliente (módulo Clientes). A seleção aparece só na
+  // criação: na edição os dados da obra já estão definidos.
+  useEffect(() => {
+    if (edicao || obraCelesc || !novaObra.cliente_id) {
+      setObrasCliente([]);
+      setObraClienteSelecionadaId('');
+      return;
+    }
+    let ativo = true;
+    // Limpa a lista anterior para não exibir obras de outro cliente enquanto
+    // a busca do cliente recém-selecionado ainda está em andamento.
+    setObrasCliente([]);
+    setObraClienteSelecionadaId('');
+    apiFetch(`${API_URL}/clientes/${novaObra.cliente_id}/obras`, { retry: 1 })
+      .then(res => (res.ok ? res.json() : []))
+      .then(lista => {
+        if (ativo) setObrasCliente(Array.isArray(lista) ? lista : []);
+      })
+      .catch(() => {
+        if (ativo) setObrasCliente([]);
+      });
+    return () => { ativo = false; };
+  }, [edicao, obraCelesc, novaObra.cliente_id]);
+
   // Autopreenchimento por Nota PS (vale só na criação com "Cliente do cadastro").
   useEffect(() => {
     if (obraCelesc || edicao) {
+      setClienteAuto(null);
+      return;
+    }
+    // Com uma obra adicional selecionada, o cliente e os campos já estão
+    // definidos; não tenta re-vincular pelo texto da Nota PS.
+    if (obraClienteSelecionadaId) {
       setClienteAuto(null);
       return;
     }
@@ -6261,7 +6306,27 @@ function ModalObraCadastro({ edicao, recarregar, mostrarToast, onFechar }) {
       }
     }, 400);
     return () => clearTimeout(timer);
-  }, [novaObra.nome, listaClientes, obraCelesc, edicao]);
+  }, [novaObra.nome, listaClientes, obraCelesc, edicao, obraClienteSelecionadaId]);
+
+  // Ao escolher uma obra adicional, preenche Nota PS, cidade e endereço.
+  // A opção vazia volta aos dados principais do cadastro do cliente.
+  const selecionarObraCliente = (obraId) => {
+    setObraClienteSelecionadaId(obraId);
+    const cliente = listaClientes.find(c => c.id === Number(novaObra.cliente_id)) || null;
+    if (!obraId) {
+      setNovaObra(prev => ({
+        ...prev,
+        nome: cliente?.nota_ps || prev.nome || '',
+        cidade: cliente?.cidade || '',
+        endereco: cliente?.endereco || '',
+      }));
+      return;
+    }
+    const obra = obrasCliente.find(o => String(o.id) === String(obraId));
+    if (obra) {
+      setNovaObra(prev => ({ ...prev, ...dadosObraClienteParaOS(obra, cliente) }));
+    }
+  };
 
   const salvar = async () => {
     if (!novaObra.nome) { mostrarToast('Informe a Nota PS.', 'error'); return; }
@@ -6338,7 +6403,7 @@ function ModalObraCadastro({ edicao, recarregar, mostrarToast, onFechar }) {
                 Cliente vinculado automaticamente: {clienteAuto.nome}
               </p>
             )}
-            {!obraCelesc && !clienteAuto && !edicao && (novaObra.nome || '').trim().length >= 3 && (
+            {!obraCelesc && !clienteAuto && !obraClienteSelecionadaId && !edicao && (novaObra.nome || '').trim().length >= 3 && (
               <p className="text-[10px] font-semibold text-slate-400 mt-1">
                 Nenhum cliente com esta Nota PS — selecione manualmente abaixo.
               </p>
@@ -6370,6 +6435,47 @@ function ModalObraCadastro({ edicao, recarregar, mostrarToast, onFechar }) {
               onChange={e => setNovaObra({ ...novaObra, cliente_celesc: e.target.value })}
               placeholder="Ex.: Celesc — Regional X" />
           )}
+
+          {!edicao && !obraCelesc && obrasCliente.length > 0 && (
+            <div className="rounded-2xl border-2 border-primary-200 bg-gradient-to-br from-primary-50 via-white to-amber-50 p-4 shadow-sm">
+              <div className="flex items-start gap-3">
+                <div className="p-2.5 rounded-xl bg-primary-600 text-white shadow-md shadow-primary-900/20 shrink-0">
+                  <Building size={18} />
+                </div>
+                <div className="flex-1 min-w-0 space-y-2">
+                  <div className="flex flex-wrap items-center justify-between gap-2">
+                    <div>
+                      <p className="text-xs font-extrabold text-primary-900 uppercase tracking-wider">
+                        Este cliente possui mais de uma obra
+                      </p>
+                      <p className="text-[11px] text-slate-600">
+                        Selecione a obra desejada para preencher a Nota PS, a cidade e o endereço.
+                      </p>
+                    </div>
+                    <span className="px-2.5 py-1 rounded-full bg-white border border-primary-200 text-[10px] font-bold text-primary-700 whitespace-nowrap">
+                      {obrasCliente.length + 1} opção(ões)
+                    </span>
+                  </div>
+                  <select
+                    value={obraClienteSelecionadaId}
+                    onChange={(e) => selecionarObraCliente(e.target.value)}
+                    className="w-full px-3.5 py-2.5 border-2 border-primary-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-primary-500/20 focus:border-primary-500 text-sm font-semibold bg-white"
+                  >
+                    <option value="">Obra principal (dados do cadastro)</option>
+                    {obrasCliente.map((obra) => (
+                      <option key={obra.id} value={obra.id}>
+                        {obra.nome}{obra.nota_ps ? ` — Nota PS ${obra.nota_ps}` : ''}
+                      </option>
+                    ))}
+                  </select>
+                  <p className="text-[10px] text-slate-400">
+                    Os campos podem ser ajustados manualmente depois da seleção.
+                  </p>
+                </div>
+              </div>
+            </div>
+          )}
+
           <CampoTexto label="Cidade" value={novaObra.cidade} onChange={e => setNovaObra({ ...novaObra, cidade: e.target.value })} />
           <CampoTexto label="Endereço" value={novaObra.endereco} onChange={e => setNovaObra({ ...novaObra, endereco: e.target.value })} />
         </div>

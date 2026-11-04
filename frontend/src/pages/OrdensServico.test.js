@@ -2,7 +2,8 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import {
-  LIMITE_SUGESTOES_SERVICO, enderecoOS, mensagemChecklistInicio, situacaoExecucao, sugestoesServico,
+  LIMITE_SUGESTOES_SERVICO, dadosObraClienteParaOS, enderecoOS, mensagemChecklistInicio,
+  situacaoExecucao, sugestoesServico,
 } from './OrdensServico';
 
 const os = (over = {}) => ({ status: 'aberta', prazo_entrega: '2026-09-23', ...over });
@@ -95,6 +96,30 @@ describe('enderecoOS', () => {
   it('retorna vazio sem obra e sem campos da O.S', () => {
     expect(enderecoOS({})).toBe('');
     expect(enderecoOS({ obras: { endereco: null, cidade: null } })).toBe('');
+  });
+});
+
+describe('dadosObraClienteParaOS', () => {
+  it('usa os dados da obra adicional quando preenchidos', () => {
+    expect(dadosObraClienteParaOS(
+      { nome: 'Obra Secundária', nota_ps: 'PS-002', cidade: 'Joaçaba', endereco: 'Rua B, 20' },
+      { nota_ps: 'PS-001', cidade: 'Florianópolis', endereco: 'Rua A, 10' },
+    )).toEqual({ nome: 'PS-002', cidade: 'Joaçaba', endereco: 'Rua B, 20' });
+  });
+
+  it('mantém os dados do cliente quando a obra está vazia', () => {
+    expect(dadosObraClienteParaOS(
+      { nome: 'Obra Secundária', nota_ps: null, cidade: '', endereco: null },
+      { nota_ps: 'PS-001', cidade: 'Florianópolis', endereco: 'Rua A, 10' },
+    )).toEqual({ nome: 'Obra Secundária', cidade: 'Florianópolis', endereco: 'Rua A, 10' });
+  });
+
+  it('usa o nome da obra quando não há Nota PS nem dados do cliente', () => {
+    expect(dadosObraClienteParaOS({ nome: 'Obra Secundária' }, null)).toEqual({
+      nome: 'Obra Secundária',
+      cidade: '',
+      endereco: '',
+    });
   });
 });
 

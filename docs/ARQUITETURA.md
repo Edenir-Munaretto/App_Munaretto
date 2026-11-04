@@ -113,7 +113,7 @@ render.yaml          Blueprint do backend (Docker) no Render
 - Fonte da verdade: [`backend/schema.sql`](../backend/schema.sql) — cria tabelas, índices, gatilhos, RLS e é **idempotente**; rode novamente em todo deploy que mexer no schema.
 - O RLS habilita acesso apenas com a chave `service_role` (usada só pelo backend). A chave `anon` **não funciona**.
 - Convenções: `id` serial/bigint; datas em timestamptz; status como texto controlado no backend (máquinas de estado); PII fora do git.
-- **Obras adicionais do cliente:** `obras_cliente` é uma tabela isolada do módulo O.S (que continua usando apenas `obras`). A primeira obra fica nos campos do cadastro do cliente; as demais ficam em `obras_cliente` e podem ser escolhidas no Gerador de Documentos.
+- **Obras adicionais do cliente:** `obras_cliente` é uma tabela isolada do módulo O.S (que continua usando apenas `obras`). A primeira obra fica nos campos do cadastro do cliente; as demais ficam em `obras_cliente` e podem ser escolhidas no Gerador de Documentos, no Controle de Recebimentos e no cadastro de obras do Controle de O.S (para preencher Nota PS, cidade e endereço).
 
 ## 8. Arquivos e geração de documentos
 
