@@ -100,6 +100,28 @@ def test_resumo_conta_status():
     assert _resumo(funcionarios) == (4, 2, 1, 1)
 
 
+def test_relatorio_resumo_em_tres_colunas(client, db_fake):
+    _preparar_admin(client, db_fake)
+    _semear_funcionarios(db_fake)
+
+    resp = _relatorio(client)
+    assert resp.status_code == 200, resp.text
+    pagina = pymupdf.open(stream=resp.content, filetype="pdf")[0]
+    palavras = pagina.get_text("words")
+
+    def y_da_palavra(palavra):
+        areas = [item for item in palavras if item[4] == palavra]
+        assert areas, f"Palavra não encontrada no PDF: {palavra}"
+        return areas[0][1]
+
+    primeira_linha = [y_da_palavra(palavra) for palavra in ("FILTRO", "BUSCA", "TOTAL")]
+    segunda_linha = [y_da_palavra(palavra) for palavra in ("ATIVOS", "INATIVOS", "DESLIGADOS")]
+
+    assert max(primeira_linha) - min(primeira_linha) <= 1.5
+    assert max(segunda_linha) - min(segunda_linha) <= 1.5
+    assert min(segunda_linha) > max(primeira_linha)
+
+
 def test_relatorio_ativos_por_padrao_exclui_inativos_e_desligados(client, db_fake):
     _preparar_admin(client, db_fake)
     _semear_funcionarios(db_fake)
@@ -116,7 +138,7 @@ def test_relatorio_ativos_por_padrao_exclui_inativos_e_desligados(client, db_fak
     assert "Bruno Inativo" not in texto
     assert "Carla Desligada" not in texto
     assert "Excluído" not in texto
-    assert "Filtro aplicado" in texto
+    assert "FILTRO APLICADO" in texto
     assert "Ativos" in texto
 
 
