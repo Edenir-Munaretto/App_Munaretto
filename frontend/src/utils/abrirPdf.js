@@ -9,7 +9,7 @@ export async function abrirPdfAutenticado(caminho, mostrarToast) {
     if (!res.ok) {
       janela?.close();
       mostrarToast(erroDaResposta(await res.json().catch(() => null), 'Erro ao gerar o PDF.'), 'error');
-      return;
+      return false;
     }
     const blob = await res.blob();
     const url = window.URL.createObjectURL(blob);
@@ -17,8 +17,10 @@ export async function abrirPdfAutenticado(caminho, mostrarToast) {
     // Libera a blob URL depois de a aba nova carregar (revogar antes pode
     // cancelar a leitura do PDF).
     setTimeout(() => window.URL.revokeObjectURL(url), 120000);
+    return true;
   } catch {
     janela?.close();
     mostrarToast('Erro de conexão ao gerar o PDF.', 'error');
+    return false;
   }
 }

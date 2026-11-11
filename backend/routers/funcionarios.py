@@ -1,7 +1,9 @@
 import logging
 from datetime import date
+from typing import Literal
 
 from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi.responses import FileResponse
 from pydantic import BaseModel, Field, field_validator
 
 from auth import UsuarioAutenticado, require_qualquer_permisao
@@ -140,6 +142,67 @@ def _funcionario_ou_404(db, funcionario_id: int) -> dict:
     return response.data[0]
 
 
+def _consultar_funcionarios(
+    db,
+    busca: str | None = None,
+    status: str | None = "ativos",
+    limit: int | None = None,
+    offset: int = 0,
+) -> list[dict]:
+    """Consulta a lista de funcionários com os filtros usados pela tela e pelo PDF."""
+
+    def base():
+        query = db.table("funcionarios").select("*").eq("excluido", False)
+        if status == "inativos":
+            query = query.eq("ativo", False).eq("desligado", False)
+        elif status == "desligados":
+            query = query.eq("ativo", False).eq("desligado", True)
+        elif status != "todos":
+            query = query.eq("ativo", True)
+        return query
+
+    if busca:
+        # Busca segura por coluna (parametrizada); sem interpolação no filtro do PostgREST
+        consolidado = {}
+        for coluna in ("nome", "cpf"):
+            resposta = base().ilike(coluna, f"%{busca}%").execute()
+            for linha in resposta.data:
+                consolidado[linha["id"]] = linha
+        dados = list(consolidado.values())
+    else:
+        query = base().order("nome")
+        if limit is not None:
+            query = query.range(offset, offset + limit - 1)
+        dados = query.execute().data
+
+    dados.sort(key=lambda x: str(x.get("nome", "")).lower())
+    # Quando há busca, aplica paginação em memória (busca já consolidou tudo)
+    if busca and limit is not None:
+        dados = dados[offset : offset + limit]
+    return dados
+
+
+def _carregar_cargos(db, funcionarios: list[dict]) -> dict[int, str]:
+    """Mapeia os IDs de cargo usados no relatório para os nomes cadastrados."""
+    ids = sorted(
+        {
+            cargo_id
+            for funcionario in funcionarios
+            for cargo_id in (funcionario.get("cargo_id"), funcionario.get("cargo_id_2"))
+            if cargo_id
+        }
+    )
+    if not ids:
+        return {}
+
+    try:
+        dados = db.table("cargos").select("id, nome").in_("id", ids).execute().data
+        return {cargo["id"]: cargo.get("nome") or f"Cargo {cargo['id']}" for cargo in dados}
+    except Exception:
+        logger.exception("Erro ao carregar cargos do relatório de funcionários")
+        return {}
+
+
 def _apontamentos_abertos(db, funcionario_id: int) -> list[dict]:
     response = (
         db.table("os_apontamentos")
@@ -239,6 +302,40 @@ def estatisticas_funcionarios(db=Depends(get_supabase)):
         raise HTTPException(status_code=500, detail="Erro ao buscar estatísticas de funcionários") from None
 
 
+@router.get("/relatorio")
+def relatorio_funcionarios(
+    status: Literal["ativos", "inativos", "desligados", "todos"] = Query(
+        "ativos",
+        description="Filtro de status: ativos, inativos, desligados ou todos",
+    ),
+    busca: str | None = Query(None, description="Termo de busca (nome ou CPF)"),
+    db=Depends(get_supabase),
+):
+    """Gera o PDF do relatório de funcionários para o filtro selecionado."""
+    try:
+        funcionarios = _consultar_funcionarios(db, busca=busca, status=status)
+        cargos = _carregar_cargos(db, funcionarios)
+
+        from utils.pdf_funcionarios import gerar_pdf_funcionarios
+
+        caminho = gerar_pdf_funcionarios(
+            funcionarios,
+            status=status,
+            busca=busca,
+            cargos=cargos,
+        )
+        return FileResponse(
+            caminho,
+            media_type="application/pdf",
+            filename=f"funcionarios_{status}.pdf",
+        )
+    except HTTPException:
+        raise
+    except Exception:
+        logger.exception("Erro ao gerar relatório de funcionários")
+        raise HTTPException(status_code=500, detail="Erro ao gerar relatório de funcionários") from None
+
+
 @router.get("/", response_model=list[FuncionarioResponse])
 def listar_funcionarios(
     busca: str | None = Query(None, description="Termo de busca (nome ou CPF)"),
@@ -251,37 +348,8 @@ def listar_funcionarios(
     db=Depends(get_supabase),
 ):
     """Lista funcionários filtrados por status (exclui os excluídos). Filtra por nome ou CPF se informado."""
-
-    def base():
-        query = db.table("funcionarios").select("*").eq("excluido", False)
-        if status == "inativos":
-            query = query.eq("ativo", False).eq("desligado", False)
-        elif status == "desligados":
-            query = query.eq("ativo", False).eq("desligado", True)
-        elif status != "todos":
-            query = query.eq("ativo", True)
-        return query
-
     try:
-        if busca:
-            # Busca segura por coluna (parametrizada); sem interpolação no filtro do PostgREST
-            consolidado = {}
-            for coluna in ("nome", "cpf"):
-                resposta = base().ilike(coluna, f"%{busca}%").execute()
-                for linha in resposta.data:
-                    consolidado[linha["id"]] = linha
-            dados = list(consolidado.values())
-        else:
-            query = base().order("nome")
-            if limit is not None:
-                query = query.range(offset, offset + limit - 1)
-            dados = query.execute().data
-
-        dados.sort(key=lambda x: str(x.get("nome", "")).lower())
-        # Quando há busca, aplica paginação em memória (busca já consolidou tudo)
-        if busca and limit is not None:
-            dados = dados[offset : offset + limit]
-        return dados
+        return _consultar_funcionarios(db, busca=busca, status=status, limit=limit, offset=offset or 0)
     except Exception:
         logger.exception("Erro ao buscar funcionários")
         raise HTTPException(status_code=500, detail="Erro ao buscar funcionários") from None

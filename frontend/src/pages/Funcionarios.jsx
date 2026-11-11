@@ -1,9 +1,10 @@
 import React, { useState, useEffect } from 'react';
-import { Search, Plus, Edit2, X, Check, AlertTriangle, Contact, Users, UserCheck, UserX, Power, RotateCcw, LogOut, CalendarDays } from 'lucide-react';
+import { Search, Plus, Edit2, X, Check, AlertTriangle, Contact, Users, UserCheck, UserX, Power, RotateCcw, LogOut, CalendarDays, Printer } from 'lucide-react';
 import { API_URL, apiFetch, erroDaResposta } from '../api';
 import ModalConfirmacao from '../components/ModalConfirmacao';
 import ErroCarregamento from '../components/ErroCarregamento';
 import { useFetchState } from '../hooks/useFetchState';
+import { abrirPdfAutenticado } from '../utils/abrirPdf';
 
 const MOTIVOS_DESLIGAMENTO = [
   'Pedido de demissão',
@@ -36,6 +37,12 @@ function Funcionarios({ usuarioAtual }) {
   const [loading, setLoading] = useState(true);
   const lista = useFetchState();
   const [toast, setToast] = useState(null);
+
+  // Relatório
+  const [showRelatorioModal, setShowRelatorioModal] = useState(false);
+  const [relatorioFiltro, setRelatorioFiltro] = useState('ativos');
+  const [relatorioBusca, setRelatorioBusca] = useState('');
+  const [gerandoRelatorio, setGerandoRelatorio] = useState(false);
 
   // Modal State
   const [showModal, setShowModal] = useState(false);
@@ -115,6 +122,26 @@ function Funcionarios({ usuarioAtual }) {
       lista.falhar('Erro de conexão ao buscar funcionários.');
     } finally {
       setLoading(false);
+    }
+  };
+
+  const abrirModalRelatorio = () => {
+    setRelatorioFiltro(filtroStatus);
+    setRelatorioBusca(busca);
+    setShowRelatorioModal(true);
+    fetchStats();
+  };
+
+  const gerarRelatorio = async () => {
+    setGerandoRelatorio(true);
+    try {
+      const params = new URLSearchParams({ status: relatorioFiltro });
+      const termo = relatorioBusca.trim();
+      if (termo) params.set('busca', termo);
+      const gerado = await abrirPdfAutenticado(`/funcionarios/relatorio?${params.toString()}`, showToast);
+      if (gerado) setShowRelatorioModal(false);
+    } finally {
+      setGerandoRelatorio(false);
     }
   };
 
@@ -378,6 +405,15 @@ function Funcionarios({ usuarioAtual }) {
               );
             })}
           </div>
+
+          <button
+            onClick={abrirModalRelatorio}
+            className="flex items-center justify-center gap-2 px-4 py-2.5 bg-white border border-slate-200 text-slate-700 rounded-xl font-semibold text-sm hover:bg-slate-50 transition-all cursor-pointer"
+            title="Gerar relatório em PDF"
+          >
+            <Printer size={18} />
+            Imprimir Relatório
+          </button>
 
           <button
             onClick={openAddModal}
@@ -873,6 +909,104 @@ function Funcionarios({ usuarioAtual }) {
                 </button>
               </div>
             </form>
+          </div>
+        </div>
+      )}
+
+      {showRelatorioModal && (
+        <div className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-2xl shadow-2xl max-w-lg w-full overflow-hidden animate-in fade-in zoom-in duration-200 max-h-[92vh] flex flex-col">
+            <div className="bg-slate-900 text-white px-3 py-3 md:px-6 md:py-4 flex items-center justify-between shrink-0">
+              <h3 className="font-bold text-lg flex items-center gap-2">
+                <Printer className="text-primary-400" size={20} />
+                Imprimir Relatório de Funcionários
+              </h3>
+              <button
+                onClick={() => setShowRelatorioModal(false)}
+                className="text-slate-400 hover:text-white text-xl font-bold cursor-pointer"
+              >
+                <X size={20} />
+              </button>
+            </div>
+
+            <div className="p-6 space-y-4 overflow-y-auto">
+              <div>
+                <label className="block text-xs font-bold text-slate-700 mb-1.5">Funcionários incluídos</label>
+                <div className="grid grid-cols-2 gap-2">
+                  {filtros.map((opcao) => {
+                    const Icon = opcao.icon;
+                    const contagem = opcao.key === 'todos' ? stats.total : stats[opcao.key];
+                    const selecionado = relatorioFiltro === opcao.key;
+                    return (
+                      <button
+                        key={opcao.key}
+                        type="button"
+                        onClick={() => setRelatorioFiltro(opcao.key)}
+                        className={`flex items-center gap-2 rounded-xl border px-3 py-2.5 text-left transition-all cursor-pointer ${
+                          selecionado
+                            ? 'border-primary-500 bg-primary-50 text-primary-800'
+                            : 'border-slate-200 bg-white text-slate-600 hover:border-primary-300'
+                        }`}
+                      >
+                        <Icon size={18} className="shrink-0" />
+                        <span className="min-w-0 flex-1">
+                          <span className="block text-xs font-bold">{opcao.label}</span>
+                          <span className="block text-[10px] font-semibold text-slate-500">
+                            {contagem} funcionário(s)
+                          </span>
+                        </span>
+                        {selecionado && <Check size={16} className="shrink-0" />}
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+
+              <div>
+                <label className="block text-xs font-bold text-slate-700 mb-1.5">Busca (opcional)</label>
+                <div className="relative">
+                  <span className="absolute inset-y-0 left-0 flex items-center pl-3 text-slate-400">
+                    <Search size={16} />
+                  </span>
+                  <input
+                    type="text"
+                    value={relatorioBusca}
+                    onChange={(e) => setRelatorioBusca(e.target.value)}
+                    placeholder="Nome ou CPF..."
+                    className="w-full pl-9 pr-3 py-2 border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-primary-500/20 focus:border-primary-500 text-sm"
+                  />
+                </div>
+                <p className="text-[10px] text-slate-400 mt-1 font-semibold">
+                  Deixe em branco para incluir todos os funcionários do status selecionado.
+                </p>
+              </div>
+
+              <div className="bg-slate-50 border border-slate-200 rounded-xl p-3 text-xs text-slate-600">
+                <p>
+                  O PDF será gerado com o cabeçalho da empresa, o resumo por status e a lista de
+                  funcionários. Para desligados e todos, inclui data e motivo do desligamento.
+                </p>
+              </div>
+            </div>
+
+            <div className="px-6 py-4 border-t border-slate-100 bg-slate-50 flex justify-end gap-3 shrink-0">
+              <button
+                type="button"
+                onClick={() => setShowRelatorioModal(false)}
+                className="px-4 py-2 border border-slate-200 text-slate-600 rounded-xl text-sm font-semibold hover:bg-slate-100 transition-all cursor-pointer"
+              >
+                Cancelar
+              </button>
+              <button
+                type="button"
+                onClick={gerarRelatorio}
+                disabled={gerandoRelatorio}
+                className="flex items-center gap-2 px-5 py-2 bg-primary-600 text-white rounded-xl text-sm font-semibold hover:bg-primary-700 transition-all shadow-md shadow-primary-900/10 cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed"
+              >
+                <Printer size={16} />
+                {gerandoRelatorio ? 'Gerando PDF...' : 'Gerar PDF'}
+              </button>
+            </div>
           </div>
         </div>
       )}
