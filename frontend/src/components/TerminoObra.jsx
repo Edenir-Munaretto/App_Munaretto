@@ -113,6 +113,7 @@ export default function TerminoObra({ obra, onFechar, mostrarToast }) {
             ...dados.termo,
             data_conclusao: isoParaBr(dados.termo.data_conclusao),
             data_emissao: isoParaBr(dados.termo.data_emissao),
+            observacoes: dados.termo.observacoes || '',
             instalado: { ...vazio(), ...(dados.termo.instalado || {}) },
             saiu: { ...vazio(), ...(dados.termo.saiu || {}) },
           });
@@ -128,6 +129,7 @@ export default function TerminoObra({ obra, onFechar, mostrarToast }) {
             encarregado: '',
             cidade_emissao: obra.cidade || 'Concórdia',
             data_emissao: hoje,
+            observacoes: '',
             instalado: vazio(),
             saiu: vazio(),
           });
@@ -258,6 +260,25 @@ export default function TerminoObra({ obra, onFechar, mostrarToast }) {
                     <Campo key={chave} rotulo={rotulo} valor={form.saiu[chave]} onChange={v => setSaiu(chave, v)} />
                   ))}
                 </div>
+              </Grupo>
+
+              <Grupo titulo="Observações">
+                <label className="block">
+                  <span className="block text-[10px] font-extrabold uppercase tracking-wider text-slate-400 mb-1">
+                    Observações da conclusão
+                  </span>
+                  <textarea
+                    value={form.observacoes || ''}
+                    onChange={e => setTop('observacoes', e.target.value)}
+                    rows={4}
+                    maxLength={1000}
+                    placeholder="Informações complementares que devem constar na carta de término..."
+                    className="w-full px-3 py-2 border border-slate-200 rounded-xl text-sm focus:outline-none focus:border-primary-500 bg-slate-50 focus:bg-white resize-y"
+                  />
+                  <span className="block text-[10px] font-semibold text-slate-400 mt-1 text-right">
+                    {(form.observacoes || '').length}/1000
+                  </span>
+                </label>
               </Grupo>
 
               <Grupo titulo="Assinatura">

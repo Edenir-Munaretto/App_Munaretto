@@ -540,6 +540,7 @@ TERMINO_PAYLOAD = {
     "encarregado": "TADEU",
     "cidade_emissao": "Concórdia",
     "data_emissao": "2026-08-31",
+    "observacoes": "Obra concluida conforme projeto. Cliente orientado.",
     "instalado": {
         "marca": "SIGMA",
         "numero": "2537261",
@@ -587,6 +588,7 @@ class TestTerminoObra:
         assert resp.status_code == 200, resp.text
         assert resp.json()["obra_id"] == 506
         assert resp.json()["termo"]["consumidor"] == "ARI SANDRIN"
+        assert resp.json()["termo"]["observacoes"] == "Obra concluida conforme projeto. Cliente orientado."
 
         # Sobrescreve (1 término por obra) e preserva os demais campos da obra.
         atual = {**TERMINO_PAYLOAD, "consumidor": "OUTRO CONSUMIDOR"}
@@ -619,6 +621,8 @@ class TestTerminoObra:
         assert "2537261" in texto
         assert "SAIU" in texto
         assert "BALESTRO" in texto
+        assert "OBSERVAÇÕES" in texto
+        assert "Obra concluida conforme projeto." in texto
         assert "Concórdia, 31 de Agosto de 2026." in texto
         assert "MUNARETTO ELETRIFICAÇÕES LTDA" in texto
 
@@ -632,6 +636,33 @@ class TestTerminoObra:
         texto = "\n".join(page.get_text() for page in doc)
         assert "Carta de conclusão de obra." in texto
         assert "TRANSFORMADORES INSTALADOS" in texto
+        assert "OBSERVAÇÕES" in texto
+
+    def test_observacoes_longas_geram_pdf_valido(self, os_gestor_client, db_fake):
+        self._criar_obra_termino(db_fake)
+        payload = {**TERMINO_PAYLOAD, "observacoes": "A" * 1000}
+        resp = os_gestor_client.post("/api/os/obras/506/termino/pdf", json=payload)
+        assert resp.status_code == 200, resp.text
+
+        import pymupdf
+
+        doc = pymupdf.open(stream=resp.content, filetype="pdf")
+        texto = "\n".join(page.get_text() for page in doc)
+        assert "OBSERVAÇÕES" in texto
+        assert "Encarregado." in texto
+
+    def test_observacoes_com_quebras_de_linha_saem_no_pdf(self, os_gestor_client, db_fake):
+        self._criar_obra_termino(db_fake)
+        payload = {**TERMINO_PAYLOAD, "observacoes": "Primeira linha.\nSegunda linha."}
+        resp = os_gestor_client.post("/api/os/obras/506/termino/pdf", json=payload)
+        assert resp.status_code == 200, resp.text
+
+        import pymupdf
+
+        doc = pymupdf.open(stream=resp.content, filetype="pdf")
+        texto = "\n".join(page.get_text() for page in doc)
+        assert "Primeira linha." in texto
+        assert "Segunda linha." in texto
 
     def test_saiu_aceita_mesmos_campos_do_instalado(self, os_gestor_client, db_fake):
         """O bloco 'saiu' tem a MESMA ficha do instalado (11 campos)."""
@@ -684,10 +715,16 @@ class TestTerminoObra:
         assert salvo["instalado"]["tap_1"] == "13,800"
         assert salvo["saiu"]["marca"] == "BALESTRO"
         assert salvo["consumidor"] == "ARI SANDRIN"
+        assert salvo["observacoes"] == "Obra concluida conforme projeto. Cliente orientado."
 
     def test_termino_campo_acima_do_limite_422(self, os_gestor_client, db_fake):
         self._criar_obra_termino(db_fake)
         resp = os_gestor_client.put("/api/os/obras/506/termino", json={"consumidor": "x" * 300})
+        assert resp.status_code == 422
+
+    def test_termino_observacoes_acima_do_limite_422(self, os_gestor_client, db_fake):
+        self._criar_obra_termino(db_fake)
+        resp = os_gestor_client.put("/api/os/obras/506/termino", json={"observacoes": "x" * 1001})
         assert resp.status_code == 422
 
 

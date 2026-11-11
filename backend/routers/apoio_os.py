@@ -179,6 +179,7 @@ class TerminoDados(BaseModel):
     encarregado: str | None = Field(None, max_length=120)
     cidade_emissao: str | None = Field(None, max_length=120)
     data_emissao: str | None = Field(None, max_length=20)
+    observacoes: str | None = Field(None, max_length=1000)
     instalado: TrafoTermino = Field(default_factory=TrafoTermino)
     saiu: TrafoTermino = Field(default_factory=TrafoTermino)
 

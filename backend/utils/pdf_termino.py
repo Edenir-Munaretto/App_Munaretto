@@ -61,30 +61,36 @@ def _data_por_extenso(valor, cidade: str) -> str:
 
 
 def _quebrar(pdf: FPDF, texto: str, largura: float) -> list[str]:
-    """Divide por palavras (usa a fonte ativa de `pdf` para medir)."""
+    """Divide por palavras, preservando as quebras de linha do texto.
+
+    Usa a fonte ativa de `pdf` para medir. Linhas em branco viram parágrafos
+    vazios, mantendo a separação visual digitada no formulário.
+    """
     if not texto:
         return [""]
+
     linhas: list[str] = []
-    atual = ""
-    for palavra in texto.split(" "):
-        if not palavra:
-            continue
-        candidata = f"{atual} {palavra}" if atual else palavra
-        if pdf.get_string_width(candidata) <= largura:
-            atual = candidata
-            continue
+    for paragrafo in str(texto).split("\n"):
+        atual = ""
+        for palavra in paragrafo.split():
+            candidata = f"{atual} {palavra}" if atual else palavra
+            if pdf.get_string_width(candidata) <= largura:
+                atual = candidata
+                continue
+            if atual:
+                linhas.append(atual)
+                atual = ""
+            while palavra and pdf.get_string_width(palavra) > largura:
+                corte = max(1, len(palavra) - 1)
+                while corte > 1 and pdf.get_string_width(palavra[:corte]) > largura:
+                    corte -= 1
+                linhas.append(palavra[:corte])
+                palavra = palavra[corte:]
+            atual = palavra
         if atual:
             linhas.append(atual)
-            atual = ""
-        while palavra and pdf.get_string_width(palavra) > largura:
-            corte = max(1, len(palavra) - 1)
-            while corte > 1 and pdf.get_string_width(palavra[:corte]) > largura:
-                corte -= 1
-            linhas.append(palavra[:corte])
-            palavra = palavra[corte:]
-        atual = palavra
-    if atual:
-        linhas.append(atual)
+        elif not paragrafo.strip():
+            linhas.append("")
     return linhas or [""]
 
 
@@ -148,19 +154,49 @@ def _grade(
     return y + total
 
 
-def gerar_pdf_termino(obra: dict, termo: dict) -> str:
-    """Monta a Carta de Término e retorna o caminho temporário do arquivo.
+def _altura_observacoes(pdf: _CartaTermino, texto) -> float:
+    """Altura da caixa de observações, com mínimo para preenchimento manual."""
+    pdf.set_font("Arial", "", 9)
+    partes = _quebrar(pdf, _latin(texto), 180)
+    return max(20.0, len(partes) * 5.2 + 4)
 
-    `termo` é o JSON salvo na obra (campos de texto opcionais).
+
+def _desenhar_observacoes(pdf: _CartaTermino, y: float, texto) -> float:
+    """Desenha a caixa de observações antes do encarregado e retorna o Y final.
+
+    A caixa é sempre exibida (mesmo vazia) e cresce conforme o texto. Se o
+    bloco + assinatura não couber na página, abre outra com o cabeçalho
+    repetido para não cortar o conteúdo.
     """
-    instalado = termo.get("instalado") or {}
-    saiu = termo.get("saiu") or {}
-    cidade = (termo.get("cidade_emissao") or "").strip() or (obra.get("cidade") or "").strip() or "Concórdia"
+    altura_caixa = _altura_observacoes(pdf, texto)
+    if y + (8.0 + altura_caixa) + 50.0 > pdf.page_break_trigger:
+        pdf.add_page()
+        y = _desenhar_cabecalho(pdf)
 
-    pdf = _CartaTermino()
-    pdf.add_page()
+    pdf.set_xy(12, y)
+    pdf.set_font("Arial", "B", 9)
+    pdf.set_text_color(71, 85, 105)
+    pdf.cell(186, 6, "OBSERVAÇÕES")
 
-    # --- Cabeçalho: logo pequena + logotipo em texto + dados da empresa.
+    y_caixa = y + 8
+    pdf.set_line_width(0.2)
+    pdf.set_draw_color(60, 60, 60)
+    pdf.rect(12, y_caixa, 186, altura_caixa)
+
+    pdf.set_font("Arial", "", 9)
+    pdf.set_text_color(15, 23, 42)
+    partes = _quebrar(pdf, _latin(texto), 180)
+    py = y_caixa + 2
+    for parte in partes:
+        if parte:
+            pdf.set_xy(15, py)
+            pdf.cell(180, 5.2, parte)
+        py += 5.2
+    return y_caixa + altura_caixa
+
+
+def _desenhar_cabecalho(pdf: _CartaTermino) -> float:
+    """Desenha logo, dados da empresa e título; retorna o Y do conteúdo."""
     pdf.set_text_color(15, 23, 42)
     # Altura fixa para a logo; largura proporcional ao PNG (159x105 px).
     altura_logo = 14.0
@@ -209,16 +245,29 @@ def gerar_pdf_termino(obra: dict, termo: dict) -> str:
     pdf.set_draw_color(15, 23, 42)
     pdf.line(12, 27.5, 198, 27.5)
 
-    # --- Título do documento.
     pdf.set_xy(12, 31)
     pdf.set_font("Arial", "B", 13)
     pdf.cell(186, 7, "CELESC DISTRIBUIÇÃO S.A", align="C")
     pdf.set_xy(12, 38.2)
     pdf.set_font("Arial", "B", 11.5)
     pdf.cell(186, 6, "Carta de conclusão de obra.", align="C")
+    return 48
+
+
+def gerar_pdf_termino(obra: dict, termo: dict) -> str:
+    """Monta a Carta de Término e retorna o caminho temporário do arquivo.
+
+    `termo` é o JSON salvo na obra (campos de texto opcionais).
+    """
+    instalado = termo.get("instalado") or {}
+    saiu = termo.get("saiu") or {}
+    cidade = (termo.get("cidade_emissao") or "").strip() or (obra.get("cidade") or "").strip() or "Concórdia"
+
+    pdf = _CartaTermino()
+    pdf.add_page()
+    y = _desenhar_cabecalho(pdf)
 
     # --- Campos do projeto.
-    y = 48
     y = _grade(
         pdf,
         12,
@@ -279,6 +328,9 @@ def gerar_pdf_termino(obra: dict, termo: dict) -> str:
     y_instalado = _grade(pdf, 12, y, largura_ficha, campos_instalado, largura_rotulo=44, altura_linha=7.2)
     y_saiu = _grade(pdf, x_saiu, y, largura_ficha, campos_saiu, largura_rotulo=44, altura_linha=7.2)
     y = max(y_instalado, y_saiu)
+
+    # --- Observações (sempre exibidas, acima da assinatura do encarregado).
+    y = _desenhar_observacoes(pdf, y + 7, termo.get("observacoes"))
 
     # --- Encarregado.
     y += 7
