@@ -408,6 +408,18 @@ function CardOS({ os, onClick, draggableProps = {}, ehGestor = true }) {
       <Camera size={11} />{os.fotos_count}
     </span>
   ) : null;
+  const chipChave = os.chave ? (
+    <span
+      className="px-2.5 py-1 rounded-lg bg-slate-50 border border-slate-200 flex items-center gap-1.5 max-w-full"
+      title={`Chave: ${os.chave}`}
+    >
+      <Key size={14} className="shrink-0 text-slate-400" />
+      <span className="flex flex-col leading-tight min-w-0">
+        <span className="text-[10px] font-bold text-slate-400">Chave</span>
+        <span className="text-sm font-black text-slate-600 truncate font-mono">{os.chave}</span>
+      </span>
+    </span>
+  ) : null;
 
   // Usuário de campo: card enxuto — a equipe é implícita (a O.S já chega
   // atribuída) e a data de execução fica logo abaixo da prioridade. O gestor
@@ -469,6 +481,7 @@ function CardOS({ os, onClick, draggableProps = {}, ehGestor = true }) {
       <div className="flex items-center gap-1.5 mt-2 flex-wrap">
         {chipExecucao}
         {chipEquipe}
+        {chipChave}
         {chipFotos}
       </div>
 
