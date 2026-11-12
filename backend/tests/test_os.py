@@ -2930,11 +2930,16 @@ class TestListagemContadores:
     def test_listar_os_resumo_mantem_campos_da_listagem(self, os_gestor_client, db_fake):
         """`resumo=true` (pacote de campo) preserva busca/cards e contadores."""
         _seed_cenario(db_fake)
-        os_id = _criar_os(os_gestor_client, descricao_escopo="Troca de poste na rua A").json()["id"]
+        os_id = _criar_os(
+            os_gestor_client,
+            descricao_escopo="Troca de poste na rua A",
+            chave="CH-334",
+        ).json()["id"]
         _anexar_foto_via_banco(db_fake, os_id, qtd=1)
 
         resp = os_gestor_client.get("/api/os/?limit=10&resumo=true")
         assert resp.status_code == 200, resp.text
         linha = next(o for o in resp.json() if o["id"] == os_id)
         assert linha["descricao_escopo"] == "Troca de poste na rua A"
+        assert linha["chave"] == "CH-334"
         assert linha["fotos_count"] == 1

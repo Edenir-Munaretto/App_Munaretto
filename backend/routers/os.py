@@ -67,7 +67,7 @@ PRIORIDADES = {"baixa", "media", "alta", "critica"}
 # elétricos, endereço) que só o detalhe completo exibe.
 CAMPOS_RESUMO_OS = (
     "id, codigo, obra_id, equipe_id, status, prioridade, tipo, prazo_entrega, "
-    "retroativa, descricao_escopo, data_abertura, data_fim, data_execucao, "
+    "retroativa, descricao_escopo, chave, data_abertura, data_fim, data_execucao, "
     "created_at, updated_at, "
     "obras(id, nome, cliente_id, cliente_celesc, clientes(nome)), "
     "equipes(id, nome, numero)"

@@ -4,7 +4,7 @@ import {
   Plus, Search, X, Play, Camera, Package, ClipboardList, MapPin,
   AlertTriangle, Check, Clock, CalendarClock, FileDown, LayoutGrid,
   FolderKanban, HardHat, Boxes, Trash2, Image as ImageIcon,
-  Pencil, Building, Printer, ListChecks, RefreshCw, WifiOff, ChevronDown, Archive,
+  Pencil, Building, Printer, ListChecks, RefreshCw, WifiOff, ChevronDown, Archive, Key,
   Upload, FileSpreadsheet, Download, BarChart3, Trophy, ChevronLeft, ChevronRight, Send,
 } from 'lucide-react';
 import { API_URL, apiFetch, erroDaResposta } from '../api';
@@ -420,6 +420,15 @@ function CardOS({ os, onClick, draggableProps = {}, ehGestor = true }) {
             <span className="font-mono text-xs font-bold text-primary-700">{os.codigo}</span>
             <p className="text-sm font-bold text-slate-800 mt-1 truncate">{os.obras?.nome || 'Obra'}</p>
             <p className="text-xs text-slate-400 truncate">{cliente}</p>
+            {os.chave && (
+              <p className="text-xs text-slate-500 mt-1 flex items-center gap-1 min-w-0" title={`Chave: ${os.chave}`}>
+                <Key size={11} className="text-slate-400 shrink-0" />
+                <span className="truncate">
+                  <span className="text-slate-400">Chave </span>
+                  <span className="font-mono font-bold text-slate-700">{os.chave}</span>
+                </span>
+              </p>
+            )}
           </div>
           <div className="shrink-0 flex flex-col items-end gap-1.5">
             <div className="flex items-center justify-end gap-1.5 flex-wrap">
