@@ -4859,8 +4859,15 @@ function OrdensServico({ usuarioAtual }) {
                           <span className="truncate">{enderecoOS(os)}</span>
                         </span>
                       )}
-                      <span className="block text-[10px] text-slate-400 truncate">
-                        Equipe: {os.equipes?.numero ? `Nº ${os.equipes.numero} - ` : ''}{os.equipes?.nome || 'sem equipe'}
+                      <span className="flex items-center gap-1.5 text-[10px] text-slate-400 min-w-0">
+                        <span className="truncate">
+                          Equipe: {os.equipes?.numero ? `Nº ${os.equipes.numero} - ` : ''}{os.equipes?.nome || 'sem equipe'}
+                        </span>
+                        {os.agencia && (
+                          <span className="shrink-0 max-w-[50%] truncate font-semibold text-slate-500" title={`Agência: ${os.agencia}`}>
+                            · Agência: <b className="text-slate-600">{os.agencia}</b>
+                          </span>
+                        )}
                       </span>
                     </span>
                     <span className="flex items-center gap-4 shrink-0 text-[10px] text-slate-400 font-semibold flex-wrap">
