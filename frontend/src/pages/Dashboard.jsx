@@ -1,6 +1,24 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { Users, Palmtree, Stethoscope, ShieldAlert, GraduationCap } from 'lucide-react';
 import { API_URL, apiFetch } from '../api';
+
+function chaveAlerta(alert) {
+  return alert?.mensagem || `${alert?.nome || ''}|${alert?.data_limite || ''}`;
+}
+
+function deduplicarAlertas(listas) {
+  const vistos = new Set();
+  const unicos = [];
+  for (const lista of listas) {
+    for (const alert of lista || []) {
+      const chave = chaveAlerta(alert);
+      if (vistos.has(chave)) continue;
+      vistos.add(chave);
+      unicos.push(alert);
+    }
+  }
+  return unicos;
+}
 
 function Dashboard({ alerts }) {
   const [stats, setStats] = useState({
@@ -49,9 +67,13 @@ function Dashboard({ alerts }) {
     }
   };
 
-  // Mantém compatibilidade com o prop de alertas (App.jsx) misturando
-  // os alertas de férias do resumo agregado.
-  const allAlerts = [...(alerts || []), ...dashboardAlerts];
+  // O prop (App.jsx) e o resumo agregado trazem os mesmos alertas de férias:
+  // deduplica mantendo o prop (mais fresco) e usa o resumo como fallback
+  // para quem tem permissão "dashboard" mas não "ferias".
+  const allAlerts = useMemo(
+    () => deduplicarAlertas([alerts, dashboardAlerts]),
+    [alerts, dashboardAlerts]
+  );
 
   const statCards = [
     {
