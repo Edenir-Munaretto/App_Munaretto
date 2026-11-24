@@ -105,6 +105,56 @@ def test_material_inexistente_retorna_404(materiais_client):
     assert materiais_client.put("/api/materiais/999", json=_payload()).status_code == 404
 
 
+def test_excluir_cliente_remove_todos_os_materiais_do_nome_exato(materiais_client):
+    materiais_client.post("/api/materiais/", json=_payload())
+    materiais_client.post(
+        "/api/materiais/",
+        json=_payload(categoria="poste", quantidade=3, descricao="POSTE CONCRETO DT 11M 300DAN"),
+    )
+    materiais_client.post(
+        "/api/materiais/",
+        json=_payload(
+            cliente_nome="HERMES JOSE BERSAGHI FILHO",
+            categoria="trafo",
+            quantidade=1,
+            descricao="TD 3F 75KVA",
+        ),
+    )
+    materiais_client.post(
+        "/api/materiais/",
+        json=_payload(cliente_nome="AGRO Z LTDA", categoria="cabo", descricao="CABO MULTIPLEX"),
+    )
+
+    resp = materiais_client.delete(
+        "/api/materiais/",
+        params={"cliente_nome": "HERMES JOSE BERSAGHI"},
+    )
+
+    assert resp.status_code == 200, resp.text
+    corpo = resp.json()
+    assert corpo["success"] is True
+    assert corpo["excluidos"] == 2
+
+    restantes = materiais_client.get("/api/materiais/").json()
+    assert [(m["cliente_nome"], m["descricao"]) for m in restantes] == [
+        ("AGRO Z LTDA", "CABO MULTIPLEX"),
+        ("HERMES JOSE BERSAGHI FILHO", "TD 3F 75KVA"),
+    ]
+
+
+def test_excluir_cliente_sem_materiais_retorna_404(materiais_client):
+    resp = materiais_client.delete(
+        "/api/materiais/",
+        params={"cliente_nome": "CLIENTE INEXISTENTE"},
+    )
+    assert resp.status_code == 404
+
+
+def test_excluir_cliente_exige_nome_valido(materiais_client):
+    assert materiais_client.delete("/api/materiais/").status_code == 422
+    assert materiais_client.delete("/api/materiais/", params={"cliente_nome": "   "}).status_code == 400
+
+
 def test_validacoes_de_categoria_quantidade_e_texto(materiais_client):
     assert materiais_client.post("/api/materiais/", json=_payload(categoria="outro")).status_code == 422
     assert materiais_client.post("/api/materiais/", json=_payload(quantidade=0)).status_code == 422
@@ -135,6 +185,9 @@ def test_descricao_longa_multilinha_e_quantidade_decimal(materiais_client):
 def test_sem_permissao_retorna_403(os_gestor_client):
     assert os_gestor_client.get("/api/materiais/").status_code == 403
     assert os_gestor_client.post("/api/materiais/", json=_payload()).status_code == 403
+    assert (
+        os_gestor_client.delete("/api/materiais/", params={"cliente_nome": "HERMES JOSE BERSAGHI"}).status_code == 403
+    )
 
 
 def test_modulo_nao_altera_outras_tabelas(materiais_client, db_fake):
@@ -148,6 +201,8 @@ def test_modulo_nao_altera_outras_tabelas(materiais_client, db_fake):
     criado = materiais_client.get("/api/materiais/").json()[0]
     materiais_client.put(f"/api/materiais/{criado['id']}", json=_payload(quantidade=2))
     materiais_client.delete(f"/api/materiais/{criado['id']}")
+    materiais_client.post("/api/materiais/", json=_payload(cliente_nome="AGRO Z LTDA"))
+    materiais_client.delete("/api/materiais/", params={"cliente_nome": "AGRO Z LTDA"})
 
     depois = {
         tabela: len(linhas)

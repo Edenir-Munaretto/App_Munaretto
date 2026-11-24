@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   AlertTriangle,
   Check,
@@ -72,12 +72,17 @@ function MateriaisPorCliente({ usuarioAtual }) {
   const [toast, setToast] = useState(null);
 
   const [clientesSugeridos, setClientesSugeridos] = useState([]);
+  const [clienteAberto, setClienteAberto] = useState(false);
+  const [clienteIndiceAtivo, setClienteIndiceAtivo] = useState(-1);
+  const sugestoesClienteRefs = useRef({});
   const [showModal, setShowModal] = useState(false);
   const [editingId, setEditingId] = useState(null);
   const [submitting, setSubmitting] = useState(false);
   const [formData, setFormData] = useState(FORM_VAZIO);
   const [excluindo, setExcluindo] = useState(null);
   const [deleting, setDeleting] = useState(false);
+  const [excluindoCliente, setExcluindoCliente] = useState(null);
+  const [deletingCliente, setDeletingCliente] = useState(false);
   const [imprimindo, setImprimindo] = useState(false);
 
   const showToast = (message, type = 'success') => {
@@ -125,9 +130,13 @@ function MateriaisPorCliente({ usuarioAtual }) {
         if (!res.ok) return;
         const dados = await res.json();
         if (cancelado) return;
-        const nomes = [...new Set((dados || []).map((cliente) => cliente.nome).filter(Boolean))]
-          .sort((a, b) => a.localeCompare(b, 'pt-BR'));
-        setClientesSugeridos(nomes);
+        const porNome = new Map();
+        (dados || []).forEach((cliente) => {
+          if (cliente?.nome && !porNome.has(cliente.nome)) porNome.set(cliente.nome, cliente);
+        });
+        setClientesSugeridos(
+          [...porNome.values()].sort((a, b) => a.nome.localeCompare(b.nome, 'pt-BR')),
+        );
       } catch {
         // As sugestões são opcionais; sem elas o campo segue como texto livre.
       }
@@ -137,6 +146,26 @@ function MateriaisPorCliente({ usuarioAtual }) {
       cancelado = true;
     };
   }, [usuarioAtual]);
+
+  const sugestoesClientes = useMemo(() => {
+    const termo = normalizar(formData.cliente_nome).trim();
+    if (!termo) return [];
+    return clientesSugeridos
+      .filter((cliente) => normalizar(cliente.nome).includes(termo))
+      .slice(0, 8);
+  }, [clientesSugeridos, formData.cliente_nome]);
+
+  // Só sugere enquanto o usuário digita; foco em campo vazio não abre a lista.
+  useEffect(() => {
+    setClienteIndiceAtivo(-1);
+  }, [sugestoesClientes]);
+
+  useEffect(() => {
+    if (clienteIndiceAtivo < 0) return;
+    const sugestao = sugestoesClientes[clienteIndiceAtivo];
+    if (!sugestao) return;
+    sugestoesClienteRefs.current[sugestao.nome]?.scrollIntoView({ block: 'nearest' });
+  }, [clienteIndiceAtivo, sugestoesClientes]);
 
   // Impressão pelo navegador: a lista filtrada completa é exibida no bloco
   // `.materiais-impressao` somente durante o @media print.
@@ -175,6 +204,7 @@ function MateriaisPorCliente({ usuarioAtual }) {
       .sort(([a], [b]) => normalizar(a).localeCompare(normalizar(b), 'pt-BR'))
       .map(([cliente, itens]) => ({
         cliente,
+        clienteNome: itens[0]?.cliente_nome || '',
         itens: [...itens].sort((a, b) => {
           const ordemA = ORDEM_CATEGORIAS[a.categoria] ?? 99;
           const ordemB = ORDEM_CATEGORIAS[b.categoria] ?? 99;
@@ -182,6 +212,17 @@ function MateriaisPorCliente({ usuarioAtual }) {
         }),
       }));
   }, [materiaisFiltrados]);
+
+  // Contagem total por cliente (independe da busca/filtro) usada no aviso de
+  // exclusão do grupo: todos os materiais do nome serão removidos.
+  const totalPorCliente = useMemo(() => {
+    const mapa = new Map();
+    materiais.forEach((material) => {
+      const chave = material.cliente_nome || 'Sem cliente';
+      mapa.set(chave, (mapa.get(chave) || 0) + 1);
+    });
+    return mapa;
+  }, [materiais]);
 
   const totais = useMemo(() => {
     const porCategoria = { cabo: 0, poste: 0, trafo: 0 };
@@ -207,6 +248,8 @@ function MateriaisPorCliente({ usuarioAtual }) {
   const abrirNovo = () => {
     setEditingId(null);
     setFormData({ ...FORM_VAZIO });
+    setClienteAberto(false);
+    setClienteIndiceAtivo(-1);
     setShowModal(true);
   };
 
@@ -218,6 +261,8 @@ function MateriaisPorCliente({ usuarioAtual }) {
       quantidade: quantidadeParaInput(material.quantidade),
       descricao: material.descricao || '',
     });
+    setClienteAberto(false);
+    setClienteIndiceAtivo(-1);
     setShowModal(true);
   };
 
@@ -228,6 +273,43 @@ function MateriaisPorCliente({ usuarioAtual }) {
   const atualizarCampo = (event) => {
     const { name, value } = event.target;
     setFormData((atual) => ({ ...atual, [name]: value }));
+  };
+
+  const selecionarClienteSugerido = (cliente) => {
+    setFormData((atual) => ({ ...atual, cliente_nome: cliente.nome }));
+    setClienteAberto(false);
+    setClienteIndiceAtivo(-1);
+  };
+
+  const atualizarCliente = (event) => {
+    const { value } = event.target;
+    setFormData((atual) => ({ ...atual, cliente_nome: value }));
+    setClienteAberto(true);
+    setClienteIndiceAtivo(-1);
+  };
+
+  const aoTeclarCliente = (event) => {
+    const tecla = event.key || event.code;
+    const baixo = tecla === 'ArrowDown' || tecla === 'Down';
+    const cima = tecla === 'ArrowUp' || tecla === 'Up';
+
+    if (baixo || cima) {
+      event.preventDefault();
+      if (sugestoesClientes.length === 0) return;
+      setClienteAberto(true);
+      setClienteIndiceAtivo((anterior) => {
+        if (baixo) return (anterior + 1) % sugestoesClientes.length;
+        return anterior <= 0 ? sugestoesClientes.length - 1 : anterior - 1;
+      });
+    } else if (tecla === 'Enter') {
+      if (clienteAberto && clienteIndiceAtivo >= 0 && sugestoesClientes[clienteIndiceAtivo]) {
+        event.preventDefault();
+        selecionarClienteSugerido(sugestoesClientes[clienteIndiceAtivo]);
+      }
+    } else if (tecla === 'Escape' || tecla === 'Esc') {
+      setClienteAberto(false);
+      setClienteIndiceAtivo(-1);
+    }
   };
 
   const salvarMaterial = async (adicionarOutro = false) => {
@@ -278,6 +360,8 @@ function MateriaisPorCliente({ usuarioAtual }) {
       } else {
         setFormData((atual) => ({ ...atual, quantidade: '', descricao: '' }));
       }
+      setClienteAberto(false);
+      setClienteIndiceAtivo(-1);
     } catch (err) {
       console.error('Erro ao salvar material:', err);
       showToast('Erro de conexão ao salvar material.', 'error');
@@ -311,6 +395,38 @@ function MateriaisPorCliente({ usuarioAtual }) {
     }
   };
 
+  const excluirCliente = async () => {
+    if (!excluindoCliente) return;
+    const nome = (excluindoCliente.clienteNome || '').trim();
+    if (!nome) return;
+
+    setDeletingCliente(true);
+    try {
+      const res = await apiFetch(
+        `${API_URL}/materiais/?cliente_nome=${encodeURIComponent(nome)}`,
+        { method: 'DELETE' },
+      );
+      if (res.ok) {
+        const dados = await res.json().catch(() => null);
+        const excluidos = Number(dados?.excluidos) || 0;
+        showToast(
+          excluidos > 0
+            ? `${excluidos} material(is) do cliente "${nome}" excluído(s).`
+            : `Cliente "${nome}" excluído do módulo.`,
+        );
+        setExcluindoCliente(null);
+        await fetchMateriais();
+      } else {
+        showToast(erroDaResposta(await res.json().catch(() => null), 'Erro ao excluir cliente.'), 'error');
+      }
+    } catch (err) {
+      console.error('Erro ao excluir cliente:', err);
+      showToast('Erro de conexão ao excluir cliente.', 'error');
+    } finally {
+      setDeletingCliente(false);
+    }
+  };
+
   const imprimirLista = () => {
     if (materiaisFiltrados.length === 0) {
       showToast('Não há materiais para imprimir com os filtros atuais.', 'error');
@@ -318,6 +434,13 @@ function MateriaisPorCliente({ usuarioAtual }) {
     }
     setImprimindo(true);
   };
+
+  const totalMateriaisClienteAlvo = excluindoCliente
+    ? (totalPorCliente.get(excluindoCliente.cliente) ?? excluindoCliente.itens.length)
+    : 0;
+  const rotuloMateriaisClienteAlvo = totalMateriaisClienteAlvo === 1
+    ? '1 material lançado'
+    : `${totalMateriaisClienteAlvo} materiais lançados`;
 
   return (
     <div className="space-y-6 print:space-y-2">
@@ -394,12 +517,6 @@ function MateriaisPorCliente({ usuarioAtual }) {
           <p className="font-semibold">{typeof toast.message === 'string' ? toast.message : 'Erro inesperado.'}</p>
         </div>
       )}
-
-      <datalist id="clientes-sugeridos">
-        {clientesSugeridos.map((nome) => (
-          <option key={nome} value={nome} />
-        ))}
-      </datalist>
 
       {/* Bloco exclusivo da impressão (lista filtrada completa) */}
       <div className="materiais-impressao">
@@ -538,7 +655,20 @@ function MateriaisPorCliente({ usuarioAtual }) {
                       {grupo.itens.length} material(is)
                     </p>
                   </div>
-                  <Package size={17} className="text-slate-300 shrink-0" />
+                  <div className="flex items-center gap-2 shrink-0">
+                    {grupo.clienteNome && (
+                      <button
+                        type="button"
+                        onClick={() => setExcluindoCliente(grupo)}
+                        title={`Excluir o cliente ${grupo.cliente} e todos os materiais`}
+                        className="flex items-center gap-1.5 px-2.5 py-2 rounded-lg bg-white hover:bg-rose-50 text-slate-400 hover:text-rose-700 border border-slate-200 transition-colors cursor-pointer text-[11px] font-bold"
+                      >
+                        <Trash2 size={14} />
+                        <span className="hidden sm:inline">Excluir cliente</span>
+                      </button>
+                    )}
+                    <Package size={17} className="text-slate-300 shrink-0" />
+                  </div>
                 </div>
 
                 <div className="hidden md:block overflow-x-auto">
@@ -670,22 +800,64 @@ function MateriaisPorCliente({ usuarioAtual }) {
                   <label className="block text-xs font-bold text-slate-700 mb-1.5" htmlFor="material-cliente">
                     Cliente *
                   </label>
-                  <input
-                    id="material-cliente"
-                    type="text"
-                    name="cliente_nome"
-                    list="clientes-sugeridos"
-                    value={formData.cliente_nome}
-                    onChange={atualizarCampo}
-                    required
-                    maxLength={255}
-                    autoComplete="off"
-                    autoFocus
-                    placeholder="Digite ou selecione o nome do cliente"
-                    className="w-full px-3.5 py-2.5 border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-primary-500/20 focus:border-primary-500 text-sm"
-                  />
+                  <div className="relative">
+                    <input
+                      id="material-cliente"
+                      type="text"
+                      name="cliente_nome"
+                      value={formData.cliente_nome}
+                      onChange={atualizarCliente}
+                      onFocus={() => setClienteAberto(true)}
+                      onBlur={() => setTimeout(() => {
+                        setClienteAberto(false);
+                        setClienteIndiceAtivo(-1);
+                      }, 150)}
+                      onKeyDown={aoTeclarCliente}
+                      required
+                      maxLength={255}
+                      autoComplete="off"
+                      autoFocus
+                      placeholder="Digite o nome do cliente..."
+                      className="w-full px-3.5 py-2.5 border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-primary-500/20 focus:border-primary-500 text-sm"
+                    />
+                    {clienteAberto && sugestoesClientes.length > 0 && (
+                      <ul className="absolute z-30 left-0 right-0 mt-1 bg-white border border-slate-200 rounded-xl shadow-lg overflow-hidden max-h-64 overflow-y-auto">
+                        {sugestoesClientes.map((cliente, indice) => (
+                          <li key={cliente.nome} className="border-b border-slate-50 last:border-0">
+                            <button
+                              ref={(elemento) => { sugestoesClienteRefs.current[cliente.nome] = elemento; }}
+                              type="button"
+                              onMouseDown={(event) => {
+                                event.preventDefault();
+                                selecionarClienteSugerido(cliente);
+                              }}
+                              onMouseEnter={() => setClienteIndiceAtivo(indice)}
+                              className={`w-full text-left px-3.5 py-2.5 transition-colors cursor-pointer ${
+                                indice === clienteIndiceAtivo
+                                  ? 'bg-primary-100 ring-2 ring-inset ring-primary-200'
+                                  : 'hover:bg-primary-50'
+                              }`}
+                            >
+                              <span className={`block text-sm font-bold truncate ${
+                                indice === clienteIndiceAtivo ? 'text-primary-900' : 'text-slate-800'
+                              }`}>
+                                {cliente.nome}
+                              </span>
+                              {(cliente.cpf_cnpj || cliente.cidade) && (
+                                <span className="block text-xs text-slate-400 truncate">
+                                  {cliente.cpf_cnpj || ''}
+                                  {cliente.cpf_cnpj && cliente.cidade ? ' · ' : ''}
+                                  {cliente.cidade || ''}
+                                </span>
+                              )}
+                            </button>
+                          </li>
+                        ))}
+                      </ul>
+                    )}
+                  </div>
                   <p className="text-[11px] text-slate-400 mt-1.5">
-                    O nome é apenas informativo e não cria vínculo com o cadastro de clientes.
+                    Digite para buscar um cliente cadastrado ou informe um nome livre. O nome não cria vínculo com o cadastro de clientes.
                   </p>
                 </div>
 
@@ -791,6 +963,17 @@ function MateriaisPorCliente({ usuarioAtual }) {
           loading={deleting}
           onConfirmar={excluirMaterial}
           onCancelar={() => setExcluindo(null)}
+        />
+
+        <ModalConfirmacao
+          aberto={excluindoCliente != null}
+          titulo="Excluir cliente"
+          mensagem={excluindoCliente
+            ? `Tem certeza que deseja excluir o cliente "${excluindoCliente.cliente}" e ${rotuloMateriaisClienteAlvo} neste módulo? O cadastro em Clientes não será alterado. Esta ação não pode ser desfeita.`
+            : ''}
+          loading={deletingCliente}
+          onConfirmar={excluirCliente}
+          onCancelar={() => setExcluindoCliente(null)}
         />
       </div>
     </div>

@@ -119,6 +119,38 @@ def listar_materiais(
         raise HTTPException(status_code=500, detail="Erro ao listar materiais.") from None
 
 
+@router.delete("/")
+def excluir_materiais_do_cliente(
+    cliente_nome: str = Query(
+        ...,
+        min_length=1,
+        max_length=255,
+        description="Nome exato do cliente cujos materiais serão excluídos",
+    ),
+    db=Depends(get_supabase),
+):
+    """Exclui todos os materiais de um cliente (nome exato), sem tocar no cadastro de clientes."""
+    nome = cliente_nome.strip()
+    if not nome:
+        raise HTTPException(status_code=400, detail="Informe o nome do cliente.")
+
+    try:
+        response = db.table("materiais").delete().eq("cliente_nome", nome).execute()
+        excluidos = len(response.data or [])
+        if not excluidos:
+            raise HTTPException(status_code=404, detail="Nenhum material encontrado para este cliente.")
+        return {
+            "success": True,
+            "excluidos": excluidos,
+            "message": f"{excluidos} material(is) do cliente excluído(s).",
+        }
+    except HTTPException:
+        raise
+    except Exception:
+        logger.exception("Erro ao excluir materiais do cliente %s", nome)
+        raise HTTPException(status_code=500, detail="Erro ao excluir materiais do cliente.") from None
+
+
 @router.get("/{material_id}", response_model=MaterialResponse)
 def buscar_material(material_id: int, db=Depends(get_supabase)):
     """Busca um material específico pelo ID."""
