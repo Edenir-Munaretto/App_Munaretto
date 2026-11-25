@@ -168,7 +168,9 @@ def _validar_data_iso(valor):
 
 class OSCreate(BaseModel):
     obra_id: int
-    equipe_id: int | None = None
+    # Equipe obrigatória: é ela que define quais tablets do Modo Campo
+    # recebem a O.S (a listagem do campo filtra por equipe).
+    equipe_id: int
     prioridade: str = Field("media")
     prazo_entrega: str | None = None  # ISO date (YYYY-MM-DD)
     descricao_escopo: str | None = None
@@ -1107,7 +1109,7 @@ def criar_os(payload: OSCreate, usuario: UsuarioAutenticado = Depends(get_curren
             raise HTTPException(status_code=400, detail=f"Tipo inválido. Use: {', '.join(sorted(TIPOS_OS))}.")
         if not db.table("obras").select("id").eq("id", payload.obra_id).execute().data:
             raise HTTPException(status_code=404, detail="Obra não encontrada.")
-        if payload.equipe_id and not db.table("equipes").select("id").eq("id", payload.equipe_id).execute().data:
+        if not db.table("equipes").select("id").eq("id", payload.equipe_id).execute().data:
             raise HTTPException(status_code=404, detail="Equipe não encontrada.")
 
         justificativa_retroativa = None
@@ -1303,6 +1305,14 @@ def editar_os(
             raise HTTPException(status_code=400, detail=f"Tipo inválido. Use: {', '.join(sorted(TIPOS_OS))}.")
         if payload.equipe_id and not db.table("equipes").select("id").eq("id", payload.equipe_id).execute().data:
             raise HTTPException(status_code=404, detail="Equipe não encontrada.")
+        # A O.S não pode ficar sem equipe (o pacote do Modo Campo filtra por
+        # equipe). Só a remoção EXPLÍCITA é rejeitada: PUT parcial que omite o
+        # campo preserva a equipe atual (exclude_unset no update).
+        if "equipe_id" in payload.model_fields_set and payload.equipe_id is None:
+            raise HTTPException(
+                status_code=400,
+                detail="Vincule uma equipe à O.S; não é possível removê-la.",
+            )
 
         # Tipo/contrato define a unidade (USC/UMD/ULV), o catálogo de serviços e o
         # snapshot do checklist: com histórico lançado, trocá-lo reescreveria
@@ -1369,6 +1379,14 @@ def alterar_status(
             raise HTTPException(
                 status_code=422,
                 detail=f"Transição inválida: '{atual}' -> '{novo}'. Destinos permitidos: {', '.join(destinos)}.",
+            )
+
+        # Regra 1.5: O.S sem equipe não vai ao campo — a listagem/pacote do
+        # Modo Campo filtra por equipe, então ela jamais chegaria a um tablet.
+        if atual == "rascunho" and novo == "aberta" and not os_data.get("equipe_id"):
+            raise HTTPException(
+                status_code=422,
+                detail="Vincule uma equipe à O.S antes de enviá-la ao campo.",
             )
 
         # Reabertura desativada: O.S encerradas não voltam ao funil (o gestor

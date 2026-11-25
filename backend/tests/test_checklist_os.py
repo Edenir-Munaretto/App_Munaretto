@@ -1090,6 +1090,7 @@ def test_relatorio_pdf_retroativa_mostra_aviso_de_dispensa(os_gestor_client, db_
         "/api/os/",
         json={
             "obra_id": 5,
+            "equipe_id": 100,
             "retroativa": True,
             "data_execucao": "2026-09-10",
             "justificativa_retroativa": "Emergência registrada no formulário de papel.",

@@ -64,6 +64,7 @@ def _seed_cenario(db_fake):
 def _criar_os(client, **overrides):
     payload = {
         "obra_id": 5,
+        "equipe_id": 100,
         "prioridade": "alta",
         "prazo_entrega": "2026-12-31",
         "descricao_escopo": "Reforma do pavimento térreo.",
@@ -146,6 +147,61 @@ class TestMaquinaEstados:
         assert ("rascunho", "aberta") in transicoes
         assert ("aberta", "em_andamento") in transicoes
         assert ("em_andamento", "concluida") in transicoes
+
+
+class TestEquipeObrigatoria:
+    """Sem equipe a O.S não é criada, não vai ao campo nem fica sem equipe."""
+
+    def test_criar_sem_equipe_rejeitado(self, os_gestor_client, db_fake):
+        _seed_cenario(db_fake)
+        resp = os_gestor_client.post("/api/os/", json={"obra_id": 5, "prioridade": "alta"})
+        assert resp.status_code == 422
+
+    def test_criar_com_equipe_nula_rejeitado(self, os_gestor_client, db_fake):
+        _seed_cenario(db_fake)
+        resp = _criar_os(os_gestor_client, equipe_id=None)
+        assert resp.status_code == 422
+
+    def test_criar_com_equipe_inexistente_rejeitado(self, os_gestor_client, db_fake):
+        _seed_cenario(db_fake)
+        resp = _criar_os(os_gestor_client, equipe_id=999)
+        assert resp.status_code == 404
+
+    def test_editar_nao_permite_remover_equipe(self, os_gestor_client, db_fake):
+        _seed_cenario(db_fake)
+        os_id = _criar_os(os_gestor_client).json()["id"]
+        resp = os_gestor_client.put(f"/api/os/{os_id}", json={"equipe_id": None})
+        assert resp.status_code == 400
+        assert "equipe" in resp.json()["detail"].lower()
+
+    def test_editar_sem_enviar_equipe_preserva_a_atual(self, os_gestor_client, db_fake):
+        _seed_cenario(db_fake)
+        os_id = _criar_os(os_gestor_client).json()["id"]
+        resp = os_gestor_client.put(f"/api/os/{os_id}", json={"prioridade": "baixa"})
+        assert resp.status_code == 200, resp.text
+        assert resp.json()["equipe_id"] == 100
+
+    def test_enviar_os_legada_sem_equipe_rejeitado(self, os_gestor_client, db_fake):
+        _seed_cenario(db_fake)
+        db_fake._dados["ordens_servico"].append(
+            {
+                "id": 880,
+                "codigo": "OS-2025-0880",
+                "obra_id": 5,
+                "equipe_id": None,
+                "tipo": "construcao",
+                "status": "rascunho",
+                "prioridade": "media",
+                "created_at": "2026-01-01T00:00:00Z",
+            }
+        )
+        resp = os_gestor_client.put("/api/os/880/status", json={"novo_status": "aberta"})
+        assert resp.status_code == 422
+        assert "equipe" in resp.json()["detail"].lower()
+
+        # Depois de vincular a equipe, o envio ao campo é liberado.
+        assert os_gestor_client.put("/api/os/880", json={"equipe_id": 100}).status_code == 200
+        assert os_gestor_client.put("/api/os/880/status", json={"novo_status": "aberta"}).status_code == 200
 
 
 class TestTravaCancelada:
@@ -1163,9 +1219,22 @@ class TestModeloImpressao:
         assert resp.headers["content-type"] == "application/pdf"
         assert resp.content.startswith(b"%PDF")
 
-        # Sem equipe vinculada o modelo ainda é gerado (capa mínima).
-        os_sem_equipe = _criar_os(os_gestor_client).json()["id"]
-        resp2 = os_gestor_client.get(f"/api/os/{os_sem_equipe}/imprimir")
+        # Registro legado sem equipe (anterior à regra): o modelo ainda é
+        # gerado com capa mínima (equipe/encarregado/membros em branco).
+        legado_id = 880
+        db_fake._dados["ordens_servico"].append(
+            {
+                "id": legado_id,
+                "codigo": "OS-2025-0880",
+                "obra_id": 5,
+                "equipe_id": None,
+                "tipo": "construcao",
+                "status": "rascunho",
+                "prioridade": "media",
+                "created_at": "2026-01-01T00:00:00Z",
+            }
+        )
+        resp2 = os_gestor_client.get(f"/api/os/{legado_id}/imprimir")
         assert resp2.status_code == 200, resp2.text
 
     def test_imprimir_usa_data_de_execucao_no_campo_data(self, os_gestor_client, db_fake):
@@ -1410,7 +1479,20 @@ class TestDesligamento:
 
     def test_desligamento_exige_equipe_vinculada(self, os_gestor_client, db_fake):
         _seed_cenario(db_fake)
-        os_id = _criar_os(os_gestor_client).json()["id"]
+        # Registro legado sem equipe (anterior à obrigatoriedade no cadastro).
+        os_id = 881
+        db_fake._dados["ordens_servico"].append(
+            {
+                "id": os_id,
+                "codigo": "OS-2025-0881",
+                "obra_id": 5,
+                "equipe_id": None,
+                "tipo": "construcao",
+                "status": "rascunho",
+                "prioridade": "media",
+                "created_at": "2026-01-01T00:00:00Z",
+            }
+        )
 
         resp = os_gestor_client.get(
             f"/api/os/{os_id}/imprimir", params={"incluir_desligamento": "true"}
@@ -2787,6 +2869,7 @@ class TestOsRetroativa:
     def _criar_retroativa(self, client, **overrides):
         payload = {
             "obra_id": 5,
+            "equipe_id": 100,
             "retroativa": True,
             "data_execucao": "2026-09-10",
             "justificativa_retroativa": self.JUSTIFICATIVA,

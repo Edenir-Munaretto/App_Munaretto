@@ -491,10 +491,12 @@ class TestRelatoriosPdfObra:
         """Obra com O.S retroativa (sem checklist, com serviços lançados) gera
         os PDFs normalmente — regressão relatada após o uso das retroativas."""
         _seed_obra_com_os(db_fake)
+        _inserir_equipe(db_fake, 100, "Equipe Teste")
         criada = os_gestor_client.post(
             "/api/os/",
             json={
                 "obra_id": 501,
+                "equipe_id": 100,
                 "retroativa": True,
                 "data_execucao": "2026-09-10",
                 "justificativa_retroativa": "Emergência registrada no formulário de papel.",

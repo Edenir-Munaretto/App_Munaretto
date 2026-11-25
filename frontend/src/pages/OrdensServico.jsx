@@ -2828,6 +2828,7 @@ function ModalNovaOS({ aberto, obras, equipes, onFechar, onCriada, mostrarToast,
     e.preventDefault();
     if (salvando) return; // duplo toque/Enter repetido
     if (!form.obra_id) { mostrarToast('Selecione a obra.', 'error'); return; }
+    if (!form.equipe_id) { mostrarToast('Selecione a equipe da O.S.', 'error'); return; }
     const eraRetroativa = !edicao && form.retroativa;
     if (eraRetroativa) {
       if (!form.data_execucao) { mostrarToast('Informe a data real da execução.', 'error'); return; }
@@ -3085,9 +3086,14 @@ function ModalNovaOS({ aberto, obras, equipes, onFechar, onCriada, mostrarToast,
               <label className="block text-xs font-bold text-slate-700 mb-1.5">Equipe</label>
               <select value={form.equipe_id} onChange={(e) => setForm({ ...form, equipe_id: e.target.value })}
                 className="w-full px-3.5 py-2.5 border border-slate-200 rounded-xl text-sm font-semibold focus:outline-none focus:border-primary-500">
-                <option value="">Definir depois</option>
+                <option value="" disabled>Selecione a equipe</option>
                 {equipes.map(eq => <option key={eq.id} value={eq.id}>{eq.numero ? `Nº ${eq.numero} - ${eq.nome}` : eq.nome}</option>)}
               </select>
+              {equipes.length === 0 && (
+                <p className="text-[10px] text-amber-600 font-semibold mt-1">
+                  Nenhuma equipe cadastrada. Cadastre em O.S → Equipes antes de criar a O.S.
+                </p>
+              )}
             </div>
             <div>
               <label className="block text-xs font-bold text-slate-700 mb-1.5">Prioridade</label>
@@ -3187,8 +3193,9 @@ function ModalNovaOS({ aberto, obras, equipes, onFechar, onCriada, mostrarToast,
         <div className="px-6 py-4 border-t border-slate-100 flex justify-end gap-3 sticky bottom-0 bg-white">
           <button type="button" onClick={onFechar}
             className="px-4 py-2 border border-slate-200 text-slate-600 rounded-xl text-sm font-semibold hover:bg-slate-50 cursor-pointer">Cancelar</button>
-          <button type="submit" disabled={salvando}
-            className="px-5 py-2 bg-primary-600 text-white rounded-xl text-sm font-semibold hover:bg-primary-700 disabled:opacity-50 cursor-pointer">
+          <button type="submit" disabled={salvando || equipes.length === 0}
+            title={equipes.length === 0 ? 'Cadastre uma equipe em O.S → Equipes antes de criar a O.S.' : undefined}
+            className="px-5 py-2 bg-primary-600 text-white rounded-xl text-sm font-semibold hover:bg-primary-700 disabled:opacity-50 cursor-pointer disabled:cursor-not-allowed">
             {salvando ? 'Salvando...' : edicao ? 'Salvar Alterações' : 'Criar O.S'}
           </button>
         </div>
