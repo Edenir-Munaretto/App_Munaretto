@@ -4,6 +4,7 @@ import {
   ClipboardList, ChevronDown,
 } from 'lucide-react';
 import { hojeISO } from './comum';
+import ObraAutocomplete from './ObraAutocomplete';
 
 function Campo({ rotulo, icone: Icone, children, className = '' }) {
   return (
@@ -110,9 +111,8 @@ export default function FormularioNovaInspecao({
   const equipeSelecionada = equipes.find((e) => String(e.id) === String(equipeId));
   const atividadeSelecionada = atividades.find((a) => String(a.id) === String(atividadeId));
 
-  const selecionarObra = (valor) => {
-    setObraId(valor);
-    const obra = obras.find((o) => String(o.id) === String(valor));
+  const selecionarObra = (obra) => {
+    setObraId(obra ? String(obra.id) : '');
     if (obra) {
       const endereco = [obra.endereco, obra.cidade].filter(Boolean).join(' - ');
       if (endereco) setLocal(endereco);
@@ -216,14 +216,10 @@ export default function FormularioNovaInspecao({
           </div>
 
           <Campo rotulo="Obra (opcional)" icone={Building2}>
-            <select value={obraId} onChange={(e) => selecionarObra(e.target.value)} className={CLASSE_INPUT}>
-              <option value="">Sem vínculo com obra</option>
-              {obras.map((obra) => (
-                <option key={obra.id} value={obra.id}>
-                  {obra.nome}{obra.cidade ? ` - ${obra.cidade}` : ''}
-                </option>
-              ))}
-            </select>
+            <ObraAutocomplete obras={obras} value={obraId} onChange={selecionarObra} />
+            <p className="mt-1 text-[10px] text-slate-400">
+              Digite o nome/Nota PS ou o cliente. Deixe vazio para não vincular.
+            </p>
           </Campo>
 
           <Campo rotulo="Local da Inspeção" icone={MapPin}>

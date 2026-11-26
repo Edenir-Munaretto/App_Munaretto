@@ -49,8 +49,9 @@ itens que exigem foto com pelo menos uma evidência (exceto N/A).
 
 ## Frontend
 
-- **Nova Inspeção:** Data, Inspetor, Obra, Local, Atividade, Tipo de Inspeção,
-  Funcionário, Equipe, Encarregado, Veículo, Setor, assinantes e “Iniciar”.
+- **Nova Inspeção:** Data, Inspetor, Obra (autocomplete por nome/Nota PS e
+  cliente), Local, Atividade, Tipo de Inspeção, Funcionário, Equipe,
+  Encarregado, Veículo, Setor, assinantes e “Iniciar”.
 - **Editor:** checklist por grupos, respostas Conforme/Não Conforme/N/A,
   observações, câmera/galeria, progresso e finalização.
 - **Lista:** filtros (obra, atividade, status, busca), status de sincronização,
