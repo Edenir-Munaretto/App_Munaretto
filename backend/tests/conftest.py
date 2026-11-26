@@ -108,6 +108,17 @@ def _montar_dados_banco():
         "devolucoes_celesc": [],
         # Módulo Materiais por Cliente (isolado)
         "materiais": [],
+        # Módulo Inspeções
+        "inspecao_atividades": [],
+        "inspecao_modelos": [],
+        "inspecao_modelo_grupos": [],
+        "inspecao_modelo_itens": [],
+        "inspecoes": [],
+        "inspecao_itens": [],
+        "inspecao_respostas": [],
+        "inspecao_fotos": [],
+        "inspecao_assinantes": [],
+        "inspecao_sync_ops": [],
     }
 
 
@@ -275,4 +286,32 @@ def materiais_client(client, db_fake):
         "materiais@munaretto.com",
         "senhaMateriais123",
         ["materiais"],
+    )
+
+
+@pytest.fixture
+def inspecoes_gestor_client(client, db_fake):
+    """Gestor do módulo Inspeções (cadastros + todas as inspeções)."""
+    return _criar_e_logar(
+        client,
+        db_fake,
+        95,
+        "Gestor Inspeções",
+        "gestor.inspecoes@munaretto.com",
+        "senhaInspecoes123",
+        ["inspecoes"],
+    )
+
+
+@pytest.fixture
+def inspecoes_campo_client(client, db_fake):
+    """Técnico de segurança (apenas inspeções próprias)."""
+    return _criar_e_logar(
+        client,
+        db_fake,
+        96,
+        "Técnico Campo",
+        "campo.inspecoes@munaretto.com",
+        "senhaCampoInspecoes123",
+        ["inspecoes_campo"],
     )

@@ -22,6 +22,7 @@ from routers import (
     ferias,
     fluxo_caixa,
     funcionarios,
+    inspecoes,
     manutencao,
     materiais,
     notificacoes,
@@ -144,6 +145,7 @@ app.include_router(dashboard.router, prefix="/api/dashboard", tags=["Dashboard"]
 app.include_router(manutencao.router, prefix="/api/manutencao", tags=["Manutenção"])
 app.include_router(devolucoes_celesc.router, prefix="/api/devolucoes-celesc", tags=["Devoluções Celesc"])
 app.include_router(materiais.router, prefix="/api/materiais", tags=["Materiais por Cliente"])
+app.include_router(inspecoes.router, prefix="/api/inspecoes", tags=["Inspeções"])
 # Cadastros de apoio ANTES do router principal: as rotas estáticas
 # (/obras, /equipes, /produtos) precisam ser casadas antes da rota
 # dinâmica /{os_id}.

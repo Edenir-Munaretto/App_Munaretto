@@ -35,6 +35,7 @@ Sistema web de gestão do escritório Munaretto — clientes e contratos, funcio
 - **Materiais por Cliente** — cadastro isolado de materiais (cabos, postes e trafos) com impressão da lista.
 - **Manutenção** — veículos, equipamentos, reposições e documentos.
 - **SST** — treinamentos, matriz, ASO, EPIs e documentos.
+- **Inspeções** — checklists configuráveis por atividade, fotos, assinaturas, PDF, vínculo com obra e **Inspeções (Campo)** offline com sincronização em Wi-Fi.
 - **Controle de O.S** — Kanban, checklist, H.H., materiais, fotos e PDFs; **O.S (Campo)** opera offline com pacote local (IndexedDB) e sincronização.
 - **Notificações** e **Configurações** (usuários, permissões e catálogos).
 

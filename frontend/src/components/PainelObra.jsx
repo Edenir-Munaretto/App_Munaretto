@@ -1,6 +1,6 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import {
-  AlertTriangle, Building, ClipboardList, FileDown, FileText, FolderOpen,
+  AlertTriangle, Building, ClipboardCheck, ClipboardList, FileDown, FileText, FolderOpen,
   MapPin, Package, Plus, RefreshCw, X,
 } from 'lucide-react';
 import { API_URL, apiFetch, erroDaResposta } from '../api';
@@ -259,7 +259,7 @@ export default function PainelObra({ obra, onFechar, onAbrirOS, onNovaOS, refres
         ) : dados && (
           <>
             {/* Contadores coloridos (padrão do PainelExecucao) */}
-            <div className="grid grid-cols-3 gap-2">
+            <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
               <div className="bg-sky-50 border border-sky-100 rounded-2xl p-3">
                 <p className="text-[9px] font-extrabold uppercase tracking-wider text-sky-500">Em execução</p>
                 <p className="text-2xl font-black text-sky-700 leading-tight">{resumo?.ativas || 0}</p>
@@ -271,6 +271,17 @@ export default function PainelObra({ obra, onFechar, onAbrirOS, onNovaOS, refres
               <div className="bg-slate-50 border border-slate-100 rounded-2xl p-3">
                 <p className="text-[9px] font-extrabold uppercase tracking-wider text-slate-500">O.S total</p>
                 <p className="text-2xl font-black text-slate-700 leading-tight">{resumo?.total || 0}</p>
+              </div>
+              <div className="bg-primary-50 border border-primary-100 rounded-2xl p-3">
+                <p className="text-[9px] font-extrabold uppercase tracking-wider text-primary-500 flex items-center gap-1">
+                  <ClipboardCheck size={10} /> Inspeções
+                </p>
+                <p className="text-2xl font-black text-primary-700 leading-tight">
+                  {resumo?.inspecoes_concluidas || 0}
+                </p>
+                <p className="text-[9px] font-bold text-primary-500">
+                  de {resumo?.inspecoes_total || 0} registrada(s)
+                </p>
               </div>
             </div>
 

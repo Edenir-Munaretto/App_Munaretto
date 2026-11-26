@@ -1,0 +1,444 @@
+﻿"""Relatório PDF de uma Inspeção (checklist + evidências + assinaturas).
+
+Layout baseado no checklist de O.S (`utils/pdf_os_checklist.py`): capa com a
+identificação da inspeção (incluindo os campos da tela inicial), tabela de
+respostas agrupada, fotos com data/hora/GPS e bloco de assinaturas.
+"""
+
+import logging
+import os
+import tempfile
+
+from fpdf import FPDF
+
+from utils.date_helpers import agora_fuso_brasil, em_fuso_brasil
+from utils.pdf_base import desenhar_cabecalho, desenhar_logo
+
+logger = logging.getLogger(__name__)
+
+LARGURA_PAGINA = 210  # A4
+MARGEM = 10
+
+ROTULOS_RESPOSTA = {
+    "conforme": "Conforme",
+    "nao_conforme": "Não Conforme",
+    "na": "N/A",
+}
+ROTULOS_STATUS = {
+    "rascunho": "Rascunho",
+    "concluida": "Concluída",
+    "cancelada": "Cancelada",
+}
+
+
+def _novo_caminho_temp(prefixo: str, sufixo: str = ".pdf") -> str:
+    fd, caminho = tempfile.mkstemp(prefix=prefixo, suffix=sufixo)
+    os.close(fd)
+    return caminho
+
+
+def _txt(valor) -> str:
+    if valor is None:
+        return ""
+    return str(valor).encode("latin-1", "replace").decode("latin-1")
+
+
+def _fmt_data(valor) -> str:
+    if not valor:
+        return "-"
+    dt = em_fuso_brasil(valor)
+    if dt is not None:
+        return dt.strftime("%d/%m/%Y")
+    return _txt(valor)
+
+
+def _fmt_hora(valor) -> str:
+    if not valor:
+        return "-"
+    dt = em_fuso_brasil(valor)
+    if dt is not None:
+        return dt.strftime("%H:%M")
+    return _txt(valor)[:5]
+
+
+def _fmt_data_hora(valor) -> str:
+    if not valor:
+        return "-"
+    dt = em_fuso_brasil(valor)
+    if dt is not None:
+        return dt.strftime("%d/%m/%Y %H:%M")
+    return _txt(valor)
+
+
+class _PdfInspecao(FPDF):
+    def header(self):
+        if self.page_no() == 1:
+            return
+        desenhar_logo(self, self.l_margin, 4, 9.0)
+        self.set_font("Arial", "B", 8)
+        self.set_text_color(100, 116, 139)
+        self.set_xy(0, 6.5)
+        self.cell(0, 5, "RELATÓRIO DE INSPEÇÃO", align="C")
+        self.set_draw_color(15, 23, 42)
+        self.set_line_width(0.35)
+        self.line(self.l_margin, 15, self.w - self.r_margin, 15)
+        self.set_y(self.t_margin)
+
+    def footer(self):
+        self.set_y(-15)
+        self.set_font("Arial", "I", 8)
+        self.set_text_color(128, 128, 128)
+        self.cell(
+            0,
+            10,
+            f"Gerado em {agora_fuso_brasil().strftime('%d/%m/%Y %H:%M')} - Página {self.page_no()}",
+            align="C",
+        )
+
+
+def _linha_campo(pdf: FPDF, rotulo: str, valor, largura_rotulo: float = 34):
+    pdf.set_font("Arial", "B", 8.5)
+    pdf.set_text_color(71, 85, 105)
+    pdf.cell(largura_rotulo, 6, f"{_txt(rotulo)}:")
+    pdf.set_font("Arial", "", 8.5)
+    pdf.set_text_color(15, 23, 42)
+    pdf.multi_cell(0, 6, _txt(valor) or "-", new_x="LMARGIN")
+
+
+def _capa(pdf: _PdfInspecao, inspecao: dict, assinantes: list[dict]):
+    pdf.add_page()
+    desenhar_cabecalho(pdf, "INSPEÇÃO", "RELATÓRIO DE INSPEÇÃO")
+    pdf.ln(1)
+
+    _linha_campo(pdf, "Código", inspecao.get("codigo"))
+    _linha_campo(pdf, "Data / hora", _fmt_data_hora(inspecao.get("iniciada_em") or inspecao.get("data_inspecao")))
+    _linha_campo(pdf, "Inspetor", inspecao.get("inspetor_nome"))
+    _linha_campo(pdf, "Atividade", inspecao.get("atividade_nome"))
+    _linha_campo(pdf, "Tipo de inspeção", inspecao.get("modelo_nome"))
+    _linha_campo(pdf, "Situação", ROTULOS_STATUS.get(inspecao.get("status"), inspecao.get("status")))
+    _linha_campo(pdf, "Obra", inspecao.get("obra_nome"))
+    _linha_campo(pdf, "Cliente", inspecao.get("obra_cliente"))
+    _linha_campo(pdf, "Local da inspeção", inspecao.get("local_inspecao"))
+    _linha_campo(pdf, "Funcionário", inspecao.get("funcionario_nome"))
+    _linha_campo(pdf, "Cargo do funcionário", inspecao.get("funcionario_cargo"))
+    _linha_campo(
+        pdf,
+        "Equipe",
+        " - ".join(
+            parte
+            for parte in (
+                (str(inspecao.get("equipe_numero")) if inspecao.get("equipe_numero") else ""),
+                (inspecao.get("equipe_nome") or ""),
+            )
+            if parte
+        ),
+    )
+    _linha_campo(pdf, "Encarregado", inspecao.get("encarregado"))
+    _linha_campo(pdf, "Veículo", inspecao.get("veiculo"))
+    _linha_campo(pdf, "Setor", inspecao.get("setor"))
+    _linha_campo(pdf, "Observações gerais", inspecao.get("observacoes"))
+
+    if inspecao.get("status") == "cancelada":
+        pdf.ln(2)
+        pdf.set_font("Arial", "B", 9)
+        pdf.set_text_color(185, 28, 28)
+        pdf.multi_cell(
+            0,
+            6,
+            f"INSPEÇÃO CANCELADA em {_fmt_data_hora(inspecao.get('cancelada_em'))} "
+            f"por {_txt(inspecao.get('cancelada_por') or '-')}.\n"
+            f"Motivo: {_txt(inspecao.get('motivo_cancelamento') or '-')}",
+            new_x="LMARGIN",
+        )
+        pdf.set_text_color(15, 23, 42)
+
+    pdf.ln(2)
+    pdf.set_font("Arial", "B", 8.5)
+    pdf.set_text_color(71, 85, 105)
+    pdf.cell(0, 6, "ASSINANTES INDICADOS:", new_x="LMARGIN")
+    pdf.set_font("Arial", "", 8.5)
+    pdf.set_text_color(15, 23, 42)
+    if assinantes:
+        for assinante in assinantes:
+            cargo = f" - {_txt(assinante.get('cargo'))}" if assinante.get("cargo") else ""
+            pdf.cell(0, 5, f"  {_txt(assinante.get('nome'))}{cargo}", new_x="LMARGIN")
+    else:
+        pdf.cell(0, 5, "  Sem assinantes indicados.", new_x="LMARGIN")
+
+
+def _cabecalho_tabela(pdf: FPDF, larguras: dict):
+    pdf.set_font("Arial", "B", 7.5)
+    pdf.set_fill_color(15, 23, 42)
+    pdf.set_text_color(255, 255, 255)
+    for chave, rotulo, alinhamento in (
+        ("classif", "Classif.", "L"),
+        ("pergunta", "Pergunta", "L"),
+        ("conforme", "C", "C"),
+        ("nao_conforme", "NC", "C"),
+        ("na", "N/A", "C"),
+        ("observacao", "Observação", "L"),
+        ("hora", "Hora", "C"),
+    ):
+        pdf.cell(larguras[chave], 7, rotulo, border=1, fill=True, align=alinhamento)
+    pdf.ln()
+    pdf.set_text_color(15, 23, 42)
+
+
+def _tabela_checklist(pdf: _PdfInspecao, itens: list[dict]):
+    pdf.add_page()
+    pdf.set_fill_color(15, 23, 42)
+    pdf.set_text_color(255, 255, 255)
+    pdf.set_font("Arial", "B", 11)
+    pdf.cell(0, 9, " CHECKLIST DA INSPEÇÃO", ln=True, fill=True)
+    pdf.ln(1)
+
+    larguras = {
+        "classif": 15,
+        "pergunta": 67,
+        "conforme": 11,
+        "nao_conforme": 11,
+        "na": 11,
+        "observacao": 53,
+        "hora": 22,
+    }
+
+    grupo_atual = None
+    for item in itens:
+        grupo = (item.get("grupo_ordem"), item.get("grupo_nome"))
+        if grupo != grupo_atual:
+            grupo_atual = grupo
+            pdf.set_font("Arial", "B", 8.5)
+            pdf.set_fill_color(241, 245, 249)
+            pdf.set_text_color(71, 85, 105)
+            nome = item.get("grupo_nome") or f"Grupo {item.get('grupo_ordem')}"
+            pdf.cell(0, 7, f" {int(item.get('grupo_ordem') or 1)} - {_txt(str(nome).upper())}", ln=True, fill=True)
+            pdf.set_text_color(15, 23, 42)
+            _cabecalho_tabela(pdf, larguras)
+
+        resposta = item.get("resposta") or {}
+        valor = resposta.get("resposta")
+        pergunta = _txt(item.get("pergunta", ""))
+        observacao = _txt(resposta.get("observacao", ""))
+        linhas_pergunta = pdf.multi_cell(
+            larguras["pergunta"], 5, f" {pergunta}", border=0, dry_run=True, output="LINES"
+        )
+        pdf.set_font("Arial", "", 7.5)
+        linhas_obs = pdf.multi_cell(
+            larguras["observacao"], 5, f" {observacao}", border=0, dry_run=True, output="LINES"
+        )
+        altura = max(7, 5 * max(len(linhas_pergunta), len(linhas_obs)))
+        if pdf.will_page_break(altura):
+            pdf.add_page()
+            pdf.set_font("Arial", "B", 8.5)
+            pdf.set_fill_color(241, 245, 249)
+            pdf.set_text_color(71, 85, 105)
+            nome = item.get("grupo_nome") or f"Grupo {item.get('grupo_ordem')}"
+            pdf.cell(0, 7, f" {int(item.get('grupo_ordem') or 1)} - {_txt(str(nome).upper())}", ln=True, fill=True)
+            pdf.set_text_color(15, 23, 42)
+            _cabecalho_tabela(pdf, larguras)
+
+        y0 = pdf.get_y()
+        pdf.set_font("Arial", "", 7.5)
+        pdf.cell(larguras["classif"], altura, f" {_txt(item.get('classificacao'))}", border=1)
+        pdf.multi_cell(
+            larguras["pergunta"],
+            5,
+            f" {pergunta}",
+            border=1,
+            new_x="RIGHT",
+            new_y="TOP",
+        )
+        pdf.cell(larguras["conforme"], altura, "X" if valor == "conforme" else "", border=1, align="C")
+        pdf.cell(larguras["nao_conforme"], altura, "X" if valor == "nao_conforme" else "", border=1, align="C")
+        pdf.cell(larguras["na"], altura, "X" if valor == "na" else "", border=1, align="C")
+        pdf.multi_cell(
+            larguras["observacao"],
+            5,
+            f" {observacao}",
+            border=1,
+            new_x="RIGHT",
+            new_y="TOP",
+        )
+        pdf.cell(
+            larguras["hora"],
+            altura,
+            _fmt_hora(resposta.get("criado_em")) if resposta else "",
+            border=1,
+            align="C",
+        )
+        pdf.set_xy(pdf.l_margin, y0 + altura)
+
+    respondidos = sum(1 for i in itens if i.get("resposta"))
+    naos = [i for i in itens if (i.get("resposta") or {}).get("resposta") == "nao_conforme"]
+    pdf.ln(2)
+    pdf.set_font("Arial", "B", 8)
+    pdf.cell(0, 6, f"Perguntas: {len(itens)} | Respondidas: {respondidos} | Não conformes: {len(naos)}", ln=True)
+
+    if naos:
+        pdf.ln(1)
+        pdf.set_font("Arial", "B", 8)
+        pdf.set_text_color(185, 28, 28)
+        pdf.cell(0, 6, "NÃO CONFORMIDADES:", ln=True)
+        pdf.set_font("Arial", "", 8)
+        for item in naos:
+            observacao = ((item.get("resposta") or {}).get("observacao") or "").strip()
+            linha = f"{item.get('classificacao')} {_txt(item.get('pergunta'))}"
+            if observacao:
+                linha += f" - {_txt(observacao)}"
+            pdf.multi_cell(0, 5, linha, new_x="LMARGIN")
+        pdf.set_text_color(15, 23, 42)
+
+
+def _ext_foto(mime_type) -> str:
+    mime = str(mime_type or "").lower()
+    if mime == "image/jpeg":
+        return ".jpg"
+    if mime == "image/png":
+        return ".png"
+    if mime == "image/webp":
+        return ".webp"
+    return ".jpg"
+
+
+def _paginas_fotos(pdf: _PdfInspecao, itens: list[dict], baixar_foto):
+    pares = [(item, foto) for item in itens for foto in (item.get("fotos") or [])]
+    if not pares:
+        return
+
+    COLUNAS = 2
+    FOTOS_POR_PAGINA = 4
+    ESPACO_COLUNAS = 4
+    larg_celula = (LARGURA_PAGINA - 2 * MARGEM - ESPACO_COLUNAS * (COLUNAS - 1)) / COLUNAS
+    alt_foto = 78
+    passo = 100
+
+    def _cabecalho_fotos():
+        pdf.add_page()
+        pdf.set_fill_color(15, 23, 42)
+        pdf.set_text_color(255, 255, 255)
+        pdf.set_font("Arial", "B", 11)
+        pdf.cell(0, 9, " EVIDÊNCIAS FOTOGRÁFICAS", ln=True, fill=True)
+        pdf.ln(2)
+        pdf.set_text_color(15, 23, 42)
+
+    _cabecalho_fotos()
+    topo = pdf.get_y()
+
+    for indice, (item, foto) in enumerate(pares):
+        posicao = indice % FOTOS_POR_PAGINA
+        if posicao == 0 and indice > 0:
+            _cabecalho_fotos()
+            topo = pdf.get_y()
+        coluna = posicao % COLUNAS
+        linha = posicao // COLUNAS
+        x = MARGEM + coluna * (larg_celula + ESPACO_COLUNAS)
+        y = topo + linha * passo
+
+        bytes_foto = baixar_foto(foto.get("bucket_key"))
+        if bytes_foto:
+            try:
+                caminho = _novo_caminho_temp("inspecao_foto_", _ext_foto(foto.get("mime_type")))
+                with open(caminho, "wb") as arquivo:
+                    arquivo.write(bytes_foto)
+                pdf.image(caminho, x, y, w=larg_celula, h=alt_foto)
+                os.remove(caminho)
+            except Exception:
+                logger.exception("Erro ao embutir foto da inspeção")
+        else:
+            pdf.rect(x, y, larg_celula, alt_foto)
+            pdf.set_font("Arial", "I", 8)
+            pdf.text(x + 10, y + 40, "Foto indisponível")
+
+        pdf.set_font("Arial", "B", 7.5)
+        pdf.set_text_color(15, 23, 42)
+        pdf.set_xy(x, y + alt_foto + 2)
+        pdf.multi_cell(
+            larg_celula,
+            4,
+            f"{item.get('classificacao', '')} {_txt(item.get('pergunta', ''))}",
+            align="L",
+        )
+        resposta = item.get("resposta") or {}
+        pdf.set_font("Arial", "", 7)
+        pdf.set_text_color(100, 116, 139)
+        data_foto = foto.get("capturado_em") or foto.get("created_at")
+        gps = foto.get("geolocalizacao") or resposta.get("geolocalizacao") or ""
+        pdf.set_xy(x, y + alt_foto + 10)
+        pdf.multi_cell(
+            larg_celula,
+            4,
+            f"{_fmt_data_hora(data_foto)}{f'  ·  GPS {gps}' if gps else ''}",
+            align="L",
+        )
+        pdf.set_text_color(15, 23, 42)
+
+
+def _assinaturas(pdf: _PdfInspecao, inspecao: dict, assinantes: list[dict]):
+    nomes = []
+    for nome, cargo in (
+        (inspecao.get("inspetor_nome"), "Inspetor"),
+        (inspecao.get("encarregado"), "Encarregado"),
+    ):
+        if nome and nome not in [n for n, _ in nomes]:
+            nomes.append((nome, cargo))
+    for assinante in assinantes:
+        nome = assinante.get("nome")
+        if nome and nome not in [n for n, _ in nomes]:
+            nomes.append((nome, assinante.get("cargo")))
+    if not nomes:
+        return
+
+    pdf.add_page()
+    pdf.set_fill_color(15, 23, 42)
+    pdf.set_text_color(255, 255, 255)
+    pdf.set_font("Arial", "B", 11)
+    pdf.cell(0, 9, " ASSINATURAS", ln=True, fill=True)
+    pdf.ln(4)
+    pdf.set_text_color(15, 23, 42)
+
+    POR_PAGINA = 8
+    larg = (LARGURA_PAGINA - 2 * MARGEM) / 2 - 8
+    for indice, (nome, cargo) in enumerate(nomes):
+        if indice and indice % POR_PAGINA == 0:
+            pdf.add_page()
+            pdf.set_font("Arial", "B", 9)
+            pdf.cell(0, 8, " ASSINATURAS (continuação)", ln=True)
+            pdf.ln(2)
+        coluna = indice % 2
+        linha = (indice % POR_PAGINA) // 2
+        x = MARGEM + coluna * (larg + 16)
+        y = 38 + linha * 30
+        pdf.set_xy(x, y)
+        pdf.set_font("Arial", "", 9)
+        pdf.line(x, y + 12, x + larg, y + 12)
+        pdf.set_xy(x, y + 12.5)
+        pdf.set_font("Arial", "B", 8)
+        pdf.cell(larg, 5, _txt(nome), align="C")
+        if cargo:
+            pdf.set_xy(x, y + 17.5)
+            pdf.set_font("Arial", "", 7.5)
+            pdf.set_text_color(100, 116, 139)
+            pdf.cell(larg, 5, _txt(cargo), align="C")
+            pdf.set_text_color(15, 23, 42)
+
+
+def gerar_pdf_inspecao(
+    inspecao: dict,
+    itens: list[dict],
+    assinantes: list[dict] | None = None,
+    baixar_foto=None,
+) -> str:
+    """Monta o PDF da inspeção e retorna o caminho temporário."""
+    pdf = _PdfInspecao(format="A4", unit="mm")
+    pdf.set_auto_page_break(auto=True, margin=18)
+    pdf.set_margins(MARGEM, 18, MARGEM)
+
+    _capa(pdf, inspecao, assinantes or [])
+    _tabela_checklist(pdf, itens)
+    _paginas_fotos(pdf, itens, baixar_foto or (lambda chave: None))
+    _assinaturas(pdf, inspecao, assinantes or [])
+
+    caminho = _novo_caminho_temp("inspecao_")
+    pdf.output(caminho)
+    return caminho
+

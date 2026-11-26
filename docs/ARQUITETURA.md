@@ -54,7 +54,7 @@ backend/
   supabase_client.py cliente Supabase (service_role)
   storage.py         upload/download no Backblaze B2
   schema.sql         schema do banco (fonte da verdade, idempotente)
-  routers/           endpoints por módulo (18 arquivos)
+  routers/           endpoints por módulo (19 arquivos)
   utils/             geração de PDFs/modelos, checklist
   tests/             pytest (executar dentro de backend/)
 frontend/
@@ -83,8 +83,8 @@ render.yaml          Blueprint do backend (Docker) no Render
 ## 5. Autorização e permissões
 
 - Backend (`auth.py`): `get_current_user`, `require_permissao(modulo)` e `require_qualquer_permissao(modulos)` — a validação real acontece no servidor, rota a rota.
-- Frontend: `src/modules.js` define os ids de módulo exibidos no menu (`dashboard`, `clientes`, `funcionarios`, `ferias`, `fluxo`, `documentos`, `comprovantes`, `recebimentos`, `devolucoes_celesc`, `materiais`, `manutencao`, `sst`, `os`, `os_campo`, `configuracoes`).
-- Perfis usuais: **gestor** (permissão `os`, edição geral) e **campo** (`os_campo`, executa as O.S das equipes em que atua). O vínculo usuário → funcionário/equipe é feito em **Configurações → Usuários**.
+- Frontend: `src/modules.js` define os ids de módulo exibidos no menu (`dashboard`, `clientes`, `funcionarios`, `ferias`, `fluxo`, `documentos`, `comprovantes`, `recebimentos`, `devolucoes_celesc`, `materiais`, `manutencao`, `sst`, `inspecoes`, `inspecoes_campo`, `os`, `os_campo`, `configuracoes`).
+- Perfis usuais: **gestor** (permissão `os`, edição geral) e **campo** (`os_campo`, executa as O.S das equipes em que atua). O vínculo usuário → funcionário/equipe é feito em **Configurações → Usuários**. No módulo Inspeções, `inspecoes` é o perfil gestor e `inspecoes_campo` o técnico de segurança (vê apenas as próprias inspeções).
 
 ## 6. Módulos da API
 
@@ -102,6 +102,7 @@ render.yaml          Blueprint do backend (Docker) no Render
 | Materiais por Cliente | `MateriaisPorCliente.jsx` | `materiais.py` (`/api/materiais`) | `materiais` (isolada, sem FK) |
 | Manutenção | `Manutencao.jsx` | `manutencao.py` (`/api/manutencao`) | `veiculos`, `manutencoes`, `veiculo_equipamentos`, `equipamento_reposicoes`, `veiculo_documentos` |
 | SST | `Sst.jsx` | `sst.py` + `documentos_diversos.py` (`/api/sst`) | `treinamentos`, `matriz_treinamentos`, `funcionario_treinamentos`, `aso`, `epis`, `funcionario_epis`, `sst_documentos` |
+| Inspeções | `Inspecoes.jsx` | `inspecoes.py` (`/api/inspecoes`) | `inspecao_atividades`, `inspecao_modelos`, `inspecao_modelo_grupos`, `inspecao_modelo_itens`, `inspecoes`, `inspecao_itens`, `inspecao_respostas`, `inspecao_fotos`, `inspecao_assinantes`, `inspecao_sync_ops` |
 | O.S (gestor) | `OrdensServico.jsx` | `os.py` + `apoio_os.py` + `desligamentos_os.py` (`/api/os`) | `ordens_servico`, `os_checklist_*`, `os_apontamentos`, `os_materiais`, `os_fotos`, `os_historico`, `obras`, `equipes`, `equipe_membros`, `produtos`, `os_desligamentos` |
 | O.S (Campo) | `OrdensServico.jsx` (modo campo) | mesmas rotas + `POST /api/os/sincronizar` | + `sync_ops` (idempotência) |
 | Notificações | sino no `App.jsx` | `notificacoes.py` (`/api/notificacoes`) | `notificacoes` |

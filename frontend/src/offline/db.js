@@ -13,7 +13,7 @@
 const DB_NAME = 'munaretto-campo';
 // Incrementar em CADA mudança de schema (stores/índices). Migrações são por
 // bloco no onupgradeneeded (crie o bloco correspondente ao subir a versão).
-const DB_VERSION = 4;
+const DB_VERSION = 5;
 
 const STORES = {
   os: 'os_id',
@@ -24,6 +24,15 @@ const STORES = {
   fotos: 'id_local',
   fotos_cache: 'id',
   meta: 'chave',
+  // Módulo Inspeções (stores próprias; não interferem no Modo Campo de O.S).
+  insp_atividades: 'id',
+  insp_modelos: 'id',
+  insp_obras: 'id',
+  insp_funcionarios: 'id',
+  insp_equipes: 'id',
+  insp_inspecoes: 'id_local',
+  insp_fotos: 'id_local',
+  insp_fotos_cache: 'chave',
 };
 
 let _dbPromise = null;

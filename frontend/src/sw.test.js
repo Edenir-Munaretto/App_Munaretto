@@ -5,7 +5,7 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
 const ORIGEM = 'https://app.test';
-const CACHE_ATUAL = 'munaretto-v5';
+const CACHE_ATUAL = 'munaretto-v6';
 
 function normalizar(req) {
   return typeof req === 'string' ? new URL(req, ORIGEM).href : req.url;

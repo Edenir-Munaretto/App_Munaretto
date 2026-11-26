@@ -18,6 +18,7 @@ import {
   Trash2,
   Wrench,
   ClipboardList,
+  ClipboardCheck,
   Package,
   PackageCheck,
 } from 'lucide-react';
@@ -35,6 +36,7 @@ import DevolucoesCelesc from './pages/DevolucoesCelesc';
 import MateriaisPorCliente from './pages/MateriaisPorCliente';
 import Manutencao from './pages/Manutencao';
 import Sst from './pages/Sst';
+import Inspecoes from './pages/Inspecoes';
 import OrdensServico from './pages/OrdensServico';
 import Configuracoes from './pages/Configuracoes';
 import Login from './pages/Login';
@@ -43,6 +45,7 @@ import { API_URL, apiFetch, getToken, setToken, clearToken, segundosAteExpiracao
 import ModalConfirmacao from './components/ModalConfirmacao';
 import TrocaSenhaObrigatoria from './components/TrocaSenhaObrigatoria';
 import { setModoCampo, contarPendentes, donoPacote } from './offline/offline';
+import { haInspecoesDeOutroUsuario, resumoDadosLocaisInspecoes } from './offline/inspecoes';
 import { limparTudoLocal } from './offline/db';
 import { gravarLocal, gravarSessao, lerLocal, lerSessao, removerLocal, storageDisponivel } from './utils/storage';
 
@@ -59,6 +62,7 @@ const ICONES = {
   materiais: Package,
   manutencao: Wrench,
   sst: ShieldCheck,
+  inspecoes: ClipboardCheck,
   os: ClipboardList,
   configuracoes: Settings,
 };
@@ -76,6 +80,7 @@ const COMPONENTES = {
   materiais: MateriaisPorCliente,
   manutencao: Manutencao,
   sst: Sst,
+  inspecoes: Inspecoes,
   os: OrdensServico,
   configuracoes: Configuracoes,
 };
@@ -492,21 +497,25 @@ function App() {
   };
 
   const handleLogin = async (user) => {
-    const dono = await comTimeout(donoPacote(), 2000);
-    const mesmoDono = !dono || dono.usuario_id == null
-      || String(dono.usuario_id) === String(user?.id);
+    const [dono, outroDonoInspecoes, dadosInspecoes] = await Promise.all([
+      comTimeout(donoPacote(), 2000),
+      comTimeout(haInspecoesDeOutroUsuario(user?.id), 3000),
+      comTimeout(resumoDadosLocaisInspecoes(), 3000),
+    ]);
+    const mesmoDono = (!dono || dono.usuario_id == null
+      || String(dono.usuario_id) === String(user?.id)) && !outroDonoInspecoes;
     if (mesmoDono) {
       aplicarSessaoENavegar(user);
       return true;
     }
-    // Outro usuário no aparelho: pacote/fila/fotos pertencem ao dono anterior.
+    // Outro usuário no aparelho: pacote/fila/fotos/inspeções pertencem ao dono anterior.
     const pend = await comTimeout(contarPendentes(), 4000);
     setLimpezaPendente({
       acao: 'login',
       user,
       donoAnterior: dono?.usuario_nome || dono?.usuario_email || 'outro usuário',
-      operacoes: pend?.operacoes || 0,
-      fotos: pend?.fotos || 0,
+      operacoes: (pend?.operacoes || 0) + (dadosInspecoes?.inspecoes || 0),
+      fotos: (pend?.fotos || 0) + (dadosInspecoes?.fotos || 0),
     });
     return false;
   };
@@ -567,9 +576,13 @@ function App() {
   const tabs = useMemo(() => [
     ...(permissoes.includes('dashboard') ? [{ id: 'dashboard', label: 'Dashboard', icon: LayoutDashboard, component: Dashboard }] : []),
     ...MODULOS
-      // "os_campo" não gera aba própria: quem tem essa permissão vê a MESMA
-      // aba "Controle de O.S" (com a UI restrita às ações de campo).
-      .filter(m => m.id !== 'dashboard' && m.id !== 'os_campo' && (permissoes.includes(m.id) || (m.id === 'os' && permissoes.includes('os_campo'))))
+      // "os_campo" e "inspecoes_campo" não geram abas próprias: quem tem a
+      // permissão de campo vê a MESMA aba do módulo (com a UI restrita).
+      .filter(m => m.id !== 'dashboard' && m.id !== 'os_campo' && m.id !== 'inspecoes_campo' && (
+        permissoes.includes(m.id)
+        || (m.id === 'os' && permissoes.includes('os_campo'))
+        || (m.id === 'inspecoes' && permissoes.includes('inspecoes_campo'))
+      ))
       .map(m => ({
         id: m.id,
         label: m.label,
@@ -603,9 +616,9 @@ function App() {
       aberto={limpezaPendente != null}
       titulo="Entrar com outro usuário neste aparelho?"
       mensagem={limpezaPendente
-        ? `Os dados locais do Modo Campo pertencem a ${limpezaPendente.donoAnterior}. `
+        ? `Os dados locais do Modo Campo e das Inspeções pertencem a ${limpezaPendente.donoAnterior}. `
           + ((limpezaPendente.operacoes || limpezaPendente.fotos)
-            ? `Há ${limpezaPendente.operacoes} operação(ões) e ${limpezaPendente.fotos} foto(s) NÃO sincronizadas que serão perdidas. `
+            ? `Há ${limpezaPendente.operacoes} registro(s) e ${limpezaPendente.fotos} foto(s) locais que serão perdidos. `
             : '')
           + 'Ao entrar com o novo usuário, esses dados serão apagados do dispositivo.'
         : ''}

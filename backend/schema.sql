@@ -1429,3 +1429,247 @@ ALTER TABLE IF EXISTS materiais ENABLE ROW LEVEL SECURITY;
 DROP POLICY IF EXISTS "service_role_full_materiais" ON materiais;
 CREATE POLICY "service_role_full_materiais" ON materiais
     FOR ALL TO service_role USING (true) WITH CHECK (true);
+
+-- ============================================================================
+-- MÓDULO: INSPEÇÕES (checklists configuráveis, campo offline e PDF)
+-- ============================================================================
+
+-- Atividades (ex.: Segurança) — cadastro configurável pelo administrador.
+CREATE TABLE IF NOT EXISTS inspecao_atividades (
+    id SERIAL PRIMARY KEY,
+    nome VARCHAR(120) NOT NULL UNIQUE,
+    ativo BOOLEAN DEFAULT TRUE,
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+);
+
+-- Modelos = "Tipo de Inspeção" (checklist de uma atividade).
+CREATE TABLE IF NOT EXISTS inspecao_modelos (
+    id SERIAL PRIMARY KEY,
+    atividade_id INTEGER NOT NULL REFERENCES inspecao_atividades(id),
+    nome VARCHAR(255) NOT NULL,
+    descricao TEXT,
+    ativo BOOLEAN DEFAULT TRUE,
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE TABLE IF NOT EXISTS inspecao_modelo_grupos (
+    id SERIAL PRIMARY KEY,
+    modelo_id INTEGER NOT NULL REFERENCES inspecao_modelos(id) ON DELETE CASCADE,
+    ordem INTEGER NOT NULL DEFAULT 1,
+    nome VARCHAR(255) NOT NULL,
+    UNIQUE (modelo_id, ordem)
+);
+
+CREATE TABLE IF NOT EXISTS inspecao_modelo_itens (
+    id SERIAL PRIMARY KEY,
+    modelo_id INTEGER NOT NULL REFERENCES inspecao_modelos(id) ON DELETE CASCADE,
+    grupo_id INTEGER NOT NULL REFERENCES inspecao_modelo_grupos(id) ON DELETE CASCADE,
+    ordem INTEGER NOT NULL DEFAULT 1,
+    classificacao VARCHAR(20) NOT NULL,
+    pergunta TEXT NOT NULL,
+    exige_foto BOOLEAN DEFAULT FALSE,
+    ativo BOOLEAN DEFAULT TRUE,
+    UNIQUE (modelo_id, classificacao)
+);
+
+-- Inspeção realizada (snapshot do formulário/modelo no momento do "Iniciar").
+CREATE TABLE IF NOT EXISTS inspecoes (
+    id SERIAL PRIMARY KEY,
+    codigo VARCHAR(20) NOT NULL UNIQUE,
+    atividade_id INTEGER REFERENCES inspecao_atividades(id) ON DELETE SET NULL,
+    atividade_nome VARCHAR(120),
+    modelo_id INTEGER REFERENCES inspecao_modelos(id) ON DELETE SET NULL,
+    modelo_nome VARCHAR(255),
+    obra_id INTEGER REFERENCES obras(id) ON DELETE SET NULL,
+    -- Criador/dono no dispositivo (controle de acesso do técnico).
+    usuario_id INTEGER REFERENCES usuarios(id) ON DELETE SET NULL,
+    inspetor_usuario_id INTEGER REFERENCES usuarios(id) ON DELETE SET NULL,
+    inspetor_nome VARCHAR(255),
+    funcionario_id INTEGER REFERENCES funcionarios(id) ON DELETE SET NULL,
+    funcionario_nome VARCHAR(255),
+    funcionario_cargo VARCHAR(255),
+    equipe_id INTEGER REFERENCES equipes(id) ON DELETE SET NULL,
+    equipe_nome VARCHAR(255),
+    equipe_numero VARCHAR(20),
+    encarregado VARCHAR(255),
+    veiculo VARCHAR(255),
+    setor VARCHAR(255),
+    local_inspecao TEXT,
+    data_inspecao DATE,
+    iniciada_em TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+    finalizada_em TIMESTAMP WITH TIME ZONE,
+    status VARCHAR(20) NOT NULL DEFAULT 'rascunho'
+        CHECK (status IN ('rascunho', 'concluida', 'cancelada')),
+    observacoes TEXT,
+    cancelada_por VARCHAR(255),
+    cancelada_em TIMESTAMP WITH TIME ZONE,
+    motivo_cancelamento TEXT,
+    -- Idempotência do Modo Campo: (dispositivo, id_local) identifica a criação.
+    origem_dispositivo VARCHAR(120),
+    origem_id_local VARCHAR(120),
+    sincronizada_em TIMESTAMP WITH TIME ZONE,
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE UNIQUE INDEX IF NOT EXISTS uq_inspecoes_origem
+    ON inspecoes (origem_dispositivo, origem_id_local)
+    WHERE origem_id_local IS NOT NULL;
+
+-- Itens do checklist = snapshot do modelo (histórico fiel a alterações futuras).
+CREATE TABLE IF NOT EXISTS inspecao_itens (
+    id SERIAL PRIMARY KEY,
+    inspecao_id INTEGER NOT NULL REFERENCES inspecoes(id) ON DELETE CASCADE,
+    modelo_item_id INTEGER REFERENCES inspecao_modelo_itens(id) ON DELETE SET NULL,
+    origem_item_id VARCHAR(120),
+    grupo_ordem INTEGER NOT NULL DEFAULT 1,
+    grupo_nome VARCHAR(255),
+    ordem INTEGER NOT NULL DEFAULT 1,
+    classificacao VARCHAR(20) NOT NULL,
+    pergunta TEXT NOT NULL,
+    exige_foto BOOLEAN DEFAULT FALSE,
+    UNIQUE (inspecao_id, classificacao)
+);
+
+CREATE UNIQUE INDEX IF NOT EXISTS uq_inspecao_itens_origem
+    ON inspecao_itens (inspecao_id, origem_item_id)
+    WHERE origem_item_id IS NOT NULL;
+
+CREATE TABLE IF NOT EXISTS inspecao_respostas (
+    id SERIAL PRIMARY KEY,
+    item_id INTEGER NOT NULL UNIQUE REFERENCES inspecao_itens(id) ON DELETE CASCADE,
+    resposta VARCHAR(20) NOT NULL
+        CHECK (resposta IN ('conforme', 'nao_conforme', 'na')),
+    observacao TEXT,
+    respondido_por VARCHAR(255),
+    geolocalizacao VARCHAR(100),
+    criado_em TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE TABLE IF NOT EXISTS inspecao_fotos (
+    id SERIAL PRIMARY KEY,
+    inspecao_id INTEGER NOT NULL REFERENCES inspecoes(id) ON DELETE CASCADE,
+    item_id INTEGER REFERENCES inspecao_itens(id) ON DELETE SET NULL,
+    nome_original VARCHAR(500) NOT NULL,
+    tamanho_bytes BIGINT NOT NULL,
+    mime_type VARCHAR(100) NOT NULL,
+    bucket_key TEXT NOT NULL UNIQUE,
+    enviado_por VARCHAR(255),
+    geolocalizacao VARCHAR(100),
+    capturado_em TIMESTAMP WITH TIME ZONE,
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE TABLE IF NOT EXISTS inspecao_assinantes (
+    id SERIAL PRIMARY KEY,
+    inspecao_id INTEGER NOT NULL REFERENCES inspecoes(id) ON DELETE CASCADE,
+    funcionario_id INTEGER REFERENCES funcionarios(id) ON DELETE SET NULL,
+    nome VARCHAR(255) NOT NULL,
+    cargo VARCHAR(255),
+    ordem INTEGER NOT NULL DEFAULT 1
+);
+
+-- Registro de entrega das operações offline (idempotência do /inspecoes/sincronizar).
+CREATE TABLE IF NOT EXISTS inspecao_sync_ops (
+    id BIGSERIAL PRIMARY KEY,
+    dispositivo TEXT NOT NULL DEFAULT '',
+    id_local VARCHAR(120) NOT NULL,
+    inspecao_id BIGINT REFERENCES inspecoes(id) ON DELETE SET NULL,
+    tipo VARCHAR(40) NOT NULL,
+    criado_em TIMESTAMP WITH TIME ZONE,
+    payload JSONB NOT NULL DEFAULT '{}'::jsonb,
+    status TEXT NOT NULL DEFAULT 'pendente',
+    resposta JSONB,
+    erro TEXT,
+    usuario_id INTEGER REFERENCES usuarios(id) ON DELETE SET NULL,
+    criado_servidor TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    processando_em TIMESTAMP WITH TIME ZONE,
+    CONSTRAINT inspecao_sync_ops_dispositivo_id_local UNIQUE (dispositivo, id_local)
+);
+
+CREATE INDEX IF NOT EXISTS idx_inspecoes_obra ON inspecoes (obra_id);
+CREATE INDEX IF NOT EXISTS idx_inspecoes_status_data ON inspecoes (status, data_inspecao);
+CREATE INDEX IF NOT EXISTS idx_inspecoes_usuario ON inspecoes (usuario_id);
+CREATE INDEX IF NOT EXISTS idx_inspecao_modelos_atividade ON inspecao_modelos (atividade_id);
+CREATE INDEX IF NOT EXISTS idx_inspecao_modelo_itens_modelo ON inspecao_modelo_itens (modelo_id);
+CREATE INDEX IF NOT EXISTS idx_inspecao_itens_inspecao ON inspecao_itens (inspecao_id);
+CREATE INDEX IF NOT EXISTS idx_inspecao_respostas_item ON inspecao_respostas (item_id);
+CREATE INDEX IF NOT EXISTS idx_inspecao_fotos_inspecao ON inspecao_fotos (inspecao_id);
+CREATE INDEX IF NOT EXISTS idx_inspecao_fotos_item ON inspecao_fotos (item_id);
+CREATE INDEX IF NOT EXISTS idx_inspecao_assinantes_inspecao ON inspecao_assinantes (inspecao_id);
+CREATE INDEX IF NOT EXISTS idx_inspecao_sync_ops_inspecao ON inspecao_sync_ops (inspecao_id, criado_servidor);
+
+DROP TRIGGER IF EXISTS trg_update_inspecao_atividades_updated_at ON inspecao_atividades;
+CREATE TRIGGER trg_update_inspecao_atividades_updated_at
+    BEFORE UPDATE ON inspecao_atividades
+    FOR EACH ROW
+    EXECUTE FUNCTION update_updated_at_column();
+
+DROP TRIGGER IF EXISTS trg_update_inspecao_modelos_updated_at ON inspecao_modelos;
+CREATE TRIGGER trg_update_inspecao_modelos_updated_at
+    BEFORE UPDATE ON inspecao_modelos
+    FOR EACH ROW
+    EXECUTE FUNCTION update_updated_at_column();
+
+DROP TRIGGER IF EXISTS trg_update_inspecoes_updated_at ON inspecoes;
+CREATE TRIGGER trg_update_inspecoes_updated_at
+    BEFORE UPDATE ON inspecoes
+    FOR EACH ROW
+    EXECUTE FUNCTION update_updated_at_column();
+
+ALTER TABLE IF EXISTS inspecao_atividades ENABLE ROW LEVEL SECURITY;
+ALTER TABLE IF EXISTS inspecao_modelos ENABLE ROW LEVEL SECURITY;
+ALTER TABLE IF EXISTS inspecao_modelo_grupos ENABLE ROW LEVEL SECURITY;
+ALTER TABLE IF EXISTS inspecao_modelo_itens ENABLE ROW LEVEL SECURITY;
+ALTER TABLE IF EXISTS inspecoes ENABLE ROW LEVEL SECURITY;
+ALTER TABLE IF EXISTS inspecao_itens ENABLE ROW LEVEL SECURITY;
+ALTER TABLE IF EXISTS inspecao_respostas ENABLE ROW LEVEL SECURITY;
+ALTER TABLE IF EXISTS inspecao_fotos ENABLE ROW LEVEL SECURITY;
+ALTER TABLE IF EXISTS inspecao_assinantes ENABLE ROW LEVEL SECURITY;
+ALTER TABLE IF EXISTS inspecao_sync_ops ENABLE ROW LEVEL SECURITY;
+
+DROP POLICY IF EXISTS "service_role_full_inspecao_atividades" ON inspecao_atividades;
+CREATE POLICY "service_role_full_inspecao_atividades" ON inspecao_atividades
+    FOR ALL TO service_role USING (true) WITH CHECK (true);
+
+DROP POLICY IF EXISTS "service_role_full_inspecao_modelos" ON inspecao_modelos;
+CREATE POLICY "service_role_full_inspecao_modelos" ON inspecao_modelos
+    FOR ALL TO service_role USING (true) WITH CHECK (true);
+
+DROP POLICY IF EXISTS "service_role_full_inspecao_modelo_grupos" ON inspecao_modelo_grupos;
+CREATE POLICY "service_role_full_inspecao_modelo_grupos" ON inspecao_modelo_grupos
+    FOR ALL TO service_role USING (true) WITH CHECK (true);
+
+DROP POLICY IF EXISTS "service_role_full_inspecao_modelo_itens" ON inspecao_modelo_itens;
+CREATE POLICY "service_role_full_inspecao_modelo_itens" ON inspecao_modelo_itens
+    FOR ALL TO service_role USING (true) WITH CHECK (true);
+
+DROP POLICY IF EXISTS "service_role_full_inspecoes" ON inspecoes;
+CREATE POLICY "service_role_full_inspecoes" ON inspecoes
+    FOR ALL TO service_role USING (true) WITH CHECK (true);
+
+DROP POLICY IF EXISTS "service_role_full_inspecao_itens" ON inspecao_itens;
+CREATE POLICY "service_role_full_inspecao_itens" ON inspecao_itens
+    FOR ALL TO service_role USING (true) WITH CHECK (true);
+
+DROP POLICY IF EXISTS "service_role_full_inspecao_respostas" ON inspecao_respostas;
+CREATE POLICY "service_role_full_inspecao_respostas" ON inspecao_respostas
+    FOR ALL TO service_role USING (true) WITH CHECK (true);
+
+DROP POLICY IF EXISTS "service_role_full_inspecao_fotos" ON inspecao_fotos;
+CREATE POLICY "service_role_full_inspecao_fotos" ON inspecao_fotos
+    FOR ALL TO service_role USING (true) WITH CHECK (true);
+
+DROP POLICY IF EXISTS "service_role_full_inspecao_assinantes" ON inspecao_assinantes;
+CREATE POLICY "service_role_full_inspecao_assinantes" ON inspecao_assinantes
+    FOR ALL TO service_role USING (true) WITH CHECK (true);
+
+DROP POLICY IF EXISTS "service_role_full_inspecao_sync_ops" ON inspecao_sync_ops;
+CREATE POLICY "service_role_full_inspecao_sync_ops" ON inspecao_sync_ops
+    FOR ALL TO service_role USING (true) WITH CHECK (true);
+
+-- Atividade inicial (idempotente).
+INSERT INTO inspecao_atividades (nome) VALUES ('Segurança')
+ON CONFLICT (nome) DO NOTHING;

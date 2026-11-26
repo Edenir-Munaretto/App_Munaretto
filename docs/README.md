@@ -16,6 +16,7 @@ Documentos históricos de planejamento/revisão. O **status** indica se já foi 
 
 | Documento | Assunto | Status |
 |---|---|---|
+| [PLANO_MODULO_INSPECOES.md](decisoes/PLANO_MODULO_INSPECOES.md) | Módulo Inspeções: checklists configuráveis, PDF e campo offline | Implementado (nov/2026) |
 | [PLANO_MODO_CAMPO.md](decisoes/PLANO_MODO_CAMPO.md) | Modo Campo offline → pacote contínuo (auto-preparo/refresh) | Implementado |
 | [PLANO_FIX_TELA_BRANCA_PWA.md](decisoes/PLANO_FIX_TELA_BRANCA_PWA.md) | Correção da tela branca do PWA em rede móvel instável | Concluído (set/2026) |
 | [PLANO_SEGURANCA.md](decisoes/PLANO_SEGURANCA.md) | Hardening de segurança (auth, CORS, RLS, rate limit) | Implementado (todas as fases) |

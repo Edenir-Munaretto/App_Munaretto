@@ -601,6 +601,22 @@ def _montar_resumo_obra(db, obra_id: int, status: str = "todas", incluir_fotos: 
         "fim": (max(encerramentos) if encerramentos else (max(aberturas) if aberturas else None)),
     }
 
+    # Inspeções vinculadas à obra (módulo Inspeções): total e concluídas.
+    # A tabela pode não existir em bancos que ainda não rodaram o schema novo:
+    # o resumo da obra não pode quebrar por causa disso.
+    try:
+        inspecoes = _ler_paginado(
+            db.table("inspecoes").select("id, status").eq("obra_id", obra_id)
+        )
+        resumo["inspecoes_total"] = len(inspecoes)
+        resumo["inspecoes_concluidas"] = sum(
+            1 for i in inspecoes if i.get("status") == "concluida"
+        )
+    except Exception:
+        logger.info("Contagem de inspeções indisponível para a obra %s", obra_id)
+        resumo["inspecoes_total"] = 0
+        resumo["inspecoes_concluidas"] = 0
+
     # --- Lista e agregados respeitam o filtro de status.
     def _no_grupo(r: dict) -> bool:
         st = r.get("status")

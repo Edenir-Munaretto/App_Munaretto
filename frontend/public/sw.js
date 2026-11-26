@@ -3,7 +3,7 @@
 // VERSÃO DO CACHE: incremente `CACHE` (ex.: munaretto-v2, v3...) a cada deploy
 // do frontend — o activate remove as versões antigas automaticamente.
 
-const CACHE = 'munaretto-v5';
+const CACHE = 'munaretto-v6';
 const APP_SHELL = ['/', '/index.html', '/manifest.webmanifest', '/logo-munaretto.png', '/boneco-munaretto.png', '/favicon.ico', '/pwa-192.png', '/pwa-512.png'];
 // Orçamento do critério de aceite (abrir em ≤4s): o timeout precisa sobrar
 // margem para o parse do HTML e o primeiro paint depois da resposta.
