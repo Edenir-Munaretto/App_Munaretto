@@ -180,7 +180,11 @@ async function processarInspecao(registroInicial, dispositivo, resumo, onProgres
       await salvarErroSync(registro.id_local, erro.message || 'Erro de conexão ao criar a inspeção.');
       return;
     }
-  } else if (registro.status === 'rascunho' && registro.pendente_sync) {
+  } else if (registro.pendente_sync) {
+    // Importante: envia as respostas ANTES da finalização, mesmo quando a
+    // inspeção já está concluída localmente. Isso cobre o caso em que a
+    // inspeção foi criada no servidor por um sync anterior e só depois foi
+    // preenchida/finalizada no dispositivo.
     try {
       const resultado = await enviarOperacao(
         {

@@ -7,7 +7,7 @@ vi.mock('../api', () => ({
 }));
 
 import { apiFetch } from '../api';
-import { limparTudoLocal } from './db';
+import { dbGet, dbPut, limparTudoLocal } from './db';
 import {
   contarPendentesInspecoes,
   criarInspecaoLocal,
@@ -198,5 +198,60 @@ describe('offline de inspeções', () => {
     const pendentes = await contarPendentesInspecoes();
     expect(pendentes.total).toBe(0);
     vi.unstubAllGlobals();
+  });
+
+  it('envia respostas antes de finalizar uma inspeção já criada no servidor', async () => {
+    const operacoes = [];
+    apiFetch.mockImplementation(async (url, options = {}) => {
+      const corpo = JSON.parse(options.body);
+      const op = corpo.operacoes[0];
+      operacoes.push(op);
+      return {
+        ok: true,
+        status: 200,
+        json: async () => ({
+          resultados: [
+            {
+              ok: true,
+              id_local: op.id_local,
+              inspecao_id: 1,
+              codigo: 'INS-2026-0001',
+            },
+          ],
+        }),
+      };
+    });
+
+    const modelo = {
+      ...MODELO,
+      tipo_resposta: 'sim_nao_na',
+      tipo_servico: 'Guindauto',
+      itens: MODELO.itens.map((item) => ({ ...item, exige_foto: false })),
+    };
+    const registro = await criarInspecaoLocal(formBase({ modelo }));
+    await salvarRespostaLocal(registro.id_local, '1.1', 'sim');
+    await salvarRespostaLocal(registro.id_local, '1.2', 'nao');
+    await finalizarInspecaoLocal(registro.id_local);
+
+    // Simula a inspeção já criada no servidor por um sync anterior, mas ainda
+    // sem as respostas que foram preenchidas depois no dispositivo.
+    const atual = await dbGet('insp_inspecoes', registro.id_local);
+    await dbPut('insp_inspecoes', {
+      ...atual,
+      id_servidor: 1,
+      codigo: 'INS-2026-0001',
+      pendente_sync: true,
+    });
+
+    const resumo = await sincronizarInspecoes();
+    expect(resumo.falhas).toEqual([]);
+    expect(operacoes.map((op) => op.tipo)).toEqual([
+      'salvar_inspecao',
+      'finalizar_inspecao',
+    ]);
+    const respostas = Object.fromEntries(
+      operacoes[0].payload.itens.map((item) => [item.classificacao, item.resposta]),
+    );
+    expect(respostas).toEqual({ '1.1': 'sim', '1.2': 'nao' });
   });
 });

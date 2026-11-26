@@ -436,7 +436,7 @@ export default function EditorInspecao({
                 ? (naoConformes > 0
                   ? `${naoConformes} não conformidade(s) registrada(s).`
                   : 'Nenhuma não conformidade até agora.')
-                : `${respostasNao} resposta(s) “Não” registrada(s).`}
+                : `${respostasNao} resposta(s) marcada(s) como “Não”.`}
             </p>
           </section>
 
