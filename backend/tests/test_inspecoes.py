@@ -425,3 +425,76 @@ def test_modelo_sim_nao_na_aceita_respostas_e_pdf_com_colunas_corretas(
     assert "Guindauto" in texto
     assert "TÉCNICO DE SEGURANÇA DO TRABALHO" in texto
     assert "RESPONSÁVEL EMPRESA" in texto
+
+
+def test_pdf_limita_seis_fotos_por_pagina_e_mantem_ordem_das_secoes():
+    import os
+
+    import pymupdf
+
+    from utils.pdf_inspecao import gerar_pdf_inspecao
+
+    def imagem_png(indice: int) -> bytes:
+        pix = pymupdf.Pixmap(pymupdf.csRGB, pymupdf.IRect(0, 0, 40, 30), 0)
+        pix.set_rect(pix.irect, ((40 + indice * 15) % 255, (90 + indice * 7) % 255, 160))
+        return pix.tobytes("png")
+
+    fotos = {f"foto-{i}": imagem_png(i) for i in range(13)}
+    itens = [
+        {
+            "grupo_ordem": 1,
+            "grupo_nome": "Guindauto",
+            "ordem": i + 1,
+            "classificacao": f"1.{i + 1}",
+            "pergunta": f"Foto de evidência {i + 1}",
+            "resposta": {"resposta": "sim", "observacao": None, "criado_em": "2026-11-27T10:35:00-03:00"},
+            "fotos": [
+                {
+                    "bucket_key": f"foto-{i}",
+                    "mime_type": "image/png",
+                    "capturado_em": "2026-11-27T10:36:00-03:00",
+                }
+            ],
+        }
+        for i in range(13)
+    ]
+    inspecao = {
+        "codigo": "INS-2026-0099",
+        "modelo_nome": "Inspeção de Segurança do Caminhão Guindauto",
+        "atividade_nome": "Segurança",
+        "tipo_servico": "Guindauto",
+        "tipo_resposta": "sim_nao_na",
+        "status": "concluida",
+        "iniciada_em": "2026-11-27T10:30:00-03:00",
+        "inspetor_nome": "Técnico Campo",
+        "encarregado": "João Técnico",
+        "local_inspecao": "Concórdia",
+        "observacoes": "Fotos para conferência.",
+    }
+
+    caminho = gerar_pdf_inspecao(
+        inspecao=inspecao,
+        itens=itens,
+        assinantes=[],
+        baixar_foto=lambda chave: fotos.get(chave),
+    )
+    doc = None
+    try:
+        doc = pymupdf.open(caminho)
+        textos = [pagina.get_text() for pagina in doc]
+        logo_xref = doc[0].get_images(full=True)[0][0]
+        fotos_por_pagina = [
+            len([img for img in pagina.get_images(full=True) if img[0] != logo_xref])
+            for pagina in doc
+        ]
+        assert sum(fotos_por_pagina) == 13
+        assert max(fotos_por_pagina) == 6
+
+        indice_observacoes = next(i for i, texto in enumerate(textos) if "OBSERVAÇÕES" in texto)
+        indice_fotos = next(i for i, texto in enumerate(textos) if "EVIDÊNCIAS FOTOGRÁFICAS" in texto)
+        indice_assinaturas = next(i for i, texto in enumerate(textos) if "ASSINATURAS" in texto)
+        assert indice_observacoes <= indice_fotos <= indice_assinaturas
+    finally:
+        if doc is not None:
+            doc.close()
+        os.remove(caminho)

@@ -289,42 +289,68 @@ def _tabela_checklist(pdf: _PdfInspecao, itens: list[dict], tipo_resposta: str |
             _grupo(item)
 
         numero = item.get("ordem") if config["usar_ordem"] else item.get("classificacao")
-        y0 = pdf.get_y()
-        pdf.set_font("Arial", "", 7.5)
-        pdf.cell(larguras["numero"], altura, f" {_txt(numero)}", border=1)
-        pdf.multi_cell(
-            larguras["pergunta"],
-            5,
-            f" {pergunta}",
-            border=1,
-            new_x="RIGHT",
-            new_y="TOP",
-        )
-        for chave, valor_coluna in zip(("r1", "r2"), config["valores"], strict=True):
-            pdf.cell(
-                larguras[chave],
-                altura,
-                "X" if valor == valor_coluna else "",
-                border=1,
-                align="C",
-            )
-        pdf.cell(larguras["na"], altura, "X" if valor == "na" else "", border=1, align="C")
+        chaves = ["numero", "pergunta", "r1", "r2", "na"]
         if config["mostrar_observacao"]:
-            pdf.multi_cell(
-                larguras["observacao"],
-                5,
-                f" {observacao}",
-                border=1,
-                new_x="RIGHT",
-                new_y="TOP",
-            )
-        pdf.cell(
-            larguras["hora"],
-            altura,
-            _fmt_hora(resposta.get("criado_em")) if resposta else "",
-            border=1,
-            align="C",
-        )
+            chaves.append("observacao")
+        chaves.append("hora")
+
+        y0 = pdf.get_y()
+        x_cursor = pdf.l_margin
+        posicoes = []
+        for chave in chaves:
+            posicoes.append((chave, x_cursor, larguras[chave]))
+            x_cursor += larguras[chave]
+
+        # O texto é desenhado SEM borda e a moldura da linha é desenhada
+        # depois com `rect`. `multi_cell(border=1)` desenharia uma linha
+        # horizontal a cada quebra de texto (o "sublinhado" indesejado).
+        pdf.set_font("Arial", "", 7.5)
+        for chave, x_celula, largura in posicoes:
+            pdf.set_xy(x_celula, y0)
+            if chave == "pergunta":
+                pdf.multi_cell(
+                    largura,
+                    5,
+                    f" {pergunta}",
+                    border=0,
+                    new_x="RIGHT",
+                    new_y="TOP",
+                )
+            elif chave == "observacao":
+                pdf.multi_cell(
+                    largura,
+                    5,
+                    f" {observacao}",
+                    border=0,
+                    new_x="RIGHT",
+                    new_y="TOP",
+                )
+            elif chave == "numero":
+                pdf.cell(largura, altura, f" {_txt(numero)}", border=0, align="L")
+            elif chave in ("r1", "r2"):
+                indice = 0 if chave == "r1" else 1
+                pdf.cell(
+                    largura,
+                    altura,
+                    "X" if valor == config["valores"][indice] else "",
+                    border=0,
+                    align="C",
+                )
+            elif chave == "na":
+                pdf.cell(largura, altura, "X" if valor == "na" else "", border=0, align="C")
+            else:  # hora
+                pdf.cell(
+                    largura,
+                    altura,
+                    _fmt_hora(resposta.get("criado_em")) if resposta else "",
+                    border=0,
+                    align="C",
+                )
+
+        pdf.set_draw_color(15, 23, 42)
+        pdf.set_line_width(0.2)
+        for _, x_celula, largura in posicoes:
+            pdf.rect(x_celula, y0, largura, altura)
         pdf.set_xy(pdf.l_margin, y0 + altura)
 
     respondidos = sum(1 for i in itens if i.get("resposta"))
@@ -371,14 +397,16 @@ def _paginas_fotos(pdf: _PdfInspecao, itens: list[dict], baixar_foto, tipo_respo
         return
 
     COLUNAS = 2
-    FOTOS_POR_PAGINA = 4
     ESPACO_COLUNAS = 4
     larg_celula = (LARGURA_PAGINA - 2 * MARGEM - ESPACO_COLUNAS * (COLUNAS - 1)) / COLUNAS
-    alt_foto = 78
-    passo = 100
+    alt_foto = 58
+    alt_legenda = 14
+    passo_linha = alt_foto + alt_legenda + 4
+    altura_titulo = 11
 
-    def _cabecalho_fotos():
-        pdf.add_page()
+    def _titulo_fotos(nova_pagina: bool):
+        if nova_pagina:
+            pdf.add_page()
         pdf.set_fill_color(15, 23, 42)
         pdf.set_text_color(255, 255, 255)
         pdf.set_font("Arial", "B", 11)
@@ -386,26 +414,28 @@ def _paginas_fotos(pdf: _PdfInspecao, itens: list[dict], baixar_foto, tipo_respo
         pdf.ln(2)
         pdf.set_text_color(15, 23, 42)
 
-    _cabecalho_fotos()
-    topo = pdf.get_y()
+    # Começa logo após as observações quando houver espaço para ao menos uma
+    # linha; caso contrário abre uma página nova.
+    if pdf.will_page_break(altura_titulo + passo_linha):
+        _titulo_fotos(True)
+    else:
+        _titulo_fotos(False)
 
-    for indice, (item, foto) in enumerate(pares):
-        posicao = indice % FOTOS_POR_PAGINA
-        if posicao == 0 and indice > 0:
-            _cabecalho_fotos()
-            topo = pdf.get_y()
-        coluna = posicao % COLUNAS
-        linha = posicao // COLUNAS
-        x = MARGEM + coluna * (larg_celula + ESPACO_COLUNAS)
-        y = topo + linha * passo
-
+    def _desenhar_foto(item: dict, foto: dict, x: float, y: float):
         bytes_foto = baixar_foto(foto.get("bucket_key"))
         if bytes_foto:
             try:
                 caminho = _novo_caminho_temp("inspecao_foto_", _ext_foto(foto.get("mime_type")))
                 with open(caminho, "wb") as arquivo:
                     arquivo.write(bytes_foto)
-                pdf.image(caminho, x, y, w=larg_celula, h=alt_foto)
+                pdf.image(
+                    caminho,
+                    x,
+                    y,
+                    w=larg_celula,
+                    h=alt_foto,
+                    keep_aspect_ratio=True,
+                )
                 os.remove(caminho)
             except Exception:
                 logger.exception("Erro ao embutir foto da inspeção")
@@ -415,32 +445,44 @@ def _paginas_fotos(pdf: _PdfInspecao, itens: list[dict], baixar_foto, tipo_respo
             pdf.text(x + 10, y + 40, "Foto indisponível")
 
         numero = item.get("ordem") if tipo_resposta == "sim_nao_na" else item.get("classificacao")
-        pdf.set_font("Arial", "B", 7.5)
+        legenda = f"{numero or ''} {_txt(item.get('pergunta', ''))}"
+        if len(legenda) > 130:
+            legenda = legenda[:127].rstrip() + "..."
+        pdf.set_font("Arial", "B", 7)
         pdf.set_text_color(15, 23, 42)
-        pdf.set_xy(x, y + alt_foto + 2)
-        pdf.multi_cell(
-            larg_celula,
-            4,
-            f"{numero or ''} {_txt(item.get('pergunta', ''))}",
-            align="L",
-        )
+        pdf.set_xy(x, y + alt_foto + 1)
+        pdf.multi_cell(larg_celula, 3.5, legenda, border=0)
+
         resposta = item.get("resposta") or {}
-        pdf.set_font("Arial", "", 7)
+        pdf.set_font("Arial", "", 6.5)
         pdf.set_text_color(100, 116, 139)
         data_foto = foto.get("capturado_em") or foto.get("created_at")
         gps = foto.get("geolocalizacao") or resposta.get("geolocalizacao") or ""
-        pdf.set_xy(x, y + alt_foto + 10)
+        pdf.set_xy(x, y + alt_foto + 8.5)
         pdf.multi_cell(
             larg_celula,
-            4,
+            3.5,
             f"{_fmt_data_hora(data_foto)}{f'  ·  GPS {gps}' if gps else ''}",
-            align="L",
+            border=0,
         )
         pdf.set_text_color(15, 23, 42)
 
+    for inicio in range(0, len(pares), COLUNAS):
+        if pdf.will_page_break(passo_linha):
+            _titulo_fotos(True)
+        y = pdf.get_y()
+        for coluna, (item, foto) in enumerate(pares[inicio:inicio + COLUNAS]):
+            x = MARGEM + coluna * (larg_celula + ESPACO_COLUNAS)
+            _desenhar_foto(item, foto, x, y)
+        pdf.set_y(y + passo_linha)
+
 
 def _assinaturas(pdf: _PdfInspecao, inspecao: dict, assinantes: list[dict]):
-    pdf.add_page()
+    # Espaço mínimo para título + assinaturas principais + início da tabela.
+    ESPACO_MINIMO = 65
+    if pdf.will_page_break(ESPACO_MINIMO):
+        pdf.add_page()
+
     pdf.set_fill_color(15, 23, 42)
     pdf.set_text_color(255, 255, 255)
     pdf.set_font("Arial", "B", 11)
@@ -477,25 +519,22 @@ def _assinaturas(pdf: _PdfInspecao, inspecao: dict, assinantes: list[dict]):
         if assinante.get("nome") and str(assinante.get("nome")).strip().lower() not in nomes_primarios
     ]
 
-    pdf.set_font("Arial", "B", 8.5)
-    pdf.set_fill_color(241, 245, 249)
-    pdf.set_text_color(71, 85, 105)
-    pdf.cell(120, 7, " NOME DAS PESSOAS PRESENTES", border=1, fill=True)
-    pdf.cell(70, 7, "ASSINATURA", border=1, fill=True, align="C")
-    pdf.ln()
-    pdf.set_text_color(15, 23, 42)
+    def _cabecalho_pessoas():
+        pdf.set_font("Arial", "B", 8.5)
+        pdf.set_fill_color(241, 245, 249)
+        pdf.set_text_color(71, 85, 105)
+        pdf.cell(120, 7, " NOME DAS PESSOAS PRESENTES", border=1, fill=True)
+        pdf.cell(70, 7, "ASSINATURA", border=1, fill=True, align="C")
+        pdf.ln()
+        pdf.set_text_color(15, 23, 42)
+
+    _cabecalho_pessoas()
 
     linhas = extras or [{"nome": "", "cargo": None} for _ in range(4)]
     for assinante in linhas:
         if pdf.will_page_break(8):
             pdf.add_page()
-            pdf.set_font("Arial", "B", 8.5)
-            pdf.set_fill_color(241, 245, 249)
-            pdf.set_text_color(71, 85, 105)
-            pdf.cell(120, 7, " NOME DAS PESSOAS PRESENTES", border=1, fill=True)
-            pdf.cell(70, 7, "ASSINATURA", border=1, fill=True, align="C")
-            pdf.ln()
-            pdf.set_text_color(15, 23, 42)
+            _cabecalho_pessoas()
         nome = _txt(assinante.get("nome") or "")
         cargo = assinante.get("cargo")
         texto = f" {nome}{f' - {_txt(cargo)}' if cargo else ''}" if nome else ""
