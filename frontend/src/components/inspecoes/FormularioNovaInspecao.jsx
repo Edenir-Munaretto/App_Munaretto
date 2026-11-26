@@ -56,6 +56,7 @@ export default function FormularioNovaInspecao({
   const [encarregado, setEncarregado] = useState('');
   const [veiculo, setVeiculo] = useState('');
   const [setor, setSetor] = useState('');
+  const [tipoServico, setTipoServico] = useState('');
   const [inspetor, setInspetor] = useState(usuarioAtual?.nome || '');
   const [observacoes, setObservacoes] = useState('');
   const [assinantesIds, setAssinantesIds] = useState([]);
@@ -78,6 +79,7 @@ export default function FormularioNovaInspecao({
     setEncarregado('');
     setVeiculo('');
     setSetor('');
+    setTipoServico(primeiroModelo?.tipo_servico || '');
     setInspetor(usuarioAtual?.nome || '');
     setObservacoes('');
     setAssinantesIds([]);
@@ -104,6 +106,14 @@ export default function FormularioNovaInspecao({
       setModeloId(String(modelos[0].id));
     }
   }, [modelos, modeloId]);
+
+  // Ao trocar o tipo de inspeção, sugere o Tipo de serviço cadastrado no
+  // modelo (ex.: Guindauto), mantendo o campo editável.
+  useEffect(() => {
+    const modelo = (opcoes?.modelos || []).find((m) => String(m.id) === String(modeloId));
+    if (modelo) setTipoServico(modelo.tipo_servico || '');
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [modeloId]);
 
   if (!aberto) return null;
 
@@ -156,6 +166,7 @@ export default function FormularioNovaInspecao({
         obra: obras.find((o) => String(o.id) === String(obraId)) || null,
         funcionario,
         equipe: equipeSelecionada || null,
+        tipo_servico: tipoServico.trim() || null,
         local_inspecao: local.trim(),
         data_inspecao: data,
         inspetor_nome: inspetor.trim(),
@@ -266,6 +277,15 @@ export default function FormularioNovaInspecao({
             </div>
           </Campo>
 
+          <Campo rotulo="Tipo de serviço" icone={ClipboardList}>
+            <input
+              value={tipoServico}
+              onChange={(e) => setTipoServico(e.target.value)}
+              className={CLASSE_INPUT}
+              placeholder="Ex.: Guindauto"
+            />
+          </Campo>
+
           <Campo rotulo="Funcionário (opcional)" icone={User}>
             <select value={funcionarioId} onChange={(e) => setFuncionarioId(e.target.value)} className={CLASSE_INPUT}>
               <option value="">Sem funcionário específico</option>
@@ -277,7 +297,7 @@ export default function FormularioNovaInspecao({
             </select>
           </Campo>
 
-          <Campo rotulo="Equipe (opcional)" icone={Users}>
+          <Campo rotulo="Equipe inspecionada (opcional)" icone={Users}>
             <div className="flex gap-2">
               <select
                 value={equipeId}

@@ -34,6 +34,8 @@ function payloadCriacao(registro) {
   return {
     atividade_id: registro.atividade_id,
     modelo_id: registro.modelo_id,
+    tipo_resposta: registro.tipo_resposta || 'conforme_nao_conforme_na',
+    tipo_servico: registro.tipo_servico || null,
     obra_id: registro.obra_id,
     funcionario_id: registro.funcionario_id,
     equipe_id: registro.equipe_id,
@@ -74,6 +76,7 @@ function payloadSalvar(registro) {
     encarregado: registro.encarregado,
     veiculo: registro.veiculo,
     setor: registro.setor,
+    tipo_servico: registro.tipo_servico || null,
     inspetor_nome: registro.inspetor_nome,
     itens: (registro.itens || [])
       .filter((item) => item.resposta)

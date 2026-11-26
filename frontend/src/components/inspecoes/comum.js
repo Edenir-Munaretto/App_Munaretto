@@ -7,8 +7,34 @@ export const ROTULO_STATUS = {
 export const ROTULO_RESPOSTA = {
   conforme: 'Conforme',
   nao_conforme: 'Não Conforme',
+  sim: 'Sim',
+  nao: 'Não',
   na: 'N/A',
 };
+
+export const TIPO_RESPOSTA_PADRAO = 'conforme_nao_conforme_na';
+
+export const ROTULOS_TIPO_RESPOSTA = {
+  conforme_nao_conforme_na: 'Conforme / Não Conforme / N/A',
+  sim_nao_na: 'Sim / Não / N/A',
+};
+
+export const RESPOSTAS_POR_TIPO = {
+  conforme_nao_conforme_na: [
+    { valor: 'conforme', rotulo: 'Conforme', tom: 'positivo' },
+    { valor: 'nao_conforme', rotulo: 'Não Conforme', tom: 'negativo' },
+    { valor: 'na', rotulo: 'N/A', tom: 'neutro' },
+  ],
+  sim_nao_na: [
+    { valor: 'sim', rotulo: 'Sim', tom: 'neutro' },
+    { valor: 'nao', rotulo: 'Não', tom: 'neutro' },
+    { valor: 'na', rotulo: 'N/A', tom: 'neutro' },
+  ],
+};
+
+export function respostasDoTipo(tipo) {
+  return RESPOSTAS_POR_TIPO[tipo] || RESPOSTAS_POR_TIPO[TIPO_RESPOSTA_PADRAO];
+}
 
 export const CORES_STATUS = {
   rascunho: 'bg-amber-50 text-amber-700 border-amber-200',

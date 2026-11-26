@@ -2,11 +2,13 @@ import React, { useEffect, useMemo, useRef, useState } from 'react';
 import {
   ArrowLeft, Camera, CheckCircle2, XCircle, MinusCircle, FileDown,
   RefreshCw, Trash2, MapPin, Calendar, User, Users, Truck, Briefcase,
-  Building2, AlertTriangle, Image as ImageIcon, CloudOff,
+  Building2, AlertTriangle, Image as ImageIcon, CloudOff, ClipboardList,
 } from 'lucide-react';
 import { comprimirImagem, mimeFotoPermitido } from '../../utils/imagem';
 import { dataCapturaDaFoto } from '../../utils/fotoData';
 import {
+  TIPO_RESPOSTA_PADRAO,
+  atualizarMetadadosLocal,
   finalizarInspecaoLocal,
   obterInspecaoLocal,
   registrarFotoLocal,
@@ -15,7 +17,29 @@ import {
 } from '../../offline/inspecoes';
 import {
   ROTULO_STATUS, CORES_STATUS, formatarData, formatarDataHora, capturarGeolocalizacao,
+  respostasDoTipo,
 } from './comum';
+
+const ESTILO_RESPOSTA = {
+  positivo: {
+    ativo: 'bg-emerald-600 text-white border-emerald-600',
+    inativo: 'text-emerald-700 border-emerald-200 bg-emerald-50',
+  },
+  negativo: {
+    ativo: 'bg-rose-600 text-white border-rose-600',
+    inativo: 'text-rose-700 border-rose-200 bg-rose-50',
+  },
+  neutro: {
+    ativo: 'bg-slate-700 text-white border-slate-700',
+    inativo: 'text-slate-600 border-slate-200 bg-slate-50',
+  },
+};
+
+function iconeDaResposta(opcao) {
+  if (opcao.valor === 'conforme' || opcao.valor === 'sim') return CheckCircle2;
+  if (opcao.valor === 'nao_conforme' || opcao.valor === 'nao') return XCircle;
+  return MinusCircle;
+}
 
 function InfoLinha({ icone: Icone, rotulo, valor }) {
   if (!valor) return null;
@@ -30,7 +54,17 @@ function InfoLinha({ icone: Icone, rotulo, valor }) {
   );
 }
 
-function ItemChecklist({ item, permitidoEditar, onResposta, onObservacao, onFoto, onRemoverFoto }) {
+function ItemChecklist({
+  item,
+  permitidoEditar,
+  permiteObservacao,
+  opcoesResposta,
+  tipoResposta,
+  onResposta,
+  onObservacao,
+  onFoto,
+  onRemoverFoto,
+}) {
   const [obs, setObs] = useState(item.observacao || '');
   const [enviandoFoto, setEnviandoFoto] = useState(false);
   const inputFoto = useRef(null);
@@ -52,18 +86,18 @@ function ItemChecklist({ item, permitidoEditar, onResposta, onObservacao, onFoto
     }
   };
 
-  const botoes = [
-    { valor: 'conforme', rotulo: 'Conforme', icone: CheckCircle2, ativo: 'bg-emerald-600 text-white border-emerald-600', inativo: 'text-emerald-700 border-emerald-200 bg-emerald-50' },
-    { valor: 'nao_conforme', rotulo: 'Não Conforme', icone: XCircle, ativo: 'bg-rose-600 text-white border-rose-600', inativo: 'text-rose-700 border-rose-200 bg-rose-50' },
-    { valor: 'na', rotulo: 'N/A', icone: MinusCircle, ativo: 'bg-slate-700 text-white border-slate-700', inativo: 'text-slate-600 border-slate-200 bg-slate-50' },
-  ];
+  const botoes = (opcoesResposta || []).map((opcao) => ({
+    ...opcao,
+    icone: iconeDaResposta(opcao),
+    ...(ESTILO_RESPOSTA[opcao.tom] || ESTILO_RESPOSTA.neutro),
+  }));
 
   return (
     <div className="rounded-2xl border border-slate-200 bg-white p-3.5 space-y-3 shadow-sm">
       <div className="flex items-start justify-between gap-2">
         <div className="flex items-start gap-2 min-w-0">
           <span className="shrink-0 rounded-lg bg-slate-900 text-white text-[10px] font-extrabold px-2 py-1">
-            {item.classificacao}
+            {tipoResposta === 'sim_nao_na' ? item.ordem : item.classificacao}
           </span>
           <p className="text-sm font-semibold text-slate-800 leading-snug">{item.pergunta}</p>
         </div>
@@ -91,22 +125,24 @@ function ItemChecklist({ item, permitidoEditar, onResposta, onObservacao, onFoto
         ))}
       </div>
 
-      <div>
-        <label className="block text-[10px] font-extrabold uppercase tracking-wider text-slate-400 mb-1">
-          Observação {item.resposta === 'nao_conforme' ? '(obrigatória)' : '(opcional)'}
-        </label>
-        <textarea
-          value={obs}
-          onChange={(e) => setObs(e.target.value)}
-          onBlur={() => {
-            if (permitidoEditar && obs !== (item.observacao || '')) onObservacao(item, obs);
-          }}
-          readOnly={!permitidoEditar}
-          rows={2}
-          className="w-full rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-xs text-slate-700 outline-none focus:border-primary-400 focus:ring-2 focus:ring-primary-100 resize-y"
-          placeholder="Descreva a constatação..."
-        />
-      </div>
+      {permiteObservacao && (
+        <div>
+          <label className="block text-[10px] font-extrabold uppercase tracking-wider text-slate-400 mb-1">
+            Observação {item.resposta === 'nao_conforme' ? '(obrigatória)' : '(opcional)'}
+          </label>
+          <textarea
+            value={obs}
+            onChange={(e) => setObs(e.target.value)}
+            onBlur={() => {
+              if (permitidoEditar && obs !== (item.observacao || '')) onObservacao(item, obs);
+            }}
+            readOnly={!permitidoEditar}
+            rows={2}
+            className="w-full rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-xs text-slate-700 outline-none focus:border-primary-400 focus:ring-2 focus:ring-primary-100 resize-y"
+            placeholder="Descreva a constatação..."
+          />
+        </div>
+      )}
 
       <div className="space-y-2">
         {(item.fotos || []).length > 0 && (
@@ -189,6 +225,7 @@ export default function EditorInspecao({
 }) {
   const [dados, setDados] = useState(inspecao);
   const [finalizando, setFinalizando] = useState(false);
+  const [obsGeral, setObsGeral] = useState(inspecao.observacoes || '');
 
   const recarregar = async () => {
     const local = await obterInspecaoLocal(inspecao.id_local);
@@ -199,7 +236,9 @@ export default function EditorInspecao({
   useEffect(() => {
     let ativo = true;
     obterInspecaoLocal(inspecao.id_local).then((local) => {
-      if (ativo && local) setDados(local);
+      if (!ativo || !local) return;
+      setDados(local);
+      setObsGeral(local.observacoes || '');
     });
     return () => { ativo = false; };
   }, [inspecao.id_local, inspecao.atualizado_em]);
@@ -224,7 +263,11 @@ export default function EditorInspecao({
   const total = dados.itens?.length || 0;
   const respondidos = (dados.itens || []).filter((i) => i.resposta).length;
   const naoConformes = (dados.itens || []).filter((i) => i.resposta === 'nao_conforme').length;
+  const respostasNao = (dados.itens || []).filter((i) => i.resposta === 'nao').length;
   const editavel = podeEditar && dados.status === 'rascunho';
+  const tipoResposta = dados.tipo_resposta || TIPO_RESPOSTA_PADRAO;
+  const opcoesResposta = respostasDoTipo(tipoResposta);
+  const permiteObservacaoItem = tipoResposta === 'conforme_nao_conforme_na';
 
   const responder = async (item, resposta, observacao) => {
     try {
@@ -272,10 +315,23 @@ export default function EditorInspecao({
     }
   };
 
+  const salvarObservacoes = async () => {
+    if (!editavel || obsGeral === (dados.observacoes || '')) return;
+    try {
+      await atualizarMetadadosLocal(dados.id_local, { observacoes: obsGeral.trim() || null });
+      await recarregar();
+    } catch (erro) {
+      mostrarToast?.(erro.message || 'Erro ao salvar as observações.', 'error');
+    }
+  };
+
   const finalizar = async () => {
     if (finalizando) return;
     setFinalizando(true);
     try {
+      if (editavel && obsGeral !== (dados.observacoes || '')) {
+        await salvarObservacoes();
+      }
       await finalizarInspecaoLocal(dados.id_local);
       await recarregar();
       mostrarToast?.('Inspeção finalizada. Sincronize para enviar ao servidor.');
@@ -349,9 +405,10 @@ export default function EditorInspecao({
               <InfoLinha icone={Calendar} rotulo="Data / hora" valor={formatarDataHora(dados.iniciada_em)} />
               <InfoLinha icone={User} rotulo="Inspetor" valor={dados.inspetor_nome} />
               <InfoLinha icone={Building2} rotulo="Obra" valor={dados.obra_nome || 'Sem vínculo'} />
+              <InfoLinha icone={ClipboardList} rotulo="Tipo de serviço" valor={dados.tipo_servico} />
               <InfoLinha icone={MapPin} rotulo="Local" valor={dados.local_inspecao} />
               <InfoLinha icone={User} rotulo="Funcionário" valor={dados.funcionario_nome} />
-              <InfoLinha icone={Users} rotulo="Equipe" valor={dados.equipe_nome} />
+              <InfoLinha icone={Users} rotulo="Equipe inspecionada" valor={dados.equipe_nome} />
               <InfoLinha icone={User} rotulo="Encarregado" valor={dados.encarregado} />
               <InfoLinha icone={Truck} rotulo="Veículo" valor={dados.veiculo} />
               <InfoLinha icone={Briefcase} rotulo="Setor" valor={dados.setor} />
@@ -375,7 +432,11 @@ export default function EditorInspecao({
               />
             </div>
             <p className="mt-2 text-[11px] text-slate-400">
-              {naoConformes > 0 ? `${naoConformes} não conformidade(s) registrada(s).` : 'Nenhuma não conformidade até agora.'}
+              {permiteObservacaoItem
+                ? (naoConformes > 0
+                  ? `${naoConformes} não conformidade(s) registrada(s).`
+                  : 'Nenhuma não conformidade até agora.')
+                : `${respostasNao} resposta(s) “Não” registrada(s).`}
             </p>
           </section>
 
@@ -389,6 +450,9 @@ export default function EditorInspecao({
                   key={item.item_local_id || `${item.grupo_ordem}-${item.classificacao}`}
                   item={item}
                   permitidoEditar={editavel}
+                  permiteObservacao={permiteObservacaoItem}
+                  opcoesResposta={opcoesResposta}
+                  tipoResposta={tipoResposta}
                   onResposta={responder}
                   onObservacao={salvarObservacao}
                   onFoto={adicionarFoto}
@@ -403,6 +467,21 @@ export default function EditorInspecao({
               Este modelo não possui itens. Edite o modelo antes de iniciar novas inspeções.
             </div>
           )}
+
+          <section className="rounded-2xl border border-slate-200 bg-white p-4">
+            <label className="block text-xs font-extrabold uppercase tracking-wider text-slate-500 mb-2">
+              Observações da inspeção
+            </label>
+            <textarea
+              value={obsGeral}
+              onChange={(e) => setObsGeral(e.target.value)}
+              onBlur={salvarObservacoes}
+              readOnly={!editavel}
+              rows={4}
+              className="w-full rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-xs text-slate-700 outline-none focus:border-primary-400 focus:ring-2 focus:ring-primary-100 resize-y read-only:opacity-80"
+              placeholder="Registre observações, não conformidades e demais informações da inspeção..."
+            />
+          </section>
         </div>
       </div>
 

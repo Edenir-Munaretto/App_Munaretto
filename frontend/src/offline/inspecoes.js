@@ -14,9 +14,16 @@ const MAX_FOTOS_CACHE_POR_INSP = 40;
 const MAX_FOTOS_CACHE_TOTAL = 300;
 const TTL_FOTOS_CACHE_MS = 14 * 24 * 60 * 60 * 1000;
 
+export const TIPO_RESPOSTA_PADRAO = 'conforme_nao_conforme_na';
+export const RESPOSTAS_POR_TIPO = {
+  conforme_nao_conforme_na: ['conforme', 'nao_conforme', 'na'],
+  sim_nao_na: ['sim', 'nao', 'na'],
+};
 const LABEL_RESPOSTA = {
   conforme: 'Conforme',
   nao_conforme: 'Não Conforme',
+  sim: 'Sim',
+  nao: 'Não',
   na: 'N/A',
 };
 
@@ -226,6 +233,8 @@ export function adaptarInspecaoServidor(detalhe) {
     atividade_nome: insp.atividade_nome,
     modelo_id: insp.modelo_id,
     modelo_nome: insp.modelo_nome,
+    tipo_resposta: insp.tipo_resposta || TIPO_RESPOSTA_PADRAO,
+    tipo_servico: insp.tipo_servico || '',
     obra_id: insp.obra_id,
     obra_nome: insp.obra_nome || detalhe.obra?.nome || '',
     local_inspecao: insp.local_inspecao || '',
@@ -419,6 +428,8 @@ export async function criarInspecaoLocal(form) {
     atividade_nome: form.atividade?.nome || '',
     modelo_id: modelo.id,
     modelo_nome: modelo.nome,
+    tipo_resposta: modelo.tipo_resposta || TIPO_RESPOSTA_PADRAO,
+    tipo_servico: (form.tipo_servico || modelo.tipo_servico || '').trim() || null,
     obra_id: form.obra?.id ?? null,
     obra_nome: _nomeObra(form.obra),
     local_inspecao: form.local_inspecao,
@@ -476,6 +487,10 @@ export async function salvarRespostaLocal(idLocal, classificacao, resposta, obse
   const registro = await dbGet('insp_inspecoes', idLocal);
   if (!registro) throw new Error('Inspeção local não encontrada.');
   if (registro.status !== 'rascunho') throw new Error('A inspeção já foi encerrada.');
+  const tipo = registro.tipo_resposta || TIPO_RESPOSTA_PADRAO;
+  if (!RESPOSTAS_POR_TIPO[tipo]?.includes(resposta)) {
+    throw new Error(`Resposta inválida para o formato ${tipo}.`);
+  }
   const itens = (registro.itens || []).map((item) =>
     item.classificacao === classificacao
       ? {
@@ -534,6 +549,7 @@ export async function removerFotoLocal(idFoto) {
 }
 
 export function pendenciasLocais(registro) {
+  const tipo = registro.tipo_resposta || TIPO_RESPOSTA_PADRAO;
   const pendencias = [];
   for (const item of registro.itens || []) {
     const rotulo = `${item.classificacao} ${item.pergunta}`.trim();
@@ -541,7 +557,11 @@ export function pendenciasLocais(registro) {
       pendencias.push(`${rotulo}: sem resposta`);
       continue;
     }
-    if (item.resposta === 'nao_conforme' && !(item.observacao || '').trim()) {
+    if (
+      tipo === 'conforme_nao_conforme_na'
+      && item.resposta === 'nao_conforme'
+      && !(item.observacao || '').trim()
+    ) {
       pendencias.push(`${rotulo}: observação obrigatória para Não Conforme`);
     }
     if (item.exige_foto && item.resposta !== 'na' && !(item.fotos || []).length) {

@@ -36,7 +36,15 @@ def _seed_base(db_fake):
     )
     db_fake._dados["inspecao_atividades"].append({"id": 1, "nome": "Segurança", "ativo": True})
     db_fake._dados["inspecao_modelos"].append(
-        {"id": 1, "atividade_id": 1, "nome": "Inspeção de Segurança", "ativo": True, "descricao": None}
+        {
+            "id": 1,
+            "atividade_id": 1,
+            "nome": "Inspeção de Segurança",
+            "ativo": True,
+            "descricao": None,
+            "tipo_resposta": "conforme_nao_conforme_na",
+            "tipo_servico": None,
+        }
     )
     db_fake._dados["inspecao_modelo_grupos"].append(
         {"id": 1, "modelo_id": 1, "ordem": 1, "nome": "Verificações"}
@@ -323,3 +331,97 @@ def test_criacao_exige_local(inspecoes_campo_client, db_fake, campo):
     payload.pop(campo, None)
     resp = inspecoes_campo_client.post("/api/inspecoes/", json=payload)
     assert resp.status_code == 422
+
+
+def _seed_modelo_sim_nao(db_fake):
+    db_fake._dados["inspecao_modelos"].append(
+        {
+            "id": 2,
+            "atividade_id": 1,
+            "nome": "Inspeção de Segurança do Caminhão Guindauto",
+            "ativo": True,
+            "descricao": "Checklist do SESMT",
+            "tipo_resposta": "sim_nao_na",
+            "tipo_servico": "Guindauto",
+        }
+    )
+    db_fake._dados["inspecao_modelo_grupos"].append(
+        {"id": 2, "modelo_id": 2, "ordem": 1, "nome": "Guindauto"}
+    )
+    db_fake._dados["inspecao_modelo_itens"].extend(
+        [
+            {
+                "id": 3,
+                "modelo_id": 2,
+                "grupo_id": 2,
+                "ordem": 1,
+                "classificacao": "1.1",
+                "pergunta": "Operador possui certificado?",
+                "exige_foto": False,
+                "ativo": True,
+            },
+            {
+                "id": 4,
+                "modelo_id": 2,
+                "grupo_id": 2,
+                "ordem": 2,
+                "classificacao": "1.2",
+                "pergunta": "As lanças apresentam rachaduras?",
+                "exige_foto": False,
+                "ativo": True,
+            },
+        ]
+    )
+
+
+def test_modelo_sim_nao_na_aceita_respostas_e_pdf_com_colunas_corretas(
+    inspecoes_campo_client, db_fake
+):
+    import pymupdf
+
+    _seed_base(db_fake)
+    _seed_modelo_sim_nao(db_fake)
+    resp = inspecoes_campo_client.post(
+        "/api/inspecoes/",
+        json=_payload_inspecao(modelo_id=2),
+    )
+    assert resp.status_code == 201, resp.text
+    detalhe = resp.json()
+    assert detalhe["inspecao"]["tipo_resposta"] == "sim_nao_na"
+    assert detalhe["inspecao"]["tipo_servico"] == "Guindauto"
+    inspecao_id = detalhe["inspecao"]["id"]
+    itens = {item["classificacao"]: item["id"] for item in detalhe["itens"]}
+
+    # O formato Sim/Não/N/A não aceita "conforme".
+    resp = inspecoes_campo_client.put(
+        f"/api/inspecoes/{inspecao_id}/respostas/{itens['1.1']}",
+        json={"resposta": "conforme"},
+    )
+    assert resp.status_code == 400
+
+    resp = inspecoes_campo_client.put(
+        f"/api/inspecoes/{inspecao_id}/respostas/{itens['1.1']}",
+        json={"resposta": "sim"},
+    )
+    assert resp.status_code == 200, resp.text
+    resp = inspecoes_campo_client.put(
+        f"/api/inspecoes/{inspecao_id}/respostas/{itens['1.2']}",
+        json={"resposta": "nao"},
+    )
+    assert resp.status_code == 200, resp.text
+
+    # "Não" em pergunta negativa não é não conformidade e não exige observação.
+    resp = inspecoes_campo_client.post(f"/api/inspecoes/{inspecao_id}/finalizar")
+    assert resp.status_code == 200, resp.text
+    assert resp.json()["inspecao"]["status"] == "concluida"
+
+    resp = inspecoes_campo_client.get(f"/api/inspecoes/{inspecao_id}/pdf")
+    assert resp.status_code == 200, resp.text
+    doc = pymupdf.open(stream=resp.content, filetype="pdf")
+    texto = "\n".join(pagina.get_text() for pagina in doc)
+    assert "Sim" in texto
+    assert "Não" in texto
+    assert "Tipo de serviço" in texto
+    assert "Guindauto" in texto
+    assert "TÉCNICO DE SEGURANÇA DO TRABALHO" in texto
+    assert "RESPONSÁVEL EMPRESA" in texto

@@ -26,8 +26,9 @@ from storage import bucket, get_s3_client
 from supabase_client import get_supabase
 from utils.date_helpers import parse_data
 from utils.inspecao_helpers import (
-    RESPOSTAS_VALIDAS,
     ROTULOS_RESPOSTA,
+    TIPO_RESPOSTA_PADRAO,
+    TIPOS_RESPOSTA,
     atualizar_inspecao,
     buscar_inspecao,
     criar_inspecao,
@@ -36,6 +37,7 @@ from utils.inspecao_helpers import (
     garantir_acesso_inspecao,
     itens_com_respostas,
     modelo_completo,
+    normalizar_tipo_resposta,
     resumo_inspecao,
 )
 from utils.uploads import ler_upload_limitado_async, nome_arquivo_seguro, validar_magia_documento
@@ -105,6 +107,11 @@ class ModeloIn(BaseModel):
     atividade_id: int
     nome: str = Field(..., min_length=2, max_length=255)
     descricao: str | None = None
+    tipo_resposta: str = Field(
+        TIPO_RESPOSTA_PADRAO,
+        description="conforme_nao_conforme_na | sim_nao_na",
+    )
+    tipo_servico: str | None = Field(None, max_length=255)
     ativo: bool = True
     grupos: list[ModeloGrupoIn] = Field(default_factory=list)
 
@@ -114,6 +121,20 @@ class ModeloIn(BaseModel):
         valor = str(valor or "").strip()
         if not valor:
             raise ValueError("Informe o nome do modelo.")
+        return valor
+
+    @field_validator("tipo_resposta")
+    @classmethod
+    def _validar_tipo_resposta(cls, valor):
+        if normalizar_tipo_resposta(valor) != str(valor or "").strip():
+            raise ValueError("Formato de resposta inválido.")
+        return normalizar_tipo_resposta(valor)
+
+    @field_validator("tipo_servico")
+    @classmethod
+    def _normalizar_tipo_servico(cls, valor):
+        if isinstance(valor, str):
+            return valor.strip() or None
         return valor
 
 
@@ -147,6 +168,8 @@ class InspecaoIn(BaseModel):
     encarregado: str | None = Field(None, max_length=255)
     veiculo: str | None = Field(None, max_length=255)
     setor: str | None = Field(None, max_length=255)
+    tipo_resposta: str | None = None
+    tipo_servico: str | None = Field(None, max_length=255)
     local_inspecao: str = Field(..., min_length=2, max_length=2000)
     data_inspecao: str | None = None
     iniciada_em: str | None = None
@@ -177,6 +200,7 @@ class SalvarInspecaoIn(BaseModel):
     encarregado: str | None = Field(None, max_length=255)
     veiculo: str | None = Field(None, max_length=255)
     setor: str | None = Field(None, max_length=255)
+    tipo_servico: str | None = Field(None, max_length=255)
     inspetor_nome: str | None = Field(None, max_length=255)
     itens: list[ItemSalvarIn] = Field(default_factory=list)
 
@@ -503,13 +527,18 @@ def listar_opcoes(db=Depends(get_supabase)):
             }
             for e in equipes_raw
         ]
+        respostas_por_tipo = {
+            tipo: [{"valor": valor, "rotulo": ROTULOS_RESPOSTA[valor]} for valor in valores]
+            for tipo, valores in TIPOS_RESPOSTA.items()
+        }
         return {
             "atividades": atividades,
             "modelos": modelos,
             "obras": obras,
             "funcionarios": funcionarios,
             "equipes": equipes,
-            "respostas": [{"valor": valor, "rotulo": ROTULOS_RESPOSTA[valor]} for valor in RESPOSTAS_VALIDAS],
+            "respostas_por_tipo": respostas_por_tipo,
+            "respostas": respostas_por_tipo["conforme_nao_conforme_na"],
         }
     except HTTPException:
         raise
@@ -672,6 +701,8 @@ def criar_modelo(payload: ModeloIn, db=Depends(get_supabase)):
                 "atividade_id": payload.atividade_id,
                 "nome": payload.nome,
                 "descricao": payload.descricao,
+                "tipo_resposta": payload.tipo_resposta,
+                "tipo_servico": payload.tipo_servico,
                 "ativo": payload.ativo,
             }
         ).execute()
@@ -703,6 +734,8 @@ def atualizar_modelo(modelo_id: int, payload: ModeloIn, db=Depends(get_supabase)
                 "atividade_id": payload.atividade_id,
                 "nome": payload.nome,
                 "descricao": payload.descricao,
+                "tipo_resposta": payload.tipo_resposta,
+                "tipo_servico": payload.tipo_servico,
                 "ativo": payload.ativo,
             }
         ).eq("id", modelo_id).execute()
@@ -1036,9 +1069,14 @@ def responder_item(
         )
         if not item:
             raise HTTPException(status_code=404, detail="Item da inspeção não encontrado.")
+        tipo_resposta = normalizar_tipo_resposta(inspecao.get("tipo_resposta"))
         resposta = payload.resposta.strip().lower()
-        if resposta not in RESPOSTAS_VALIDAS:
-            raise HTTPException(status_code=400, detail="Resposta inválida. Use conforme, nao_conforme ou na.")
+        if resposta not in TIPOS_RESPOSTA[tipo_resposta]:
+            esperado = ", ".join(TIPOS_RESPOSTA[tipo_resposta])
+            raise HTTPException(
+                status_code=400,
+                detail=f"Resposta inválida para este modelo. Use: {esperado}.",
+            )
         db.table("inspecao_respostas").upsert(
             {
                 "item_id": item_id,

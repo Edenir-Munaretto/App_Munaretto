@@ -5,6 +5,7 @@ import {
 import { API_URL, apiFetch, erroDaResposta } from '../../api';
 import { lerOpcoesLocais } from '../../offline/inspecoes';
 import ModalConfirmacao from '../ModalConfirmacao';
+import { ROTULOS_TIPO_RESPOSTA, TIPO_RESPOSTA_PADRAO } from './comum';
 
 const CLASSE_INPUT =
   'w-full min-h-10 rounded-xl border border-slate-300 bg-white px-3 py-2 text-sm text-slate-800 outline-none focus:border-primary-500 focus:ring-2 focus:ring-primary-100';
@@ -15,6 +16,8 @@ function novoModeloEditor() {
     atividade_id: '',
     nome: '',
     descricao: '',
+    tipo_resposta: TIPO_RESPOSTA_PADRAO,
+    tipo_servico: '',
     ativo: true,
     grupos: [
       {
@@ -42,6 +45,8 @@ function modeloParaEditor(modelo, grupos = [], itens = []) {
     atividade_id: modelo?.atividade_id ? String(modelo.atividade_id) : '',
     nome: modelo?.nome || '',
     descricao: modelo?.descricao || '',
+    tipo_resposta: modelo?.tipo_resposta || TIPO_RESPOSTA_PADRAO,
+    tipo_servico: modelo?.tipo_servico || '',
     ativo: modelo?.ativo !== false,
     grupos: gruposOrdenados.map((grupo) => ({
       ordem: grupo.ordem || 1,
@@ -278,6 +283,8 @@ export default function ModelosInspecao({ online, mostrarToast, onAtualizar }) {
           atividade_id: Number(editor.atividade_id),
           nome: editor.nome.trim(),
           descricao: editor.descricao?.trim() || null,
+          tipo_resposta: editor.tipo_resposta || TIPO_RESPOSTA_PADRAO,
+          tipo_servico: editor.tipo_servico?.trim() || null,
           ativo: !!editor.ativo,
           grupos,
         }),
@@ -396,6 +403,8 @@ export default function ModelosInspecao({ online, mostrarToast, onAtualizar }) {
                     </div>
                     <p className="text-[11px] text-slate-400">
                       {atividade?.nome || 'Atividade removida'} · {(modelo.itens || []).length} item(ns)
+                      {' · '}{ROTULOS_TIPO_RESPOSTA[modelo.tipo_resposta] || ROTULOS_TIPO_RESPOSTA[TIPO_RESPOSTA_PADRAO]}
+                      {modelo.tipo_servico ? ` · ${modelo.tipo_servico}` : ''}
                     </p>
                   </div>
                   <button
@@ -460,6 +469,29 @@ export default function ModelosInspecao({ online, mostrarToast, onAtualizar }) {
                     onChange={(e) => setEditor({ ...editor, nome: e.target.value })}
                     className={CLASSE_INPUT}
                     placeholder="Ex.: Inspeção de segurança"
+                  />
+                </label>
+              </div>
+              <div className="grid sm:grid-cols-2 gap-3">
+                <label className="block">
+                  <span className="text-xs font-bold text-slate-600">Formato de resposta</span>
+                  <select
+                    value={editor.tipo_resposta || TIPO_RESPOSTA_PADRAO}
+                    onChange={(e) => setEditor({ ...editor, tipo_resposta: e.target.value })}
+                    className={CLASSE_INPUT}
+                  >
+                    {Object.entries(ROTULOS_TIPO_RESPOSTA).map(([valor, rotulo]) => (
+                      <option key={valor} value={valor}>{rotulo}</option>
+                    ))}
+                  </select>
+                </label>
+                <label className="block">
+                  <span className="text-xs font-bold text-slate-600">Tipo de serviço</span>
+                  <input
+                    value={editor.tipo_servico || ''}
+                    onChange={(e) => setEditor({ ...editor, tipo_servico: e.target.value })}
+                    className={CLASSE_INPUT}
+                    placeholder="Ex.: Guindauto"
                   />
                 </label>
               </div>

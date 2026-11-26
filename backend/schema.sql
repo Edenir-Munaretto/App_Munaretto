@@ -1449,10 +1449,32 @@ CREATE TABLE IF NOT EXISTS inspecao_modelos (
     atividade_id INTEGER NOT NULL REFERENCES inspecao_atividades(id),
     nome VARCHAR(255) NOT NULL,
     descricao TEXT,
+    -- Formato das respostas do checklist:
+    --   conforme_nao_conforme_na | sim_nao_na
+    tipo_resposta VARCHAR(30) NOT NULL DEFAULT 'conforme_nao_conforme_na'
+        CHECK (tipo_resposta IN ('conforme_nao_conforme_na', 'sim_nao_na')),
+    -- Texto exibido como "Tipo de serviço" no formulário/PDF (ex.: Guindauto).
+    tipo_servico VARCHAR(255),
     ativo BOOLEAN DEFAULT TRUE,
     created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
 );
+
+ALTER TABLE IF EXISTS inspecao_modelos
+    ADD COLUMN IF NOT EXISTS tipo_resposta VARCHAR(30) NOT NULL DEFAULT 'conforme_nao_conforme_na';
+ALTER TABLE IF EXISTS inspecao_modelos
+    ADD COLUMN IF NOT EXISTS tipo_servico VARCHAR(255);
+
+DO $$
+BEGIN
+    IF NOT EXISTS (
+        SELECT 1 FROM pg_constraint WHERE conname = 'inspecao_modelos_tipo_resposta_check'
+    ) THEN
+        ALTER TABLE inspecao_modelos
+            ADD CONSTRAINT inspecao_modelos_tipo_resposta_check
+            CHECK (tipo_resposta IN ('conforme_nao_conforme_na', 'sim_nao_na'));
+    END IF;
+END $$;
 
 CREATE TABLE IF NOT EXISTS inspecao_modelo_grupos (
     id SERIAL PRIMARY KEY,
@@ -1482,6 +1504,10 @@ CREATE TABLE IF NOT EXISTS inspecoes (
     atividade_nome VARCHAR(120),
     modelo_id INTEGER REFERENCES inspecao_modelos(id) ON DELETE SET NULL,
     modelo_nome VARCHAR(255),
+    -- Snapshot do formato de resposta e do tipo de serviço do modelo.
+    tipo_resposta VARCHAR(30) NOT NULL DEFAULT 'conforme_nao_conforme_na'
+        CHECK (tipo_resposta IN ('conforme_nao_conforme_na', 'sim_nao_na')),
+    tipo_servico VARCHAR(255),
     obra_id INTEGER REFERENCES obras(id) ON DELETE SET NULL,
     -- Criador/dono no dispositivo (controle de acesso do técnico).
     usuario_id INTEGER REFERENCES usuarios(id) ON DELETE SET NULL,
@@ -1540,13 +1566,38 @@ CREATE UNIQUE INDEX IF NOT EXISTS uq_inspecao_itens_origem
 CREATE TABLE IF NOT EXISTS inspecao_respostas (
     id SERIAL PRIMARY KEY,
     item_id INTEGER NOT NULL UNIQUE REFERENCES inspecao_itens(id) ON DELETE CASCADE,
+    -- Aceita os dois formatos (a validação de qual usar é feita no backend,
+    -- conforme o tipo_resposta da inspeção).
     resposta VARCHAR(20) NOT NULL
-        CHECK (resposta IN ('conforme', 'nao_conforme', 'na')),
+        CHECK (resposta IN ('conforme', 'nao_conforme', 'na', 'sim', 'nao')),
     observacao TEXT,
     respondido_por VARCHAR(255),
     geolocalizacao VARCHAR(100),
     criado_em TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
 );
+
+-- Bancos criados antes do formato Sim/Não/N/A: amplia o CHECK sem perder dados.
+ALTER TABLE IF EXISTS inspecoes
+    ADD COLUMN IF NOT EXISTS tipo_resposta VARCHAR(30) NOT NULL DEFAULT 'conforme_nao_conforme_na';
+ALTER TABLE IF EXISTS inspecoes
+    ADD COLUMN IF NOT EXISTS tipo_servico VARCHAR(255);
+
+DO $$
+BEGIN
+    IF NOT EXISTS (
+        SELECT 1 FROM pg_constraint WHERE conname = 'inspecoes_tipo_resposta_check'
+    ) THEN
+        ALTER TABLE inspecoes
+            ADD CONSTRAINT inspecoes_tipo_resposta_check
+            CHECK (tipo_resposta IN ('conforme_nao_conforme_na', 'sim_nao_na'));
+    END IF;
+END $$;
+
+ALTER TABLE IF EXISTS inspecao_respostas
+    DROP CONSTRAINT IF EXISTS inspecao_respostas_resposta_check;
+ALTER TABLE IF EXISTS inspecao_respostas
+    ADD CONSTRAINT inspecao_respostas_resposta_check
+    CHECK (resposta IN ('conforme', 'nao_conforme', 'na', 'sim', 'nao'));
 
 CREATE TABLE IF NOT EXISTS inspecao_fotos (
     id SERIAL PRIMARY KEY,
@@ -1673,3 +1724,109 @@ CREATE POLICY "service_role_full_inspecao_sync_ops" ON inspecao_sync_ops
 -- Atividade inicial (idempotente).
 INSERT INTO inspecao_atividades (nome) VALUES ('Segurança')
 ON CONFLICT (nome) DO NOTHING;
+
+-- Seed do modelo real usado pelo SESMT: "Inspeção de Segurança do Caminhão
+-- Guindauto". Idempotente: cria apenas se ainda não existir; edições feitas
+-- pela tela não são sobrescritas ao reexecutar o schema.
+DO $$
+DECLARE
+    v_atividade_id INTEGER;
+    v_modelo_id INTEGER;
+    v_grupo_id INTEGER;
+BEGIN
+    SELECT id INTO v_atividade_id FROM inspecao_atividades WHERE nome = 'Segurança';
+    IF v_atividade_id IS NOT NULL THEN
+        SELECT id INTO v_modelo_id
+          FROM inspecao_modelos
+         WHERE atividade_id = v_atividade_id
+           AND nome = 'Inspeção de Segurança do Caminhão Guindauto'
+         LIMIT 1;
+    END IF;
+
+    IF v_atividade_id IS NOT NULL AND v_modelo_id IS NULL THEN
+    INSERT INTO inspecao_modelos
+        (atividade_id, nome, descricao, tipo_resposta, tipo_servico, ativo)
+    VALUES
+        (v_atividade_id,
+         'Inspeção de Segurança do Caminhão Guindauto',
+         'Checklist do SESMT para inspeção de segurança do caminhão guindauto.',
+         'sim_nao_na',
+         'Guindauto',
+         TRUE)
+    RETURNING id INTO v_modelo_id;
+
+    -- 1) GUINDAUTO
+    INSERT INTO inspecao_modelo_grupos (modelo_id, ordem, nome)
+    VALUES (v_modelo_id, 1, 'Guindauto') RETURNING id INTO v_grupo_id;
+    INSERT INTO inspecao_modelo_itens
+        (modelo_id, grupo_id, ordem, classificacao, pergunta, exige_foto, ativo)
+    VALUES
+        (v_modelo_id, v_grupo_id, 1,  '1.1',  'Operador de guindauto possui certificado de treinamento e está autorizado', FALSE, TRUE),
+        (v_modelo_id, v_grupo_id, 2,  '1.2',  'O guindauto possui indicação de elevação de carga máxima permitida', FALSE, TRUE),
+        (v_modelo_id, v_grupo_id, 3,  '1.3',  'O caminhão possui calço para sustentação', FALSE, TRUE),
+        (v_modelo_id, v_grupo_id, 4,  '1.4',  'O funcionamento da lança do guindauto está em condições de uso', FALSE, TRUE),
+        (v_modelo_id, v_grupo_id, 5,  '1.5',  'As lanças apresentam rachaduras', FALSE, TRUE),
+        (v_modelo_id, v_grupo_id, 6,  '1.6',  'Existe vazamento na bomba hidráulica', FALSE, TRUE),
+        (v_modelo_id, v_grupo_id, 7,  '1.7',  'As sapatas foram estendidas e baixadas', FALSE, TRUE),
+        (v_modelo_id, v_grupo_id, 8,  '1.8',  'Foram utilizados calços ao baixar as sapatas', FALSE, TRUE),
+        (v_modelo_id, v_grupo_id, 9,  '1.9',  'O reservatório do óleo hidráulico está no nível correto', FALSE, TRUE),
+        (v_modelo_id, v_grupo_id, 10, '1.10', 'Existe vazamento nas conexões das mangueiras', FALSE, TRUE),
+        (v_modelo_id, v_grupo_id, 11, '1.11', 'As mangueiras estão em boas condições de uso', FALSE, TRUE);
+
+    -- 2) AMARRAÇÃO
+    INSERT INTO inspecao_modelo_grupos (modelo_id, ordem, nome)
+    VALUES (v_modelo_id, 2, 'Amarração') RETURNING id INTO v_grupo_id;
+    INSERT INTO inspecao_modelo_itens
+        (modelo_id, grupo_id, ordem, classificacao, pergunta, exige_foto, ativo)
+    VALUES
+        (v_modelo_id, v_grupo_id, 1, '2.1', 'Os postes foram amarrados para serem transportados', FALSE, TRUE),
+        (v_modelo_id, v_grupo_id, 2, '2.2', 'Os cabos de amarração de carga estão em condições de uso', FALSE, TRUE),
+        (v_modelo_id, v_grupo_id, 3, '2.3', 'As borrachas sobre o malhal estão em boas condições', FALSE, TRUE),
+        (v_modelo_id, v_grupo_id, 4, '2.4', 'Malhal de apoio dos postes está bom, sem trincos ou desgastes na sua estrutura', FALSE, TRUE);
+
+    -- 3) GANCHO
+    INSERT INTO inspecao_modelo_grupos (modelo_id, ordem, nome)
+    VALUES (v_modelo_id, 3, 'Gancho') RETURNING id INTO v_grupo_id;
+    INSERT INTO inspecao_modelo_itens
+        (modelo_id, grupo_id, ordem, classificacao, pergunta, exige_foto, ativo)
+    VALUES
+        (v_modelo_id, v_grupo_id, 1, '3.1', 'O gancho possui trava', FALSE, TRUE),
+        (v_modelo_id, v_grupo_id, 2, '3.2', 'A trava de segurança do gancho está em condições de uso', FALSE, TRUE),
+        (v_modelo_id, v_grupo_id, 3, '3.3', 'O gancho possui desgastes, trincos', FALSE, TRUE);
+
+    -- 4) CARROCERIA
+    INSERT INTO inspecao_modelo_grupos (modelo_id, ordem, nome)
+    VALUES (v_modelo_id, 4, 'Carroceria') RETURNING id INTO v_grupo_id;
+    INSERT INTO inspecao_modelo_itens
+        (modelo_id, grupo_id, ordem, classificacao, pergunta, exige_foto, ativo)
+    VALUES
+        (v_modelo_id, v_grupo_id, 1, '4.1', 'Assoalho da carroceria está bom', FALSE, TRUE),
+        (v_modelo_id, v_grupo_id, 2, '4.2', 'Pintura, adesivos e faixas refletivas do veículo estão boas?', FALSE, TRUE),
+        (v_modelo_id, v_grupo_id, 3, '4.3', 'Limpeza e organização das caixas de ferramentas', FALSE, TRUE);
+
+    -- 5) PNEUS E RODAS
+    INSERT INTO inspecao_modelo_grupos (modelo_id, ordem, nome)
+    VALUES (v_modelo_id, 5, 'Pneus e Rodas') RETURNING id INTO v_grupo_id;
+    INSERT INTO inspecao_modelo_itens
+        (modelo_id, grupo_id, ordem, classificacao, pergunta, exige_foto, ativo)
+    VALUES
+        (v_modelo_id, v_grupo_id, 1, '5.1', 'Possui triângulo, pneu estepe, macaco, chave de roda', FALSE, TRUE),
+        (v_modelo_id, v_grupo_id, 2, '5.2', 'Pneus estão em boas condições?', FALSE, TRUE);
+
+    -- 6) VEÍCULO
+    INSERT INTO inspecao_modelo_grupos (modelo_id, ordem, nome)
+    VALUES (v_modelo_id, 6, 'Veículo') RETURNING id INTO v_grupo_id;
+    INSERT INTO inspecao_modelo_itens
+        (modelo_id, grupo_id, ordem, classificacao, pergunta, exige_foto, ativo)
+    VALUES
+        (v_modelo_id, v_grupo_id, 1, '6.1', 'Parte elétrica do veículo está funcionando', FALSE, TRUE),
+        (v_modelo_id, v_grupo_id, 2, '6.2', 'Documento do veículo e do motorista estão em dia?', FALSE, TRUE),
+        (v_modelo_id, v_grupo_id, 3, '6.3', 'Tacógrafo está com aferição em dia', FALSE, TRUE),
+        (v_modelo_id, v_grupo_id, 4, '6.4', 'Fechaduras das portas funcionam?', FALSE, TRUE),
+        (v_modelo_id, v_grupo_id, 5, '6.5', 'Sinaleiras e luzes estão funcionando?', FALSE, TRUE),
+        (v_modelo_id, v_grupo_id, 6, '6.6', 'Limpador de para-brisa está bom e funcionando?', FALSE, TRUE),
+        (v_modelo_id, v_grupo_id, 7, '6.7', 'Cinto de segurança cabine e cabine auxiliar estão bons e em condições de uso', FALSE, TRUE),
+        (v_modelo_id, v_grupo_id, 8, '6.8', 'Possui calços dos pneus e sapatas, estão em condições de uso?', FALSE, TRUE),
+        (v_modelo_id, v_grupo_id, 9, '6.9', 'Limpeza e organização nas cabines', FALSE, TRUE);
+    END IF;
+END $$;

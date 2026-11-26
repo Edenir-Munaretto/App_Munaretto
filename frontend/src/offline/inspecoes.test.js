@@ -104,6 +104,28 @@ describe('offline de inspeções', () => {
     expect(local.itens.find((i) => i.classificacao === '1.2').fotos).toHaveLength(1);
   });
 
+  it('modelo Sim/Não/N/A usa o tipo de serviço e dispensa observação por item', async () => {
+    const modelo = {
+      ...MODELO,
+      nome: 'Inspeção de Segurança do Caminhão Guindauto',
+      tipo_resposta: 'sim_nao_na',
+      tipo_servico: 'Guindauto',
+      itens: MODELO.itens.map((item) => ({ ...item, exige_foto: false })),
+    };
+    const registro = await criarInspecaoLocal(formBase({ modelo }));
+    expect(registro.tipo_resposta).toBe('sim_nao_na');
+    expect(registro.tipo_servico).toBe('Guindauto');
+
+    await expect(
+      salvarRespostaLocal(registro.id_local, '1.1', 'conforme'),
+    ).rejects.toThrow(/Resposta inválida/);
+
+    await salvarRespostaLocal(registro.id_local, '1.1', 'sim');
+    await salvarRespostaLocal(registro.id_local, '1.2', 'nao');
+    const finalizada = await finalizarInspecaoLocal(registro.id_local);
+    expect(finalizada.status).toBe('concluida');
+  });
+
   it('conta pendências e identifica dados de outro usuário', async () => {
     const registro = await criarInspecaoLocal(formBase({ usuarioId: 7 }));
     const contagem = await contarPendentesInspecoes();

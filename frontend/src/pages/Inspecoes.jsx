@@ -607,7 +607,9 @@ export default function Inspecoes({ usuarioAtual }) {
                           {pendente && <BadgePendente>{item.sync_erro ? 'Erro de envio' : 'Não sincronizada'}</BadgePendente>}
                         </div>
                         <p className="text-xs font-semibold text-slate-600 mt-1">
-                          {item.modelo_nome || 'Tipo de inspeção'}{item.atividade_nome ? ` · ${item.atividade_nome}` : ''}
+                          {item.modelo_nome || 'Tipo de inspeção'}
+                          {item.tipo_servico ? ` · ${item.tipo_servico}` : ''}
+                          {item.atividade_nome ? ` · ${item.atividade_nome}` : ''}
                         </p>
                         <div className="mt-2 flex flex-wrap gap-x-4 gap-y-1 text-[11px] text-slate-500">
                           <span className="inline-flex items-center gap-1"><Calendar size={11} /> {formatarData(item.data_inspecao)}</span>
