@@ -91,13 +91,68 @@ class _PdfInspecao(FPDF):
         )
 
 
-def _linha_campo(pdf: FPDF, rotulo: str, valor, largura_rotulo: float = 34):
+
+COR_TEXTO = (15, 23, 42)
+COR_MUTED = (100, 116, 139)
+COR_LABEL = (71, 85, 105)
+COR_CARD = (241, 245, 249)
+COR_LINHA = (203, 213, 225)
+
+
+def _texto_campo(valor, max_chars: int = 160) -> str:
+    texto = _txt(valor).strip()
+    if not texto:
+        return "-"
+    if len(texto) > max_chars:
+        return texto[: max_chars - 3].rstrip() + "..."
+    return texto
+
+
+def _chip(pdf: FPDF, x: float, y: float, largura: float, rotulo: str, valor, cor_destaque=COR_TEXTO):
+    altura = 14
+    pdf.set_fill_color(*COR_CARD)
+    pdf.rect(x, y, largura, altura, style="F")
+    pdf.set_fill_color(*cor_destaque)
+    pdf.rect(x, y, 1.5, altura, style="F")
+
+    pdf.set_font("Arial", "B", 6.2)
+    pdf.set_text_color(*COR_MUTED)
+    pdf.set_xy(x + 4, y + 2)
+    pdf.cell(largura - 5, 3.5, _txt(rotulo).upper())
     pdf.set_font("Arial", "B", 8.5)
-    pdf.set_text_color(71, 85, 105)
-    pdf.cell(largura_rotulo, 6, f"{_txt(rotulo)}:")
+    pdf.set_text_color(*COR_TEXTO)
+    pdf.set_xy(x + 4, y + 5.5)
+    pdf.cell(largura - 5, 5, _txt(_texto_campo(valor, 40)))
+
+
+def _campo_compacto(
+    pdf: FPDF,
+    x: float,
+    y: float,
+    largura: float,
+    rotulo: str,
+    valor,
+    max_chars: int = 160,
+) -> float:
+    pdf.set_font("Arial", "B", 6.5)
+    pdf.set_text_color(*COR_MUTED)
+    pdf.set_xy(x, y)
+    pdf.cell(largura, 3.5, _txt(rotulo).upper())
+
+    texto = _texto_campo(valor, max_chars)
     pdf.set_font("Arial", "", 8.5)
-    pdf.set_text_color(15, 23, 42)
-    pdf.multi_cell(0, 6, _txt(valor) or "-", new_x="LMARGIN")
+    pdf.set_text_color(*COR_TEXTO)
+    linhas = pdf.multi_cell(largura, 4.2, texto, border=0, dry_run=True, output="LINES")
+    altura = 3.5 + max(1, len(linhas)) * 4.2
+    pdf.set_xy(x, y + 3.5)
+    pdf.multi_cell(largura, 4.2, texto, border=0, new_x="LMARGIN")
+    return y + altura + 1.5
+
+
+def _coluna_campos(pdf: FPDF, x: float, y: float, largura: float, campos: list[tuple[str, object]]) -> float:
+    for rotulo, valor in campos:
+        y = _campo_compacto(pdf, x, y, largura, rotulo, valor)
+    return y
 
 
 def _capa(pdf: _PdfInspecao, inspecao: dict):
@@ -109,49 +164,103 @@ def _capa(pdf: _PdfInspecao, inspecao: dict):
         else "RELATÓRIO DE INSPEÇÃO"
     )
     desenhar_cabecalho(pdf, _txt(titulo), subtitulo)
-    pdf.ln(1)
+    pdf.set_y(42)
 
-    _linha_campo(pdf, "Código", inspecao.get("codigo"))
-    _linha_campo(pdf, "Data / hora", _fmt_data_hora(inspecao.get("iniciada_em") or inspecao.get("data_inspecao")))
-    _linha_campo(pdf, "Inspetor", inspecao.get("inspetor_nome"))
-    _linha_campo(pdf, "Atividade", inspecao.get("atividade_nome"))
-    _linha_campo(pdf, "Tipo de inspeção", inspecao.get("modelo_nome"))
-    _linha_campo(pdf, "Tipo de serviço", inspecao.get("tipo_servico"))
-    _linha_campo(pdf, "Situação", ROTULOS_STATUS.get(inspecao.get("status"), inspecao.get("status")))
-    _linha_campo(pdf, "Obra", inspecao.get("obra_nome"))
-    _linha_campo(pdf, "Cliente", inspecao.get("obra_cliente"))
-    _linha_campo(pdf, "Local da inspeção", inspecao.get("local_inspecao"))
-    _linha_campo(pdf, "Funcionário", inspecao.get("funcionario_nome"))
-    _linha_campo(pdf, "Cargo do funcionário", inspecao.get("funcionario_cargo"))
-    _linha_campo(
+    status = inspecao.get("status")
+    cor_status = {
+        "concluida": (22, 101, 52),
+        "rascunho": (180, 83, 9),
+        "cancelada": (185, 28, 28),
+    }.get(status, COR_TEXTO)
+    largura_total = LARGURA_PAGINA - 2 * MARGEM
+    espaco = 4
+    largura_chip = (largura_total - 2 * espaco) / 3
+    _chip(pdf, MARGEM, 42, largura_chip, "Código", inspecao.get("codigo"), cor_status)
+    _chip(
         pdf,
-        "Equipe inspecionada",
-        " - ".join(
-            parte
-            for parte in (
-                (str(inspecao.get("equipe_numero")) if inspecao.get("equipe_numero") else ""),
-                (inspecao.get("equipe_nome") or ""),
-            )
-            if parte
-        ),
+        MARGEM + largura_chip + espaco,
+        42,
+        largura_chip,
+        "Data / hora",
+        _fmt_data_hora(inspecao.get("iniciada_em") or inspecao.get("data_inspecao")),
+        cor_status,
     )
-    _linha_campo(pdf, "Encarregado", inspecao.get("encarregado"))
-    _linha_campo(pdf, "Veículo", inspecao.get("veiculo"))
-    _linha_campo(pdf, "Setor", inspecao.get("setor"))
+    _chip(
+        pdf,
+        MARGEM + 2 * (largura_chip + espaco),
+        42,
+        largura_chip,
+        "Situação",
+        ROTULOS_STATUS.get(status, status),
+        cor_status,
+    )
 
-    if inspecao.get("status") == "cancelada":
-        pdf.ln(2)
-        pdf.set_font("Arial", "B", 9)
+    y_inicio = 60
+    largura_coluna = (largura_total - 8) / 2
+    funcionario = " - ".join(
+        parte
+        for parte in (
+            (inspecao.get("funcionario_nome") or ""),
+            (inspecao.get("funcionario_cargo") or ""),
+        )
+        if parte
+    )
+    equipe = " - ".join(
+        parte
+        for parte in (
+            (str(inspecao.get("equipe_numero")) if inspecao.get("equipe_numero") else ""),
+            (inspecao.get("equipe_nome") or ""),
+        )
+        if parte
+    )
+    y_esquerda = _coluna_campos(
+        pdf,
+        MARGEM,
+        y_inicio,
+        largura_coluna,
+        [
+            ("Inspetor", inspecao.get("inspetor_nome")),
+            ("Atividade", inspecao.get("atividade_nome")),
+            ("Tipo de inspeção", inspecao.get("modelo_nome")),
+            ("Tipo de serviço", inspecao.get("tipo_servico")),
+            ("Funcionário / cargo", funcionario),
+            ("Veículo", inspecao.get("veiculo")),
+        ],
+    )
+    y_direita = _coluna_campos(
+        pdf,
+        MARGEM + largura_coluna + 8,
+        y_inicio,
+        largura_coluna,
+        [
+            ("Obra", inspecao.get("obra_nome")),
+            ("Cliente", inspecao.get("obra_cliente")),
+            ("Local da inspeção", inspecao.get("local_inspecao")),
+            ("Equipe inspecionada", equipe),
+            ("Encarregado", inspecao.get("encarregado")),
+            ("Setor", inspecao.get("setor")),
+        ],
+    )
+    pdf.set_y(max(y_esquerda, y_direita) + 2)
+
+    if status == "cancelada":
+        y = pdf.get_y()
+        pdf.set_fill_color(254, 242, 242)
+        pdf.rect(MARGEM, y, largura_total, 12, style="F")
+        pdf.set_font("Arial", "B", 8)
         pdf.set_text_color(185, 28, 28)
+        pdf.set_xy(MARGEM + 3, y + 2)
         pdf.multi_cell(
-            0,
-            6,
+            largura_total - 6,
+            4,
             f"INSPEÇÃO CANCELADA em {_fmt_data_hora(inspecao.get('cancelada_em'))} "
-            f"por {_txt(inspecao.get('cancelada_por') or '-')}.\n"
+            f"por {_txt(inspecao.get('cancelada_por') or '-')}. "
             f"Motivo: {_txt(inspecao.get('motivo_cancelamento') or '-')}",
+            border=0,
             new_x="LMARGIN",
         )
-        pdf.set_text_color(15, 23, 42)
+        pdf.set_y(y + 14)
+        pdf.set_text_color(*COR_TEXTO)
 
 
 def _config_tabela(tipo_resposta: str | None) -> dict:
@@ -244,7 +353,10 @@ def _secao_observacoes(pdf: _PdfInspecao, inspecao: dict):
 
 
 def _tabela_checklist(pdf: _PdfInspecao, itens: list[dict], tipo_resposta: str | None = None):
-    pdf.add_page()
+    # A capa compacta permite iniciar o checklist na própria página 1. Só abre
+    # outra página se não houver espaço mínimo para o título e o primeiro grupo.
+    if pdf.will_page_break(32):
+        pdf.add_page()
     pdf.set_fill_color(15, 23, 42)
     pdf.set_text_color(255, 255, 255)
     pdf.set_font("Arial", "B", 11)
@@ -264,9 +376,12 @@ def _tabela_checklist(pdf: _PdfInspecao, itens: list[dict], tipo_resposta: str |
         _cabecalho_tabela(pdf, config)
 
     grupo_atual = None
-    for item in itens:
+    for indice_item, item in enumerate(itens):
         grupo = (item.get("grupo_ordem"), item.get("grupo_nome"))
         if grupo != grupo_atual:
+            # Não deixa o título do grupo/cabeçalho órfão no rodapé.
+            if pdf.will_page_break(21):
+                pdf.add_page()
             grupo_atual = grupo
             _grupo(item)
 
@@ -300,6 +415,11 @@ def _tabela_checklist(pdf: _PdfInspecao, itens: list[dict], tipo_resposta: str |
         for chave in chaves:
             posicoes.append((chave, x_cursor, larguras[chave]))
             x_cursor += larguras[chave]
+
+        # Zebra discreta para leitura em tabelas longas.
+        if indice_item % 2 == 1:
+            pdf.set_fill_color(248, 250, 252)
+            pdf.rect(pdf.l_margin, y0, LARGURA_PAGINA - 2 * MARGEM, altura, style="F")
 
         # O texto é desenhado SEM borda e a moldura da linha é desenhada
         # depois com `rect`. `multi_cell(border=1)` desenharia uma linha
@@ -347,8 +467,8 @@ def _tabela_checklist(pdf: _PdfInspecao, itens: list[dict], tipo_resposta: str |
                     align="C",
                 )
 
-        pdf.set_draw_color(15, 23, 42)
-        pdf.set_line_width(0.2)
+        pdf.set_draw_color(*COR_LINHA)
+        pdf.set_line_width(0.15)
         for _, x_celula, largura in posicoes:
             pdf.rect(x_celula, y0, largura, altura)
         pdf.set_xy(pdf.l_margin, y0 + altura)
@@ -399,9 +519,9 @@ def _paginas_fotos(pdf: _PdfInspecao, itens: list[dict], baixar_foto, tipo_respo
     COLUNAS = 2
     ESPACO_COLUNAS = 4
     larg_celula = (LARGURA_PAGINA - 2 * MARGEM - ESPACO_COLUNAS * (COLUNAS - 1)) / COLUNAS
-    alt_foto = 58
-    alt_legenda = 14
-    passo_linha = alt_foto + alt_legenda + 4
+    alt_foto = 54
+    alt_legenda = 13
+    passo_linha = alt_foto + alt_legenda + 3
     altura_titulo = 11
 
     def _titulo_fotos(nova_pagina: bool):

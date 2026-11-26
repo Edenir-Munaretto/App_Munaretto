@@ -323,6 +323,17 @@ def test_pdf_da_inspecao_sem_fotos(inspecoes_campo_client, db_fake):
     assert resp.headers["content-type"].startswith("application/pdf")
     assert resp.content.startswith(b"%PDF")
 
+    import pymupdf
+
+    doc = pymupdf.open(stream=resp.content, filetype="pdf")
+    try:
+        # Capa compacta: o checklist já começa na página 1.
+        texto_pagina_1 = doc[0].get_text()
+        assert "CHECKLIST DA INSPEÇÃO" in texto_pagina_1
+        assert "EPIs conferidos?" in texto_pagina_1
+    finally:
+        doc.close()
+
 
 @pytest.mark.parametrize("campo", ["local_inspecao"])
 def test_criacao_exige_local(inspecoes_campo_client, db_fake, campo):
@@ -421,7 +432,7 @@ def test_modelo_sim_nao_na_aceita_respostas_e_pdf_com_colunas_corretas(
     texto = "\n".join(pagina.get_text() for pagina in doc)
     assert "Sim" in texto
     assert "Não" in texto
-    assert "Tipo de serviço" in texto
+    assert "TIPO DE SERVIÇO" in texto
     assert "Guindauto" in texto
     assert "TÉCNICO DE SEGURANÇA DO TRABALHO" in texto
     assert "RESPONSÁVEL EMPRESA" in texto
