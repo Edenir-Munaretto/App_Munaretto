@@ -601,17 +601,45 @@ export async function finalizarInspecaoLocal(idLocal) {
   return atualizado;
 }
 
+async function _removerInspecaoLocal(idLocal) {
+  for (const foto of await listarFotosLocaisDaInspecao(idLocal)) {
+    _revogarFotoLocal(foto.id_local);
+    await dbDel('insp_fotos', foto.id_local);
+  }
+  await dbDel('insp_inspecoes', idLocal);
+}
+
+async function _removerCacheFotosDaInspecao(idServidor) {
+  const prefixo = `${idServidor}:`;
+  for (const cache of await dbGetAll('insp_fotos_cache').catch(() => [])) {
+    if (!String(cache.chave).startsWith(prefixo)) continue;
+    const url = _urlsCache.get(cache.chave);
+    if (url) {
+      _urlsCache.delete(cache.chave);
+      try { URL.revokeObjectURL(url); } catch { /* noop */ }
+    }
+    await dbDel('insp_fotos_cache', cache.chave);
+  }
+}
+
 export async function excluirInspecaoLocal(idLocal) {
   const registro = await dbGet('insp_inspecoes', idLocal);
   if (!registro) return;
   if (registro.id_servidor) {
     throw new Error('Esta inspeção já existe no servidor. Exclua-a online.');
   }
-  for (const foto of await listarFotosLocaisDaInspecao(idLocal)) {
-    _revogarFotoLocal(foto.id_local);
-    await dbDel('insp_fotos', foto.id_local);
+  await _removerInspecaoLocal(idLocal);
+}
+
+/** Remove a cópia local (e evidências/cache) de uma inspeção já excluída no servidor. */
+export async function removerInspecaoLocalPorServidor(idServidor) {
+  if (idServidor == null) return;
+  const chave = String(idServidor);
+  for (const registro of await dbGetAll('insp_inspecoes')) {
+    if (String(registro.id_servidor ?? '') !== chave) continue;
+    await _removerInspecaoLocal(registro.id_local);
   }
-  await dbDel('insp_inspecoes', idLocal);
+  await _removerCacheFotosDaInspecao(chave);
 }
 
 export async function resumoDadosLocaisInspecoes() {

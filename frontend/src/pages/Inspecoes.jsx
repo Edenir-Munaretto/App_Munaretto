@@ -17,6 +17,7 @@ import {
   lerOpcoesLocais,
   obterInspecaoLocal,
   prepararPacoteInspecoes,
+  removerInspecaoLocalPorServidor,
   salvarInspecaoServidor,
   infoPacoteInspecoes,
 } from '../offline/inspecoes';
@@ -69,6 +70,7 @@ export default function Inspecoes({ usuarioAtual }) {
   const [filtroStatus, setFiltroStatus] = useState('todos');
   const [toast, setToast] = useState(null);
   const [confirmar, setConfirmar] = useState(null);
+  const [excluindo, setExcluindo] = useState(false);
   const toastTimer = useRef(null);
   const autoSyncRef = useRef(0);
   const pacoteEmAndamento = useRef(false);
@@ -315,11 +317,17 @@ export default function Inspecoes({ usuarioAtual }) {
   };
 
   const excluir = async (item) => {
+    if (excluindo) return;
+    setExcluindo(true);
     try {
       if (item.id_servidor) {
         if (!online) throw new Error('Conecte-se para excluir uma inspeção já enviada.');
         const res = await apiFetch(`${API_URL}/inspecoes/${item.id_servidor}`, { method: 'DELETE' });
-        if (!res.ok) throw new Error(erroDaResposta(await res.json().catch(() => null), 'Falha ao excluir.'));
+        // 404 = já foi excluída no servidor; ainda assim limpa a cópia local.
+        if (!res.ok && res.status !== 404) {
+          throw new Error(erroDaResposta(await res.json().catch(() => null), 'Falha ao excluir.'));
+        }
+        await removerInspecaoLocalPorServidor(item.id_servidor);
       } else {
         await excluirInspecaoLocal(item.id_local);
       }
@@ -329,6 +337,7 @@ export default function Inspecoes({ usuarioAtual }) {
     } catch (e) {
       mostrarToast(e.message, 'error');
     } finally {
+      setExcluindo(false);
       setConfirmar(null);
     }
   };
@@ -714,6 +723,7 @@ export default function Inspecoes({ usuarioAtual }) {
         titulo={confirmar?.titulo || 'Confirmar'}
         mensagem={confirmar?.mensagem || ''}
         perigo
+        loading={excluindo}
         onConfirmar={() => confirmar?.onConfirmar?.()}
         onCancelar={() => setConfirmar(null)}
       />

@@ -15,6 +15,7 @@ import {
   haInspecoesDeOutroUsuario,
   obterInspecaoLocal,
   registrarFotoLocal,
+  removerInspecaoLocalPorServidor,
   salvarRespostaLocal,
 } from './inspecoes';
 import { sincronizarInspecoes } from './syncInspecoes';
@@ -253,5 +254,37 @@ describe('offline de inspeções', () => {
       operacoes[0].payload.itens.map((item) => [item.classificacao, item.resposta]),
     );
     expect(respostas).toEqual({ '1.1': 'sim', '1.2': 'nao' });
+  });
+
+  it('remove cópia local, fotos e cache de uma inspeção excluída no servidor', async () => {
+    const registro = await criarInspecaoLocal(formBase());
+    const atual = await dbGet('insp_inspecoes', registro.id_local);
+    await dbPut('insp_inspecoes', {
+      ...atual,
+      id_servidor: 42,
+      codigo: 'INS-2026-0042',
+      pendente_sync: false,
+      sync_estado: 'sincronizada',
+    });
+    const arquivo = new File(['foto'], 'evidencia.jpg', { type: 'image/jpeg' });
+    const foto = await registrarFotoLocal({
+      idLocal: registro.id_local,
+      classificacao: '1.1',
+      arquivo,
+    });
+    await dbPut('insp_fotos_cache', {
+      chave: '42:99',
+      inspecao_id: 42,
+      foto_id: 99,
+      blob: arquivo,
+      mime_type: 'image/jpeg',
+      em: Date.now(),
+    });
+
+    await removerInspecaoLocalPorServidor(42);
+
+    expect(await dbGet('insp_inspecoes', registro.id_local)).toBeUndefined();
+    expect(await dbGet('insp_fotos', foto.id_local)).toBeUndefined();
+    expect(await dbGet('insp_fotos_cache', '42:99')).toBeUndefined();
   });
 });
